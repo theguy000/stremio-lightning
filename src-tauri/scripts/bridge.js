@@ -39,6 +39,20 @@
     onFullscreenChange: function(callback) {
       return listen('window-fullscreen-changed', function(e) { callback(e.payload); });
     },
+
+    // Streaming server management
+    startStreamingServer: function() { return invoke('start_streaming_server'); },
+    stopStreamingServer: function() { return invoke('stop_streaming_server'); },
+    restartStreamingServer: function() { return invoke('restart_streaming_server'); },
+    getStreamingServerStatus: function() { return invoke('get_streaming_server_status'); },
+
+    // Server event subscriptions
+    onServerStarted: function(callback) {
+      return listen('server-started', function() { callback(); });
+    },
+    onServerStopped: function(callback) {
+      return listen('server-stopped', function(e) { callback(e.payload); });
+    },
   };
 
   // ============================================
