@@ -115,7 +115,8 @@ pub fn stop_server(app: &AppHandle) -> Result<(), String> {
 
     if let Some(child) = child_lock.take() {
         child.kill().map_err(|e| format!("Failed to kill server: {}", e))?;
-        let _ = app.emit("server-stopped", Option::<i32>::None);
+        // Don't emit server-stopped here — the background monitor task
+        // will emit it when it receives CommandEvent::Terminated
         Ok(())
     } else {
         Err("Server is not running".into())

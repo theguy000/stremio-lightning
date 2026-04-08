@@ -24,7 +24,7 @@ pub async fn stop_streaming_server(app: tauri::AppHandle) -> Result<(), String> 
 #[tauri::command]
 pub async fn restart_streaming_server(app: tauri::AppHandle) -> Result<(), String> {
     let _ = streaming_server::stop_server(&app);
-    std::thread::sleep(std::time::Duration::from_millis(500));
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     streaming_server::start_server(&app)
 }
 
