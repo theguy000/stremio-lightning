@@ -1,4 +1,5 @@
 use tauri::WebviewWindow;
+use tauri_plugin_opener::OpenerExt;
 
 use crate::streaming_server;
 
@@ -9,6 +10,13 @@ pub fn toggle_devtools(window: WebviewWindow) {
     } else {
         window.open_devtools();
     }
+}
+
+#[tauri::command]
+pub async fn open_external_url(app: tauri::AppHandle, url: String) -> Result<(), String> {
+    app.opener()
+        .open_url(&url, None::<&str>)
+        .map_err(|e| format!("Failed to open URL: {}", e))
 }
 
 #[tauri::command]

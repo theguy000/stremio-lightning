@@ -3,7 +3,7 @@
   "description": "Default permissions for the main window",
   "windows": ["main"],
   "remote": {
-    "urls": ["https://web.stremio.com/*", "https://*.stremio.com/*"]
+    "urls": ["https://web.stremio.com/*", "https://*.stremio.com/*", "https://app.strem.io/*", "https://*.strem.io/*"]
   },
   "permissions": [
     "core:default",

@@ -22,6 +22,8 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init())
         // Shell plugin (for sidecar process management)
         .plugin(tauri_plugin_shell::init())
+        // Opener plugin (for opening URLs in system browser)
+        .plugin(tauri_plugin_opener::init())
         // Manage streaming server state
         .manage(streaming_server::ServerState {
             child: Mutex::new(None),
@@ -29,6 +31,7 @@ pub fn run() {
         // Register commands
         .invoke_handler(tauri::generate_handler![
             commands::toggle_devtools,
+            commands::open_external_url,
             commands::start_streaming_server,
             commands::stop_streaming_server,
             commands::restart_streaming_server,
