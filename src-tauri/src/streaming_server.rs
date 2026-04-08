@@ -1,8 +1,8 @@
 use std::fs::OpenOptions;
 use std::io::Write;
+use std::path::PathBuf;
 use std::sync::Mutex;
 
-use tauri::path::BaseDirectory;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
@@ -11,6 +11,27 @@ use tauri_plugin_shell::ShellExt;
 /// Managed as Tauri app state so commands can access it.
 pub struct ServerState {
     pub child: Mutex<Option<CommandChild>>,
+}
+
+/// Resolve the path to a resource file.
+/// In dev mode, resources are in `src-tauri/resources/`.
+/// In production, they're in the app's resource directory.
+fn resolve_resource(app: &AppHandle, filename: &str) -> Result<PathBuf, String> {
+    // Dev mode: look relative to CARGO_MANIFEST_DIR (src-tauri/)
+    #[cfg(debug_assertions)]
+    {
+        let dev_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("resources")
+            .join(filename);
+        if dev_path.exists() {
+            return Ok(dev_path);
+        }
+    }
+
+    // Production: use Tauri's resource resolver
+    app.path()
+        .resolve(filename, tauri::path::BaseDirectory::Resource)
+        .map_err(|e| format!("Failed to resolve resource '{}': {}", filename, e))
 }
 
 /// Start the streaming server sidecar process.
@@ -23,14 +44,9 @@ pub fn start_server(app: &AppHandle) -> Result<(), String> {
     }
 
     // Resolve resource paths
-    let resource_dir = app
-        .path()
-        .resolve("", BaseDirectory::Resource)
-        .map_err(|e| format!("Failed to resolve resource dir: {}", e))?;
-
-    let server_js = resource_dir.join("server.js");
-    let ffmpeg_path = resource_dir.join("ffmpeg.exe");
-    let ffprobe_path = resource_dir.join("ffprobe.exe");
+    let server_js = resolve_resource(app, "server.js")?;
+    let ffmpeg_path = resolve_resource(app, "ffmpeg.exe")?;
+    let ffprobe_path = resolve_resource(app, "ffprobe.exe")?;
 
     if !server_js.exists() {
         return Err(format!("server.js not found at {:?}", server_js));
