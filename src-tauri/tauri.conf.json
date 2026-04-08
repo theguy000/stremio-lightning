@@ -1,0 +1,23 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Stremio Lightning",
+  "version": "0.1.0",
+  "identifier": "com.stremio.lightning",
+  "build": {
+    "frontendDist": "../src"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [],
+    "security": {
+      "csp": "default-src 'self' https://web.stremio.com https://*.stremio.com http://127.0.0.1:11470; connect-src * data: blob:; img-src * data: blob:; media-src * data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://web.stremio.com https://*.stremio.com; style-src 'self' 'unsafe-inline' https://web.stremio.com https://*.stremio.com; font-src * data:; frame-src *;"
+    }
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["stremio"]
+      }
+    }
+  }
+}
