@@ -3,6 +3,10 @@
   "productName": "Stremio Lightning",
   "version": "0.1.0",
   "identifier": "com.stremio.lightning",
+  "bundle": {
+    "externalBin": ["binaries/stremio-runtime"],
+    "resources": ["resources/server.js", "resources/ffmpeg.exe", "resources/ffprobe.exe"]
+  },
   "build": {
     "frontendDist": "../src"
   },

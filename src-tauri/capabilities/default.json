@@ -18,6 +18,17 @@
     "core:window:allow-set-focus",
     "core:webview:default",
     "core:webview:allow-set-webview-zoom",
-    "deep-link:default"
+    "deep-link:default",
+    {
+      "identifier": "shell:allow-spawn",
+      "allow": [
+        {
+          "name": "binaries/stremio-runtime",
+          "sidecar": true,
+          "args": true
+        }
+      ]
+    },
+    "shell:allow-kill"
   ]
 }
