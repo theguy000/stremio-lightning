@@ -32,10 +32,18 @@
     return url.split('/').pop().split('?')[0];
   }
 
-  function applyBlurIntensity(percent) {
-    var scale = percent / 100;
-    document.documentElement.style.setProperty('--sl-blur', (16 * scale) + 'px');
-    document.documentElement.style.setProperty('--sl-blur-panel', (30 * scale) + 'px');
+  function applyBlurIntensity(percent, enabled) {
+    var root = document.documentElement;
+    if (!enabled) {
+      root.style.setProperty('--sl-blur', '0px');
+      root.style.setProperty('--sl-blur-panel', '0px');
+      root.style.setProperty('--sl-panel-bg', '#0c0b11');
+    } else {
+      var scale = percent / 100;
+      root.style.setProperty('--sl-blur', (16 * scale) + 'px');
+      root.style.setProperty('--sl-blur-panel', (30 * scale) + 'px');
+      root.style.removeProperty('--sl-panel-bg');
+    }
   }
 
   // ============================================
@@ -68,7 +76,7 @@
       'nav[data-sl-mods-muted] .selected:not(:hover):not(:focus):not(:focus-visible):not(:focus-within) .label { color:var(--primary-foreground-color, rgba(255,255,255,0.6)) !important; opacity:0 !important; }' +
       '@media only screen and (max-width: 768px) { #sl-mods-btn[data-sl-anchor="floating"] { left:0.75rem; right:0.75rem; bottom:0.75rem; justify-content:center; } }' +
 
-      '#sl-mod-panel { position:fixed; top:0; right:0; bottom:0; z-index:99999; display:none; flex-direction:row; color:var(--primary-foreground-color, #f2f2f2); font-family:inherit; background:linear-gradient(180deg, rgba(0,0,0,0.28) 0%, rgba(0,0,0,0.16) 16%, rgba(0,0,0,0.12) 100%); backdrop-filter:blur(var(--sl-blur-panel, 30px)) saturate(135%); -webkit-backdrop-filter:blur(var(--sl-blur-panel, 30px)) saturate(135%); overflow:hidden; }' +
+      '#sl-mod-panel { position:fixed; top:0; right:0; bottom:0; z-index:99999; display:none; flex-direction:row; color:var(--primary-foreground-color, #f2f2f2); font-family:inherit; background:var(--sl-panel-bg, linear-gradient(180deg, rgba(0,0,0,0.28) 0%, rgba(0,0,0,0.16) 16%, rgba(0,0,0,0.12) 100%)); backdrop-filter:blur(var(--sl-blur-panel, 30px)) saturate(135%); -webkit-backdrop-filter:blur(var(--sl-blur-panel, 30px)) saturate(135%); overflow:hidden; }' +
       '#sl-mod-panel::before { content:""; position:absolute; inset:0; background:radial-gradient(circle at top right, rgba(255,255,255,0.08), transparent 32%), linear-gradient(180deg, rgba(0,0,0,0.18), rgba(0,0,0,0.42)); pointer-events:none; }' +
       '#sl-mod-panel.sl-open { display:flex; }' +
 
@@ -826,12 +834,12 @@
       localStorage.setItem('sl-blur-enabled', enabled);
       intensityRow.style.opacity = enabled ? '' : '0.4';
       intensityRow.style.pointerEvents = enabled ? '' : 'none';
-      applyBlurIntensity(enabled ? parseInt(range.value, 10) : 0);
+      applyBlurIntensity(parseInt(range.value, 10), enabled);
     });
 
     range.addEventListener('input', function() {
       label.textContent = range.value + '%';
-      applyBlurIntensity(parseInt(range.value, 10));
+      applyBlurIntensity(parseInt(range.value, 10), true);
       localStorage.setItem('sl-blur-intensity', range.value);
     });
   }
@@ -1018,7 +1026,7 @@
   function init() {
     injectStyles();
     var blurEnabled = localStorage.getItem('sl-blur-enabled') !== 'false';
-    applyBlurIntensity(blurEnabled ? parseInt(localStorage.getItem('sl-blur-intensity') || '100', 10) : 0);
+    applyBlurIntensity(parseInt(localStorage.getItem('sl-blur-intensity') || '100', 10), blurEnabled);
     createModsButton();
     syncModsButtonPosition();
 
