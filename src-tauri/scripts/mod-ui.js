@@ -37,7 +37,8 @@
     if (!enabled) {
       root.style.setProperty('--sl-blur', '0px');
       root.style.setProperty('--sl-blur-panel', '0px');
-      root.style.setProperty('--sl-panel-bg', '#0c0b11');
+      var bg = getComputedStyle(document.documentElement).getPropertyValue('--primary-background-color').trim() || 'rgba(12, 11, 17, 1)';
+      root.style.setProperty('--sl-panel-bg', bg);
     } else {
       var scale = percent / 100;
       root.style.setProperty('--sl-blur', (16 * scale) + 'px');
