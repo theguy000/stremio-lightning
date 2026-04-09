@@ -1,5 +1,7 @@
 mod commands;
 mod mod_manager;
+mod player;
+mod shell_transport;
 mod streaming_server;
 
 use std::collections::HashMap;
@@ -30,6 +32,8 @@ pub fn run() {
         .manage(streaming_server::ServerState {
             child: Mutex::new(None),
         })
+        .manage(player::PlayerState::default())
+        .manage(shell_transport::ShellTransportState::default())
         // Manage mod manager state
         .manage(mod_manager::ModManagerState {
             registered_schemas: Mutex::new(HashMap::new()),
@@ -38,6 +42,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::toggle_devtools,
             commands::open_external_url,
+            commands::shell_transport_send,
+            commands::shell_bridge_ready,
+            commands::get_native_player_status,
             commands::start_streaming_server,
             commands::stop_streaming_server,
             commands::restart_streaming_server,
@@ -60,6 +67,10 @@ pub fn run() {
                 eprintln!("Failed to create mod directories: {}", e);
             }
 
+            let native_player_flag_js = format!(
+                "window.__STREMIO_LIGHTNING_ENABLE_NATIVE_PLAYER__ = {};",
+                if player::native_player_enabled() { "true" } else { "false" }
+            );
             let bridge_js = include_str!("../scripts/bridge.js");
             let mod_ui_js = include_str!("../scripts/mod-ui.js");
 
@@ -73,9 +84,17 @@ pub fn run() {
             .center()
             .resizable(true)
             .maximizable(true)
+            .transparent(true)
+            .background_color(tauri::webview::Color(255, 255, 255, 0))
+            .initialization_script(&native_player_flag_js)
             .initialization_script(bridge_js)
             .initialization_script(mod_ui_js)
             .build()?;
+
+            if let Err(error) = player::initialize(&app.handle().clone()) {
+                eprintln!("Failed to initialize native player: {error}");
+                return Err(error.into());
+            }
 
             // Track window state changes (only emit on actual change)
             let was_maximized = Arc::new(AtomicBool::new(false));
@@ -89,22 +108,26 @@ pub fn run() {
             window.on_window_event(move |event| {
                 match event {
                     tauri::WindowEvent::Resized(_) => {
+                        let _ = player::sync_with_main_window(&app_handle_for_close);
                         if let Ok(is_maximized) = window_clone.is_maximized() {
                             let prev = max_flag.swap(is_maximized, Ordering::Relaxed);
                             if is_maximized != prev {
                                 let _ = window_clone.emit("window-maximized-changed", is_maximized);
+                                let _ = shell_transport::emit_window_state_change(&app_handle_for_close);
                             }
                         }
                         if let Ok(is_fullscreen) = window_clone.is_fullscreen() {
                             let prev = fs_flag.swap(is_fullscreen, Ordering::Relaxed);
                             if is_fullscreen != prev {
                                 let _ = window_clone.emit("window-fullscreen-changed", is_fullscreen);
+                                let _ = shell_transport::emit_window_visibility_change(&app_handle_for_close);
                             }
                         }
                     }
                     tauri::WindowEvent::CloseRequested { .. } => {
                         // Graceful shutdown: kill the streaming server
                         let _ = streaming_server::stop_server(&app_handle_for_close);
+                        let _ = player::stop_and_hide(&app_handle_for_close);
                     }
                     _ => {}
                 }
@@ -117,10 +140,13 @@ pub fn run() {
 
                 match streaming_server::start_server(&app_handle) {
                     Ok(()) => {
-                        // After server starts, tell the Stremio web UI to reconnect
+                        // Wait for the bridge so reload is no longer tied to a blind sleep.
                         let app_for_reload = app_handle.clone();
                         std::thread::spawn(move || {
-                            std::thread::sleep(std::time::Duration::from_millis(1500));
+                            let _ = shell_transport::wait_until_bridge_ready(
+                                &app_for_reload,
+                                std::time::Duration::from_secs(15),
+                            );
                             if let Some(window) = app_for_reload.get_webview_window("main") {
                                 let _ = window.eval(
                                     "if (typeof core !== 'undefined' && core.transport) { \
@@ -143,7 +169,10 @@ pub fn run() {
                 let url = url.clone();
                 let app_handle = app.handle().clone();
                 std::thread::spawn(move || {
-                    std::thread::sleep(std::time::Duration::from_secs(2));
+                    let _ = shell_transport::wait_until_bridge_ready(
+                        &app_handle,
+                        std::time::Duration::from_secs(15),
+                    );
                     handle_stremio_url(&app_handle, &url);
                 });
             }
@@ -163,6 +192,8 @@ fn handle_stremio_url(app: &tauri::AppHandle, url: &str) {
                 escaped
             );
             let _ = window.eval(&nav_js);
+        } else {
+            let _ = shell_transport::enqueue_open_media(app, url.to_string());
         }
     }
 }

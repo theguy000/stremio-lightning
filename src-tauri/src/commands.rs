@@ -2,6 +2,8 @@ use tauri::{Manager, WebviewWindow};
 use tauri_plugin_opener::OpenerExt;
 
 use crate::mod_manager::{self, ModManagerState};
+use crate::player;
+use crate::shell_transport;
 use crate::streaming_server;
 
 #[tauri::command]
@@ -18,6 +20,23 @@ pub async fn open_external_url(app: tauri::AppHandle, url: String) -> Result<(),
     app.opener()
         .open_url(&url, None::<&str>)
         .map_err(|e| format!("Failed to open URL: {}", e))
+}
+
+#[tauri::command]
+pub async fn shell_transport_send(app: tauri::AppHandle, message: String) -> Result<(), String> {
+    shell_transport::handle_message(&app, &message)
+}
+
+#[tauri::command]
+pub async fn shell_bridge_ready(app: tauri::AppHandle) -> Result<(), String> {
+    shell_transport::notify_bridge_ready(&app)
+}
+
+#[tauri::command]
+pub async fn get_native_player_status(
+    app: tauri::AppHandle,
+) -> Result<player::NativePlayerStatus, String> {
+    Ok(player::status(&app))
 }
 
 #[tauri::command]

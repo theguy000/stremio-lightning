@@ -19,6 +19,103 @@
   var webview = getCurrentWebview();
 
   // ============================================
+  // Official Shell Transport Compatibility
+  // ============================================
+  var shellTransportEnabled = window.__STREMIO_LIGHTNING_ENABLE_NATIVE_PLAYER__ === true;
+  if (shellTransportEnabled) {
+    console.info('[StremioLightning] Native player mode enabled (libmpv transport)');
+  }
+  var shellMessageListeners = [];
+  var nativeChromeWebview = null;
+
+  try {
+    nativeChromeWebview = window.chrome && window.chrome.webview ? window.chrome.webview : null;
+  } catch (error) {
+    console.warn('[StremioLightning] Could not access native chrome.webview:', error);
+  }
+
+  function dispatchShellTransportMessage(payload) {
+    var event = { data: payload };
+
+    try {
+      if (window.qt && window.qt.webChannelTransport && typeof window.qt.webChannelTransport.onmessage === 'function') {
+        window.qt.webChannelTransport.onmessage(event);
+      }
+    } catch (error) {
+      console.error('[StremioLightning] qt.webChannelTransport handler failed:', error);
+    }
+
+    try {
+      if (nativeChromeWebview && typeof nativeChromeWebview.dispatchEvent === 'function') {
+        nativeChromeWebview.dispatchEvent(new MessageEvent('message', { data: payload }));
+      }
+    } catch (error) {
+      console.error('[StremioLightning] native chrome.webview dispatch failed:', error);
+    }
+
+    shellMessageListeners.slice().forEach(function(listener) {
+      try {
+        listener(event);
+      } catch (error) {
+        console.error('[StremioLightning] chrome.webview message listener failed:', error);
+      }
+    });
+  }
+
+  function sendShellTransportMessage(payload) {
+    var serialized = typeof payload === 'string' ? payload : JSON.stringify(payload);
+    return invoke('shell_transport_send', { message: serialized }).catch(function(error) {
+      console.error('[StremioLightning] shell transport send failed:', error, serialized);
+    });
+  }
+
+  function notifyShellBridgeReady() {
+    invoke('shell_bridge_ready').catch(function(error) {
+      console.error('[StremioLightning] shell bridge ready failed:', error);
+    });
+  }
+
+  if (window.self === window.top) {
+    listen('shell-transport-message', function(event) {
+      dispatchShellTransportMessage(event.payload);
+    }).then(function() {
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', notifyShellBridgeReady, { once: true });
+      } else {
+        notifyShellBridgeReady();
+      }
+    });
+
+    if (shellTransportEnabled) {
+      window.qt = window.qt || {};
+      window.qt.webChannelTransport = window.qt.webChannelTransport || {};
+      window.qt.webChannelTransport.send = sendShellTransportMessage;
+
+      if (!nativeChromeWebview) {
+        window.chrome = window.chrome || {};
+        window.chrome.webview = {
+          postMessage: sendShellTransportMessage,
+          addEventListener: function(name, listener) {
+            if (name !== 'message') {
+              throw new Error('Unsupported event: ' + name);
+            }
+            shellMessageListeners.push(listener);
+          },
+          removeEventListener: function(name, listener) {
+            if (name !== 'message') {
+              throw new Error('Unsupported event: ' + name);
+            }
+            shellMessageListeners = shellMessageListeners.filter(function(item) {
+              return item !== listener;
+            });
+          }
+        };
+        nativeChromeWebview = window.chrome.webview;
+      }
+    }
+  }
+
+  // ============================================
   // Frontend Bridge: window.StremioEnhancedAPI
   // ============================================
   // Mirrors the API shape from the Electron version.
@@ -45,6 +142,7 @@
     stopStreamingServer: function() { return invoke('stop_streaming_server'); },
     restartStreamingServer: function() { return invoke('restart_streaming_server'); },
     getStreamingServerStatus: function() { return invoke('get_streaming_server_status'); },
+    getNativePlayerStatus: function() { return invoke('get_native_player_status'); },
 
     // Server event subscriptions
     onServerStarted: function(callback) {
@@ -215,14 +313,16 @@
   // ============================================
   // Shell Detection (StremioShell user agent)
   // ============================================
-  try {
-    var originalUA = navigator.userAgent;
-    Object.defineProperty(Navigator.prototype, 'userAgent', {
-      get: function() { return originalUA + ' StremioShell/4.4'; },
-      configurable: true
-    });
-  } catch(e) {
-    console.warn('[StremioLightning] Could not override userAgent:', e);
+  if (shellTransportEnabled) {
+    try {
+      var originalUA = navigator.userAgent;
+      Object.defineProperty(Navigator.prototype, 'userAgent', {
+        get: function() { return originalUA + ' StremioShell/4.4'; },
+        configurable: true
+      });
+    } catch(e) {
+      console.warn('[StremioLightning] Could not override userAgent:', e);
+    }
   }
 
   // ============================================

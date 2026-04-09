@@ -200,7 +200,6 @@
   var _layoutSyncTimeout = 0;
   var _layoutObserver = null;
   var _mutedNativeNav = null;
-  var _pageLoaded = document.readyState === 'complete';
 
   function findVerticalNav() {
     var navs = document.querySelectorAll('nav');
@@ -228,6 +227,71 @@
     }
 
     return last;
+  }
+
+  function getCurrentRoute() {
+    var route = window.location.hash ? window.location.hash.replace(/^#/, '') : (window.location.pathname || '/');
+    route = route.split('?')[0].split('#')[0];
+    route = route.replace(/\/+$/, '');
+    return route || '/';
+  }
+
+  function getNavItemLabel(element) {
+    if (!element) return '';
+
+    var fragments = [
+      element.getAttribute('title') || '',
+      element.getAttribute('aria-label') || '',
+      element.textContent || '',
+      element.getAttribute('href') || ''
+    ];
+
+    return fragments.join(' ').replace(/\s+/g, ' ').trim().toLowerCase();
+  }
+
+  function findSelectedNavItem(navElement) {
+    if (!navElement) return null;
+
+    var selectors = [
+      '.selected',
+      '[aria-current="page"]',
+      '[aria-current="true"]',
+      '[data-active="true"]',
+      '[data-selected="true"]'
+    ];
+
+    for (var i = 0; i < selectors.length; i++) {
+      var selected = navElement.querySelector(selectors[i]);
+      if (selected) return selected;
+    }
+
+    return null;
+  }
+
+  function isHomeSelection(navElement) {
+    var selected = findSelectedNavItem(navElement);
+    if (!selected) return false;
+
+    var label = getNavItemLabel(selected);
+    return label.indexOf('home') !== -1 ||
+      label.indexOf('discover') !== -1 ||
+      label.indexOf('board') !== -1 ||
+      label.indexOf('#/') !== -1 ||
+      /(^|\s|\/)\/$/.test(label);
+  }
+
+  function shouldShowModsUi(nav) {
+    var route = getCurrentRoute().toLowerCase();
+
+    if (/^\/(player|list)(\/|$)/.test(route)) {
+      return false;
+    }
+
+    if (route === '/' || route === '/home' || route === '/discover' || route === '/board') {
+      return true;
+    }
+
+    return !!(nav && isHomeSelection(nav.element));
   }
 
   function syncNavWidth() {
@@ -266,30 +330,38 @@
     }
 
     var nav = syncNavWidth();
-    var shouldShow = !!nav || _pageLoaded;
-    syncNativeNavSelectionOverride(nav);
+    var shouldShow = !!nav && shouldShowModsUi(nav);
+    syncNativeNavSelectionOverride(shouldShow ? nav : null);
 
-    if (nav) {
-      var lastTab = findLastNavTab(nav.element);
-      var navPadding = 10;
-      var minTop = Math.round(nav.rect.top + 16);
-      var maxTop = Math.round(nav.rect.bottom - 64);
-      var desiredTop = lastTab ? Math.round(lastTab.rect.bottom + 12) : minTop;
-
-      btn.setAttribute('data-sl-anchor', 'nav');
-      btn.style.left = Math.round(nav.rect.left + navPadding) + 'px';
-      btn.style.top = Math.max(minTop, Math.min(desiredTop, maxTop)) + 'px';
-      btn.style.bottom = 'auto';
-      btn.style.width = Math.max(48, Math.round(nav.rect.width - (navPadding * 2))) + 'px';
-    } else {
-      btn.setAttribute('data-sl-anchor', 'floating');
+    if (!shouldShow) {
+      btn.removeAttribute('data-sl-anchor');
+      btn.setAttribute('data-sl-ready', 'false');
       btn.style.removeProperty('top');
+      btn.style.removeProperty('bottom');
+      btn.style.removeProperty('left');
       btn.style.removeProperty('width');
-      btn.style.left = '1rem';
-      btn.style.bottom = '1rem';
+
+      if (_panelOpen) {
+        closePanel();
+      }
+
+      syncPanelPosition();
+      return;
     }
 
-    btn.setAttribute('data-sl-ready', shouldShow ? 'true' : 'false');
+    var lastTab = findLastNavTab(nav.element);
+    var navPadding = 10;
+    var minTop = Math.round(nav.rect.top + 16);
+    var maxTop = Math.round(nav.rect.bottom - 64);
+    var desiredTop = lastTab ? Math.round(lastTab.rect.bottom + 12) : minTop;
+
+    btn.setAttribute('data-sl-anchor', 'nav');
+    btn.style.left = Math.round(nav.rect.left + navPadding) + 'px';
+    btn.style.top = Math.max(minTop, Math.min(desiredTop, maxTop)) + 'px';
+    btn.style.bottom = 'auto';
+    btn.style.width = Math.max(48, Math.round(nav.rect.width - (navPadding * 2))) + 'px';
+
+    btn.setAttribute('data-sl-ready', 'true');
 
     syncPanelPosition();
   }
@@ -1128,8 +1200,6 @@
   }
 
   window.addEventListener('load', function() {
-    _pageLoaded = true;
-
     if (_initialized) {
       scheduleLayoutSync();
       return;

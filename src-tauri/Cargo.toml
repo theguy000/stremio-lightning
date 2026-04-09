@@ -11,7 +11,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["devtools"] }
+tauri = { version = "2", features = ["devtools", "unstable"] }
 tauri-plugin-single-instance = "2"
 tauri-plugin-deep-link = "2"
 tauri-plugin-shell = "2"
@@ -21,3 +21,6 @@ tokio = { version = "1", features = ["time"] }
 tauri-plugin-opener = "2.5.3"
 reqwest = { version = "0.13.2", features = ["json"] }
 regex = "1"
+
+[target.'cfg(windows)'.dependencies]
+libmpv2 = { version = "5.0.3", default-features = false }
