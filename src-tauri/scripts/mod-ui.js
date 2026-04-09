@@ -374,6 +374,10 @@
           '<svg viewBox="0 0 24 24" style="fill:currentcolor;width:16px;height:16px;"><path d="M20 4H4v2h16V4zm1 10v-2l-1-5H4l-1 5v2h1v6h10v-6h4v6h2v-6h1zm-9 4H6v-4h6v4z"/></svg>' +
           ' Marketplace' +
         '</div>' +
+        '<div class="sl-tab" data-tab="settings">' +
+          '<svg viewBox="0 0 24 24" style="fill:currentcolor;width:16px;height:16px;"><path d="M22.7 19l-9.1-9.1c.9-2.3.4-5-1.5-6.9-2-2-5-2.4-7.4-1.3L9 6 6 9 1.6 4.7C.4 7.1.9 10.1 2.9 12.1c1.9 1.9 4.6 2.4 6.9 1.5l9.1 9.1c.4.4 1 .4 1.4 0l2.3-2.3c.5-.4.5-1.1.1-1.4z"/></svg>' +
+          ' Settings' +
+        '</div>' +
         '<div class="sl-tab" data-tab="about">' +
           '<svg viewBox="0 0 24 24" style="fill:currentcolor;width:16px;height:16px;"><path d="M12 22C6.477 22 2 17.523 2 12S6.477 2 12 2s10 4.477 10 10-4.477 10-10 10zm-1-11v6h2v-6h-2zm0-4v2h2V7h-2z"/></svg>' +
           ' About' +
@@ -383,6 +387,7 @@
         '<div class="sl-tab-content sl-visible" data-content="plugins"></div>' +
         '<div class="sl-tab-content" data-content="themes"></div>' +
         '<div class="sl-tab-content" data-content="marketplace"></div>' +
+        '<div class="sl-tab-content" data-content="settings"></div>' +
         '<div class="sl-tab-content" data-content="about"></div>' +
       '</div>';
 
@@ -418,6 +423,7 @@
     if (tabName === 'plugins') populatePlugins(content);
     else if (tabName === 'themes') populateThemes(content);
     else if (tabName === 'marketplace') populateMarketplace(content);
+    else if (tabName === 'settings') populateSettings(content);
     else if (tabName === 'about') populateAbout(content);
   }
 
@@ -786,22 +792,15 @@
   }
 
   // ============================================
-  // About Tab
+  // Settings Tab
   // ============================================
-  function populateAbout(container) {
+  function populateSettings(container) {
     var blurVal = parseInt(localStorage.getItem('sl-blur-intensity') || '100', 10);
     var blurEnabled = localStorage.getItem('sl-blur-enabled') !== 'false';
     container.innerHTML =
-      '<div class="sl-about">' +
-        '<h2>Stremio Lightning</h2>' +
-        '<p>A lightweight Stremio desktop client built with Tauri.<br>' +
-        'Supports plugins and themes from the Stremio Enhanced ecosystem.</p>' +
-        '<a class="sl-btn sl-btn-ghost" href="https://github.com/theguy000/stremio-lightning" target="_blank" rel="noreferrer">' +
-          ICONS.github + ' GitHub Repository' +
-        '</a>' +
-      '</div>' +
-      '<div style="margin-top:2.5rem; max-width:35rem;">' +
-        '<h2 style="margin:0 0 1.25rem; font-size:1.4rem; font-weight:500; color:var(--primary-foreground-color, #f2f2f2);">Settings</h2>' +
+      '<div style="max-width:35rem;">' +
+        '<div class="sl-section-header"><div class="sl-section-title">Settings</div></div>' +
+        '<h3 style="margin:0 0 0.75rem; font-size:1.1rem; font-weight:500; color:var(--primary-foreground-color, #f2f2f2); opacity:0.6;">Blur Effect</h3>' +
         '<div class="sl-setting-row">' +
           '<div class="sl-setting-label">' +
             '<div class="sl-setting-label-text">Backdrop Blur</div>' +
@@ -844,6 +843,21 @@
       applyBlurIntensity(parseInt(range.value, 10), true);
       localStorage.setItem('sl-blur-intensity', range.value);
     });
+  }
+
+  // ============================================
+  // About Tab
+  // ============================================
+  function populateAbout(container) {
+    container.innerHTML =
+      '<div class="sl-about">' +
+        '<h2>Stremio Lightning</h2>' +
+        '<p>A lightweight Stremio desktop client built with Tauri.<br>' +
+        'Supports plugins and themes from the Stremio Enhanced ecosystem.</p>' +
+        '<a class="sl-btn sl-btn-ghost" href="https://github.com/theguy000/stremio-lightning" target="_blank" rel="noreferrer">' +
+          ICONS.github + ' GitHub Repository' +
+        '</a>' +
+      '</div>';
   }
 
   // ============================================
