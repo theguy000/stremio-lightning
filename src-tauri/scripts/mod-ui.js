@@ -525,6 +525,20 @@
         });
       });
 
+      // Bind card click to toggle plugin
+      list.querySelectorAll('[data-plugin-card]').forEach(function(card) {
+        card.style.cursor = 'pointer';
+        card.addEventListener('click', function(e) {
+          // Don't toggle if clicking the toggle itself, gear button, or update button
+          if (e.target.closest('.sl-toggle') || e.target.closest('.sl-gear-btn') || e.target.closest('[data-plugin-update]')) return;
+          var checkbox = card.querySelector('[data-plugin-toggle]');
+          if (checkbox) {
+            checkbox.checked = !checkbox.checked;
+            checkbox.dispatchEvent(new Event('change'));
+          }
+        });
+      });
+
       // Bind settings gear clicks
       list.querySelectorAll('[data-plugin-settings]').forEach(function(gear) {
         gear.addEventListener('click', function() {
@@ -1070,6 +1084,12 @@
     // Re-sync nav width if layout changes
     window.addEventListener('resize', function() {
       scheduleLayoutSync();
+    });
+
+    // Re-apply blur intensity when theme changes so panel background updates
+    window.addEventListener('sl-theme-changed', function() {
+      var blurEnabled = localStorage.getItem('sl-blur-enabled') !== 'false';
+      applyBlurIntensity(parseInt(localStorage.getItem('sl-blur-intensity') || '100', 10), blurEnabled);
     });
 
     observeLayoutChanges();

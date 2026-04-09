@@ -90,11 +90,42 @@
     },
 
     // Theme application
+    _themeInlineProps: [],
+
+    _applyInlineThemeProperties: function(css) {
+      var root = document.documentElement;
+      var props = [];
+      var clean = css.replace(/\/\*[\s\S]*?\*\//g, '');
+      var regex = /(--[\w-]+)\s*:\s*([^;!}]+)/g;
+      var match;
+      while ((match = regex.exec(clean)) !== null) {
+        var name = match[1].trim();
+        var value = match[2].trim();
+        if (value) {
+          root.style.setProperty(name, value);
+          props.push(name);
+        }
+      }
+      this._themeInlineProps = props;
+    },
+
+    _clearInlineThemeProperties: function() {
+      var root = document.documentElement;
+      var props = this._themeInlineProps || [];
+      for (var i = 0; i < props.length; i++) {
+        root.style.removeProperty(props[i]);
+      }
+      this._themeInlineProps = [];
+    },
+
     applyTheme: function(fileName) {
+      window.StremioEnhancedAPI._clearInlineThemeProperties();
+
       if (fileName === 'Default') {
         var el = document.getElementById('activeTheme');
         if (el) el.remove();
         localStorage.setItem('currentTheme', 'Default');
+        window.dispatchEvent(new CustomEvent('sl-theme-changed'));
         return Promise.resolve();
       }
       return invoke('get_mod_content', { filename: fileName, modType: 'theme' }).then(function(css) {
@@ -105,6 +136,8 @@
         style.textContent = css;
         document.head.appendChild(style);
         localStorage.setItem('currentTheme', fileName);
+        window.StremioEnhancedAPI._applyInlineThemeProperties(css);
+        window.dispatchEvent(new CustomEvent('sl-theme-changed'));
       });
     },
   };
@@ -145,12 +178,7 @@
   function loadActiveTheme() {
     var theme = localStorage.getItem('currentTheme');
     if (theme && theme !== 'Default') {
-      invoke('get_mod_content', { filename: theme, modType: 'theme' }).then(function(css) {
-        var style = document.createElement('style');
-        style.id = 'activeTheme';
-        style.textContent = css;
-        document.head.appendChild(style);
-      }).catch(function(e) {
+      window.StremioEnhancedAPI.applyTheme(theme).catch(function(e) {
         console.error('[StremioLightning] Failed to load theme:', theme, e);
       });
     }
