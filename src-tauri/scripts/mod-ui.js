@@ -32,6 +32,12 @@
     return url.split('/').pop().split('?')[0];
   }
 
+  function applyBlurIntensity(percent) {
+    var scale = percent / 100;
+    document.documentElement.style.setProperty('--sl-blur', (16 * scale) + 'px');
+    document.documentElement.style.setProperty('--sl-blur-panel', (30 * scale) + 'px');
+  }
+
   // ============================================
   // CSS Injection
   // ============================================
@@ -40,7 +46,7 @@
     var style = document.createElement('style');
     style.id = 'sl-mod-styles';
     style.textContent =
-      '#sl-mods-btn { position:fixed; left:1rem; bottom:1rem; z-index:100000; display:flex; flex-direction:row; align-items:center; justify-content:center; gap:0.55rem; min-height:3.5rem; padding:0.85rem 1rem; border-radius:0.9rem; background:rgba(12,11,17,0.92); border:1px solid rgba(255,255,255,0.08); color:rgba(255,255,255,0.78); cursor:pointer; user-select:none; box-sizing:border-box; box-shadow:0 18px 40px rgba(0,0,0,0.28); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px); transition:background 0.15s,color 0.15s,border-color 0.15s,transform 0.15s,opacity 0.15s; }' +
+      '#sl-mods-btn { position:fixed; left:1rem; bottom:1rem; z-index:100000; display:flex; flex-direction:row; align-items:center; justify-content:center; gap:0.55rem; min-height:3.5rem; padding:0.85rem 1rem; border-radius:0.9rem; background:rgba(12,11,17,0.92); border:1px solid rgba(255,255,255,0.08); color:rgba(255,255,255,0.78); cursor:pointer; user-select:none; box-sizing:border-box; box-shadow:0 18px 40px rgba(0,0,0,0.28); backdrop-filter:blur(var(--sl-blur, 14px)); -webkit-backdrop-filter:blur(var(--sl-blur, 14px)); transition:background 0.15s,color 0.15s,border-color 0.15s,transform 0.15s,opacity 0.15s; }' +
       '#sl-mods-btn svg { width:18px; height:18px; flex-shrink:0; }' +
       '#sl-mods-btn .sl-mods-label { font-size:0.85rem; font-weight:600; line-height:1; letter-spacing:0.01em; }' +
       '#sl-mods-btn:hover { background:rgba(255,255,255,0.08); color:white; border-color:rgba(255,255,255,0.14); }' +
@@ -62,7 +68,7 @@
       'nav[data-sl-mods-muted] .selected:not(:hover):not(:focus):not(:focus-visible):not(:focus-within) .label { color:var(--primary-foreground-color, rgba(255,255,255,0.6)) !important; opacity:0 !important; }' +
       '@media only screen and (max-width: 768px) { #sl-mods-btn[data-sl-anchor="floating"] { left:0.75rem; right:0.75rem; bottom:0.75rem; justify-content:center; } }' +
 
-      '#sl-mod-panel { position:fixed; top:0; right:0; bottom:0; z-index:99999; display:none; flex-direction:row; color:var(--primary-foreground-color, #f2f2f2); font-family:inherit; background:linear-gradient(180deg, rgba(0,0,0,0.28) 0%, rgba(0,0,0,0.16) 16%, rgba(0,0,0,0.12) 100%); backdrop-filter:blur(30px) saturate(135%); -webkit-backdrop-filter:blur(30px) saturate(135%); overflow:hidden; }' +
+      '#sl-mod-panel { position:fixed; top:0; right:0; bottom:0; z-index:99999; display:none; flex-direction:row; color:var(--primary-foreground-color, #f2f2f2); font-family:inherit; background:linear-gradient(180deg, rgba(0,0,0,0.28) 0%, rgba(0,0,0,0.16) 16%, rgba(0,0,0,0.12) 100%); backdrop-filter:blur(var(--sl-blur-panel, 30px)) saturate(135%); -webkit-backdrop-filter:blur(var(--sl-blur-panel, 30px)) saturate(135%); overflow:hidden; }' +
       '#sl-mod-panel::before { content:""; position:absolute; inset:0; background:radial-gradient(circle at top right, rgba(255,255,255,0.08), transparent 32%), linear-gradient(180deg, rgba(0,0,0,0.18), rgba(0,0,0,0.42)); pointer-events:none; }' +
       '#sl-mod-panel.sl-open { display:flex; }' +
 
@@ -82,7 +88,7 @@
       '.sl-section-header { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin:0 0 2rem; }' +
       '.sl-section-title { flex:none; font-size:1.8rem; line-height:1.2; font-weight:500; color:var(--primary-foreground-color, #f2f2f2); }' +
 
-      '.sl-card { display:flex; flex-direction:row; align-items:flex-start; gap:1rem; padding:1.5rem; margin:0 0 1.25rem; border:0.15rem solid transparent; border-radius:var(--border-radius, 1rem); background-color:var(--overlay-color, rgba(255,255,255,0.08)); backdrop-filter:blur(16px) saturate(120%); -webkit-backdrop-filter:blur(16px) saturate(120%); transition:border-color 0.1s ease-out, background-color 0.1s ease-out; }' +
+      '.sl-card { display:flex; flex-direction:row; align-items:flex-start; gap:1rem; padding:1.5rem; margin:0 0 1.25rem; border:0.15rem solid transparent; border-radius:var(--border-radius, 1rem); background-color:var(--overlay-color, rgba(255,255,255,0.08)); backdrop-filter:blur(var(--sl-blur, 16px)) saturate(120%); -webkit-backdrop-filter:blur(var(--sl-blur, 16px)) saturate(120%); transition:border-color 0.1s ease-out, background-color 0.1s ease-out; }' +
       '.sl-card:hover { border-color:var(--overlay-color, rgba(255,255,255,0.12)); }' +
       '.sl-card-info { flex:1 1 auto; min-width:0; margin-right:0.75rem; }' +
       '.sl-card-name { display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap; max-height:none; font-size:1.2rem; font-weight:500; color:var(--primary-foreground-color, #f2f2f2); }' +
@@ -113,7 +119,7 @@
       '.sl-gear-btn { width:3rem; height:3rem; border-radius:100%; display:none; align-items:center; justify-content:center; cursor:pointer; color:var(--primary-foreground-color, #f2f2f2); opacity:0.6; transition:background-color 0.12s ease-out, opacity 0.12s ease-out; }' +
       '.sl-gear-btn:hover { background-color:var(--overlay-color, rgba(255,255,255,0.08)); opacity:1; }' +
 
-      '.sl-search { width:min(100%, 30rem); min-height:3.5rem; padding:0 1.25rem; margin:0 0 2rem; border-radius:3rem; border:2px solid transparent; background-color:var(--overlay-color, rgba(255,255,255,0.08)); color:var(--primary-foreground-color, #f2f2f2); font-size:1rem; outline:none; box-sizing:border-box; backdrop-filter:blur(14px) saturate(120%); -webkit-backdrop-filter:blur(14px) saturate(120%); transition:border-color 0.12s ease-out, background-color 0.12s ease-out; }' +
+      '.sl-search { width:min(100%, 30rem); min-height:3.5rem; padding:0 1.25rem; margin:0 0 2rem; border-radius:3rem; border:2px solid transparent; background-color:var(--overlay-color, rgba(255,255,255,0.08)); color:var(--primary-foreground-color, #f2f2f2); font-size:1rem; outline:none; box-sizing:border-box; backdrop-filter:blur(var(--sl-blur, 14px)) saturate(120%); -webkit-backdrop-filter:blur(var(--sl-blur, 14px)) saturate(120%); transition:border-color 0.12s ease-out, background-color 0.12s ease-out; }' +
       '.sl-search:hover, .sl-search:focus { border-color:var(--primary-foreground-color, #f2f2f2); background-color:transparent; }' +
       '.sl-search::placeholder { color:var(--primary-foreground-color, #f2f2f2); opacity:0.4; }' +
 
@@ -129,7 +135,7 @@
       '.sl-link:hover { text-decoration:underline; }' +
 
       '.sl-modal-overlay { position:fixed; inset:0; z-index:999999; display:flex; justify-content:center; align-items:center; padding:2rem; background-color:rgba(0,0,0,0.82); }' +
-      '.sl-modal { width:min(44rem, 100%); max-height:calc(100vh - 4rem); display:flex; flex-direction:column; overflow:hidden; border-radius:var(--border-radius, 1rem); background-color:var(--modal-background-color, rgba(16,16,20,0.84)); backdrop-filter:blur(28px) saturate(135%); -webkit-backdrop-filter:blur(28px) saturate(135%); box-shadow:var(--outer-glow, 0 1.35rem 2.7rem rgba(0,0,0,0.45)); color:var(--primary-foreground-color, #f2f2f2); }' +
+      '.sl-modal { width:min(44rem, 100%); max-height:calc(100vh - 4rem); display:flex; flex-direction:column; overflow:hidden; border-radius:var(--border-radius, 1rem); background-color:var(--modal-background-color, rgba(16,16,20,0.84)); backdrop-filter:blur(var(--sl-blur-panel, 28px)) saturate(135%); -webkit-backdrop-filter:blur(var(--sl-blur-panel, 28px)) saturate(135%); box-shadow:var(--outer-glow, 0 1.35rem 2.7rem rgba(0,0,0,0.45)); color:var(--primary-foreground-color, #f2f2f2); }' +
       '.sl-modal-header { display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:1.5rem 2rem; border-bottom:thin solid var(--overlay-color, rgba(255,255,255,0.08)); }' +
       '.sl-modal-title { font-size:1.35rem; font-weight:500; color:var(--primary-foreground-color, #f2f2f2); }' +
       '.sl-modal-close { width:3rem; height:3rem; display:flex; align-items:center; justify-content:center; cursor:pointer; color:var(--primary-foreground-color, #f2f2f2); opacity:0.6; border-radius:100%; transition:background-color 0.12s ease-out, opacity 0.12s ease-out; }' +
@@ -151,6 +157,11 @@
       '.sl-about { max-width:35rem; }' +
       '.sl-about h2 { margin:0 0 0.75rem; font-size:1.8rem; font-weight:500; color:var(--primary-foreground-color, #f2f2f2); }' +
       '.sl-about p { margin:0 0 1.25rem; font-size:1rem; line-height:1.65; color:var(--primary-foreground-color, #f2f2f2); opacity:0.68; }' +
+
+      '.sl-range-value { min-width:3rem; text-align:right; font-size:0.95rem; font-weight:600; color:var(--primary-foreground-color, #f2f2f2); opacity:0.7; }' +
+      '.sl-setting-range { -webkit-appearance:none; appearance:none; width:100%; height:6px; border-radius:3px; background:var(--overlay-color, rgba(255,255,255,0.15)); outline:none; cursor:pointer; }' +
+      '.sl-setting-range::-webkit-slider-thumb { -webkit-appearance:none; appearance:none; width:18px; height:18px; border-radius:50%; background:var(--secondary-accent-color, var(--primary-accent-color, #7b5bf5)); cursor:pointer; transition:transform 0.1s; }' +
+      '.sl-setting-range::-webkit-slider-thumb:hover { transform:scale(1.2); }' +
 
       '.sl-empty { padding:3rem 1rem; text-align:center; font-size:1rem; color:var(--primary-foreground-color, #f2f2f2); opacity:0.4; }' +
 
@@ -768,6 +779,7 @@
   // About Tab
   // ============================================
   function populateAbout(container) {
+    var blurVal = parseInt(localStorage.getItem('sl-blur-intensity') || '100', 10);
     container.innerHTML =
       '<div class="sl-about">' +
         '<h2>Stremio Lightning</h2>' +
@@ -776,7 +788,28 @@
         '<a class="sl-btn sl-btn-ghost" href="https://github.com/theguy000/stremio-lightning" target="_blank" rel="noreferrer">' +
           ICONS.github + ' GitHub Repository' +
         '</a>' +
+      '</div>' +
+      '<div style="margin-top:2.5rem; max-width:35rem;">' +
+        '<h2 style="margin:0 0 1.25rem; font-size:1.4rem; font-weight:500; color:var(--primary-foreground-color, #f2f2f2);">Settings</h2>' +
+        '<div class="sl-setting-row">' +
+          '<div class="sl-setting-label">' +
+            '<div class="sl-setting-label-text">Blur Intensity</div>' +
+            '<div class="sl-setting-label-desc">Controls the backdrop blur strength of the mods panel</div>' +
+          '</div>' +
+          '<div class="sl-setting-control" style="display:flex; align-items:center; gap:0.75rem;">' +
+            '<input class="sl-setting-range" type="range" id="sl-blur-range" min="0" max="100" value="' + blurVal + '">' +
+            '<span class="sl-range-value" id="sl-blur-value">' + blurVal + '%</span>' +
+          '</div>' +
+        '</div>' +
       '</div>';
+
+    var range = document.getElementById('sl-blur-range');
+    var label = document.getElementById('sl-blur-value');
+    range.addEventListener('input', function() {
+      label.textContent = range.value + '%';
+      applyBlurIntensity(parseInt(range.value, 10));
+      localStorage.setItem('sl-blur-intensity', range.value);
+    });
   }
 
   // ============================================
@@ -960,6 +993,7 @@
   // ============================================
   function init() {
     injectStyles();
+    applyBlurIntensity(parseInt(localStorage.getItem('sl-blur-intensity') || '100', 10));
     createModsButton();
     syncModsButtonPosition();
 
