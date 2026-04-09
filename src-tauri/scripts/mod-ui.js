@@ -13,7 +13,8 @@
   // Icons
   // ============================================
   var ICONS = {
-    mods: '<svg viewBox="0 0 512 512" style="fill:currentcolor;"><path d="M413.7 246.1H386c-0.53-0.01-1.03-0.23-1.4-0.6-0.37-0.37-0.59-0.87-0.6-1.4v-77.2a38.94 38.94 0 0 0-11.4-27.5 38.94 38.94 0 0 0-27.5-11.4h-77.2c-0.53-0.01-1.03-0.23-1.4-0.6-0.37-0.37-0.59-0.87-0.6-1.4v-27.7c0-27.1-21.5-49.9-48.6-50.3-6.57-0.1-13.09 1.09-19.2 3.5a49.616 49.616 0 0 0-16.4 10.7 49.823 49.823 0 0 0-11 16.2 48.894 48.894 0 0 0-3.9 19.2v28.5c-0.01 0.53-0.23 1.03-0.6 1.4-0.37 0.37-0.87 0.59-1.4 0.6h-77.2c-10.5 0-20.57 4.17-28 11.6a39.594 39.594 0 0 0-11.6 28v70.4c0.01 0.53 0.23 1.03 0.6 1.4 0.37 0.37 0.87 0.59 1.4 0.6h26.9c29.4 0 53.7 25.5 54.1 54.8 0.4 29.9-23.5 57.2-53.3 57.2H50c-0.53 0.01-1.03 0.23-1.4 0.6-0.37 0.37-0.59 0.87-0.6 1.4v70.4c0 10.5 4.17 20.57 11.6 28s17.5 11.6 28 11.6h70.4c0.53-0.01 1.03-0.23 1.4-0.6 0.37-0.37 0.59-0.87 0.6-1.4V441.2c0-30.3 24.8-56.4 55-57.1 30.1-0.7 57 20.3 57 50.3v27.7c0.01 0.53 0.23 1.03 0.6 1.4 0.37 0.37 0.87 0.59 1.4 0.6h71.1a38.94 38.94 0 0 0 27.5-11.4 38.958 38.958 0 0 0 11.4-27.5v-78c0.01-0.53 0.23-1.03 0.6-1.4 0.37-0.37 0.87-0.59 1.4-0.6h28.5c27.6 0 49.5-22.7 49.5-50.4s-23.2-48.7-50.3-48.7Z"></path></svg>',
+    modsOutline: '<svg viewBox="0 -960 960 960" style="fill:currentcolor;"><path d="M638-468 468-638q-6-6-8.5-13t-2.5-15q0-8 2.5-15t8.5-13l170-170q6-6 13-8.5t15-2.5q8 0 15 2.5t13 8.5l170 170q6 6 8.5 13t2.5 15q0 8-2.5 15t-8.5 13L694-468q-6 6-13 8.5t-15 2.5q-8 0-15-2.5t-13-8.5Zm-518-92v-240q0-17 11.5-28.5T160-840h240q17 0 28.5 11.5T440-800v240q0 17-11.5 28.5T400-520H160q-17 0-28.5-11.5T120-560Zm400 400v-240q0-17 11.5-28.5T560-440h240q17 0 28.5 11.5T840-400v240q0 17-11.5 28.5T800-120H560q-17 0-28.5-11.5T520-160Zm-400 0v-240q0-17 11.5-28.5T160-440h240q17 0 28.5 11.5T440-400v240q0 17-11.5 28.5T400-120H160q-17 0-28.5-11.5T120-160Zm80-440h160v-160H200v160Zm467 48 113-113-113-113-113 113 113 113Zm-67 352h160v-160H600v160Zm-400 0h160v-160H200v160Zm160-400Zm194-65ZM360-360Zm240 0Z"></path></svg>',
+    mods: '<svg viewBox="0 -960 960 960" style="fill:currentcolor;"><path d="M638-468 468-638q-6-6-8.5-13t-2.5-15q0-8 2.5-15t8.5-13l170-170q6-6 13-8.5t15-2.5q8 0 15 2.5t13 8.5l170 170q6 6 8.5 13t2.5 15q0 8-2.5 15t-8.5 13L694-468q-6 6-13 8.5t-15 2.5q-8 0-15-2.5t-13-8.5Zm-518-92v-240q0-17 11.5-28.5T160-840h240q17 0 28.5 11.5T440-800v240q0 17-11.5 28.5T400-520H160q-17 0-28.5-11.5T120-560Zm400 400v-240q0-17 11.5-28.5T560-440h240q17 0 28.5 11.5T840-400v240q0 17-11.5 28.5T800-120H560q-17 0-28.5-11.5T520-160Zm-400 0v-240q0-17 11.5-28.5T160-440h240q17 0 28.5 11.5T440-400v240q0 17-11.5 28.5T400-120H160q-17 0-28.5-11.5T120-160Z"></path></svg>',
     theme: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" style="fill:currentcolor;width:16px;height:16px;"><path d="M4 3h16a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zm2 9h6a1 1 0 0 1 1 1v3h1v6h-4v-6h1v-2H5a1 1 0 0 1-1-1v-2h2v1zm11.732 1.732l1.768-1.768 1.768 1.768a2.5 2.5 0 1 1-3.536 0z"></path></svg>',
     settings: '<svg viewBox="0 0 512 512" style="width:16px;height:16px;fill:currentcolor;"><path d="M464 250C464 247.333 463 245 461 243L455 240L429 236L426 234L424 231L423 222V218L425 216L448 203L453 198V190L449 179C448.333 177 446.667 175.333 444 174C442 172.667 439.667 172.333 437 173L412 178L408 177L406 175L401 167C400.404 165.878 400.18 164.595 400.359 163.337C400.539 162.079 401.114 160.91 402 160L419 141L421 134C421.667 131.333 421 129 419 127L412 118C410.409 115.878 408.04 114.475 405.414 114.1C402.789 113.725 400.122 114.409 398 116L376 129C375.065 129.916 373.809 130.429 372.5 130.429C371.191 130.429 369.935 129.916 369 129L362 122L360 120V116L369 91.9998C370.096 89.7279 370.292 87.1258 369.551 84.7151C368.809 82.3043 367.183 80.2628 365 78.9998L355 72.9998C353 70.9998 350.667 70.6665 348 71.9998C345.333 72.6665 343 73.9998 341 75.9998L325 95.9998L323 97.9998H319L310 93.9998L307 91.9998L306 88.9998V62.9998C306.667 60.3332 306 57.9998 304 55.9998C302.667 53.3332 300.667 51.9998 298 51.9998L286 49.9998C284 49.3332 281.667 49.6665 279 50.9998L275 56.9998L266 81.9998L264 84.9998H251C249.667 85.6665 248.667 85.3332 248 83.9998L246 81.9998L237 56.9998C237 54.9998 235.667 52.9998 233 50.9998L226 49.9998L214 51.9998C211.333 51.9998 209.333 53.3332 208 55.9998C206 57.9998 205.333 60.3332 206 62.9998V88.9998L205 91.9998L202 93.9998L193 97.9998C190.333 98.6665 188.333 97.9998 187 95.9998L170 75.9998C169.333 73.9998 167.333 72.6665 164 71.9998C162 71.3332 159.667 71.6665 157 72.9998L147 78.9998L142 83.9998V91.9998L152 116V119C152 121 151.333 122 150 122L143 128C142.606 128.525 142.113 128.968 141.548 129.302C140.983 129.637 140.357 129.857 139.707 129.95C139.057 130.042 138.395 130.006 137.759 129.843C137.123 129.68 136.525 129.394 136 129L114 115L107 114L100 117L93 126C91.168 127.869 90.142 130.382 90.142 133C90.142 135.617 91.168 138.131 93 140L111 160L112 163L111 166L106 175L104 177H100L75 173C72.612 172.335 70.062 172.58 67.845 173.689C65.627 174.797 63.901 176.69 63 179L59 190V197C60.334 200.333 62 202.333 64 203L87 216L89 218V223L87 231L86 234L83 236L57 240C54.525 240.249 52.231 241.411 50.567 243.26C48.903 245.109 47.988 247.512 48 250V262C47.988 264.488 48.903 266.89 50.567 268.74C52.231 270.589 54.525 271.751 57 272L83 276L86 278L87 281L89 290V294L87 296L64 309L59 314V322L63 333C63.667 335 65.334 336.667 68 338C70 339.333 72.334 339.667 75 339L100 334L104 335L106 337L111 345C111.733 346.02 112.127 347.244 112.127 348.5C112.127 349.756 111.733 350.98 111 352L94 372C92.306 373.689 91.274 375.929 91.09 378.314C90.907 380.7 91.584 383.072 93 385L100 394C101.591 396.122 103.96 397.524 106.586 397.899C109.211 398.274 111.878 397.591 114 396L136 383C137.061 382.204 138.394 381.863 139.707 382.05C141.02 382.238 142.204 382.939 143 384L150 390C151.333 390.667 152 391.667 152 393V396L143 420C141.904 422.272 141.708 424.874 142.45 427.285C143.191 429.695 144.817 431.737 147 433L157 439C158.111 439.739 159.359 440.248 160.67 440.497C161.98 440.746 163.328 440.73 164.632 440.451C165.937 440.171 167.173 439.633 168.266 438.869C169.36 438.105 170.289 437.129 171 436L187 416L192 414L202 418L205 420L206 423V449C205.333 451.667 206 454 208 456C209.333 458.667 211.333 460 214 460L226 462C228.34 462.158 230.67 461.565 232.649 460.305C234.628 459.046 236.153 457.187 237 455L246 430L248 428C249.333 426.667 250.333 426.333 251 427H261L264 428L266 430L275 455C275.667 457 277 458.667 279 460C280.333 462 282.333 462.667 285 462H287L298 460C301.333 459.333 303.333 458 304 456C306 454 307 451.667 307 449L306 423L307 420L310 418L319 415C322.333 414.333 324.333 414.667 325 416L342 436C343.418 438.012 345.528 439.431 347.927 439.985C350.325 440.538 352.844 440.188 355 439L365 433L370 428V420L360 396V393L362 390L369 384L373 382L376 383L398 396C400.667 398 403 398.667 405 398C407.667 398 410 396.667 412 394L419 385C421 383.667 422 381.667 422 379C422 376.333 421 374 419 372L402 352L400 349L401 345L406 337L409 335L412 334L437 339C438.246 339.477 439.575 339.699 440.909 339.655C442.242 339.61 443.553 339.299 444.765 338.74C445.976 338.181 447.064 337.385 447.963 336.399C448.862 335.413 449.555 334.258 450 333L453 322V314L449 309L426 296L423 294V289L425 281L426 278L429 276L455 272C457.475 271.751 459.769 270.589 461.433 268.74C463.097 266.89 464.013 264.488 464 262V250Z"></path></svg>',
     github: '<svg viewBox="0 0 24 24" style="width:16px;height:16px;fill:currentcolor;"><path d="M12,2A10,10 0 0,0 2,12C2,16.42 4.87,20.17 8.84,21.5C9.34,21.58 9.5,21.27 9.5,21C9.5,20.77 9.5,20.14 9.5,19.31C6.73,19.91 6.14,17.97 6.14,17.97C5.68,16.81 5.03,16.5 5.03,16.5C4.12,15.88 5.1,15.9 5.1,15.9C6.1,15.97 6.63,16.93 6.63,16.93C7.5,18.45 8.97,18 9.54,17.76C9.63,17.11 9.89,16.67 10.17,16.42C7.95,16.17 5.62,15.31 5.62,11.5C5.62,10.39 6,9.5 6.65,8.79C6.55,8.54 6.2,7.5 6.75,6.15C6.75,6.15 7.59,5.88 9.5,7.17C10.29,6.95 11.15,6.84 12,6.84C12.85,6.84 13.71,6.95 14.5,7.17C16.41,5.88 17.25,6.15 17.25,6.15C17.8,7.5 17.45,8.54 17.35,8.79C18,9.5 18.38,10.39 18.38,11.5C18.38,15.32 16.04,16.16 13.81,16.41C14.17,16.72 14.5,17.33 14.5,18.26C14.5,19.6 14.5,20.68 14.5,21C14.5,21.27 14.66,21.59 15.17,21.5C19.14,20.16 22,16.42 22,12A10,10 0 0,0 12,2Z"></path></svg>',
@@ -58,17 +59,25 @@
     style.id = 'sl-mod-styles';
     style.textContent =
       '#sl-mods-btn { position:fixed; left:1rem; bottom:1rem; z-index:100000; display:flex; flex-direction:row; align-items:center; justify-content:center; gap:0.55rem; min-height:3.5rem; padding:0.85rem 1rem; border-radius:0.9rem; background:rgba(12,11,17,0.92); border:1px solid rgba(255,255,255,0.08); color:rgba(255,255,255,0.78); cursor:pointer; user-select:none; box-sizing:border-box; box-shadow:0 18px 40px rgba(0,0,0,0.28); backdrop-filter:blur(var(--sl-blur, 14px)); -webkit-backdrop-filter:blur(var(--sl-blur, 14px)); transition:background 0.15s,color 0.15s,border-color 0.15s,transform 0.15s,opacity 0.15s; }' +
-      '#sl-mods-btn svg { width:18px; height:18px; flex-shrink:0; }' +
+      '#sl-mods-btn[data-sl-ready="false"] { opacity:0; visibility:hidden; pointer-events:none; }' +
+      '#sl-mods-btn .sl-mods-icon-wrap { position:relative; width:22px; height:22px; flex-shrink:0; }' +
+      '#sl-mods-btn .sl-mods-icon-main { position:relative; width:100%; height:100%; color:currentColor; }' +
+      '#sl-mods-btn .sl-mods-icon-glyph { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; }' +
+      '#sl-mods-btn .sl-mods-icon-main svg { width:100%; height:100%; overflow:visible; }' +
+      '#sl-mods-btn .sl-mods-icon-filled { opacity:0; }' +
+      '#sl-mods-btn[data-sl-active] .sl-mods-icon-outline { opacity:0; }' +
+      '#sl-mods-btn[data-sl-active] .sl-mods-icon-filled { opacity:1; }' +
       '#sl-mods-btn .sl-mods-label { font-size:0.85rem; font-weight:600; line-height:1; letter-spacing:0.01em; }' +
       '#sl-mods-btn:hover { background:rgba(255,255,255,0.08); color:white; border-color:rgba(255,255,255,0.14); }' +
       '#sl-mods-btn:focus-visible { outline:2px solid var(--primary-accent-color, #7b5bf5); outline-offset:2px; }' +
       '#sl-mods-btn[data-sl-anchor="nav"] { position:fixed; left:1rem; top:1rem; bottom:auto; width:calc(var(--sl-nav-width, 94px) - 1.2rem); min-width:0; padding:0.7rem 0.4rem; flex-direction:column; gap:0.2rem; border:none; box-shadow:none; background:transparent; backdrop-filter:none; -webkit-backdrop-filter:none; border-radius:0.75rem; color:rgba(255,255,255,0.52); }' +
-      '#sl-mods-btn[data-sl-anchor="nav"] svg { width:2.2rem; height:2.2rem; opacity:0.35; transition:opacity 0.15s; }' +
+      '#sl-mods-btn[data-sl-anchor="nav"] .sl-mods-icon-wrap { width:2.2rem; height:2.2rem; }' +
+      '#sl-mods-btn[data-sl-anchor="nav"] .sl-mods-icon-main { opacity:0.35; transition:opacity 0.15s; }' +
       '#sl-mods-btn[data-sl-anchor="nav"] .sl-mods-label { max-height:0; overflow:hidden; font-size:0.72rem; font-weight:500; opacity:0; color:rgba(255,255,255,0.6); transition:none; }' +
       '#sl-mods-btn[data-sl-anchor="nav"]:hover { background:var(--overlay-color, rgba(255,255,255,0.08)); color:rgba(255,255,255,0.52); border-color:transparent; }' +
       '#sl-mods-btn[data-sl-anchor="nav"]:hover .sl-mods-label { max-height:1rem; opacity:1; color:rgba(255,255,255,0.6); }' +
       '#sl-mods-btn[data-sl-active] { background:rgba(255,255,255,0.08); color:var(--primary-accent-color, #7b5bf5); border-color:rgba(255,255,255,0.14); }' +
-      '#sl-mods-btn[data-sl-active] svg { color:inherit; opacity:1; }' +
+      '#sl-mods-btn[data-sl-active] .sl-mods-icon-main { color:inherit; opacity:1; }' +
       '#sl-mods-btn[data-sl-active] .sl-mods-label { color:inherit; opacity:0; }' +
       '#sl-mods-btn[data-sl-anchor="nav"][data-sl-active] { background:transparent; color:var(--primary-accent-color, #7b5bf5); }' +
       '#sl-mods-btn[data-sl-anchor="nav"][data-sl-active]:hover { background:var(--overlay-color, rgba(255,255,255,0.08)); }' +
@@ -191,6 +200,7 @@
   var _layoutSyncTimeout = 0;
   var _layoutObserver = null;
   var _mutedNativeNav = null;
+  var _pageLoaded = document.readyState === 'complete';
 
   function findVerticalNav() {
     var navs = document.querySelectorAll('nav');
@@ -256,6 +266,7 @@
     }
 
     var nav = syncNavWidth();
+    var shouldShow = !!nav || _pageLoaded;
     syncNativeNavSelectionOverride(nav);
 
     if (nav) {
@@ -277,6 +288,8 @@
       btn.style.left = '1rem';
       btn.style.bottom = '1rem';
     }
+
+    btn.setAttribute('data-sl-ready', shouldShow ? 'true' : 'false');
 
     syncPanelPosition();
   }
@@ -327,15 +340,19 @@
     var btn = document.createElement('div');
     btn.id = 'sl-mods-btn';
     btn.setAttribute('data-sl-mods-btn', '');
+    btn.setAttribute('data-sl-ready', 'false');
     btn.setAttribute('tabindex', '0');
     btn.setAttribute('title', 'Mods');
     btn.setAttribute('role', 'button');
     btn.setAttribute('aria-label', 'Open mods');
 
     btn.innerHTML =
-      '<svg viewBox="0 0 512 512" style="fill:currentcolor;">' +
-        '<path d="M413.7 246.1H386c-0.53-0.01-1.03-0.23-1.4-0.6-0.37-0.37-0.59-0.87-0.6-1.4v-77.2a38.94 38.94 0 0 0-11.4-27.5 38.94 38.94 0 0 0-27.5-11.4h-77.2c-0.53-0.01-1.03-0.23-1.4-0.6-0.37-0.37-0.59-0.87-0.6-1.4v-27.7c0-27.1-21.5-49.9-48.6-50.3-6.57-0.1-13.09 1.09-19.2 3.5a49.6 49.6 0 0 0-16.4 10.7 49.8 49.8 0 0 0-11 16.2 48.9 48.9 0 0 0-3.9 19.2v28.5c-0.01 0.53-0.23 1.03-0.6 1.4-0.37 0.37-0.87 0.59-1.4 0.6h-77.2c-10.5 0-20.57 4.17-28 11.6a39.6 39.6 0 0 0-11.6 28v70.4c0.01 0.53 0.23 1.03 0.6 1.4 0.37 0.37 0.87 0.59 1.4 0.6h26.9c29.4 0 53.7 25.5 54.1 54.8 0.4 29.9-23.5 57.2-53.3 57.2H50c-0.53 0.01-1.03 0.23-1.4 0.6-0.37 0.37-0.59 0.87-0.6 1.4v70.4c0 10.5 4.17 20.57 11.6 28s17.5 11.6 28 11.6h70.4c0.53-0.01 1.03-0.23 1.4-0.6 0.37-0.37 0.59-0.87 0.6-1.4V441.2c0-30.3 24.8-56.4 55-57.1 30.1-0.7 57 20.3 57 50.3v27.7c0.01 0.53 0.23 1.03 0.6 1.4 0.37 0.37 0.87 0.59 1.4 0.6h71.1a38.94 38.94 0 0 0 27.5-11.4 39 39 0 0 0 11.4-27.5v-78c0.01-0.53 0.23-1.03 0.6-1.4 0.37-0.37 0.87-0.59 1.4-0.6h28.5c27.6 0 49.5-22.7 49.5-50.4s-23.2-48.7-50.3-48.7Z"></path>' +
-      '</svg>' +
+      '<div class="sl-mods-icon-wrap">' +
+        '<div class="sl-mods-icon-main">' +
+          '<div class="sl-mods-icon-glyph sl-mods-icon-outline" aria-hidden="true">' + ICONS.modsOutline + '</div>' +
+          '<div class="sl-mods-icon-glyph sl-mods-icon-filled" aria-hidden="true">' + ICONS.mods + '</div>' +
+        '</div>' +
+      '</div>' +
       '<div class="sl-mods-label">Mods</div>';
 
     btn.addEventListener('click', function(e) {
@@ -1096,9 +1113,28 @@
     scheduleLayoutSync();
   }
 
-  if (document.readyState === 'complete') {
+  var _initialized = false;
+
+  function start() {
+    if (_initialized) return;
+    _initialized = true;
     init();
-  } else {
-    window.addEventListener('load', init);
   }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', start, { once: true });
+  } else {
+    start();
+  }
+
+  window.addEventListener('load', function() {
+    _pageLoaded = true;
+
+    if (_initialized) {
+      scheduleLayoutSync();
+      return;
+    }
+
+    start();
+  }, { once: true });
 })();
