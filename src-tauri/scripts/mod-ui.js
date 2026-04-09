@@ -780,6 +780,7 @@
   // ============================================
   function populateAbout(container) {
     var blurVal = parseInt(localStorage.getItem('sl-blur-intensity') || '100', 10);
+    var blurEnabled = localStorage.getItem('sl-blur-enabled') !== 'false';
     container.innerHTML =
       '<div class="sl-about">' +
         '<h2>Stremio Lightning</h2>' +
@@ -793,6 +794,18 @@
         '<h2 style="margin:0 0 1.25rem; font-size:1.4rem; font-weight:500; color:var(--primary-foreground-color, #f2f2f2);">Settings</h2>' +
         '<div class="sl-setting-row">' +
           '<div class="sl-setting-label">' +
+            '<div class="sl-setting-label-text">Backdrop Blur</div>' +
+            '<div class="sl-setting-label-desc">Enable or disable the backdrop blur effect</div>' +
+          '</div>' +
+          '<div class="sl-setting-control">' +
+            '<label class="sl-toggle">' +
+              '<input type="checkbox" id="sl-blur-toggle"' + (blurEnabled ? ' checked' : '') + '>' +
+              '<div class="sl-toggle-track"><div class="sl-toggle-thumb"></div></div>' +
+            '</label>' +
+          '</div>' +
+        '</div>' +
+        '<div class="sl-setting-row" id="sl-blur-intensity-row"' + (blurEnabled ? '' : ' style="opacity:0.4; pointer-events:none;"') + '>' +
+          '<div class="sl-setting-label">' +
             '<div class="sl-setting-label-text">Blur Intensity</div>' +
             '<div class="sl-setting-label-desc">Controls the backdrop blur strength of the mods panel</div>' +
           '</div>' +
@@ -803,8 +816,19 @@
         '</div>' +
       '</div>';
 
+    var toggle = document.getElementById('sl-blur-toggle');
+    var intensityRow = document.getElementById('sl-blur-intensity-row');
     var range = document.getElementById('sl-blur-range');
     var label = document.getElementById('sl-blur-value');
+
+    toggle.addEventListener('change', function() {
+      var enabled = toggle.checked;
+      localStorage.setItem('sl-blur-enabled', enabled);
+      intensityRow.style.opacity = enabled ? '' : '0.4';
+      intensityRow.style.pointerEvents = enabled ? '' : 'none';
+      applyBlurIntensity(enabled ? parseInt(range.value, 10) : 0);
+    });
+
     range.addEventListener('input', function() {
       label.textContent = range.value + '%';
       applyBlurIntensity(parseInt(range.value, 10));
@@ -993,7 +1017,8 @@
   // ============================================
   function init() {
     injectStyles();
-    applyBlurIntensity(parseInt(localStorage.getItem('sl-blur-intensity') || '100', 10));
+    var blurEnabled = localStorage.getItem('sl-blur-enabled') !== 'false';
+    applyBlurIntensity(blurEnabled ? parseInt(localStorage.getItem('sl-blur-intensity') || '100', 10) : 0);
     createModsButton();
     syncModsButtonPosition();
 
