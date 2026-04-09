@@ -91,7 +91,7 @@ pub fn run() {
             .initialization_script(mod_ui_js)
             .build()?;
 
-            if let Err(error) = player::initialize(&app.handle().clone()) {
+            if let Err(error) = player::initialize(app.handle()) {
                 eprintln!("Failed to initialize native player: {error}");
                 return Err(error.into());
             }
@@ -108,7 +108,6 @@ pub fn run() {
             window.on_window_event(move |event| {
                 match event {
                     tauri::WindowEvent::Resized(_) => {
-                        let _ = player::sync_with_main_window(&app_handle_for_close);
                         if let Ok(is_maximized) = window_clone.is_maximized() {
                             let prev = max_flag.swap(is_maximized, Ordering::Relaxed);
                             if is_maximized != prev {

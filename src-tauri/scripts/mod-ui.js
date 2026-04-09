@@ -376,11 +376,19 @@
 
     _layoutSyncFrame = window.requestAnimationFrame(function() {
       _layoutSyncFrame = 0;
+      if (_layoutSyncTimeout) {
+        window.clearTimeout(_layoutSyncTimeout);
+        _layoutSyncTimeout = 0;
+      }
       syncModsButtonPosition();
     });
 
     _layoutSyncTimeout = window.setTimeout(function() {
       _layoutSyncTimeout = 0;
+      if (_layoutSyncFrame) {
+        window.cancelAnimationFrame(_layoutSyncFrame);
+        _layoutSyncFrame = 0;
+      }
       syncModsButtonPosition();
     }, 120);
   }

@@ -22,7 +22,7 @@ echo "Extracting..."
 mkdir -p "$TAURI_DIR/binaries" "$TAURI_DIR/resources"
 unzip -o "$TEMP_DIR/$ASSET" -d "$TEMP_DIR/extracted"
 mkdir -p "$TEMP_DIR/ffmpeg"
-tar -xf "$TEMP_DIR/ffmpeg-essentials.7z" -C "$TEMP_DIR/ffmpeg"
+7z x "$TEMP_DIR/ffmpeg-essentials.7z" -o"$TEMP_DIR/ffmpeg" -y
 
 FFMPEG_BIN_DIR=$(find "$TEMP_DIR/ffmpeg" -type f -name ffmpeg.exe -exec dirname {} \; | head -n 1)
 

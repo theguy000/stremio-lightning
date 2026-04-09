@@ -393,11 +393,6 @@ pub fn status(app: &AppHandle) -> NativePlayerStatus {
     }
 }
 
-pub fn sync_with_main_window(app: &AppHandle) -> Result<(), String> {
-    let _ = app;
-    Ok(())
-}
-
 pub fn handle_transport(app: &AppHandle, method: &str, data: Option<Value>) -> Result<(), String> {
     let state = app.state::<PlayerState>();
     let backend = state.backend.lock().map_err(|e| e.to_string())?;

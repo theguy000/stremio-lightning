@@ -3,13 +3,19 @@ use serde_json::{json, Value};
 use std::collections::VecDeque;
 use std::sync::{Condvar, Mutex};
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
 use tauri_plugin_opener::OpenerExt;
 
 use crate::player;
 
 pub const SHELL_TRANSPORT_EVENT: &str = "shell-transport-message";
 const TRANSPORT_OBJECT: &str = "transport";
+const RPC_TYPE_INIT: u8 = 3;
+const RPC_TYPE_SIGNAL: u8 = 1;
+const RPC_TYPE_INVOKE_METHOD: u8 = 6;
+const WIN_STATE_NORMAL: u32 = 8;
+const WIN_STATE_MINIMIZED: u32 = 9;
+const MAX_PENDING_MESSAGES: usize = 512;
 
 pub struct ShellTransportState {
     bridge_ready: Mutex<bool>,
@@ -160,9 +166,7 @@ pub fn emit_transport_event(app: &AppHandle, args: Value) -> Result<(), String> 
 }
 
 pub fn emit_window_visibility_change(app: &AppHandle) -> Result<(), String> {
-    let window = app
-        .get_webview_window("main")
-        .ok_or_else(|| "Main window not found".to_string())?;
+    let window = main_window(app)?;
     let visible = window.is_visible().map_err(|e| e.to_string())?;
     let fullscreen = window.is_fullscreen().map_err(|e| e.to_string())?;
 
@@ -180,11 +184,9 @@ pub fn emit_window_visibility_change(app: &AppHandle) -> Result<(), String> {
 }
 
 pub fn emit_window_state_change(app: &AppHandle) -> Result<(), String> {
-    let window = app
-        .get_webview_window("main")
-        .ok_or_else(|| "Main window not found".to_string())?;
+    let window = main_window(app)?;
     let minimized = window.is_minimized().map_err(|e| e.to_string())?;
-    let state = if minimized { 9 } else { 8 };
+    let state = if minimized { WIN_STATE_MINIMIZED } else { WIN_STATE_NORMAL };
 
     emit_or_queue_message(
         app,
@@ -205,12 +207,12 @@ fn parse_request(message: &str) -> Result<ParsedRequest, String> {
     let request: RpcRequest = serde_json::from_str(message)
         .map_err(|e| format!("Failed to parse shell transport message: {e}"))?;
 
-    if request.id == 0 || request.request_type == Some(3) {
+    if request.id == 0 || request.request_type == Some(RPC_TYPE_INIT) {
         return Ok(ParsedRequest::Handshake);
     }
 
     if let Some(request_type) = request.request_type {
-        if request_type != 6 {
+        if request_type != RPC_TYPE_INVOKE_METHOD {
             return Err(format!("Unsupported shell transport request type: {request_type}"));
         }
     }
@@ -233,7 +235,7 @@ fn handshake_response() -> String {
     serde_json::to_string(&RpcResponse {
         id: 0,
         object: TRANSPORT_OBJECT.to_string(),
-        response_type: 3,
+        response_type: RPC_TYPE_INIT,
         data: Some(RpcResponseData {
             transport: RpcResponseDataTransport {
                 properties: vec![
@@ -258,7 +260,7 @@ fn response_message(args: Value) -> String {
     serde_json::to_string(&RpcResponse {
         id: 1,
         object: TRANSPORT_OBJECT.to_string(),
-        response_type: 1,
+        response_type: RPC_TYPE_SIGNAL,
         args: Some(args),
         ..Default::default()
     })
@@ -292,6 +294,9 @@ fn emit_or_queue_message(app: &AppHandle, message: String) -> Result<(), String>
         emit_message_now(app, message)
     } else {
         let mut pending = state.pending_messages.lock().map_err(|e| e.to_string())?;
+        if pending.len() >= MAX_PENDING_MESSAGES {
+            pending.pop_front();
+        }
         pending.push_back(message);
         Ok(())
     }
@@ -303,9 +308,7 @@ fn emit_message_now(app: &AppHandle, message: String) -> Result<(), String> {
 }
 
 fn apply_window_visibility(app: &AppHandle, data: Option<&Value>) -> Result<(), String> {
-    let window = app
-        .get_webview_window("main")
-        .ok_or_else(|| "Main window not found".to_string())?;
+    let window = main_window(app)?;
 
     if let Some(fullscreen) = data
         .and_then(|value| value.get("fullscreen"))
@@ -321,7 +324,7 @@ fn apply_window_visibility(app: &AppHandle, data: Option<&Value>) -> Result<(), 
 
 fn open_external_if_allowed(app: &AppHandle, url: &str) -> Result<(), String> {
     let lower = url.to_lowercase();
-    let allowed = ["http://", "https://", "rtp://", "rtps://", "ftp://", "ipfs://"]
+    let allowed = ["http://", "https://", "rtp://", "rtsp://", "ftp://", "ipfs://"]
         .iter()
         .any(|prefix| lower.starts_with(prefix));
 
@@ -334,68 +337,45 @@ fn open_external_if_allowed(app: &AppHandle, url: &str) -> Result<(), String> {
         .map_err(|e| format!("Failed to open URL: {e}"))
 }
 
+fn main_window(app: &AppHandle) -> Result<WebviewWindow, String> {
+    app.get_webview_window("main")
+        .ok_or_else(|| "Main window not found".to_string())
+}
+
 fn close_main_window(app: &AppHandle) -> Result<(), String> {
-    let window = app
-        .get_webview_window("main")
-        .ok_or_else(|| "Main window not found".to_string())?;
-    window
-        .close()
-        .map_err(|e| format!("Failed to close main window: {e}"))
+    main_window(app)?.close().map_err(|e| format!("Failed to close main window: {e}"))
 }
 
 fn focus_main_window(app: &AppHandle) -> Result<(), String> {
-    let window = app
-        .get_webview_window("main")
-        .ok_or_else(|| "Main window not found".to_string())?;
-    window.set_focus().map_err(|e| format!("Failed to focus main window: {e}"))
+    main_window(app)?.set_focus().map_err(|e| format!("Failed to focus main window: {e}"))
 }
 
 fn minimize_main_window(app: &AppHandle) -> Result<(), String> {
-    let window = app
-        .get_webview_window("main")
-        .ok_or_else(|| "Main window not found".to_string())?;
-    window.minimize().map_err(|e| format!("Failed to minimize main window: {e}"))
+    main_window(app)?.minimize().map_err(|e| format!("Failed to minimize main window: {e}"))
 }
 
 fn maximize_main_window(app: &AppHandle) -> Result<(), String> {
-    let window = app
-        .get_webview_window("main")
-        .ok_or_else(|| "Main window not found".to_string())?;
-    window.maximize().map_err(|e| format!("Failed to maximize main window: {e}"))
+    main_window(app)?.maximize().map_err(|e| format!("Failed to maximize main window: {e}"))
 }
 
 fn unmaximize_main_window(app: &AppHandle) -> Result<(), String> {
-    let window = app
-        .get_webview_window("main")
-        .ok_or_else(|| "Main window not found".to_string())?;
-    window.unmaximize().map_err(|e| format!("Failed to unmaximize main window: {e}"))
+    main_window(app)?.unmaximize().map_err(|e| format!("Failed to unmaximize main window: {e}"))
 }
 
 fn show_main_window(app: &AppHandle) -> Result<(), String> {
-    let window = app
-        .get_webview_window("main")
-        .ok_or_else(|| "Main window not found".to_string())?;
-    window.show().map_err(|e| format!("Failed to show main window: {e}"))
+    main_window(app)?.show().map_err(|e| format!("Failed to show main window: {e}"))
 }
 
 fn hide_main_window(app: &AppHandle) -> Result<(), String> {
-    let window = app
-        .get_webview_window("main")
-        .ok_or_else(|| "Main window not found".to_string())?;
-    window.hide().map_err(|e| format!("Failed to hide main window: {e}"))
+    main_window(app)?.hide().map_err(|e| format!("Failed to hide main window: {e}"))
 }
 
 fn center_main_window(app: &AppHandle) -> Result<(), String> {
-    let window = app
-        .get_webview_window("main")
-        .ok_or_else(|| "Main window not found".to_string())?;
-    window.center().map_err(|e| format!("Failed to center main window: {e}"))
+    main_window(app)?.center().map_err(|e| format!("Failed to center main window: {e}"))
 }
 
 fn toggle_main_fullscreen(app: &AppHandle) -> Result<(), String> {
-    let window = app
-        .get_webview_window("main")
-        .ok_or_else(|| "Main window not found".to_string())?;
+    let window = main_window(app)?;
     let fullscreen = window.is_fullscreen().map_err(|e| e.to_string())?;
     window
         .set_fullscreen(!fullscreen)
@@ -403,9 +383,7 @@ fn toggle_main_fullscreen(app: &AppHandle) -> Result<(), String> {
 }
 
 fn toggle_devtools(app: &AppHandle) -> Result<(), String> {
-    let window = app
-        .get_webview_window("main")
-        .ok_or_else(|| "Main window not found".to_string())?;
+    let window = main_window(app)?;
     if window.is_devtools_open() {
         window.close_devtools();
     } else {
@@ -416,7 +394,7 @@ fn toggle_devtools(app: &AppHandle) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{handshake_response, parse_request, response_message, ParsedRequest};
+    use super::{handshake_response, parse_request, response_message, ParsedRequest, RPC_TYPE_INIT, RPC_TYPE_SIGNAL};
     use serde_json::{json, Value};
 
     #[test]
@@ -441,7 +419,7 @@ mod tests {
     fn serializes_handshake_shape() {
         let payload: Value = serde_json::from_str(&handshake_response()).unwrap();
         assert_eq!(payload["object"], "transport");
-        assert_eq!(payload["type"], 3);
+        assert_eq!(payload["type"], RPC_TYPE_INIT);
         assert_eq!(payload["data"]["transport"]["methods"][0][0], "onEvent");
     }
 
@@ -449,7 +427,7 @@ mod tests {
     fn serializes_event_shape() {
         let payload: Value = serde_json::from_str(&response_message(json!(["open-media", "stremio://foo"]))).unwrap();
         assert_eq!(payload["object"], "transport");
-        assert_eq!(payload["type"], 1);
+        assert_eq!(payload["type"], RPC_TYPE_SIGNAL);
         assert_eq!(payload["args"][0], "open-media");
     }
 }
