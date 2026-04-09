@@ -1,6 +1,8 @@
 mod commands;
+mod mod_manager;
 mod streaming_server;
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -28,6 +30,10 @@ pub fn run() {
         .manage(streaming_server::ServerState {
             child: Mutex::new(None),
         })
+        // Manage mod manager state
+        .manage(mod_manager::ModManagerState {
+            registered_schemas: Mutex::new(HashMap::new()),
+        })
         // Register commands
         .invoke_handler(tauri::generate_handler![
             commands::toggle_devtools,
@@ -36,9 +42,26 @@ pub fn run() {
             commands::stop_streaming_server,
             commands::restart_streaming_server,
             commands::get_streaming_server_status,
+            commands::get_plugins,
+            commands::get_themes,
+            commands::download_mod,
+            commands::delete_mod,
+            commands::get_mod_content,
+            commands::get_registry,
+            commands::check_mod_updates,
+            commands::get_setting,
+            commands::save_setting,
+            commands::register_settings,
+            commands::get_registered_settings,
         ])
         .setup(|app| {
+            // Ensure mod directories exist
+            if let Err(e) = mod_manager::ensure_dirs(app.handle()) {
+                eprintln!("Failed to create mod directories: {}", e);
+            }
+
             let bridge_js = include_str!("../scripts/bridge.js");
+            let mod_ui_js = include_str!("../scripts/mod-ui.js");
 
             let window = tauri::WebviewWindowBuilder::new(
                 app,
@@ -51,6 +74,7 @@ pub fn run() {
             .resizable(true)
             .maximizable(true)
             .initialization_script(bridge_js)
+            .initialization_script(mod_ui_js)
             .build()?;
 
             // Track window state changes (only emit on actual change)

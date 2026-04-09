@@ -53,7 +53,121 @@
     onServerStopped: function(callback) {
       return listen('server-stopped', function(e) { callback(e.payload); });
     },
+
+    // ============================================
+    // Mod Management
+    // ============================================
+    getPlugins: function() { return invoke('get_plugins'); },
+    getThemes: function() { return invoke('get_themes'); },
+    downloadMod: function(url, modType) { return invoke('download_mod', { url: url, modType: modType }); },
+    deleteMod: function(filename, modType) { return invoke('delete_mod', { filename: filename, modType: modType }); },
+    getModContent: function(filename, modType) { return invoke('get_mod_content', { filename: filename, modType: modType }); },
+    getRegistry: function() { return invoke('get_registry'); },
+    checkModUpdates: function(filename, modType) { return invoke('check_mod_updates', { filename: filename, modType: modType }); },
+
+    // Settings
+    getSetting: function(pluginName, key) { return invoke('get_setting', { pluginName: pluginName, key: key }); },
+    saveSetting: function(pluginName, key, value) { return invoke('save_setting', { pluginName: pluginName, key: key, value: JSON.stringify(value) }); },
+    registerSettings: function(pluginName, schema) { return invoke('register_settings', { pluginName: pluginName, schema: JSON.stringify(schema) }); },
+    getRegisteredSettings: function(pluginName) { return invoke('get_registered_settings', { pluginName: pluginName }); },
+
+    // Logging (tagged by plugin name)
+    info: function(tag, msg) { console.log('[' + tag + ']', msg); },
+    warn: function(tag, msg) { console.warn('[' + tag + ']', msg); },
+    error: function(tag, msg) { console.error('[' + tag + ']', msg); },
+
+    // Settings saved callbacks (per-plugin)
+    _settingsCallbacks: {},
+    onSettingsSaved: function(pluginName, callback) {
+      if (!window.StremioEnhancedAPI._settingsCallbacks[pluginName]) {
+        window.StremioEnhancedAPI._settingsCallbacks[pluginName] = [];
+      }
+      window.StremioEnhancedAPI._settingsCallbacks[pluginName].push(callback);
+    },
+    _notifySettingsSaved: function(pluginName, settings) {
+      var cbs = window.StremioEnhancedAPI._settingsCallbacks[pluginName] || [];
+      cbs.forEach(function(cb) { try { cb(settings); } catch(e) {} });
+    },
+
+    // Theme application
+    applyTheme: function(fileName) {
+      if (fileName === 'Default') {
+        var el = document.getElementById('activeTheme');
+        if (el) el.remove();
+        localStorage.setItem('currentTheme', 'Default');
+        return Promise.resolve();
+      }
+      return invoke('get_mod_content', { filename: fileName, modType: 'theme' }).then(function(css) {
+        var el = document.getElementById('activeTheme');
+        if (el) el.remove();
+        var style = document.createElement('style');
+        style.id = 'activeTheme';
+        style.textContent = css;
+        document.head.appendChild(style);
+        localStorage.setItem('currentTheme', fileName);
+      });
+    },
   };
+
+  // ============================================
+  // Auto-load Plugins & Theme
+  // ============================================
+  function loadEnabledPlugins() {
+    var enabled = JSON.parse(localStorage.getItem('enabledPlugins') || '[]');
+    enabled.forEach(function(pluginName) {
+      if (document.getElementById(pluginName)) return;
+      invoke('get_mod_content', { filename: pluginName, modType: 'plugin' }).then(function(content) {
+        var baseName = pluginName.replace('.plugin.js', '');
+        var wrapped = '(function() {\n' +
+          'var StremioEnhancedAPI = {\n' +
+          '  logger: {\n' +
+          '    info: function(m) { window.StremioEnhancedAPI.info("' + baseName + '", m); },\n' +
+          '    warn: function(m) { window.StremioEnhancedAPI.warn("' + baseName + '", m); },\n' +
+          '    error: function(m) { window.StremioEnhancedAPI.error("' + baseName + '", m); }\n' +
+          '  },\n' +
+          '  getSetting: function(k) { return window.StremioEnhancedAPI.getSetting("' + baseName + '", k); },\n' +
+          '  saveSetting: function(k, v) { return window.StremioEnhancedAPI.saveSetting("' + baseName + '", k, v); },\n' +
+          '  registerSettings: function(s) { return window.StremioEnhancedAPI.registerSettings("' + baseName + '", s); },\n' +
+          '  onSettingsSaved: function(cb) { return window.StremioEnhancedAPI.onSettingsSaved("' + baseName + '", cb); }\n' +
+          '};\n' +
+          'try {\n' + content + '\n} catch(err) { console.error("[ModController] Plugin crashed: ' + pluginName + '", err); }\n' +
+          '})();';
+        var script = document.createElement('script');
+        script.id = pluginName;
+        script.textContent = wrapped;
+        document.body.appendChild(script);
+      }).catch(function(e) {
+        console.error('[StremioLightning] Failed to load plugin:', pluginName, e);
+      });
+    });
+  }
+
+  function loadActiveTheme() {
+    var theme = localStorage.getItem('currentTheme');
+    if (theme && theme !== 'Default') {
+      invoke('get_mod_content', { filename: theme, modType: 'theme' }).then(function(css) {
+        var style = document.createElement('style');
+        style.id = 'activeTheme';
+        style.textContent = css;
+        document.head.appendChild(style);
+      }).catch(function(e) {
+        console.error('[StremioLightning] Failed to load theme:', theme, e);
+      });
+    }
+  }
+
+  // Load theme immediately (no delay on refresh) — document.head is
+  // available in initialization_script context, so inject the <style> ASAP.
+  loadActiveTheme();
+
+  // Load plugins after page is ready (they may depend on DOM)
+  if (document.readyState === 'complete') {
+    loadEnabledPlugins();
+  } else {
+    window.addEventListener('load', function() {
+      loadEnabledPlugins();
+    });
+  }
 
   // ============================================
   // External URL Handling (OAuth, popups, etc.)
