@@ -5,7 +5,7 @@
   "identifier": "com.stremio.lightning",
   "bundle": {
     "externalBin": ["binaries/stremio-runtime"],
-    "resources": ["resources/server.js", "resources/ffmpeg.exe", "resources/ffprobe.exe"]
+    "resources": ["resources/server.js", "resources/ffmpeg.exe", "resources/ffprobe.exe", "resources/libmpv-2.dll"]
   },
   "build": {
     "frontendDist": "../src"
