@@ -922,7 +922,7 @@
       updateBtn.addEventListener('click', function() {
         updateBtn.textContent = 'Updating...';
         updateBtn.disabled = true;
-        API.downloadMod(info.new_version ? info.new_version : '', type).then(function() {
+        API.downloadMod(info.update_url, type).then(function() {
           updateBtn.textContent = 'Updated!';
           var panel = document.getElementById('sl-mod-panel');
           if (panel) {

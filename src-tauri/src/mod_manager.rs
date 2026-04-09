@@ -55,6 +55,7 @@ pub struct UpdateInfo {
     pub installed_version: Option<String>,
     pub new_version: Option<String>,
     pub registry_version: Option<String>,
+    pub update_url: Option<String>,
 }
 
 pub struct ModManagerState {
@@ -316,6 +317,7 @@ pub async fn check_mod_updates(
                 installed_version: None,
                 new_version: None,
                 registry_version: None,
+                update_url: None,
             });
         }
     };
@@ -330,6 +332,7 @@ pub async fn check_mod_updates(
                 installed_version: Some(installed_version),
                 new_version: None,
                 registry_version: None,
+                update_url: None,
             });
         }
     };
@@ -341,6 +344,7 @@ pub async fn check_mod_updates(
 
     let mut new_version: Option<String> = None;
     let mut has_update = false;
+    let mut resolved_update_url = update_url.clone();
 
     if remote_response.status().is_success() {
         let remote_content = remote_response
@@ -366,6 +370,7 @@ pub async fn check_mod_updates(
                     if !has_update && is_newer_version(&entry.version, &installed_version) {
                         has_update = true;
                         new_version = Some(entry.version.clone());
+                        resolved_update_url = entry.download.clone();
                     }
                     break;
                 }
@@ -378,6 +383,7 @@ pub async fn check_mod_updates(
         installed_version: Some(installed_version),
         new_version,
         registry_version,
+        update_url: if has_update { Some(resolved_update_url) } else { None },
     })
 }
 
