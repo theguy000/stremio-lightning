@@ -3,7 +3,7 @@ use serde_json::{json, Value};
 use std::collections::VecDeque;
 use std::sync::{Condvar, Mutex};
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
+use tauri::{AppHandle, Emitter, Manager, Webview, Window};
 use tauri_plugin_opener::OpenerExt;
 
 use crate::player;
@@ -337,9 +337,14 @@ fn open_external_if_allowed(app: &AppHandle, url: &str) -> Result<(), String> {
         .map_err(|e| format!("Failed to open URL: {e}"))
 }
 
-fn main_window(app: &AppHandle) -> Result<WebviewWindow, String> {
-    app.get_webview_window("main")
+fn main_window(app: &AppHandle) -> Result<Window, String> {
+    app.get_window(player::MAIN_APP_LABEL)
         .ok_or_else(|| "Main window not found".to_string())
+}
+
+fn main_webview(app: &AppHandle) -> Result<Webview, String> {
+    app.get_webview(player::MAIN_APP_LABEL)
+        .ok_or_else(|| "Main webview not found".to_string())
 }
 
 fn close_main_window(app: &AppHandle) -> Result<(), String> {
@@ -383,11 +388,11 @@ fn toggle_main_fullscreen(app: &AppHandle) -> Result<(), String> {
 }
 
 fn toggle_devtools(app: &AppHandle) -> Result<(), String> {
-    let window = main_window(app)?;
-    if window.is_devtools_open() {
-        window.close_devtools();
+    let webview = main_webview(app)?;
+    if webview.is_devtools_open() {
+        webview.close_devtools();
     } else {
-        window.open_devtools();
+        webview.open_devtools();
     }
     Ok(())
 }

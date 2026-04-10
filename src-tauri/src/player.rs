@@ -3,9 +3,10 @@ use serde_json::Value;
 use std::sync::mpsc::{self, Sender};
 use std::sync::Mutex;
 use std::thread;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, Window};
 
-pub const PLAYER_HOST_LABEL: &str = "main";
+pub const MAIN_APP_LABEL: &str = "main";
+pub const PLAYER_HOST_LABEL: &str = MAIN_APP_LABEL;
 
 const FLOAT_PROPERTIES: &[&str] = &[
     "time-pos",
@@ -66,7 +67,7 @@ pub struct NativePlayerStatus {
 
 struct PlayerBackend {
     command_sender: Sender<PlayerCommand>,
-    window: tauri::WebviewWindow,
+    window: Window,
 }
 
 enum PlayerCommand {
@@ -341,7 +342,7 @@ pub fn initialize(app: &AppHandle) -> Result<(), String> {
     }
 
     let main_window = app
-        .get_webview_window("main")
+        .get_window(MAIN_APP_LABEL)
         .ok_or_else(|| "Main window not found".to_string())?;
 
     let player_hwnd = main_window.hwnd().map_err(|e| e.to_string())?;

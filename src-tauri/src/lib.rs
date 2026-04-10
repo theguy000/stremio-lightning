@@ -8,13 +8,15 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
+use tauri::webview::WebviewBuilder;
+use tauri::window::WindowBuilder;
 use tauri::{Emitter, Manager};
 
 pub fn run() {
     tauri::Builder::default()
         // Single instance lock
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
-            if let Some(window) = app.get_webview_window("main") {
+            if let Some(window) = app.get_window(player::MAIN_APP_LABEL) {
                 let _ = window.unminimize();
                 let _ = window.set_focus();
             }
@@ -74,22 +76,31 @@ pub fn run() {
             let bridge_js = include_str!("../scripts/bridge.js");
             let mod_ui_js = include_str!("../scripts/mod-ui.js");
 
-            let window = tauri::WebviewWindowBuilder::new(
-                app,
-                "main",
-                tauri::WebviewUrl::External("https://web.stremio.com/".parse().unwrap()),
-            )
+            let window = WindowBuilder::new(app, player::MAIN_APP_LABEL)
             .title("Stremio Lightning")
             .inner_size(1500.0, 850.0)
             .center()
             .resizable(true)
             .maximizable(true)
-            .transparent(true)
-            .background_color(tauri::webview::Color(255, 255, 255, 0))
-            .initialization_script(&native_player_flag_js)
-            .initialization_script(bridge_js)
-            .initialization_script(mod_ui_js)
+            .visible(false)
+            .background_color(tauri::webview::Color(0, 0, 0, 255))
             .build()?;
+
+            let webview = window.add_child(
+                WebviewBuilder::new(
+                    player::MAIN_APP_LABEL,
+                    tauri::WebviewUrl::External("https://web.stremio.com/".parse().unwrap()),
+                )
+                .transparent(true)
+                .auto_resize()
+                .initialization_script(&native_player_flag_js)
+                .initialization_script(bridge_js)
+                .initialization_script(mod_ui_js),
+                tauri::LogicalPosition::new(0.0, 0.0),
+                window.inner_size()?,
+            )?;
+            webview.set_background_color(Some(tauri::webview::Color(0, 0, 0, 0)))?;
+            window.show()?;
 
             if let Err(error) = player::initialize(app.handle()) {
                 eprintln!("Failed to initialize native player: {error}");
@@ -146,8 +157,8 @@ pub fn run() {
                                 &app_for_reload,
                                 std::time::Duration::from_secs(15),
                             );
-                            if let Some(window) = app_for_reload.get_webview_window("main") {
-                                let _ = window.eval(
+                            if let Some(webview) = app_for_reload.get_webview(player::MAIN_APP_LABEL) {
+                                let _ = webview.eval(
                                     "if (typeof core !== 'undefined' && core.transport) { \
                                         core.transport.dispatch({ action: 'StreamingServer', args: { action: 'Reload' } }); \
                                     }"
@@ -183,14 +194,14 @@ pub fn run() {
 }
 
 fn handle_stremio_url(app: &tauri::AppHandle, url: &str) {
-    if let Some(window) = app.get_webview_window("main") {
+    if let Some(webview) = app.get_webview(player::MAIN_APP_LABEL) {
         if url.contains("/manifest.json") {
             let escaped = url.replace('\\', "\\\\").replace('\'', "\\'");
             let nav_js = format!(
                 "window.location.href = 'https://web.stremio.com/#/addons?addon=' + encodeURIComponent('{}')",
                 escaped
             );
-            let _ = window.eval(&nav_js);
+            let _ = webview.eval(&nav_js);
         } else {
             let _ = shell_transport::enqueue_open_media(app, url.to_string());
         }

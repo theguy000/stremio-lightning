@@ -1,4 +1,4 @@
-use tauri::{Manager, WebviewWindow};
+use tauri::Manager;
 use tauri_plugin_opener::OpenerExt;
 
 use crate::mod_manager::{self, ModManagerState};
@@ -7,11 +7,13 @@ use crate::shell_transport;
 use crate::streaming_server;
 
 #[tauri::command]
-pub fn toggle_devtools(window: WebviewWindow) {
-    if window.is_devtools_open() {
-        window.close_devtools();
-    } else {
-        window.open_devtools();
+pub fn toggle_devtools(app: tauri::AppHandle) {
+    if let Some(webview) = app.get_webview(player::MAIN_APP_LABEL) {
+        if webview.is_devtools_open() {
+            webview.close_devtools();
+        } else {
+            webview.open_devtools();
+        }
     }
 }
 
