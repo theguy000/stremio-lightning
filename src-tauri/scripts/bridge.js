@@ -396,14 +396,50 @@
   // ============================================
   var zoomLevel = 1.0;
 
+  function toggleFullscreen() {
+    appWindow.isFullscreen().then(function(fs) {
+      appWindow.setFullscreen(!fs);
+    });
+  }
+
+  // ============================================
+  // Fullscreen Button Interception
+  // ============================================
+  // The Stremio web UI has fullscreen buttons with title "Enter fullscreen mode"
+  // or "Exit fullscreen mode". We intercept clicks on these to use native fullscreen.
+  document.addEventListener('click', function(e) {
+    var el = e.target;
+    // Walk up from the click target to find the button container
+    for (var i = 0; i < 5 && el && el !== document; i++) {
+      var title = el.getAttribute && el.getAttribute('title');
+      if (title && (title.indexOf('fullscreen') !== -1 || title.indexOf('Fullscreen') !== -1)) {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleFullscreen();
+        return;
+      }
+      el = el.parentElement;
+    }
+  }, true);
+
   document.addEventListener('keydown', function(e) {
     // F11: Toggle fullscreen
     if (e.key === 'F11') {
       e.preventDefault();
-      appWindow.isFullscreen().then(function(fs) {
-        appWindow.setFullscreen(!fs);
-      });
+      toggleFullscreen();
       return;
+    }
+
+    // F key: Toggle fullscreen (not when typing in input fields)
+    if (e.key === 'f' && !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey) {
+      var tag = document.activeElement ? document.activeElement.tagName : '';
+      var isInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' ||
+                    (document.activeElement && document.activeElement.isContentEditable);
+      if (!isInput) {
+        e.preventDefault();
+        toggleFullscreen();
+        return;
+      }
     }
 
     // Only process Ctrl+ shortcuts below
