@@ -1,0 +1,124 @@
+name: Build & Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+            deps_platform: windows
+          - platform: macos-latest
+            target: aarch64-apple-darwin
+            deps_platform: macos-arm64
+          - platform: macos-latest
+            target: x86_64-apple-darwin
+            deps_platform: macos-x86_64
+          - platform: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            deps_platform: linux
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # --- System dependencies (Linux) ---
+      - name: Install system dependencies (Linux)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      # --- Setup toolchain ---
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+
+      - name: Install frontend dependencies
+        run: npm install
+
+      # --- Download streaming server + static ffmpeg ---
+      - name: Download dependencies
+        run: bash src-tauri/scripts/download-deps.sh --platform ${{ matrix.deps_platform }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # --- Download libmpv (Windows only) ---
+      - name: Download libmpv (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $headers = @{}
+          if ($env:GITHUB_TOKEN) { $headers["Authorization"] = "Bearer $env:GITHUB_TOKEN" }
+          $mpvRelease = Invoke-RestMethod -Uri "https://api.github.com/repos/zhongfly/mpv-winbuild/releases/latest" -Headers $headers
+          $asset = $mpvRelease.assets | Where-Object { $_.name -match "mpv-dev-x86_64.*\.7z$" } | Select-Object -First 1
+          if (-not $asset) {
+            Write-Error "Could not find mpv-dev-x86_64 asset in mpv-winbuild release"
+            exit 1
+          }
+          Write-Host "Downloading $($asset.name)..."
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile "$env:TEMP\mpv-dev.7z"
+          7z x "$env:TEMP\mpv-dev.7z" -o"src-tauri\mpv-dev" -y
+          Copy-Item "src-tauri\mpv-dev\libmpv-2.dll" "src-tauri\resources\libmpv-2.dll"
+          Write-Host "libmpv-2.dll placed in src-tauri\resources\"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # --- Patch tauri.conf.json for platform-specific resources ---
+      - name: Configure resources (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $conf = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json -Depth 20
+          $conf.bundle.resources = @(
+            "resources/server.js",
+            "resources/ffmpeg.exe",
+            "resources/ffprobe.exe",
+            "resources/libmpv-2.dll"
+          )
+          $conf.bundle.externalBin = @("binaries/stremio-runtime")
+          $conf | ConvertTo-Json -Depth 20 | Set-Content src-tauri/tauri.conf.json
+
+      - name: Configure resources (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          jq '.bundle.resources = ["resources/server.js", "resources/ffmpeg", "resources/ffprobe"] | .bundle.externalBin = ["binaries/stremio-runtime"]' \
+            src-tauri/tauri.conf.json > tmp.json && mv tmp.json src-tauri/tauri.conf.json
+
+      - name: Configure resources (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          jq '.bundle.resources = ["resources/server.js", "resources/ffmpeg", "resources/ffprobe"] | .bundle.externalBin = ["binaries/stremio-runtime"]' \
+            src-tauri/tauri.conf.json > tmp.json && mv tmp.json src-tauri/tauri.conf.json
+
+      # --- Build & Release ---
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: v__VERSION__
+          releaseName: "Stremio Lightning v__VERSION__"
+          releaseBody: "See the assets to download and install."
+          releaseDraft: true
+          prerelease: false
+          args: --target ${{ matrix.target }}

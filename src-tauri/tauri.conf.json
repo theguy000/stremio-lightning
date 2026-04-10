@@ -4,8 +4,51 @@
   "version": "0.1.0",
   "identifier": "com.stremio.lightning",
   "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
     "externalBin": ["binaries/stremio-runtime"],
-    "resources": ["resources/server.js", "resources/ffmpeg.exe", "resources/ffprobe.exe", "resources/libmpv-2.dll"]
+    "resources": [
+      "resources/server.js",
+      "resources/ffmpeg.exe",
+      "resources/ffprobe.exe",
+      "resources/libmpv-2.dll"
+    ],
+    "windows": {
+      "nsis": {
+        "displayLanguageSelector": false,
+        "installerIcon": "icons/icon.ico"
+      },
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      }
+    },
+    "macOS": {
+      "minimumSystemVersion": "10.15",
+      "dmg": {
+        "appPosition": { "x": 180, "y": 170 },
+        "applicationFolderPosition": { "x": 480, "y": 170 },
+        "windowSize": { "height": 400, "width": 660 }
+      }
+    },
+    "linux": {
+      "deb": {
+        "depends": ["libwebkit2gtk-4.1-0"]
+      },
+      "rpm": {
+        "depends": ["webkit2gtk4.1"]
+      },
+      "appimage": {
+        "bundleMediaFramework": false
+      }
+    }
   },
   "build": {
     "frontendDist": "../src"
