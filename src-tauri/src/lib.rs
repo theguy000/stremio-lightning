@@ -1,3 +1,4 @@
+mod app_updater;
 mod commands;
 mod discord_rpc;
 mod mod_manager;
@@ -68,6 +69,7 @@ pub fn run() {
             commands::start_discord_rpc,
             commands::stop_discord_rpc,
             commands::update_discord_activity,
+            commands::check_app_update,
         ])
         .setup(|app| {
             // Ensure mod directories exist

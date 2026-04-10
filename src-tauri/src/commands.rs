@@ -1,6 +1,7 @@
 use tauri::Manager;
 use tauri_plugin_opener::OpenerExt;
 
+use crate::app_updater;
 use crate::discord_rpc::{self, ActivityPayload, DiscordRpcState};
 use crate::mod_manager::{self, ModManagerState};
 use crate::player;
@@ -192,4 +193,11 @@ pub async fn update_discord_activity(
 ) -> Result<(), String> {
     let state = app.state::<DiscordRpcState>();
     discord_rpc::update_activity(&app, &state, activity)
+}
+
+// ── App update check ──
+
+#[tauri::command]
+pub async fn check_app_update() -> Result<app_updater::AppUpdateInfo, String> {
+    app_updater::check_app_update().await
 }
