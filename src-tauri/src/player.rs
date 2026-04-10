@@ -277,7 +277,9 @@ mod platform {
             PropertyData::Str(value) => {
                 let value = value.to_string();
                 if JSON_STRING_PROPERTIES.contains(&name) {
-                    serde_json::from_str::<Value>(&value).ok().or(Some(Value::String(value)))
+                    serde_json::from_str::<Value>(&value)
+                        .ok()
+                        .or(Some(Value::String(value)))
                 } else {
                     Some(Value::String(value))
                 }
@@ -335,55 +337,59 @@ pub fn initialize(app: &AppHandle) -> Result<(), String> {
         return Ok(());
     }
 
-    let state = app.state::<PlayerState>();
-    let mut backend = state.backend.lock().map_err(|e| e.to_string())?;
-    if backend.is_some() {
-        return Ok(());
+    #[cfg(windows)]
+    {
+        let state = app.state::<PlayerState>();
+        let mut backend = state.backend.lock().map_err(|e| e.to_string())?;
+        if backend.is_some() {
+            return Ok(());
+        }
+
+        let main_window = app
+            .get_window(MAIN_APP_LABEL)
+            .ok_or_else(|| "Main window not found".to_string())?;
+
+        let player_hwnd = main_window.hwnd().map_err(|e| e.to_string())?;
+
+        let mpv = platform::create(player_hwnd.0 as isize)?;
+        let (command_sender, command_receiver) = mpsc::channel::<PlayerCommand>();
+        let app_handle = app.clone();
+
+        thread::spawn(move || {
+            platform::run_event_loop(app_handle, mpv, command_receiver);
+        });
+
+        *backend = Some(PlayerBackend {
+            command_sender,
+            window: main_window.clone(),
+        });
+
+        eprintln!(
+            "[StremioLightning] Native player initialized with backend=libmpv window={}",
+            PLAYER_HOST_LABEL
+        );
     }
-
-    let main_window = app
-        .get_window(MAIN_APP_LABEL)
-        .ok_or_else(|| "Main window not found".to_string())?;
-
-    let player_hwnd = main_window.hwnd().map_err(|e| e.to_string())?;
-
-    let mpv = platform::create(player_hwnd.0 as isize)?;
-    let (command_sender, command_receiver) = mpsc::channel::<PlayerCommand>();
-    let app_handle = app.clone();
-
-    thread::spawn(move || {
-        platform::run_event_loop(app_handle, mpv, command_receiver);
-    });
-
-    *backend = Some(PlayerBackend {
-        command_sender,
-        window: main_window.clone(),
-    });
-
-    eprintln!(
-        "[StremioLightning] Native player initialized with backend=libmpv window={}",
-        PLAYER_HOST_LABEL
-    );
 
     Ok(())
 }
 
 pub fn status(app: &AppHandle) -> NativePlayerStatus {
     let enabled = native_player_enabled();
-    let (initialized, host_window_label, host_window_visible) = match app.state::<PlayerState>().backend.lock() {
-        Ok(guard) => {
-            if let Some(backend) = guard.as_ref() {
-                (
-                    true,
-                    Some(backend.window.label().to_string()),
-                    backend.window.is_visible().unwrap_or(false),
-                )
-            } else {
-                (false, None, false)
+    let (initialized, host_window_label, host_window_visible) =
+        match app.state::<PlayerState>().backend.lock() {
+            Ok(guard) => {
+                if let Some(backend) = guard.as_ref() {
+                    (
+                        true,
+                        Some(backend.window.label().to_string()),
+                        backend.window.is_visible().unwrap_or(false),
+                    )
+                } else {
+                    (false, None, false)
+                }
             }
-        }
-        Err(_) => (false, None, false),
-    };
+            Err(_) => (false, None, false),
+        };
 
     NativePlayerStatus {
         enabled,
@@ -452,10 +458,7 @@ pub fn handle_transport(app: &AppHandle, method: &str, data: Option<Value>) -> R
                 .collect::<Result<Vec<_>, String>>()?;
 
             if name == "loadfile" {
-                eprintln!(
-                    "[StremioLightning] MPV loadfile -> {:?}",
-                    values
-                );
+                eprintln!("[StremioLightning] MPV loadfile -> {:?}", values);
                 let _ = backend.window.set_focus();
             } else if name == "stop" {
                 eprintln!("[StremioLightning] MPV stop");

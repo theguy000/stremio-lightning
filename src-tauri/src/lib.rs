@@ -94,16 +94,22 @@ pub fn run() {
             .background_color(tauri::webview::Color(0, 0, 0, 255))
             .build()?;
 
-            let webview = window.add_child(
-                WebviewBuilder::new(
+            let mut webview_builder = WebviewBuilder::new(
                     player::MAIN_APP_LABEL,
                     tauri::WebviewUrl::External("https://web.stremio.com/".parse().unwrap()),
                 )
-                .transparent(true)
                 .auto_resize()
                 .initialization_script(&native_player_flag_js)
                 .initialization_script(bridge_js)
-                .initialization_script(mod_ui_js),
+                .initialization_script(mod_ui_js);
+
+            #[cfg(windows)]
+            {
+                webview_builder = webview_builder.transparent(true);
+            }
+
+            let webview = window.add_child(
+                webview_builder,
                 tauri::LogicalPosition::new(0.0, 0.0),
                 window.inner_size()?,
             )?;
