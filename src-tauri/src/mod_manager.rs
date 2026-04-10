@@ -75,7 +75,7 @@ pub fn get_mods_dir(app: &tauri::AppHandle, mod_type: &str) -> Result<PathBuf, S
         _ => return Err(format!("Unknown mod type: {}", mod_type)),
     };
 
-    Ok(base.join("stremio-enhanced").join(sub))
+    Ok(base.join("stremio-lightning").join(sub))
 }
 
 /// Creates both plugins/ and themes/ directories if they don't exist.

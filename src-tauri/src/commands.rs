@@ -1,6 +1,7 @@
 use tauri::Manager;
 use tauri_plugin_opener::OpenerExt;
 
+use crate::discord_rpc::{self, ActivityPayload, DiscordRpcState};
 use crate::mod_manager::{self, ModManagerState};
 use crate::player;
 use crate::shell_transport;
@@ -168,4 +169,27 @@ pub async fn get_registered_settings(
         .get(&plugin_name)
         .cloned()
         .unwrap_or(serde_json::Value::Null))
+}
+
+// ── Discord RPC commands ──
+
+#[tauri::command]
+pub async fn start_discord_rpc(app: tauri::AppHandle) -> Result<(), String> {
+    let state = app.state::<DiscordRpcState>();
+    discord_rpc::start(&app, &state)
+}
+
+#[tauri::command]
+pub async fn stop_discord_rpc(app: tauri::AppHandle) -> Result<(), String> {
+    let state = app.state::<DiscordRpcState>();
+    discord_rpc::stop(&state)
+}
+
+#[tauri::command]
+pub async fn update_discord_activity(
+    app: tauri::AppHandle,
+    activity: ActivityPayload,
+) -> Result<(), String> {
+    let state = app.state::<DiscordRpcState>();
+    discord_rpc::update_activity(&app, &state, activity)
 }

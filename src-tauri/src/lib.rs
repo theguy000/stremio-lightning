@@ -1,4 +1,5 @@
 mod commands;
+mod discord_rpc;
 mod mod_manager;
 mod player;
 mod shell_transport;
@@ -36,6 +37,8 @@ pub fn run() {
         })
         .manage(player::PlayerState::default())
         .manage(shell_transport::ShellTransportState::default())
+        // Manage Discord RPC state
+        .manage(discord_rpc::DiscordRpcState::default())
         // Manage mod manager state
         .manage(mod_manager::ModManagerState {
             registered_schemas: Mutex::new(HashMap::new()),
@@ -62,6 +65,9 @@ pub fn run() {
             commands::save_setting,
             commands::register_settings,
             commands::get_registered_settings,
+            commands::start_discord_rpc,
+            commands::stop_discord_rpc,
+            commands::update_discord_activity,
         ])
         .setup(|app| {
             // Ensure mod directories exist
@@ -135,9 +141,11 @@ pub fn run() {
                         }
                     }
                     tauri::WindowEvent::CloseRequested { .. } => {
-                        // Graceful shutdown: kill the streaming server
+                        // Graceful shutdown: kill the streaming server and Discord RPC
                         let _ = streaming_server::stop_server(&app_handle_for_close);
                         let _ = player::stop_and_hide(&app_handle_for_close);
+                        let discord_state = app_handle_for_close.state::<discord_rpc::DiscordRpcState>();
+                        let _ = discord_rpc::stop(&discord_state);
                     }
                     _ => {}
                 }

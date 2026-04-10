@@ -541,6 +541,7 @@
 
     panel.classList.add('sl-open');
     _panelOpen = true;
+    window.dispatchEvent(new CustomEvent('sl-mods-panel', { detail: true }));
 
     if (_navButton) _navButton.setAttribute('data-sl-active', '');
 
@@ -556,6 +557,7 @@
     if (!panel) return;
     panel.classList.remove('sl-open');
     _panelOpen = false;
+    window.dispatchEvent(new CustomEvent('sl-mods-panel', { detail: false }));
     if (_navButton) _navButton.removeAttribute('data-sl-active');
     syncNativeNavSelectionOverride(null);
   }
@@ -920,10 +922,24 @@
   function populateSettings(container) {
     var blurVal = parseInt(localStorage.getItem('sl-blur-intensity') || '100', 10);
     var blurEnabled = localStorage.getItem('sl-blur-enabled') !== 'false';
+    var discordEnabled = localStorage.getItem('discordrichpresence') === 'true';
     container.innerHTML =
       '<div style="max-width:35rem;">' +
         '<div class="sl-section-header"><div class="sl-section-title">Settings</div></div>' +
-        '<h3 style="margin:0 0 0.75rem; font-size:1.1rem; font-weight:500; color:var(--primary-foreground-color, #f2f2f2); opacity:0.6;">Blur Effect</h3>' +
+        '<h3 style="margin:0 0 0.75rem; font-size:1.1rem; font-weight:500; color:var(--primary-foreground-color, #f2f2f2); opacity:0.6;">Integrations</h3>' +
+        '<div class="sl-setting-row">' +
+          '<div class="sl-setting-label">' +
+            '<div class="sl-setting-label-text">Discord Rich Presence</div>' +
+            '<div class="sl-setting-label-desc">Show what you\'re watching on your Discord profile</div>' +
+          '</div>' +
+          '<div class="sl-setting-control">' +
+            '<label class="sl-toggle">' +
+              '<input type="checkbox" id="sl-discord-rpc-toggle"' + (discordEnabled ? ' checked' : '') + '>' +
+              '<div class="sl-toggle-track"><div class="sl-toggle-thumb"></div></div>' +
+            '</label>' +
+          '</div>' +
+        '</div>' +
+        '<h3 style="margin:1.5rem 0 0.75rem; font-size:1.1rem; font-weight:500; color:var(--primary-foreground-color, #f2f2f2); opacity:0.6;">Blur Effect</h3>' +
         '<div class="sl-setting-row">' +
           '<div class="sl-setting-label">' +
             '<div class="sl-setting-label-text">Backdrop Blur</div>' +
@@ -948,6 +964,41 @@
         '</div>' +
       '</div>';
 
+    // Discord RPC toggle
+    var discordToggle = document.getElementById('sl-discord-rpc-toggle');
+    discordToggle.addEventListener('change', function() {
+      var enabled = discordToggle.checked;
+      localStorage.setItem('discordrichpresence', enabled ? 'true' : 'false');
+      if (enabled) {
+        invoke('start_discord_rpc').then(function() {
+          // Start the tracker by dispatching a synthetic hashchange
+          if (window.StremioEnhancedAPI && window.StremioEnhancedAPI._discordTrackerInit) {
+            window.StremioEnhancedAPI._discordTrackerInit();
+          } else {
+            // Fallback: emit event for bridge.js to pick up
+            window.dispatchEvent(new CustomEvent('sl-discord-rpc-enable'));
+          }
+          console.info('[StremioLightning] Discord RPC enabled');
+        }).catch(function(e) {
+          console.error('[StremioLightning] Failed to start Discord RPC:', e);
+          discordToggle.checked = false;
+          localStorage.setItem('discordrichpresence', 'false');
+        });
+      } else {
+        invoke('stop_discord_rpc').then(function() {
+          if (window.StremioEnhancedAPI && window.StremioEnhancedAPI._discordTrackerStop) {
+            window.StremioEnhancedAPI._discordTrackerStop();
+          } else {
+            window.dispatchEvent(new CustomEvent('sl-discord-rpc-disable'));
+          }
+          console.info('[StremioLightning] Discord RPC disabled');
+        }).catch(function(e) {
+          console.error('[StremioLightning] Failed to stop Discord RPC:', e);
+        });
+      }
+    });
+
+    // Blur settings
     var toggle = document.getElementById('sl-blur-toggle');
     var intensityRow = document.getElementById('sl-blur-intensity-row');
     var range = document.getElementById('sl-blur-range');
