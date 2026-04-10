@@ -86,7 +86,10 @@
       'nav[data-sl-mods-muted] .selected:not(:hover):not(:focus):not(:focus-visible):not(:focus-within) { background:transparent !important; }' +
       'nav[data-sl-mods-muted] .selected:not(:hover):not(:focus):not(:focus-visible):not(:focus-within) .icon, nav[data-sl-mods-muted] .selected:not(:hover):not(:focus):not(:focus-visible):not(:focus-within) svg { color:var(--primary-foreground-color, rgba(255,255,255,0.52)) !important; opacity:0.35 !important; }' +
       'nav[data-sl-mods-muted] .selected:not(:hover):not(:focus):not(:focus-visible):not(:focus-within) .label { color:var(--primary-foreground-color, rgba(255,255,255,0.6)) !important; opacity:0 !important; }' +
-      '@media only screen and (max-width: 768px) { #sl-mods-btn[data-sl-anchor="floating"] { left:0.75rem; right:0.75rem; bottom:0.75rem; justify-content:center; } }' +
+      '#sl-mods-btn[data-sl-anchor="floating"] { padding:0.85rem; background:rgba(12,11,17,0.38); backdrop-filter:blur(22px) saturate(140%); -webkit-backdrop-filter:blur(22px) saturate(140%); border-radius:50%; }' +
+      '#sl-mods-btn[data-sl-anchor="floating"] .sl-mods-label { display:none; }' +
+      '#sl-mods-btn[data-sl-anchor="floating"]:hover { background:rgba(255,255,255,0.12); }' +
+      '@media only screen and (max-width: 768px) { #sl-mods-btn[data-sl-anchor="floating"] { left:auto; right:0.75rem; bottom:0.75rem; } }' +
 
       '#sl-mod-panel { position:fixed; top:0; right:0; bottom:0; z-index:99999; display:none; flex-direction:row; color:var(--primary-foreground-color, #f2f2f2); font-family:inherit; background:var(--sl-panel-bg, linear-gradient(180deg, rgba(0,0,0,0.28) 0%, rgba(0,0,0,0.16) 16%, rgba(0,0,0,0.12) 100%)); backdrop-filter:blur(var(--sl-blur-panel, 30px)) saturate(135%); -webkit-backdrop-filter:blur(var(--sl-blur-panel, 30px)) saturate(135%); overflow:hidden; }' +
       '#sl-mod-panel.sl-open { display:flex; }' +
@@ -291,7 +294,8 @@
       return true;
     }
 
-    return !!(nav && isHomeSelection(nav.element));
+    if (!nav) return false;
+    return isHomeSelection(nav.element);
   }
 
   function syncNavWidth() {
@@ -330,7 +334,7 @@
     }
 
     var nav = syncNavWidth();
-    var shouldShow = !!nav && shouldShowModsUi(nav);
+    var shouldShow = shouldShowModsUi(nav);
     syncNativeNavSelectionOverride(shouldShow ? nav : null);
 
     if (!shouldShow) {
@@ -349,17 +353,25 @@
       return;
     }
 
-    var lastTab = findLastNavTab(nav.element);
-    var navPadding = 10;
-    var minTop = Math.round(nav.rect.top + 16);
-    var maxTop = Math.round(nav.rect.bottom - 64);
-    var desiredTop = lastTab ? Math.round(lastTab.rect.bottom + 12) : minTop;
+    if (nav) {
+      var lastTab = findLastNavTab(nav.element);
+      var navPadding = 10;
+      var minTop = Math.round(nav.rect.top + 16);
+      var maxTop = Math.round(nav.rect.bottom - 64);
+      var desiredTop = lastTab ? Math.round(lastTab.rect.bottom + 12) : minTop;
 
-    btn.setAttribute('data-sl-anchor', 'nav');
-    btn.style.left = Math.round(nav.rect.left + navPadding) + 'px';
-    btn.style.top = Math.max(minTop, Math.min(desiredTop, maxTop)) + 'px';
-    btn.style.bottom = 'auto';
-    btn.style.width = Math.max(48, Math.round(nav.rect.width - (navPadding * 2))) + 'px';
+      btn.setAttribute('data-sl-anchor', 'nav');
+      btn.style.left = Math.round(nav.rect.left + navPadding) + 'px';
+      btn.style.top = Math.max(minTop, Math.min(desiredTop, maxTop)) + 'px';
+      btn.style.bottom = 'auto';
+      btn.style.width = Math.max(48, Math.round(nav.rect.width - (navPadding * 2))) + 'px';
+    } else {
+      btn.setAttribute('data-sl-anchor', 'floating');
+      btn.style.removeProperty('top');
+      btn.style.removeProperty('width');
+      btn.style.left = '1rem';
+      btn.style.bottom = '1rem';
+    }
 
     btn.setAttribute('data-sl-ready', 'true');
 
