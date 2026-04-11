@@ -17,11 +17,15 @@ const WIN_STATE_NORMAL: u32 = 8;
 const WIN_STATE_MINIMIZED: u32 = 9;
 const MAX_PENDING_MESSAGES: usize = 512;
 
+struct TransportQueue {
+    ready: bool,
+    pending: VecDeque<String>,
+}
+
 pub struct ShellTransportState {
     bridge_ready: Mutex<bool>,
     bridge_ready_condvar: Condvar,
-    transport_ready: Mutex<bool>,
-    pending_messages: Mutex<VecDeque<String>>,
+    queue: Mutex<TransportQueue>,
 }
 
 impl Default for ShellTransportState {
@@ -29,8 +33,10 @@ impl Default for ShellTransportState {
         Self {
             bridge_ready: Mutex::new(false),
             bridge_ready_condvar: Condvar::new(),
-            transport_ready: Mutex::new(false),
-            pending_messages: Mutex::new(VecDeque::new()),
+            queue: Mutex::new(TransportQueue {
+                ready: false,
+                pending: VecDeque::new(),
+            }),
         }
     }
 }
@@ -254,16 +260,16 @@ fn response_message(args: Value) -> String {
 
 fn mark_transport_ready(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<ShellTransportState>();
-    let mut ready = state.transport_ready.lock().map_err(|e| e.to_string())?;
-    *ready = true;
+    let mut queue = state.queue.lock().map_err(|e| e.to_string())?;
+    queue.ready = true;
     Ok(())
 }
 
 fn flush_pending_messages(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<ShellTransportState>();
-    let mut pending = state.pending_messages.lock().map_err(|e| e.to_string())?;
-    let messages: Vec<String> = pending.drain(..).collect();
-    drop(pending);
+    let mut queue = state.queue.lock().map_err(|e| e.to_string())?;
+    let messages: Vec<String> = queue.pending.drain(..).collect();
+    drop(queue);
 
     for message in messages {
         emit_message_now(app, message)?;
@@ -274,15 +280,15 @@ fn flush_pending_messages(app: &AppHandle) -> Result<(), String> {
 
 fn emit_or_queue_message(app: &AppHandle, message: String) -> Result<(), String> {
     let state = app.state::<ShellTransportState>();
-    let ready = *state.transport_ready.lock().map_err(|e| e.to_string())?;
-    if ready {
+    let mut queue = state.queue.lock().map_err(|e| e.to_string())?;
+    if queue.ready {
+        drop(queue);
         emit_message_now(app, message)
     } else {
-        let mut pending = state.pending_messages.lock().map_err(|e| e.to_string())?;
-        if pending.len() >= MAX_PENDING_MESSAGES {
-            pending.pop_front();
+        if queue.pending.len() >= MAX_PENDING_MESSAGES {
+            queue.pending.pop_front();
         }
-        pending.push_back(message);
+        queue.pending.push_back(message);
         Ok(())
     }
 }

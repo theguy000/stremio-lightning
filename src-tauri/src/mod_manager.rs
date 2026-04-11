@@ -409,6 +409,7 @@ pub fn get_setting(
     plugin_name: &str,
     key: &str,
 ) -> Result<serde_json::Value, String> {
+    validate_filename(plugin_name)?;
     let dir = get_mods_dir(app, "plugin")?;
     let config_path = dir.join(format!("{}.plugin.json", plugin_name));
 
@@ -432,6 +433,7 @@ pub fn save_setting(
     key: &str,
     value: serde_json::Value,
 ) -> Result<(), String> {
+    validate_filename(plugin_name)?;
     let state = app.state::<ModManagerState>();
     let _guard = state.settings_lock.lock().map_err(|e| e.to_string())?;
 
@@ -462,6 +464,7 @@ pub fn get_all_settings(
     app: &tauri::AppHandle,
     plugin_name: &str,
 ) -> Result<serde_json::Value, String> {
+    validate_filename(plugin_name)?;
     let dir = get_mods_dir(app, "plugin")?;
     let config_path = dir.join(format!("{}.plugin.json", plugin_name));
 
