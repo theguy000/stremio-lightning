@@ -6,6 +6,9 @@ use std::sync::Mutex;
 use std::thread;
 use tauri::{AppHandle, Manager, Window};
 
+#[cfg(windows)]
+use std::os::windows::ffi::OsStrExt;
+
 pub const MAIN_APP_LABEL: &str = "main";
 pub const PLAYER_HOST_LABEL: &str = MAIN_APP_LABEL;
 
@@ -387,6 +390,43 @@ pub fn initialize(app: &AppHandle) -> Result<(), String> {
 
     #[cfg(windows)]
     {
+        // Tauri bundles resources in a "resources/" subdirectory next to the exe,
+        // which is not on the default OS DLL search path. We must load
+        // libmpv-2.dll explicitly by full path before the first libmpv2 FFI
+        // call. The delay-load hook will then find the DLL already in memory.
+        {
+            let dll_path = app
+                .path()
+                .resource_dir()
+                .map(|dir| dir.join("resources").join("libmpv-2.dll"))
+                .map_err(|e| format!("Failed to resolve resource directory: {}", e))?;
+
+            let wide: Vec<u16> = dll_path.as_os_str().encode_wide().collect();
+            // LoadLibraryExW may not handle the \\?\ extended-length prefix,
+            // and the path doesn't need it (well under MAX_PATH).
+            let start = if wide.len() >= 4
+                && wide[..4] == ['\\' as u16, '\\' as u16, '?' as u16, '\\' as u16]
+            {
+                4
+            } else {
+                0
+            };
+            let wide: Vec<u16> = wide[start..].iter().copied().chain(std::iter::once(0)).collect();
+            unsafe {
+                let handle = windows_sys::Win32::System::LibraryLoader::LoadLibraryExW(
+                    wide.as_ptr(),
+                    std::ptr::null_mut(),
+                    0,
+                );
+                if handle.is_null() {
+                    return Err(format!(
+                        "Failed to load libmpv-2.dll from {}",
+                        dll_path.display()
+                    ));
+                }
+            }
+        }
+
         let state = app.state::<PlayerState>();
         let mut backend = state.backend.lock().map_err(|e| e.to_string())?;
         if backend.is_some() {

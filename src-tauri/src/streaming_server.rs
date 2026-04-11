@@ -21,9 +21,10 @@ pub struct ServerState {
 
 /// Resolve the path to a resource file.
 /// In dev mode, resources are in `src-tauri/resources/`.
-/// In production, they're in the app's resource directory.
+/// In production, resources are in a `resources/` subfolder next to the exe
+/// (NSIS layout). `resource_dir()` returns the exe directory, so we append
+/// `resources/` to get the actual resource location.
 fn resolve_resource(app: &AppHandle, filename: &str) -> Result<PathBuf, String> {
-    // Dev mode: look relative to CARGO_MANIFEST_DIR (src-tauri/)
     #[cfg(debug_assertions)]
     {
         let dev_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -34,10 +35,10 @@ fn resolve_resource(app: &AppHandle, filename: &str) -> Result<PathBuf, String> 
         }
     }
 
-    // Production: use Tauri's resource resolver
     app.path()
-        .resolve(filename, tauri::path::BaseDirectory::Resource)
-        .map_err(|e| format!("Failed to resolve resource '{}': {}", filename, e))
+        .resource_dir()
+        .map(|dir| dir.join("resources").join(filename))
+        .map_err(|e| format!("Failed to resolve resource directory: {}", e))
 }
 
 /// Start the streaming server sidecar process.
@@ -59,6 +60,10 @@ pub fn start_server(app: &AppHandle) -> Result<(), String> {
     let ffmpeg_path = resolve_resource(app, "ffmpeg.exe")?;
     let ffprobe_path = resolve_resource(app, "ffprobe.exe")?;
 
+    eprintln!("[StreamingServer] server.cjs path: {:?}", server_js);
+    eprintln!("[StreamingServer] ffmpeg path: {:?}", ffmpeg_path);
+    eprintln!("[StreamingServer] ffprobe path: {:?}", ffprobe_path);
+
     if !server_js.exists() {
         return Err(format!("server.cjs not found at {:?}", server_js));
     }
@@ -73,10 +78,14 @@ pub fn start_server(app: &AppHandle) -> Result<(), String> {
         .env("FFMPEG_BIN", ffmpeg_path.to_string_lossy().as_ref())
         .env("FFPROBE_BIN", ffprobe_path.to_string_lossy().as_ref());
 
+    eprintln!("[StreamingServer] Spawning sidecar...");
+
     // Spawn the process
     let (mut rx, child) = sidecar
         .spawn()
         .map_err(|e| format!("Failed to spawn streaming server: {}", e))?;
+
+    eprintln!("[StreamingServer] Sidecar spawned successfully");
 
     *child_lock = Some(child);
     drop(child_lock);
