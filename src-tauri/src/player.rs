@@ -106,6 +106,7 @@ fn signal_wakeup(wakeup: &Arc<(Mutex<bool>, Condvar)>) {
 }
 
 enum PlayerCommand {
+    Observe(String),
     SetProperty { name: String, value: Value },
     Command { name: String, args: Vec<String> },
 }
@@ -280,6 +281,13 @@ mod platform {
             // 1. Drain all pending commands from the Tauri IPC thread.
             for command in command_receiver.try_iter() {
                 match command {
+                    PlayerCommand::Observe(name) => {
+                        // Re-observe triggers a fresh PropertyChange event with the
+                        // current value, which the web UI needs to initialize its state.
+                        if let Err(error) = mpv.observe_property(&name, Format::Node, 0) {
+                            eprintln!("Failed to observe MPV property {name}: {error}");
+                        }
+                    }
                     PlayerCommand::SetProperty { name, value } => set_property(&mpv, &name, value),
                     PlayerCommand::Command { name, args } => send_command(&mpv, &name, &args),
                 }
@@ -612,7 +620,16 @@ pub fn handle_transport(app: &AppHandle, method: &str, data: Option<Value>) -> R
         .ok_or_else(|| "Native MPV backend is not initialized".to_string())?;
 
     let send_result = match method {
-        "mpv-observe-prop" => Ok(()),
+        "mpv-observe-prop" => {
+            let name = data
+                .as_ref()
+                .and_then(Value::as_str)
+                .ok_or_else(|| "Invalid mpv-observe-prop payload".to_string())?;
+            backend
+                .command_sender
+                .send(PlayerCommand::Observe(name.to_string()))
+                .map_err(|e| e.to_string())
+        }
         "mpv-set-prop" => {
             let pair = data
                 .as_ref()
