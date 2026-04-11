@@ -55,12 +55,15 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(streaming_server::ServerState {
             child: Mutex::new(None),
+            intentional_stop: std::sync::atomic::AtomicBool::new(false),
+            generation: std::sync::atomic::AtomicU64::new(0),
         })
         .manage(player::PlayerState::default())
         .manage(shell_transport::ShellTransportState::default())
         .manage(discord_rpc::DiscordRpcState::default())
         .manage(mod_manager::ModManagerState {
             registered_schemas: Mutex::new(HashMap::new()),
+            settings_lock: Mutex::new(()),
         })
         .invoke_handler(tauri::generate_handler![
             commands::toggle_devtools,
@@ -183,37 +186,28 @@ pub fn run() {
                         let _ = discord_rpc::stop(&discord_state);
                     }
                     tauri::WindowEvent::Focused(focused) => {
-                        // ── Cooldown guard ──
-                        // Calling `set_focus()` on the webview can itself trigger a brief
-                        // unfocus/refocus cycle. Without a cooldown, this would cause the
-                        // auto-pause feature to immediately pause and then resume, creating
-                        // an infinite loop. We ignore any focus event that arrives within
-                        // 200ms of the previous one to break this cycle.
-                        {
-                            // Recover from a poisoned mutex rather than panicking — if another
-                            // thread panicked while holding the lock, we still want to proceed.
+                        // Always update the tracked state so it never goes stale,
+                        // even when the cooldown suppresses side-effects.
+                        let prev = was_focused.swap(*focused, Ordering::Relaxed);
+
+                        // Cooldown: suppress side-effects (webview focus, auto-pause/resume)
+                        // for events that arrive too quickly (set_focus() can trigger
+                        // a brief unfocus/refocus cycle), but do NOT skip the state update.
+                        let suppressed = {
                             let mut last = last_focus_time.lock().unwrap_or_else(|e| e.into_inner());
                             let now = std::time::Instant::now();
-                            if now.duration_since(*last) < std::time::Duration::from_millis(200) {
-                                return;
-                            }
+                            let elapsed = now.duration_since(*last);
                             *last = now;
-                        }
+                            elapsed < std::time::Duration::from_millis(200)
+                        };
 
-                        // ── Change-detection guard ──
-                        // Swap in the new focused state and compare with the previous value.
-                        // If nothing actually changed (e.g. duplicate event), skip processing.
-                        let prev = was_focused.swap(*focused, Ordering::Relaxed);
-                        if *focused == prev {
-                            return;
+                        if *focused == prev || suppressed {
+                            return; // no actual change or cooldown active
                         }
 
                         if *focused {
-                            // ── Window gained focus ──
-                            // We defer the webview `set_focus()` call to a background thread
-                            // with a 50ms delay to avoid re-entrancy: calling `set_focus()`
-                            // synchronously inside the window event handler can trigger another
-                            // Focused event before this one finishes processing.
+                            // Window gained focus — defer webview focus to avoid
+                            // re-entrancy in the event handler
                             let ah = app_handle_for_close.clone();
                             std::thread::spawn(move || {
                                 std::thread::sleep(std::time::Duration::from_millis(50));
@@ -222,15 +216,10 @@ pub fn run() {
                                 }
                             });
 
-                            // If the auto-pause feature had paused playback on unfocus,
-                            // resume it now. The function internally checks the `auto_paused_on_unfocus`
-                            // flag so it won't resume if the user paused manually.
+                            // Auto-resume player if we auto-paused it on unfocus
                             player::auto_resume_on_focus(&app_handle_for_close);
                         } else {
-                            // ── Window lost focus ──
-                            // Pause the native player if the auto-pause feature is enabled
-                            // and the player is currently playing. Sets `auto_paused_on_unfocus`
-                            // so the resume logic knows we were the one who paused.
+                            // Auto-pause player on unfocus
                             player::auto_pause_on_unfocus(&app_handle_for_close);
                         }
                     }

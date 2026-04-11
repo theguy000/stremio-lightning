@@ -18,7 +18,6 @@ const FLOAT_PROPERTIES: &[&str] = &[
     "sub-scale",
     "sub-delay",
     "cache-buffering-state",
-    "mute",
 ];
 const BOOL_PROPERTIES: &[&str] = &[
     "pause",
@@ -28,6 +27,7 @@ const BOOL_PROPERTIES: &[&str] = &[
     "osc",
     "input-default-bindings",
     "input-vo-keyboard",
+    "mute",
 ];
 const INT_PROPERTIES: &[&str] = &["aid", "vid", "sid"];
 const STRING_PROPERTIES: &[&str] = &[
@@ -325,6 +325,12 @@ mod platform {
                 } else {
                     Some(Value::String(value))
                 }
+            }
+            // Catch-all for any future PropertyData variants added by libmpv2.
+            #[allow(unreachable_patterns)]
+            _ => {
+                eprintln!("[StremioLightning] Unhandled MPV property data variant for {name}");
+                None
             }
         }
     }

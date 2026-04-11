@@ -2,6 +2,7 @@ use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
@@ -11,6 +12,11 @@ use tauri_plugin_shell::ShellExt;
 /// Managed as Tauri app state so commands can access it.
 pub struct ServerState {
     pub child: Mutex<Option<CommandChild>>,
+    /// Set to `true` before intentionally stopping the server to suppress auto-restart.
+    pub intentional_stop: AtomicBool,
+    /// Monotonically increasing ID bumped on each `start_server` call.
+    /// Stale terminated handlers check this to avoid clobbering a newer server instance.
+    pub generation: AtomicU64,
 }
 
 /// Resolve the path to a resource file.
@@ -42,6 +48,11 @@ pub fn start_server(app: &AppHandle) -> Result<(), String> {
     if child_lock.is_some() {
         return Err("Server is already running".into());
     }
+
+    // Clear intentional-stop flag and assign a new generation for this server
+    // instance so that stale terminated handlers cannot clobber it.
+    state.intentional_stop.store(false, Ordering::SeqCst);
+    let this_gen = state.generation.fetch_add(1, Ordering::SeqCst);
 
     // Resolve resource paths
     let server_js = resolve_resource(app, "server.cjs")?;
@@ -104,25 +115,47 @@ pub fn start_server(app: &AppHandle) -> Result<(), String> {
                 }
                 CommandEvent::Terminated(payload) => {
                     let _ = app_handle.emit("server-stopped", &payload.code);
-                    if let Some(state) = app_handle.try_state::<ServerState>() {
-                        if let Ok(mut child) = state.child.lock() {
-                            *child = None;
-                        }
-                    }
                     if let Some(ref mut f) = log_file {
                         let msg = format!("[server] Process exited with code: {:?}\n", payload.code);
                         let _ = f.write_all(msg.as_bytes());
                     }
 
-                    // Auto-restart the server after unexpected exit.
-                    eprintln!("[StreamingServer] Server exited (code={:?}), auto-restarting in 2s...", payload.code);
-                    if let Some(ref mut f) = log_file {
-                        let _ = f.write_all(b"[server] Auto-restarting in 2s...\n");
-                    }
-                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-                    match start_server(&app_handle) {
-                        Ok(()) => eprintln!("[StreamingServer] Auto-restart successful"),
-                        Err(e) => eprintln!("[StreamingServer] Auto-restart failed: {e}"),
+                    // Only act if this is still the current server generation.
+                    // A stale terminated handler (from a previous server instance)
+                    // must not clobber the child handle or auto-restart.
+                    let is_current_gen = app_handle
+                        .try_state::<ServerState>()
+                        .map(|s| s.generation.load(Ordering::SeqCst) == this_gen + 1)
+                        .unwrap_or(false);
+
+                    if is_current_gen {
+                        if let Some(state) = app_handle.try_state::<ServerState>() {
+                            if let Ok(mut child) = state.child.lock() {
+                                *child = None;
+                            }
+                        }
+
+                        let is_intentional = app_handle
+                            .try_state::<ServerState>()
+                            .map(|s| s.intentional_stop.load(Ordering::SeqCst))
+                            .unwrap_or(true);
+
+                        if !is_intentional {
+                            eprintln!("[StreamingServer] Server exited unexpectedly (code={:?}), auto-restarting in 2s...", payload.code);
+                            if let Some(ref mut f) = log_file {
+                                let _ = f.write_all(b"[server] Auto-restarting in 2s...\n");
+                            }
+                            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                            match start_server(&app_handle) {
+                                Ok(()) => eprintln!("[StreamingServer] Auto-restart successful"),
+                                Err(e) => eprintln!("[StreamingServer] Auto-restart failed: {e}"),
+                            }
+                        } else {
+                            eprintln!("[StreamingServer] Server exited after intentional stop (code={:?})", payload.code);
+                            if let Some(ref mut f) = log_file {
+                                let _ = f.write_all(b"[server] Stopped intentionally, not auto-restarting.\n");
+                            }
+                        }
                     }
                     break;
                 }
@@ -141,6 +174,9 @@ pub fn stop_server(app: &AppHandle) -> Result<(), String> {
     let mut child_lock = state.child.lock().map_err(|e| e.to_string())?;
 
     if let Some(child) = child_lock.take() {
+        // Signal that this is an intentional stop so the terminated handler
+        // does not auto-restart the server.
+        state.intentional_stop.store(true, Ordering::SeqCst);
         child.kill().map_err(|e| format!("Failed to kill server: {}", e))?;
         // Don't emit server-stopped here — the background monitor task
         // will emit it when it receives CommandEvent::Terminated

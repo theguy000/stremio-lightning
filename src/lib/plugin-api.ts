@@ -89,11 +89,10 @@ export function initPluginAPI(): void {
     _discordTrackerInit: null as (() => void) | null,
     _discordTrackerStop: null as (() => void) | null,
 
-    // ── Theme inline props tracking (for bridge.js compat) ──
-    _themeInlineProps: [] as string[],
+    // ── Theme inline props tracking (shared with themes.ts via window.__slThemeInlineProps) ──
+    _themeInlineProps: (window as any).__slThemeInlineProps || [] as string[],
     _applyInlineThemeProperties: function (css: string) {
       const root = document.documentElement;
-      const props: string[] = [];
       const clean = css.replace(/\/\*[\s\S]*?\*\//g, '');
       const regex = /(--[\w-]+)\s*:\s*([^;!}]+)/g;
       let match;
@@ -102,10 +101,9 @@ export function initPluginAPI(): void {
         const value = match[2].trim();
         if (value) {
           root.style.setProperty(name, value);
-          props.push(name);
+          api._themeInlineProps.push(name);
         }
       }
-      api._themeInlineProps = props;
     },
     _clearInlineThemeProperties: function () {
       const root = document.documentElement;
@@ -113,7 +111,7 @@ export function initPluginAPI(): void {
       for (let i = 0; i < props.length; i++) {
         root.style.removeProperty(props[i]);
       }
-      api._themeInlineProps = [];
+      api._themeInlineProps.length = 0;
     },
   };
 

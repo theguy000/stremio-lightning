@@ -26,7 +26,8 @@ export async function toggleDiscordRpc(enabled: boolean): Promise<void> {
 
 // Blur settings
 export const blurEnabled = writable(localStorage.getItem('sl-blur-enabled') !== 'false');
-export const blurIntensity = writable(parseInt(localStorage.getItem('sl-blur-intensity') || '100', 10));
+const _blurIntRaw = parseInt(localStorage.getItem('sl-blur-intensity') || '100', 10);
+export const blurIntensity = writable(isNaN(_blurIntRaw) ? 100 : _blurIntRaw);
 
 export function applyBlurIntensity(percent: number, enabled: boolean): void {
   const root = document.documentElement;
@@ -84,7 +85,8 @@ export async function toggleAutoPause(enabled: boolean): Promise<void> {
 
 export function loadSettingsFromStorage(): void {
   const blurEn = localStorage.getItem('sl-blur-enabled') !== 'false';
-  const blurInt = parseInt(localStorage.getItem('sl-blur-intensity') || '100', 10);
+  const blurIntRaw = parseInt(localStorage.getItem('sl-blur-intensity') || '100', 10);
+  const blurInt = isNaN(blurIntRaw) ? 100 : blurIntRaw;
   blurEnabled.set(blurEn);
   blurIntensity.set(blurInt);
   applyBlurIntensity(blurInt, blurEn);

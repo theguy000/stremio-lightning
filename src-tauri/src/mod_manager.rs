@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
+use std::sync::OnceLock;
 use tauri::Manager;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -60,6 +61,8 @@ pub struct UpdateInfo {
 
 pub struct ModManagerState {
     pub registered_schemas: Mutex<HashMap<String, serde_json::Value>>,
+    /// Serializes read-modify-write cycles in `save_setting` to prevent TOCTOU races.
+    pub settings_lock: Mutex<()>,
 }
 
 /// Returns the directory for the given mod type (plugin or theme).
@@ -90,12 +93,15 @@ pub fn ensure_dirs(app: &tauri::AppHandle) -> Result<(), String> {
 }
 
 /// Parses JSDoc-style metadata from file content.
+static BLOCK_RE: OnceLock<Regex> = OnceLock::new();
+static TAG_RE: OnceLock<Regex> = OnceLock::new();
+
 pub fn parse_metadata(content: &str) -> Option<ModMetadata> {
-    let block_re = Regex::new(r"(?s)/\*\*(.*?)\*/").ok()?;
+    let block_re = BLOCK_RE.get_or_init(|| Regex::new(r"(?s)/\*\*(.*?)\*/").expect("block regex should compile"));
     let block_match = block_re.find(content)?;
     let block = block_match.as_str();
 
-    let tag_re = Regex::new(r"@(\w+)\s+([^\n\r]+)").ok()?;
+    let tag_re = TAG_RE.get_or_init(|| Regex::new(r"@(\w+)\s+([^\n\r]+)").expect("tag regex should compile"));
 
     let mut tags: HashMap<String, String> = HashMap::new();
     for cap in tag_re.captures_iter(block) {
@@ -139,11 +145,20 @@ pub fn parse_metadata(content: &str) -> Option<ModMetadata> {
 
 /// Returns true if v1 is a newer version than v2.
 pub fn is_newer_version(v1: &str, v2: &str) -> bool {
-    let parse = |v: &str| -> Vec<u64> {
+    let parse = |v: &str| -> Vec<(u64, bool)> {
         v.strip_prefix('v')
             .unwrap_or(v)
             .split('.')
-            .map(|part| part.parse::<u64>().unwrap_or(0))
+            .map(|part| {
+                // Handle pre-release suffixes like "1.0.0-alpha"
+                let (num_part, is_prerelease) = if let Some(idx) = part.find('-') {
+                    (&part[..idx], true)
+                } else {
+                    (part, false)
+                };
+                let num = num_part.parse::<u64>().unwrap_or(0);
+                (num, is_prerelease)
+            })
             .collect()
     };
 
@@ -152,12 +167,13 @@ pub fn is_newer_version(v1: &str, v2: &str) -> bool {
 
     let max_len = parts1.len().max(parts2.len());
     for i in 0..max_len {
-        let a = parts1.get(i).copied().unwrap_or(0);
-        let b = parts2.get(i).copied().unwrap_or(0);
-        if a > b {
+        let (a_num, a_pre) = parts1.get(i).copied().unwrap_or((0, false));
+        let (b_num, b_pre) = parts2.get(i).copied().unwrap_or((0, false));
+        // Same numeric segment: release > pre-release (e.g. 1.0.0 > 1.0.0-alpha)
+        if a_num > b_num || (a_num == b_num && !a_pre && b_pre) {
             return true;
         }
-        if a < b {
+        if a_num < b_num || (a_num == b_num && a_pre && !b_pre) {
             return false;
         }
     }
@@ -416,6 +432,9 @@ pub fn save_setting(
     key: &str,
     value: serde_json::Value,
 ) -> Result<(), String> {
+    let state = app.state::<ModManagerState>();
+    let _guard = state.settings_lock.lock().map_err(|e| e.to_string())?;
+
     let dir = get_mods_dir(app, "plugin")?;
     let config_path = dir.join(format!("{}.plugin.json", plugin_name));
 
