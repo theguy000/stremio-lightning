@@ -87,6 +87,8 @@ pub fn run() {
             commands::stop_discord_rpc,
             commands::update_discord_activity,
             commands::check_app_update,
+            commands::set_auto_pause,
+            commands::get_auto_pause,
         ])
         .setup(|app| {
             // Ensure mod directories exist
@@ -141,6 +143,8 @@ pub fn run() {
             // Track window state changes (only emit on actual change)
             let was_maximized = Arc::new(AtomicBool::new(false));
             let was_fullscreen = Arc::new(AtomicBool::new(false));
+            let was_focused = Arc::new(AtomicBool::new(true));
+            let last_focus_time = Arc::new(std::sync::Mutex::new(std::time::Instant::now()));
 
             let window_clone = window.clone();
             let max_flag = was_maximized.clone();
@@ -171,6 +175,41 @@ pub fn run() {
                         let _ = player::stop_and_hide(&app_handle_for_close);
                         let discord_state = app_handle_for_close.state::<discord_rpc::DiscordRpcState>();
                         let _ = discord_rpc::stop(&discord_state);
+                    }
+                    tauri::WindowEvent::Focused(focused) => {
+                        // Cooldown: ignore focus events that arrive too quickly
+                        // (set_focus() can trigger a brief unfocus/refocus cycle)
+                        {
+                            let mut last = last_focus_time.lock().unwrap_or_else(|e| e.into_inner());
+                            let now = std::time::Instant::now();
+                            if now.duration_since(*last) < std::time::Duration::from_millis(200) {
+                                return;
+                            }
+                            *last = now;
+                        }
+
+                        let prev = was_focused.swap(*focused, Ordering::Relaxed);
+                        if *focused == prev {
+                            return; // no actual change
+                        }
+
+                        if *focused {
+                            // Window gained focus — defer webview focus to avoid
+                            // re-entrancy in the event handler
+                            let ah = app_handle_for_close.clone();
+                            std::thread::spawn(move || {
+                                std::thread::sleep(std::time::Duration::from_millis(50));
+                                if let Some(wv) = ah.get_webview(player::MAIN_APP_LABEL) {
+                                    let _ = wv.set_focus();
+                                }
+                            });
+
+                            // Auto-resume player if we auto-paused it on unfocus
+                            player::auto_resume_on_focus(&app_handle_for_close);
+                        } else {
+                            // Auto-pause player on unfocus
+                            player::auto_pause_on_unfocus(&app_handle_for_close);
+                        }
                     }
                     _ => {}
                 }

@@ -1,5 +1,5 @@
 import { writable } from 'svelte/store';
-import { startDiscordRpc, stopDiscordRpc } from '../ipc';
+import { startDiscordRpc, stopDiscordRpc, setAutoPause, getAutoPause } from '../ipc';
 
 // Discord RPC
 export const discordRpcEnabled = writable(localStorage.getItem('discordrichpresence') === 'true');
@@ -65,10 +65,32 @@ export function applyBlurIntensity(percent: number, enabled: boolean): void {
   localStorage.setItem('sl-blur-enabled', String(enabled));
 }
 
+// Auto-pause on unfocus
+export const autoPauseEnabled = writable(true);
+
+export async function toggleAutoPause(enabled: boolean): Promise<void> {
+  await setAutoPause(enabled);
+  localStorage.setItem('sl-auto-pause', String(enabled));
+  autoPauseEnabled.set(enabled);
+}
+
 export function loadSettingsFromStorage(): void {
   const blurEn = localStorage.getItem('sl-blur-enabled') !== 'false';
   const blurInt = parseInt(localStorage.getItem('sl-blur-intensity') || '100', 10);
   blurEnabled.set(blurEn);
   blurIntensity.set(blurInt);
   applyBlurIntensity(blurInt, blurEn);
+
+  // Auto-pause: load persisted preference, fallback to Rust backend default
+  const stored = localStorage.getItem('sl-auto-pause');
+  if (stored !== null) {
+    const enabled = stored === 'true';
+    autoPauseEnabled.set(enabled);
+    setAutoPause(enabled).catch(() => {});
+  } else {
+    getAutoPause().then((enabled) => {
+      autoPauseEnabled.set(enabled);
+    }).catch(() => {});
+  }
 }
+

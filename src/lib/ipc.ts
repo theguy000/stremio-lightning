@@ -60,6 +60,16 @@ export function stopDiscordRpc(): Promise<void> {
   return invoke('stop_discord_rpc');
 }
 
+// ── Auto-pause on unfocus ──
+
+export function setAutoPause(enabled: boolean): Promise<void> {
+  return invoke('set_auto_pause', { enabled });
+}
+
+export function getAutoPause(): Promise<boolean> {
+  return invoke('get_auto_pause');
+}
+
 // ── Misc ──
 
 export function openExternalUrl(url: string): Promise<void> {

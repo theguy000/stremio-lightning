@@ -201,3 +201,22 @@ pub async fn update_discord_activity(
 pub async fn check_app_update() -> Result<app_updater::AppUpdateInfo, String> {
     app_updater::check_app_update().await
 }
+
+// ── Auto-pause on unfocus ──
+
+#[tauri::command]
+pub async fn set_auto_pause(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    let state = app.state::<player::PlayerState>();
+    state.auto_pause_enabled.store(enabled, std::sync::atomic::Ordering::Relaxed);
+    // If disabling, clear any existing auto-pause flag so we don't resume on next focus
+    if !enabled {
+        state.auto_paused_on_unfocus.store(false, std::sync::atomic::Ordering::Relaxed);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_auto_pause(app: tauri::AppHandle) -> bool {
+    let state = app.state::<player::PlayerState>();
+    state.auto_pause_enabled.load(std::sync::atomic::Ordering::Relaxed)
+}

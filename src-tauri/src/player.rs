@@ -1,5 +1,6 @@
 use serde::Serialize;
 use serde_json::Value;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::Mutex;
 use std::thread;
@@ -46,12 +47,19 @@ const JSON_STRING_PROPERTIES: &[&str] = &["track-list", "video-params", "metadat
 
 pub struct PlayerState {
     backend: Mutex<Option<PlayerBackend>>,
+    pub is_paused: AtomicBool,
+    /// Set to true when we auto-paused on unfocus so we only resume if we were the one who paused
+    pub auto_paused_on_unfocus: AtomicBool,
+    pub auto_pause_enabled: AtomicBool,
 }
 
 impl Default for PlayerState {
     fn default() -> Self {
         Self {
             backend: Mutex::new(None),
+            is_paused: AtomicBool::new(true),
+            auto_paused_on_unfocus: AtomicBool::new(false),
+            auto_pause_enabled: AtomicBool::new(true),
         }
     }
 }
@@ -80,14 +88,15 @@ enum PlayerCommand {
 mod platform {
     use super::{
         BOOL_PROPERTIES, FLOAT_PROPERTIES, INT_PROPERTIES, JSON_STRING_PROPERTIES,
-        STRING_PROPERTIES,
+        PlayerState, STRING_PROPERTIES,
     };
     use libmpv2::events::{Event, PropertyData};
     use libmpv2::{mpv_end_file_reason, EndFileReason, Format, Mpv, Result as MpvResult};
     use serde::Serialize;
     use serde_json::{json, Value};
+    use std::sync::atomic::Ordering;
     use std::sync::mpsc::Receiver;
-    use tauri::AppHandle;
+    use tauri::{AppHandle, Manager};
 
     use crate::shell_transport;
 
@@ -167,6 +176,13 @@ mod platform {
             match event {
                 Event::PropertyChange { name, change, .. } => {
                     if let Some(data) = property_data_to_json(name, change) {
+                        if name == "pause" {
+                            if let Some(paused) = data.as_bool() {
+                                if let Some(state) = app.try_state::<PlayerState>() {
+                                    state.is_paused.store(paused, Ordering::Relaxed);
+                                }
+                            }
+                        }
                         let payload = PlayerPropertyChange {
                             name: name.to_string(),
                             data,
@@ -503,4 +519,56 @@ pub fn stop_and_hide(app: &AppHandle) -> Result<(), String> {
         })
         .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+fn send_pause(app: &AppHandle, pause: bool) -> bool {
+    let state = app.state::<PlayerState>();
+    let backend = match state.backend.lock() {
+        Ok(guard) => guard,
+        Err(_) => return false,
+    };
+    let Some(backend) = backend.as_ref() else {
+        return false;
+    };
+    backend
+        .command_sender
+        .send(PlayerCommand::SetProperty {
+            name: "pause".to_string(),
+            value: Value::Bool(pause),
+        })
+        .is_ok()
+}
+
+pub fn auto_pause_on_unfocus(app: &AppHandle) {
+    let state = app.state::<PlayerState>();
+
+    if !state.auto_pause_enabled.load(Ordering::Relaxed) {
+        return;
+    }
+
+    if state.is_paused.load(Ordering::Relaxed) {
+        return;
+    }
+
+    if send_pause(app, true) {
+        state.auto_paused_on_unfocus.store(true, Ordering::Relaxed);
+        eprintln!("[StremioLightning] Auto-paused native player on unfocus");
+    }
+}
+
+pub fn auto_resume_on_focus(app: &AppHandle) {
+    let state = app.state::<PlayerState>();
+
+    if !state.auto_pause_enabled.load(Ordering::Relaxed) {
+        return;
+    }
+
+    if !state.auto_paused_on_unfocus.load(Ordering::Relaxed) {
+        return;
+    }
+    state.auto_paused_on_unfocus.store(false, Ordering::Relaxed);
+
+    if send_pause(app, false) {
+        eprintln!("[StremioLightning] Auto-resumed native player on focus");
+    }
 }

@@ -12,6 +12,9 @@ src-tauri/gen/
 # Node
 node_modules/
 
+# Vite build output
+src/dist/
+
 # OS
 Thumbs.db
 .DS_Store
