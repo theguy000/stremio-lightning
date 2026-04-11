@@ -2,7 +2,7 @@ use serde::Serialize;
 use serde_json::Value;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Sender};
-use std::sync::Mutex;
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use tauri::{AppHandle, Manager, Window};
 
@@ -12,7 +12,8 @@ use std::os::windows::ffi::OsStrExt;
 pub const MAIN_APP_LABEL: &str = "main";
 pub const PLAYER_HOST_LABEL: &str = MAIN_APP_LABEL;
 
-const FLOAT_PROPERTIES: &[&str] = &[
+/// All properties observed as MPV_FORMAT_NODE.
+const OBSERVED_PROPERTIES: &[&str] = &[
     "time-pos",
     "duration",
     "volume",
@@ -21,8 +22,6 @@ const FLOAT_PROPERTIES: &[&str] = &[
     "sub-scale",
     "sub-delay",
     "cache-buffering-state",
-];
-const BOOL_PROPERTIES: &[&str] = &[
     "pause",
     "paused-for-cache",
     "seeking",
@@ -31,9 +30,9 @@ const BOOL_PROPERTIES: &[&str] = &[
     "input-default-bindings",
     "input-vo-keyboard",
     "mute",
-];
-const INT_PROPERTIES: &[&str] = &["aid", "vid", "sid"];
-const STRING_PROPERTIES: &[&str] = &[
+    "aid",
+    "vid",
+    "sid",
     "path",
     "mpv-version",
     "ffmpeg-version",
@@ -46,7 +45,6 @@ const STRING_PROPERTIES: &[&str] = &[
     "sub-back-color",
     "sub-border-color",
 ];
-const JSON_STRING_PROPERTIES: &[&str] = &["track-list", "video-params", "metadata"];
 
 pub struct PlayerState {
     backend: Mutex<Option<PlayerBackend>>,
@@ -89,32 +87,46 @@ pub struct NativePlayerStatus {
 
 struct PlayerBackend {
     command_sender: Sender<PlayerCommand>,
+    wakeup: Arc<(Mutex<bool>, Condvar)>,
     window: Window,
 }
 
+impl PlayerBackend {
+    fn signal(&self) {
+        signal_wakeup(&self.wakeup);
+    }
+}
+
+fn signal_wakeup(wakeup: &Arc<(Mutex<bool>, Condvar)>) {
+    let (lock, cvar) = &**wakeup;
+    if let Ok(mut flag) = lock.lock() {
+        *flag = true;
+        cvar.notify_all();
+    }
+}
+
 enum PlayerCommand {
-    Observe(String),
     SetProperty { name: String, value: Value },
     Command { name: String, args: Vec<String> },
 }
 
 #[cfg(windows)]
 mod platform {
-    use super::{
-        BOOL_PROPERTIES, FLOAT_PROPERTIES, INT_PROPERTIES, JSON_STRING_PROPERTIES,
-        PlayerState, STRING_PROPERTIES,
-    };
-    use libmpv2::events::{Event, PropertyData};
-    use libmpv2::{mpv_end_file_reason, EndFileReason, Format, Mpv, Result as MpvResult};
+    use super::{OBSERVED_PROPERTIES, PlayerState};
+    use libmpv2::{mpv_end_file_reason, Format, Mpv, Result as MpvResult};
+    use libmpv2_sys as sys;
     use serde::Serialize;
     use serde_json::{json, Value};
+    use std::ffi::CStr;
     use std::sync::atomic::Ordering;
     use std::sync::mpsc::Receiver;
+    use std::sync::{Arc, Condvar, Mutex};
+    use std::time::Duration;
     use tauri::{AppHandle, Manager};
 
     use crate::shell_transport;
 
-    use super::PlayerCommand;
+    use super::{signal_wakeup, PlayerCommand};
 
     #[derive(Serialize)]
     struct PlayerPropertyChange {
@@ -133,6 +145,60 @@ mod platform {
         reason: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         error: Option<PlayerEndedError>,
+    }
+
+    /// Recursively convert an `mpv_node` to a `serde_json::Value`.
+    unsafe fn mpv_node_to_json(node: &sys::mpv_node) -> Value {
+        match node.format {
+            sys::mpv_format_MPV_FORMAT_NONE => Value::Null,
+            sys::mpv_format_MPV_FORMAT_STRING
+                | sys::mpv_format_MPV_FORMAT_OSD_STRING => {
+                let s = CStr::from_ptr(node.u.string);
+                Value::String(s.to_string_lossy().into_owned())
+            }
+            sys::mpv_format_MPV_FORMAT_FLAG => Value::Bool(node.u.flag != 0),
+            sys::mpv_format_MPV_FORMAT_INT64 => json!(node.u.int64),
+            sys::mpv_format_MPV_FORMAT_DOUBLE => {
+                serde_json::Number::from_f64(node.u.double_)
+                    .map(Value::Number)
+                    .unwrap_or(Value::Null)
+            }
+            sys::mpv_format_MPV_FORMAT_NODE_ARRAY => {
+                let list = node.u.list;
+                if list.is_null() {
+                    return Value::Array(Vec::new());
+                }
+                let list = &*list;
+                let mut arr = Vec::with_capacity(list.num as usize);
+                for i in 0..list.num as usize {
+                    arr.push(mpv_node_to_json(&*list.values.add(i)));
+                }
+                Value::Array(arr)
+            }
+            sys::mpv_format_MPV_FORMAT_NODE_MAP => {
+                let list = node.u.list;
+                if list.is_null() {
+                    return Value::Object(serde_json::Map::new());
+                }
+                let list = &*list;
+                let mut map = serde_json::Map::with_capacity(list.num as usize);
+                for i in 0..list.num as usize {
+                    let key = if !list.keys.is_null() {
+                        let k = *list.keys.add(i);
+                        if k.is_null() {
+                            String::new()
+                        } else {
+                            CStr::from_ptr(k).to_string_lossy().into_owned()
+                        }
+                    } else {
+                        String::new()
+                    };
+                    map.insert(key, mpv_node_to_json(&*list.values.add(i)));
+                }
+                Value::Object(map)
+            }
+            _ => Value::Null,
+        }
     }
 
     pub fn create(window_handle: isize) -> Result<Mpv, String> {
@@ -180,113 +246,164 @@ mod platform {
         Ok(mpv)
     }
 
-    pub fn run_event_loop(app: AppHandle, mut mpv: Mpv, command_receiver: Receiver<PlayerCommand>) {
+    /// Run the MPV event loop, driven by a wakeup callback instead of polling.
+    ///
+    /// The wakeup callback fires from an MPV internal thread whenever new events
+    /// are available. It signals a shared `Condvar` that this loop blocks on,
+    /// giving **zero-latency** event delivery (vs. the previous 100ms polling).
+    /// Commands from the Tauri IPC thread also signal the same condvar so they
+    /// are processed immediately rather than waiting for the next poll tick.
+    pub fn run_event_loop(
+        app: AppHandle,
+        mut mpv: Mpv,
+        command_receiver: Receiver<PlayerCommand>,
+        wakeup: Arc<(Mutex<bool>, Condvar)>,
+    ) {
         if let Err(error) = mpv.disable_deprecated_events() {
             eprintln!("Failed to disable deprecated MPV events: {error}");
         }
 
+        // Observe all properties upfront as MPV_FORMAT_NODE.
+        for &name in OBSERVED_PROPERTIES {
+            if let Err(error) = mpv.observe_property(name, Format::Node, 0) {
+                eprintln!("Failed to observe MPV property {name}: {error}");
+            }
+        }
+
+        // Set the wakeup callback to signal the condvar on new events.
+        let wakeup_cb = wakeup.clone();
+        mpv.set_wakeup_callback(move || {
+            signal_wakeup(&wakeup_cb);
+        });
+
         loop {
+            // 1. Drain all pending commands from the Tauri IPC thread.
             for command in command_receiver.try_iter() {
                 match command {
-                    PlayerCommand::Observe(name) => observe_property(&mpv, &name),
                     PlayerCommand::SetProperty { name, value } => set_property(&mpv, &name, value),
                     PlayerCommand::Command { name, args } => send_command(&mpv, &name, &args),
                 }
             }
 
-            let event = match mpv.wait_event(0.1) {
-                Some(Ok(event)) => event,
-                Some(Err(error)) => {
-                    eprintln!("[StremioLightning] MPV event error: {error}");
-                    let payload = PlayerEnded {
-                        reason: "error".to_string(),
-                        error: Some(PlayerEndedError {
-                            message: error.to_string(),
-                            critical: true,
-                        }),
-                    };
-                    let _ = shell_transport::emit_transport_event(
-                        &app,
-                        json!(["mpv-event-ended", payload]),
-                    );
-                    continue;
+            // 2. Drain all pending MPV events (non-blocking).
+            loop {
+                let event = unsafe { *sys::mpv_wait_event(mpv.ctx.as_ptr(), 0.0) };
+                if event.event_id == sys::mpv_event_id_MPV_EVENT_NONE {
+                    break;
                 }
-                None => continue,
-            };
 
-            match event {
-                Event::PropertyChange { name, change, .. } => {
-                    if let Some(data) = property_data_to_json(name, change) {
-                        // Mirror the MPV "pause" property into our AtomicBool so the
-                        // window event callback can check pause state without locking the
-                        // backend mutex. This is the single source-of-truth update for `is_paused`.
-                        if name == "pause" {
-                            if let Some(paused) = data.as_bool() {
-                                if let Some(state) = app.try_state::<PlayerState>() {
-                                    state.is_paused.store(paused, Ordering::Relaxed);
+                if event.error < 0 {
+                    let error_str = unsafe { CStr::from_ptr(sys::mpv_error_string(event.error)) };
+                    eprintln!(
+                        "[StremioLightning] MPV event error: {}",
+                        error_str.to_string_lossy()
+                    );
+                }
+
+                match event.event_id {
+                    sys::mpv_event_id_MPV_EVENT_PROPERTY_CHANGE => {
+                        let prop = unsafe { *(event.data as *mut sys::mpv_event_property) };
+                        let name = unsafe { CStr::from_ptr(prop.name) };
+                        let name_str = name.to_string_lossy();
+
+                        if prop.format == sys::mpv_format_MPV_FORMAT_NONE || prop.data.is_null() {
+                            continue;
+                        }
+
+                        if prop.format == sys::mpv_format_MPV_FORMAT_NODE {
+                            let node = unsafe { &*(prop.data as *const sys::mpv_node) };
+                            let data = unsafe { mpv_node_to_json(node) };
+
+                            if name_str == "pause" {
+                                if let Some(paused) = data.as_bool() {
+                                    if let Some(state) = app.try_state::<PlayerState>() {
+                                        state.is_paused.store(paused, Ordering::Relaxed);
+                                    }
                                 }
                             }
+
+                            let payload = PlayerPropertyChange {
+                                name: name_str.into_owned(),
+                                data,
+                            };
+                            let _ = shell_transport::emit_transport_event(
+                                &app,
+                                json!(["mpv-prop-change", payload]),
+                            );
+
+                            // mpv_free_event_contents is not in the sys bindings,
+                            // so we free the node data explicitly.
+                            unsafe { sys::mpv_free_node_contents(prop.data as *mut sys::mpv_node) };
+                        } else {
+                            eprintln!(
+                                "[StremioLightning] Unexpected property format {} for {}",
+                                prop.format, name_str
+                            );
                         }
-                        let payload = PlayerPropertyChange {
-                            name: name.to_string(),
-                            data,
+                    }
+                    sys::mpv_event_id_MPV_EVENT_END_FILE => {
+                        let ef = unsafe { *(event.data as *mut sys::mpv_event_end_file) };
+                        eprintln!(
+                            "[StremioLightning] MPV EndFile: reason={} (raw={})",
+                            end_reason_string(ef.reason as _),
+                            ef.reason
+                        );
+                        // When a file ends, the player becomes idle (effectively paused).
+                        // MPV does NOT fire a "pause" property change on EndFile, so we must
+                        // update is_paused here to prevent auto-pause/resume from acting on
+                        // a stale "playing" state when no content is active.
+                        if let Some(state) = app.try_state::<PlayerState>() {
+                            state.is_paused.store(true, Ordering::Relaxed);
+                            state.auto_paused_on_unfocus.store(false, Ordering::Relaxed);
+                        }
+                        let error_msg = if ef.reason == mpv_end_file_reason::Error as u32 {
+                            let msg = format!(
+                                "MPV playback error (end-file reason={})",
+                                ef.reason
+                            );
+                            eprintln!("[StremioLightning] {}", msg);
+                            Some(PlayerEndedError {
+                                message: msg,
+                                critical: true,
+                            })
+                        } else {
+                            None
+                        };
+                        let payload = PlayerEnded {
+                            reason: end_reason_string(ef.reason as _).to_string(),
+                            error: error_msg,
                         };
                         let _ = shell_transport::emit_transport_event(
                             &app,
-                            json!(["mpv-prop-change", payload]),
+                            json!(["mpv-event-ended", payload]),
                         );
                     }
-                }
-                Event::EndFile(reason) => {
-                    eprintln!(
-                        "[StremioLightning] MPV EndFile: reason={} (raw={})",
-                        end_reason_string(reason),
-                        reason as i32
-                    );
-                    // When a file ends, the player becomes idle (effectively paused).
-                    // MPV does NOT fire a "pause" property change on EndFile, so we must
-                    // update is_paused here to prevent auto-pause/resume from acting on
-                    // a stale "playing" state when no content is active.
-                    if let Some(state) = app.try_state::<PlayerState>() {
-                        state.is_paused.store(true, Ordering::Relaxed);
-                        state.auto_paused_on_unfocus.store(false, Ordering::Relaxed);
+                    sys::mpv_event_id_MPV_EVENT_SHUTDOWN => {
+                        // Free the MPV context
+                        unsafe { sys::mpv_terminate_destroy(mpv.ctx.as_ptr()) };
+                        // Prevent Drop from double-freeing
+                        mpv.ctx = std::ptr::NonNull::dangling();
+                        return;
                     }
-                    let error_msg = if reason == mpv_end_file_reason::Error {
-                        let msg = format!(
-                            "MPV playback error (end-file reason={})",
-                            reason as i32
-                        );
-                        eprintln!("[StremioLightning] {}", msg);
-                        Some(PlayerEndedError {
-                            message: msg,
-                            critical: true,
-                        })
-                    } else {
-                        None
-                    };
-                    let payload = PlayerEnded {
-                        reason: end_reason_string(reason).to_string(),
-                        error: error_msg,
-                    };
-                    let _ = shell_transport::emit_transport_event(
-                        &app,
-                        json!(["mpv-event-ended", payload]),
-                    );
+                    _ => {}
                 }
-                Event::Shutdown => break,
-                _ => {}
             }
-        }
-    }
 
-    fn observe_property(mpv: &Mpv, name: &str) {
-        let format = property_format(name);
-        if let Some(format) = format {
-            if let Err(error) = mpv.observe_property(name, format, 0) {
-                eprintln!("Failed to observe MPV property {name}: {error}");
+            // 3. Wait for the next wakeup signal (from MPV or a command).
+            //    A 50ms timeout ensures commands aren't stuck if the signal
+            //    is missed, but the common path is instant wakeup.
+            {
+                let (lock, cvar) = &*wakeup;
+                if let Ok(mut flag) = lock.lock() {
+                    if !*flag {
+                        flag = match cvar.wait_timeout(flag, Duration::from_millis(50)) {
+                            Ok((guard, _)) => guard,
+                            Err(e) => e.into_inner().0,
+                        };
+                    }
+                    *flag = false;
+                }
             }
-        } else {
-            eprintln!("Unsupported MPV property observation: {name}");
         }
     }
 
@@ -334,46 +451,7 @@ mod platform {
         }
     }
 
-    fn property_format(name: &str) -> Option<Format> {
-        if FLOAT_PROPERTIES.contains(&name) {
-            Some(Format::Double)
-        } else if BOOL_PROPERTIES.contains(&name) {
-            Some(Format::Flag)
-        } else if INT_PROPERTIES.contains(&name) {
-            Some(Format::Int64)
-        } else if STRING_PROPERTIES.contains(&name) {
-            Some(Format::String)
-        } else {
-            None
-        }
-    }
-
-    fn property_data_to_json(name: &str, data: PropertyData) -> Option<Value> {
-        match data {
-            PropertyData::Flag(value) => Some(Value::Bool(value)),
-            PropertyData::Int64(value) => Some(json!(value)),
-            PropertyData::Double(value) => serde_json::Number::from_f64(value).map(Value::Number),
-            PropertyData::OsdStr(value) => Some(Value::String(value.to_string())),
-            PropertyData::Str(value) => {
-                let value = value.to_string();
-                if JSON_STRING_PROPERTIES.contains(&name) {
-                    serde_json::from_str::<Value>(&value)
-                        .ok()
-                        .or(Some(Value::String(value)))
-                } else {
-                    Some(Value::String(value))
-                }
-            }
-            // Catch-all for any future PropertyData variants added by libmpv2.
-            #[allow(unreachable_patterns)]
-            _ => {
-                eprintln!("[StremioLightning] Unhandled MPV property data variant for {name}");
-                None
-            }
-        }
-    }
-
-    fn end_reason_string(reason: EndFileReason) -> &'static str {
+    fn end_reason_string(reason: sys::mpv_end_file_reason) -> &'static str {
         match reason {
             mpv_end_file_reason::Error => "error",
             mpv_end_file_reason::Quit => "quit",
@@ -476,14 +554,17 @@ pub fn initialize(app: &AppHandle) -> Result<(), String> {
 
         let mpv = platform::create(player_hwnd.0 as isize)?;
         let (command_sender, command_receiver) = mpsc::channel::<PlayerCommand>();
+        let wakeup = Arc::new((Mutex::new(false), Condvar::new()));
         let app_handle = app.clone();
 
+        let wakeup_for_loop = wakeup.clone();
         thread::spawn(move || {
-            platform::run_event_loop(app_handle, mpv, command_receiver);
+            platform::run_event_loop(app_handle, mpv, command_receiver, wakeup_for_loop);
         });
 
         *backend = Some(PlayerBackend {
             command_sender,
+            wakeup,
             window: main_window.clone(),
         });
 
@@ -530,17 +611,8 @@ pub fn handle_transport(app: &AppHandle, method: &str, data: Option<Value>) -> R
         .as_ref()
         .ok_or_else(|| "Native MPV backend is not initialized".to_string())?;
 
-    match method {
-        "mpv-observe-prop" => {
-            let name = data
-                .as_ref()
-                .and_then(Value::as_str)
-                .ok_or_else(|| "Invalid mpv-observe-prop payload".to_string())?;
-            backend
-                .command_sender
-                .send(PlayerCommand::Observe(name.to_string()))
-                .map_err(|e| e.to_string())
-        }
+    let send_result = match method {
+        "mpv-observe-prop" => Ok(()),
         "mpv-set-prop" => {
             let pair = data
                 .as_ref()
@@ -596,7 +668,13 @@ pub fn handle_transport(app: &AppHandle, method: &str, data: Option<Value>) -> R
                 .map_err(|e| e.to_string())
         }
         other => Err(format!("Unsupported MPV transport method: {other}")),
+    };
+
+    if send_result.is_ok() {
+        backend.signal();
     }
+
+    send_result
 }
 
 pub fn stop_and_hide(app: &AppHandle) -> Result<(), String> {
@@ -606,13 +684,19 @@ pub fn stop_and_hide(app: &AppHandle) -> Result<(), String> {
         return Ok(());
     };
 
-    backend
+    let result = backend
         .command_sender
         .send(PlayerCommand::Command {
             name: "stop".to_string(),
-            args: Vec::new(),
+            args: vec![],
         })
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| e.to_string());
+
+    if result.is_ok() {
+        backend.signal();
+    }
+
+    result?;
     Ok(())
 }
 
@@ -630,13 +714,19 @@ fn send_pause(app: &AppHandle, pause: bool) -> bool {
     let Some(backend) = backend.as_ref() else {
         return false;
     };
-    backend
+    let result = backend
         .command_sender
         .send(PlayerCommand::SetProperty {
             name: "pause".to_string(),
             value: Value::Bool(pause),
         })
-        .is_ok()
+        .is_ok();
+
+    if result {
+        backend.signal();
+    }
+
+    result
 }
 
 /// Called from the window event callback when the window loses focus.

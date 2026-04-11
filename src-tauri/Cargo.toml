@@ -25,4 +25,5 @@ discord-rich-presence = "1.1.0"
 
 [target.'cfg(windows)'.dependencies]
 libmpv2 = { version = "5.0.3", default-features = false }
+libmpv2-sys = { version = "4.0.1" }
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_LibraryLoader"] }
