@@ -243,6 +243,14 @@ mod platform {
                         end_reason_string(reason),
                         reason as i32
                     );
+                    // When a file ends, the player becomes idle (effectively paused).
+                    // MPV does NOT fire a "pause" property change on EndFile, so we must
+                    // update is_paused here to prevent auto-pause/resume from acting on
+                    // a stale "playing" state when no content is active.
+                    if let Some(state) = app.try_state::<PlayerState>() {
+                        state.is_paused.store(true, Ordering::Relaxed);
+                        state.auto_paused_on_unfocus.store(false, Ordering::Relaxed);
+                    }
                     let error_msg = if reason == mpv_end_file_reason::Error {
                         let msg = format!(
                             "MPV playback error (end-file reason={})",
