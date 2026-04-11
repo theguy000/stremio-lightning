@@ -51,6 +51,8 @@
     }
   },
   "build": {
+    "beforeDevCommand": "npm run build:ui",
+    "beforeBuildCommand": "npm run build:ui",
     "frontendDist": "../src"
   },
   "app": {

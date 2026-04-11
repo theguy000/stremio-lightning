@@ -2,10 +2,18 @@
   "name": "stremio-lightning",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "build:ui": "vite build",
+    "dev:ui": "vite build --watch"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2"
+    "@sveltejs/vite-plugin-svelte": "^7.0.0",
+    "@tauri-apps/api": "^2.10.1",
+    "@tauri-apps/cli": "^2",
+    "svelte": "^5.55.3",
+    "typescript": "^6.0.2",
+    "vite": "^8.0.8"
   }
 }

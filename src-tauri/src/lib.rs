@@ -82,7 +82,7 @@ pub fn run() {
                 if player::native_player_enabled() { "true" } else { "false" }
             );
             let bridge_js = include_str!("../scripts/bridge.js");
-            let mod_ui_js = include_str!("../scripts/mod-ui.js");
+            let mod_ui_js = include_str!("../../src/dist/mod-ui-svelte.iife.js");
 
             let window = WindowBuilder::new(app, player::MAIN_APP_LABEL)
             .title("Stremio Lightning")
