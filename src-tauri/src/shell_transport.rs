@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::VecDeque;
 use std::sync::{Condvar, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, Webview, Window};
 use tauri_plugin_opener::OpenerExt;
 
@@ -83,34 +83,16 @@ pub fn notify_bridge_ready(app: &AppHandle) -> Result<(), String> {
 
 pub fn wait_until_bridge_ready(app: &AppHandle, timeout: Duration) -> bool {
     let state = app.state::<ShellTransportState>();
-    let mut ready = match state.bridge_ready.lock() {
-        Ok(ready) => ready,
-        Err(_) => return false,
+    let result = if let Ok(ready_guard) = state.bridge_ready.lock() {
+        if let Ok((guard, _)) = state.bridge_ready_condvar.wait_timeout_while(ready_guard, timeout, |ready| !*ready) {
+            *guard
+        } else {
+            false
+        }
+    } else {
+        false
     };
-
-    if *ready {
-        return true;
-    }
-
-    let deadline = Instant::now() + timeout;
-    loop {
-        let now = Instant::now();
-        if now >= deadline {
-            return *ready;
-        }
-
-        let remaining = deadline.saturating_duration_since(now);
-        let result = state.bridge_ready_condvar.wait_timeout(ready, remaining);
-        let (next_ready, _) = match result {
-            Ok(result) => result,
-            Err(_) => return false,
-        };
-        ready = next_ready;
-
-        if *ready {
-            return true;
-        }
-    }
+    result
 }
 
 pub fn handle_message(app: &AppHandle, message: &str) -> Result<(), String> {
@@ -138,21 +120,24 @@ pub fn handle_message(app: &AppHandle, message: &str) -> Result<(), String> {
                     Err("Invalid open-external payload".into())
                 }
             }
-            "quit" => close_main_window(app),
-            "mpv-command" | "mpv-observe-prop" | "mpv-set-prop" => {
+            "win-focus" | "win-set-focus" | "app-focus" => {
+                with_main_window(app, Window::set_focus, "focus")
+            }
+            "win-minimize" => with_main_window(app, Window::minimize, "minimize"),
+            "win-maximize" => with_main_window(app, Window::maximize, "maximize"),
+            "win-unmaximize" => with_main_window(app, Window::unmaximize, "unmaximize"),
+            "win-close" | "app-quit" | "quit" => with_main_window(app, Window::close, "close"),
+            "win-show" | "win-restore" => with_main_window(app, Window::show, "show"),
+            "win-hide" => with_main_window(app, Window::hide, "hide"),
+            "win-dev-tools" => toggle_devtools(app),
+            "win-center" => with_main_window(app, Window::center, "center"),
+            "win-toggle-fullscreen" => {
+                with_main_window(app, |w| w.set_fullscreen(!w.is_fullscreen()?), "toggle fullscreen")
+            }
+            "native-player-stop" => player::stop_and_hide(app),
+            "mpv-observe-prop" | "mpv-set-prop" | "mpv-command" => {
                 player::handle_transport(app, &method, data)
             }
-            "win-focus" | "win-set-focus" | "app-focus" => focus_main_window(app),
-            "win-minimize" => minimize_main_window(app),
-            "win-maximize" => maximize_main_window(app),
-            "win-unmaximize" => unmaximize_main_window(app),
-            "win-close" | "app-quit" => close_main_window(app),
-            "win-show" | "win-restore" => show_main_window(app),
-            "win-hide" => hide_main_window(app),
-            "win-dev-tools" => toggle_devtools(app),
-            "win-center" => center_main_window(app),
-            "win-toggle-fullscreen" => toggle_main_fullscreen(app),
-            "native-player-stop" => player::stop_and_hide(app),
             other => {
                 eprintln!("Unsupported shell transport method: {other}");
                 Ok(())
@@ -342,49 +327,17 @@ fn main_window(app: &AppHandle) -> Result<Window, String> {
         .ok_or_else(|| "Main window not found".to_string())
 }
 
+fn with_main_window<F>(app: &AppHandle, f: F, action: &str) -> Result<(), String>
+where
+    F: FnOnce(&Window) -> tauri::Result<()>,
+{
+    let window = main_window(app)?;
+    f(&window).map_err(|e| format!("Failed to {} main window: {}", action, e))
+}
+
 fn main_webview(app: &AppHandle) -> Result<Webview, String> {
     app.get_webview(player::MAIN_APP_LABEL)
         .ok_or_else(|| "Main webview not found".to_string())
-}
-
-fn close_main_window(app: &AppHandle) -> Result<(), String> {
-    main_window(app)?.close().map_err(|e| format!("Failed to close main window: {e}"))
-}
-
-fn focus_main_window(app: &AppHandle) -> Result<(), String> {
-    main_window(app)?.set_focus().map_err(|e| format!("Failed to focus main window: {e}"))
-}
-
-fn minimize_main_window(app: &AppHandle) -> Result<(), String> {
-    main_window(app)?.minimize().map_err(|e| format!("Failed to minimize main window: {e}"))
-}
-
-fn maximize_main_window(app: &AppHandle) -> Result<(), String> {
-    main_window(app)?.maximize().map_err(|e| format!("Failed to maximize main window: {e}"))
-}
-
-fn unmaximize_main_window(app: &AppHandle) -> Result<(), String> {
-    main_window(app)?.unmaximize().map_err(|e| format!("Failed to unmaximize main window: {e}"))
-}
-
-fn show_main_window(app: &AppHandle) -> Result<(), String> {
-    main_window(app)?.show().map_err(|e| format!("Failed to show main window: {e}"))
-}
-
-fn hide_main_window(app: &AppHandle) -> Result<(), String> {
-    main_window(app)?.hide().map_err(|e| format!("Failed to hide main window: {e}"))
-}
-
-fn center_main_window(app: &AppHandle) -> Result<(), String> {
-    main_window(app)?.center().map_err(|e| format!("Failed to center main window: {e}"))
-}
-
-fn toggle_main_fullscreen(app: &AppHandle) -> Result<(), String> {
-    let window = main_window(app)?;
-    let fullscreen = window.is_fullscreen().map_err(|e| e.to_string())?;
-    window
-        .set_fullscreen(!fullscreen)
-        .map_err(|e| format!("Failed to toggle fullscreen: {e}"))
 }
 
 fn toggle_devtools(app: &AppHandle) -> Result<(), String> {

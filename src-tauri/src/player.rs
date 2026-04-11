@@ -147,6 +147,7 @@ mod platform {
             let event = match mpv.wait_event(0.1) {
                 Some(Ok(event)) => event,
                 Some(Err(error)) => {
+                    eprintln!("[StremioLightning] MPV event error: {error}");
                     let payload = PlayerEnded {
                         reason: "error".to_string(),
                         error: Some(PlayerEndedError {
@@ -177,16 +178,27 @@ mod platform {
                     }
                 }
                 Event::EndFile(reason) => {
+                    eprintln!(
+                        "[StremioLightning] MPV EndFile: reason={} (raw={})",
+                        end_reason_string(reason),
+                        reason as i32
+                    );
+                    let error_msg = if reason == mpv_end_file_reason::Error {
+                        let msg = format!(
+                            "MPV playback error (end-file reason={})",
+                            reason as i32
+                        );
+                        eprintln!("[StremioLightning] {}", msg);
+                        Some(PlayerEndedError {
+                            message: msg,
+                            critical: true,
+                        })
+                    } else {
+                        None
+                    };
                     let payload = PlayerEnded {
                         reason: end_reason_string(reason).to_string(),
-                        error: if reason == mpv_end_file_reason::Error {
-                            Some(PlayerEndedError {
-                                message: "Playback error".to_string(),
-                                critical: true,
-                            })
-                        } else {
-                            None
-                        },
+                        error: error_msg,
                     };
                     let _ = shell_transport::emit_transport_event(
                         &app,
@@ -213,7 +225,7 @@ mod platform {
     fn send_command(mpv: &Mpv, name: &str, args: &[String]) {
         let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
         if let Err(error) = mpv.command(name, &arg_refs) {
-            eprintln!("Failed to execute MPV command {name}: {error}");
+            eprintln!("[StremioLightning] MPV command '{name}' failed: {error} (args: {args:?})");
         }
     }
 

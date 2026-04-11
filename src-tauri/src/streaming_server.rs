@@ -44,12 +44,12 @@ pub fn start_server(app: &AppHandle) -> Result<(), String> {
     }
 
     // Resolve resource paths
-    let server_js = resolve_resource(app, "server.js")?;
+    let server_js = resolve_resource(app, "server.cjs")?;
     let ffmpeg_path = resolve_resource(app, "ffmpeg.exe")?;
     let ffprobe_path = resolve_resource(app, "ffprobe.exe")?;
 
     if !server_js.exists() {
-        return Err(format!("server.js not found at {:?}", server_js));
+        return Err(format!("server.cjs not found at {:?}", server_js));
     }
 
     // Build sidecar command
@@ -112,6 +112,17 @@ pub fn start_server(app: &AppHandle) -> Result<(), String> {
                     if let Some(ref mut f) = log_file {
                         let msg = format!("[server] Process exited with code: {:?}\n", payload.code);
                         let _ = f.write_all(msg.as_bytes());
+                    }
+
+                    // Auto-restart the server after unexpected exit.
+                    eprintln!("[StreamingServer] Server exited (code={:?}), auto-restarting in 2s...", payload.code);
+                    if let Some(ref mut f) = log_file {
+                        let _ = f.write_all(b"[server] Auto-restarting in 2s...\n");
+                    }
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                    match start_server(&app_handle) {
+                        Ok(()) => eprintln!("[StreamingServer] Auto-restart successful"),
+                        Err(e) => eprintln!("[StreamingServer] Auto-restart failed: {e}"),
                     }
                     break;
                 }

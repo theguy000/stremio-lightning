@@ -15,7 +15,7 @@
     ],
     "externalBin": ["binaries/stremio-runtime"],
     "resources": [
-      "resources/server.js",
+      "resources/server.cjs",
       "resources/ffmpeg.exe",
       "resources/ffprobe.exe",
       "resources/libmpv-2.dll"

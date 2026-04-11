@@ -1,21 +1,39 @@
 <script lang="ts">
-  // Root overlay — will hold all UI components
+  import { onMount } from 'svelte';
+  import ModsButton from './lib/components/ModsButton.svelte';
+  import ModsPanel from './lib/components/ModsPanel.svelte';
+  import { loadEnabledFromStorage, loadPlugin, refreshPlugins } from './lib/stores/plugins';
+  import { loadThemeFromStorage } from './lib/stores/themes';
+  import { loadSettingsFromStorage } from './lib/stores/settings';
+
+  let panelOpen = $state(false);
+
+  function togglePanel() {
+    panelOpen = !panelOpen;
+  }
+
+  onMount(async () => {
+    // Load persisted settings
+    loadSettingsFromStorage();
+    loadThemeFromStorage();
+
+    // Load enabled plugins
+    await refreshPlugins();
+    const enabled = loadEnabledFromStorage();
+    for (const pluginName of enabled) {
+      try {
+        await loadPlugin(pluginName);
+      } catch (e) {
+        console.error(`Failed to load plugin ${pluginName}:`, e);
+      }
+    }
+
+    // Re-apply blur intensity when theme changes
+    window.addEventListener('sl-theme-changed', () => {
+      loadSettingsFromStorage();
+    });
+  });
 </script>
 
-<div id="sl-overlay-root">
-  <p style="color: white; position: fixed; bottom: 80px; left: 20px; z-index: 100000; pointer-events: auto;">
-    Svelte overlay loaded!
-  </p>
-</div>
-
-<style>
-  #sl-overlay-root {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 99999;
-    pointer-events: none;
-  }
-</style>
+<ModsButton active={panelOpen} ontoggle={togglePanel} />
+<ModsPanel open={panelOpen} onclose={() => (panelOpen = false)} />

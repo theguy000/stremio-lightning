@@ -78,13 +78,13 @@ download_windows() {
 
     # Place files
     cp "$TEMP_DIR/extracted/stremio-runtime.exe" "$TAURI_DIR/binaries/stremio-runtime-${TARGET_TRIPLE}.exe"
-    cp "$TEMP_DIR/extracted/server.js" "$TAURI_DIR/resources/server.js"
+    cp "$TEMP_DIR/extracted/server.js" "$TAURI_DIR/resources/server.cjs"
     cp "$FFMPEG_EXE" "$TAURI_DIR/resources/ffmpeg.exe"
     cp "$FFPROBE_EXE" "$TAURI_DIR/resources/ffprobe.exe"
 
     echo "==> Windows dependencies ready:"
     echo "    $TAURI_DIR/binaries/stremio-runtime-${TARGET_TRIPLE}.exe"
-    echo "    $TAURI_DIR/resources/server.js"
+    echo "    $TAURI_DIR/resources/server.cjs"
     echo "    $TAURI_DIR/resources/ffmpeg.exe"
     echo "    $TAURI_DIR/resources/ffprobe.exe"
 }
@@ -156,14 +156,14 @@ download_macos() {
     # Place files
     cp "$RUNTIME_BIN" "$TAURI_DIR/binaries/stremio-runtime-${TARGET_TRIPLE}"
     chmod +x "$TAURI_DIR/binaries/stremio-runtime-${TARGET_TRIPLE}"
-    cp "$SERVER_JS" "$TAURI_DIR/resources/server.js"
+    cp "$SERVER_JS" "$TAURI_DIR/resources/server.cjs"
     cp "$FFMPEG_BIN" "$TAURI_DIR/resources/ffmpeg"
     cp "$FFPROBE_BIN" "$TAURI_DIR/resources/ffprobe"
     chmod +x "$TAURI_DIR/resources/ffmpeg" "$TAURI_DIR/resources/ffprobe"
 
     echo "==> macOS ($ARCH) dependencies ready:"
     echo "    $TAURI_DIR/binaries/stremio-runtime-${TARGET_TRIPLE}"
-    echo "    $TAURI_DIR/resources/server.js"
+    echo "    $TAURI_DIR/resources/server.cjs"
     echo "    $TAURI_DIR/resources/ffmpeg"
     echo "    $TAURI_DIR/resources/ffprobe"
 }
@@ -212,14 +212,14 @@ download_linux() {
     # Place files
     cp "$RUNTIME_BIN" "$TAURI_DIR/binaries/stremio-runtime-${TARGET_TRIPLE}"
     chmod +x "$TAURI_DIR/binaries/stremio-runtime-${TARGET_TRIPLE}"
-    cp "$SERVER_JS" "$TAURI_DIR/resources/server.js"
+    cp "$SERVER_JS" "$TAURI_DIR/resources/server.cjs"
     cp "$FFMPEG_BIN" "$TAURI_DIR/resources/ffmpeg"
     cp "$FFPROBE_BIN" "$TAURI_DIR/resources/ffprobe"
     chmod +x "$TAURI_DIR/resources/ffmpeg" "$TAURI_DIR/resources/ffprobe"
 
     echo "==> Linux dependencies ready:"
     echo "    $TAURI_DIR/binaries/stremio-runtime-${TARGET_TRIPLE}"
-    echo "    $TAURI_DIR/resources/server.js"
+    echo "    $TAURI_DIR/resources/server.cjs"
     echo "    $TAURI_DIR/resources/ffmpeg"
     echo "    $TAURI_DIR/resources/ffprobe"
 }

@@ -14,9 +14,33 @@ use tauri::webview::WebviewBuilder;
 use tauri::window::WindowBuilder;
 use tauri::{Emitter, Manager};
 
+/// Poll until the streaming server is listening on port 11470.
+/// Returns `true` if the server accepted a TCP connection within the timeout.
+fn wait_for_server_ready(timeout: std::time::Duration) -> bool {
+    let start = std::time::Instant::now();
+    let poll_interval = std::time::Duration::from_millis(500);
+    let addr = "127.0.0.1:11470";
+
+    while start.elapsed() < timeout {
+        if std::net::TcpStream::connect_timeout(
+            &addr.parse().unwrap(),
+            std::time::Duration::from_secs(1),
+        )
+        .is_ok()
+        {
+            eprintln!(
+                "[StreamingServer] Server listening after {:.1}s",
+                start.elapsed().as_secs_f64()
+            );
+            return true;
+        }
+        std::thread::sleep(poll_interval);
+    }
+    false
+}
+
 pub fn run() {
     tauri::Builder::default()
-        // Single instance lock
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             if let Some(window) = app.get_window(player::MAIN_APP_LABEL) {
                 let _ = window.unminimize();
@@ -26,25 +50,18 @@ pub fn run() {
                 handle_stremio_url(app, url);
             }
         }))
-        // Deep link protocol
         .plugin(tauri_plugin_deep_link::init())
-        // Shell plugin (for sidecar process management)
         .plugin(tauri_plugin_shell::init())
-        // Opener plugin (for opening URLs in system browser)
         .plugin(tauri_plugin_opener::init())
-        // Manage streaming server state
         .manage(streaming_server::ServerState {
             child: Mutex::new(None),
         })
         .manage(player::PlayerState::default())
         .manage(shell_transport::ShellTransportState::default())
-        // Manage Discord RPC state
         .manage(discord_rpc::DiscordRpcState::default())
-        // Manage mod manager state
         .manage(mod_manager::ModManagerState {
             registered_schemas: Mutex::new(HashMap::new()),
         })
-        // Register commands
         .invoke_handler(tauri::generate_handler![
             commands::toggle_devtools,
             commands::open_external_url,
@@ -166,19 +183,44 @@ pub fn run() {
 
                 match streaming_server::start_server(&app_handle) {
                     Ok(()) => {
-                        // Wait for the bridge so reload is no longer tied to a blind sleep.
+                        eprintln!("[StreamingServer] Sidecar spawned, waiting for server to be ready...");
+                        // Wait for the bridge AND for the server to actually be listening.
                         let app_for_reload = app_handle.clone();
                         std::thread::spawn(move || {
-                            let _ = shell_transport::wait_until_bridge_ready(
+                            // 1. Wait for the server to actually be listening on port 11470.
+                            //    The sidecar needs time to run HW transcoding tests before
+                            //    it starts serving requests.
+                            let server_ready = wait_for_server_ready(
+                                std::time::Duration::from_secs(30),
+                            );
+                            eprintln!("[StreamingServer] Server HTTP ready: {server_ready}");
+
+                            // 2. Wait for the bridge (webview) to be ready.
+                            let bridge_ready = shell_transport::wait_until_bridge_ready(
                                 &app_for_reload,
                                 std::time::Duration::from_secs(15),
                             );
-                            if let Some(webview) = app_for_reload.get_webview(player::MAIN_APP_LABEL) {
-                                let _ = webview.eval(
-                                    "if (typeof core !== 'undefined' && core.transport) { \
-                                        core.transport.dispatch({ action: 'StreamingServer', args: { action: 'Reload' } }); \
-                                    }"
-                                );
+                            eprintln!("[StreamingServer] Bridge ready: {bridge_ready}");
+
+                            // 3. Only now tell the web app the server is available.
+                            if server_ready {
+                                if let Some(webview) = app_for_reload.get_webview(player::MAIN_APP_LABEL) {
+                                    eprintln!("[StreamingServer] Sending StreamingServer Reload to web app");
+                                    let _ = webview.eval(
+                                        "try { \
+                                            var c = (typeof core !== 'undefined' && core) || \
+                                                    (window.services && window.services.core); \
+                                            if (c && c.transport) { \
+                                                c.transport.dispatch({ action: 'StreamingServer', args: { action: 'Reload' } }); \
+                                                console.log('[StremioLightning] StreamingServer Reload dispatched'); \
+                                            } else { \
+                                                console.warn('[StremioLightning] core.transport not available for Reload'); \
+                                            } \
+                                        } catch(e) { console.error('[StremioLightning] Reload error:', e); }"
+                                    );
+                                }
+                            } else {
+                                eprintln!("[StreamingServer] Server never became ready, skipping Reload");
                             }
                         });
                     }
@@ -189,7 +231,6 @@ pub fn run() {
             });
 
             // Handle stremio:// URL from launch args
-            // TODO: Replace fixed delay with a page-load-complete event
             let args: Vec<String> = std::env::args().collect();
             if let Some(url) = args.iter().find(|arg| arg.starts_with("stremio://")) {
                 let url = url.clone();

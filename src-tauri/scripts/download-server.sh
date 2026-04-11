@@ -33,7 +33,7 @@ fi
 
 # Move files to Tauri locations
 cp "$TEMP_DIR/extracted/stremio-runtime.exe" "$TAURI_DIR/binaries/stremio-runtime-x86_64-pc-windows-msvc.exe"
-cp "$TEMP_DIR/extracted/server.js" "$TAURI_DIR/resources/server.js"
+cp "$TEMP_DIR/extracted/server.js" "$TAURI_DIR/resources/server.cjs"
 cp "$FFMPEG_BIN_DIR/ffmpeg.exe" "$TAURI_DIR/resources/ffmpeg.exe"
 cp "$FFMPEG_BIN_DIR/ffprobe.exe" "$TAURI_DIR/resources/ffprobe.exe"
 
@@ -41,6 +41,6 @@ rm -rf "$TEMP_DIR"
 
 echo "Done! Files placed in:"
 echo "  $TAURI_DIR/binaries/stremio-runtime-x86_64-pc-windows-msvc.exe"
-echo "  $TAURI_DIR/resources/server.js"
+echo "  $TAURI_DIR/resources/server.cjs"
 echo "  $TAURI_DIR/resources/ffmpeg.exe"
 echo "  $TAURI_DIR/resources/ffprobe.exe"
