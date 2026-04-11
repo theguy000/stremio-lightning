@@ -66,8 +66,16 @@ export function applyBlurIntensity(percent: number, enabled: boolean): void {
 }
 
 // Auto-pause on unfocus
+// Svelte writable store backing the "Auto Pause on Unfocus" settings toggle.
+// Initialized to `true` (feature enabled by default); the actual value is
+// reconciled with localStorage / the Rust backend in `loadSettingsFromStorage`.
 export const autoPauseEnabled = writable(true);
 
+/** Toggle the auto-pause-on-unfocus feature.
+ *  1. Persists the new state to the Rust backend (AtomicBool) so the window
+ *     event callback can read it synchronously.
+ *  2. Saves to localStorage so the preference survives app restarts.
+ *  3. Updates the Svelte store so the settings UI reflects the change. */
 export async function toggleAutoPause(enabled: boolean): Promise<void> {
   await setAutoPause(enabled);
   localStorage.setItem('sl-auto-pause', String(enabled));
@@ -81,13 +89,19 @@ export function loadSettingsFromStorage(): void {
   blurIntensity.set(blurInt);
   applyBlurIntensity(blurInt, blurEn);
 
-  // Auto-pause: load persisted preference, fallback to Rust backend default
+  // ── Auto-pause on unfocus ──
+  // Two-source reconciliation: localStorage is the primary source (survives
+  // restarts), but on first launch (no localStorage key) we fall back to the
+  // Rust backend's default (which is `true`). In both cases we sync the
+  // Rust-side AtomicBool so the window event callback is up to date.
   const stored = localStorage.getItem('sl-auto-pause');
   if (stored !== null) {
+    // We have a persisted preference — apply it to both the store and the Rust backend
     const enabled = stored === 'true';
     autoPauseEnabled.set(enabled);
     setAutoPause(enabled).catch(() => {});
   } else {
+    // First launch — ask the Rust backend for its default and sync the store
     getAutoPause().then((enabled) => {
       autoPauseEnabled.set(enabled);
     }).catch(() => {});

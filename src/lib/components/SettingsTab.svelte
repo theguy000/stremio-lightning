@@ -42,6 +42,9 @@
     applyBlurIntensity(value, blurOn);
   }
 
+  /** Handle the auto-pause toggle: persist to Rust backend + localStorage,
+   *  and update the Svelte store. On failure, revert the toggle so the UI
+   *  stays in sync with the actual backend state. */
   async function handleAutoPauseToggle(e: Event) {
     const checked = (e.target as HTMLInputElement).checked;
     try {
@@ -74,6 +77,7 @@
     </div>
   </div>
 
+  <!-- Player section: settings that control native MPV playback behavior -->
   <h3 style="margin:1.5rem 0 0.75rem; font-size:1.1rem; font-weight:500; color:var(--primary-foreground-color, #f2f2f2); opacity:0.6;">Player</h3>
 
   <div class="sl-setting-row">

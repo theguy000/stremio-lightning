@@ -47,9 +47,20 @@ const JSON_STRING_PROPERTIES: &[&str] = &["track-list", "video-params", "metadat
 
 pub struct PlayerState {
     backend: Mutex<Option<PlayerBackend>>,
+    /// Tracks whether the native MPV player is currently paused.
+    /// Updated from the MPV event loop whenever a "pause" property change event fires.
+    /// Initialized to `true` because no content is playing at startup (effectively paused).
+    /// Uses `AtomicBool` so it can be read from the window event callback thread
+    /// without locking the backend mutex.
     pub is_paused: AtomicBool,
-    /// Set to true when we auto-paused on unfocus so we only resume if we were the one who paused
+    /// Flag indicating that we (the auto-pause feature) were the ones who paused playback
+    /// when the window lost focus. This is critical for the resume logic: we should only
+    /// auto-resume on refocus if we auto-paused — if the user paused manually, we must
+    /// not override their intent. Cleared when we resume, or when the user disables the feature.
     pub auto_paused_on_unfocus: AtomicBool,
+    /// Whether the auto-pause-on-unfocus feature is enabled (user setting).
+    /// Toggled via the `set_auto_pause` Tauri command from the settings UI.
+    /// When disabled, both `auto_pause_on_unfocus` and `auto_resume_on_focus` become no-ops.
     pub auto_pause_enabled: AtomicBool,
 }
 
@@ -176,6 +187,9 @@ mod platform {
             match event {
                 Event::PropertyChange { name, change, .. } => {
                     if let Some(data) = property_data_to_json(name, change) {
+                        // Mirror the MPV "pause" property into our AtomicBool so the
+                        // window event callback can check pause state without locking the
+                        // backend mutex. This is the single source-of-truth update for `is_paused`.
                         if name == "pause" {
                             if let Some(paused) = data.as_bool() {
                                 if let Some(state) = app.try_state::<PlayerState>() {
@@ -521,6 +535,11 @@ pub fn stop_and_hide(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Send a pause/unpause command to the MPV backend via the command channel.
+/// Returns `true` if the command was successfully enqueued, `false` if the
+/// backend is not initialized, the mutex is poisoned, or the channel is closed.
+/// This is the shared implementation used by both `auto_pause_on_unfocus` and
+/// `auto_resume_on_focus` to avoid duplicating the lock-and-send boilerplate.
 fn send_pause(app: &AppHandle, pause: bool) -> bool {
     let state = app.state::<PlayerState>();
     let backend = match state.backend.lock() {
@@ -539,35 +558,51 @@ fn send_pause(app: &AppHandle, pause: bool) -> bool {
         .is_ok()
 }
 
+/// Called from the window event callback when the window loses focus.
+/// If the auto-pause feature is enabled and the player is currently playing,
+/// sends a pause command to MPV and sets the `auto_paused_on_unfocus` flag
+/// so that `auto_resume_on_focus` knows it should resume later.
 pub fn auto_pause_on_unfocus(app: &AppHandle) {
     let state = app.state::<PlayerState>();
 
+    // Feature disabled by user — do nothing
     if !state.auto_pause_enabled.load(Ordering::Relaxed) {
         return;
     }
 
+    // Already paused (either by user or by us) — no need to pause again
     if state.is_paused.load(Ordering::Relaxed) {
         return;
     }
 
+    // Attempt to send the pause command; on success, mark that we auto-paused
     if send_pause(app, true) {
         state.auto_paused_on_unfocus.store(true, Ordering::Relaxed);
         eprintln!("[StremioLightning] Auto-paused native player on unfocus");
     }
 }
 
+/// Called from the window event callback when the window regains focus.
+/// Only resumes playback if the auto-pause feature is enabled AND we were the
+/// ones who paused it (i.e. `auto_paused_on_unfocus` is true). This prevents
+/// overriding a manual pause the user initiated while the window was unfocused.
 pub fn auto_resume_on_focus(app: &AppHandle) {
     let state = app.state::<PlayerState>();
 
+    // Feature disabled by user — do nothing
     if !state.auto_pause_enabled.load(Ordering::Relaxed) {
         return;
     }
 
+    // We didn't auto-pause (user paused manually, or player was already paused) — don't resume
     if !state.auto_paused_on_unfocus.load(Ordering::Relaxed) {
         return;
     }
+
+    // Clear the flag before resuming so we don't double-resume on a spurious focus event
     state.auto_paused_on_unfocus.store(false, Ordering::Relaxed);
 
+    // Send the unpause command to MPV
     if send_pause(app, false) {
         eprintln!("[StremioLightning] Auto-resumed native player on focus");
     }

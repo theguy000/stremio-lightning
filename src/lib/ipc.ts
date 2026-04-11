@@ -62,10 +62,16 @@ export function stopDiscordRpc(): Promise<void> {
 
 // ── Auto-pause on unfocus ──
 
+/** Enable or disable the auto-pause-on-unfocus feature on the Rust side.
+ *  Persists the setting to `PlayerState::auto_pause_enabled` (AtomicBool)
+ *  so the window event callback can read it synchronously without locking. */
 export function setAutoPause(enabled: boolean): Promise<void> {
   return invoke('set_auto_pause', { enabled });
 }
 
+/** Query whether auto-pause-on-unfocus is currently enabled on the Rust side.
+ *  Used on startup (when no localStorage value exists) to sync the frontend
+ *  toggle with the Rust backend's default value. */
 export function getAutoPause(): Promise<boolean> {
   return invoke('get_auto_pause');
 }

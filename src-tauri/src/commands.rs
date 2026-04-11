@@ -204,6 +204,11 @@ pub async fn check_app_update() -> Result<app_updater::AppUpdateInfo, String> {
 
 // ── Auto-pause on unfocus ──
 
+/// Tauri command: enable or disable the auto-pause-on-unfocus feature.
+/// Persists the setting to the `PlayerState` atomic so the window event callback
+/// can check it without any async or locking overhead.
+/// When disabling, also clears `auto_paused_on_unfocus` to prevent a stale flag
+/// from causing an unwanted resume the next time the window gains focus.
 #[tauri::command]
 pub async fn set_auto_pause(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
     let state = app.state::<player::PlayerState>();
@@ -215,6 +220,8 @@ pub async fn set_auto_pause(app: tauri::AppHandle, enabled: bool) -> Result<(), 
     Ok(())
 }
 
+/// Tauri command: query whether the auto-pause-on-unfocus feature is currently enabled.
+/// Used by the frontend on startup to sync the settings UI toggle with the Rust-side default.
 #[tauri::command]
 pub async fn get_auto_pause(app: tauri::AppHandle) -> bool {
     let state = app.state::<player::PlayerState>();
