@@ -136,7 +136,7 @@ mod platform {
     }
 
     pub fn create(window_handle: isize) -> Result<Mpv, String> {
-        Mpv::with_initializer(|initializer| -> MpvResult<()> {
+        let mpv = Mpv::with_initializer(|initializer| -> MpvResult<()> {
             initializer.set_property("wid", window_handle as i64)?;
             initializer.set_property("title", "Stremio Lightning")?;
             initializer.set_property("audio-client-name", "Stremio Lightning")?;
@@ -150,7 +150,34 @@ mod platform {
             initializer.set_property("ytdl", "no")?;
             Ok(())
         })
-        .map_err(to_string)
+        .map_err(to_string)?;
+
+        // Cache/demuxer tuning (matching stremio-community-v5 defaults)
+        // These must be set AFTER mpv_initialize() — they are not available
+        // as pre-init options. Reduces stream load time by limiting the
+        // probe/analyze phase and enabling a larger forward cache.
+        fn apply_stream_tuning(mpv: &Mpv) {
+            let props: &[(&str, &str)] = &[
+                ("demuxer-lavf-probesize",      "524288"),
+                ("demuxer-lavf-analyzeduration", "0.5"),
+                ("demuxer-max-bytes",           "300000000"),
+                ("demuxer-max-packets",          "150000000"),
+                ("cache",                       "yes"),
+                ("cache-pause",                 "no"),
+                ("cache-secs",                  "60"),
+                ("vd-lavc-threads",             "0"),
+                ("ad-lavc-threads",             "0"),
+                ("audio-fallback-to-null",      "yes"),
+            ];
+            for (name, value) in props {
+                if let Err(e) = mpv.set_property(name, *value) {
+                    eprintln!("[StremioLightning] Failed to set MPV property {name}={value}: {e}");
+                }
+            }
+        }
+        apply_stream_tuning(&mpv);
+
+        Ok(mpv)
     }
 
     pub fn run_event_loop(app: AppHandle, mut mpv: Mpv, command_receiver: Receiver<PlayerCommand>) {
