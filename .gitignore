@@ -23,6 +23,7 @@ Thumbs.db
 src-tauri/binaries/
 src-tauri/resources/*.exe
 src-tauri/resources/server.js
+src-tauri/resources/server.cjs
 
 # MPV libraries (downloaded at build time)
 src-tauri/mpv-dev/
