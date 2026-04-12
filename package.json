@@ -5,8 +5,10 @@
   "type": "module",
   "scripts": {
     "tauri": "tauri",
-    "build:ui": "vite build",
-    "dev:ui": "vite build --watch"
+    "setup": "node scripts/setup.js",
+    "check-deps": "node scripts/check-deps.js",
+    "build:ui": "node scripts/check-deps.js && vite build",
+    "dev:ui": "node scripts/check-deps.js && vite build --watch"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.0.0",
