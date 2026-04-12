@@ -225,6 +225,9 @@ pub fn run() {
                         } else {
                             // Auto-pause player on unfocus
                             player::auto_pause_on_unfocus(&app_handle_for_close);
+                            // Re-assert always-on-top for PiP mode so it stays
+                            // above all windows even when unfocused
+                            player::reinforce_pip_topmost(&app_handle_for_close);
                         }
                     }
                     _ => {}

@@ -914,9 +914,8 @@ pub fn toggle_pip_mode(app: &AppHandle) -> Result<bool, String> {
             );
         }
 
-        // Remove title bar and set always-on-top
+        // Remove title bar
         let _ = window.set_decorations(false);
-        let _ = window.set_always_on_top(true);
 
         // Resize to compact PiP dimensions (logical 480×270, 16:9 ratio)
         let scale = window.scale_factor().unwrap_or(1.0);
@@ -936,6 +935,10 @@ pub fn toggle_pip_mode(app: &AppHandle) -> Result<bool, String> {
             }
         }
 
+        // Set always-on-top LAST — on Windows, preceding calls to
+        // set_decorations / set_size / set_position can reset the TOPMOST flag.
+        let _ = window.set_always_on_top(true);
+
         state.is_pip_mode.store(true, Ordering::Relaxed);
 
         // Notify the web UI to switch to compact PiP layout
@@ -953,4 +956,20 @@ pub fn toggle_pip_mode(app: &AppHandle) -> Result<bool, String> {
 pub fn get_pip_mode(app: &AppHandle) -> bool {
     let state = app.state::<PlayerState>();
     state.is_pip_mode.load(Ordering::Relaxed)
+}
+
+/// Re-assert the always-on-top flag for the PiP window.
+/// Called when the window loses focus while PiP is active, because
+/// Windows can demote a TOPMOST window from the z-order when another
+/// window is brought to the foreground.
+pub fn reinforce_pip_topmost(app: &AppHandle) {
+    let state = app.state::<PlayerState>();
+    if !state.is_pip_mode.load(Ordering::Relaxed) {
+        return;
+    }
+    drop(state);
+
+    if let Some(window) = app.get_window(MAIN_APP_LABEL) {
+        let _ = window.set_always_on_top(true);
+    }
 }
