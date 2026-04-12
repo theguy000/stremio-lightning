@@ -29,3 +29,6 @@ src-tauri/mpv-dev/
 src-tauri/resources/libmpv-2.dll
 src-tauri/resources/libmpv.2.dylib
 src-tauri/resources/libmpv.so.2
+
+# Windows reserved device name (created accidentally)
+nul

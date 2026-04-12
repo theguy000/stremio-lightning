@@ -705,7 +705,6 @@ pub fn handle_transport(app: &AppHandle, method: &str, data: Option<Value>) -> R
 
             if name == "loadfile" {
                 eprintln!("[StremioLightning] MPV loadfile -> {:?}", values);
-                let _ = backend.window.set_focus();
             } else if name == "stop" {
                 eprintln!("[StremioLightning] MPV stop");
             }
@@ -934,9 +933,7 @@ pub fn toggle_pip_mode(app: &AppHandle) -> Result<bool, String> {
                 let _ = window.set_position(PhysicalPosition::new(pip_x, pip_y));
             }
         }
-
-        // Set always-on-top LAST — on Windows, preceding calls to
-        // set_decorations / set_size / set_position can reset the TOPMOST flag.
+        
         let _ = window.set_always_on_top(true);
 
         state.is_pip_mode.store(true, Ordering::Relaxed);

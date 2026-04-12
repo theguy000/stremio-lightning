@@ -150,13 +150,13 @@ pub fn run() {
             // Track window state changes (only emit on actual change)
             let was_maximized = Arc::new(AtomicBool::new(false));
             let was_fullscreen = Arc::new(AtomicBool::new(false));
-            // Track whether the window is currently focused (initialized to true since
-            // the window is created visible and focused). Used to detect actual focus changes
-            // and avoid acting on spurious duplicate events.
-            let was_focused = Arc::new(AtomicBool::new(true));
+            // Track whether the window is currently focused. Initialize from actual
+            // window focus state after showing to avoid assumption mismatch.
+            let initial_focused = window.is_focused().unwrap_or(true);
+            let was_focused = Arc::new(AtomicBool::new(initial_focused));
             // Timestamp of the last focus event we processed. Used to enforce a cooldown
-            // window (200ms) so that calling `set_focus()` — which can trigger a brief
-            // unfocus/refocus cycle — doesn't cause an infinite loop of pause/resume.
+            // window (500ms) to suppress spurious focus changes from MPV audio restart
+            // and other internal events that don't represent actual user focus changes.
             let last_focus_time = Arc::new(std::sync::Mutex::new(std::time::Instant::now()));
 
             let window_clone = window.clone();
@@ -185,31 +185,36 @@ pub fn run() {
                     tauri::WindowEvent::CloseRequested { .. } => {
                         // Graceful shutdown: kill the streaming server and Discord RPC
                         let _ = streaming_server::stop_server(&app_handle_for_close);
-                        let _ = player::stop_and_hide(&app_handle_for_close);
                         let discord_state = app_handle_for_close.state::<discord_rpc::DiscordRpcState>();
                         let _ = discord_rpc::stop(&discord_state);
                     }
                     tauri::WindowEvent::Focused(focused) => {
+                        eprintln!("[StremioLightning] Focus event: focused={}, prev={}", *focused, was_focused.load(Ordering::Relaxed));
+
                         // Always update the tracked state so it never goes stale,
                         // even when the cooldown suppresses side-effects.
                         let prev = was_focused.swap(*focused, Ordering::Relaxed);
 
                         // Cooldown: suppress side-effects (webview focus, auto-pause/resume)
-                        // for events that arrive too quickly (set_focus() can trigger
+                        // for events that arrive too quickly (MPV audio restart can trigger
                         // a brief unfocus/refocus cycle), but do NOT skip the state update.
                         let suppressed = {
                             let mut last = last_focus_time.lock().unwrap_or_else(|e| e.into_inner());
                             let now = std::time::Instant::now();
                             let elapsed = now.duration_since(*last);
                             *last = now;
-                            elapsed < std::time::Duration::from_millis(200)
+                            elapsed < std::time::Duration::from_millis(500)
                         };
 
+                        eprintln!("[StremioLightning] Focus check: focused==prev={}, suppressed={}", *focused == prev, suppressed);
+
                         if *focused == prev || suppressed {
+                            eprintln!("[StremioLightning] Focus event suppressed (no change or cooldown)");
                             return; // no actual change or cooldown active
                         }
 
                         if *focused {
+                            eprintln!("[StremioLightning] Window gained focus");
                             // Window gained focus — defer webview focus to avoid
                             // re-entrancy in the event handler
                             let ah = app_handle_for_close.clone();
@@ -223,11 +228,21 @@ pub fn run() {
                             // Auto-resume player if we auto-paused it on unfocus
                             player::auto_resume_on_focus(&app_handle_for_close);
                         } else {
-                            // Auto-pause player on unfocus
-                            player::auto_pause_on_unfocus(&app_handle_for_close);
-                            // Re-assert always-on-top for PiP mode so it stays
-                            // above all windows even when unfocused
-                            player::reinforce_pip_topmost(&app_handle_for_close);
+                            eprintln!("[StremioLightning] Window lost focus - delaying auto-pause");
+                            // Delay auto-pause to avoid spurious pauses from MPV internal events
+                            let ah = app_handle_for_close.clone();
+                            let wf = was_focused.clone();
+                            std::thread::spawn(move || {
+                                std::thread::sleep(std::time::Duration::from_millis(300));
+                                // Only pause if still unfocused after delay
+                                if !wf.load(Ordering::Relaxed) {
+                                    eprintln!("[StremioLightning] Window still unfocused after delay, auto-pausing");
+                                    player::auto_pause_on_unfocus(&ah);
+                                    player::reinforce_pip_topmost(&ah);
+                                } else {
+                                    eprintln!("[StremioLightning] Window regained focus, skipping auto-pause");
+                                }
+                            });
                         }
                     }
                     _ => {}
