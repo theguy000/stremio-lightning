@@ -518,6 +518,7 @@
       invoke("toggle_pip").catch(function (err) {
         console.error("[StremioLightning] PiP toggle failed:", err);
       });
+      btn.blur();
     });
 
     // Insert before the .spacing div (left side of the control bar, after volume)
@@ -640,9 +641,6 @@
     // Don't drag if clicking on/inside an interactive element
     if (isInsideInteractive(e.target)) return;
     // Stop the event so Stremio's "hold for 2x speed" never sees this mousedown.
-    // Without this, the player enters 2x mode but never gets the matching mouseup
-    // (because startDragging captures the mouse at the OS level), leaving it stuck.
-    // Buttons/sliders are safe — isInsideInteractive above already bails out for them.
     e.stopImmediatePropagation();
     e.preventDefault();
     appWindow.startDragging();
