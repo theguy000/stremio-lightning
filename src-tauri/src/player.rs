@@ -67,6 +67,10 @@ pub struct PlayerState {
     /// Toggled via the `set_auto_pause` Tauri command from the settings UI.
     /// When disabled, both `auto_pause_on_unfocus` and `auto_resume_on_focus` become no-ops.
     pub auto_pause_enabled: AtomicBool,
+    /// Whether PiP mode should suppress auto-pause-on-unfocus.
+    /// When enabled and PiP is active, the player won't auto-pause when the window
+    /// loses focus — since PiP is always-on-top, the user is likely multitasking.
+    pub pip_disables_auto_pause: AtomicBool,
     /// Whether Picture-in-Picture mode is currently active.
     /// When enabled, the window becomes borderless and always-on-top.
     /// The web UI handles the compact visual layout.
@@ -92,6 +96,7 @@ impl Default for PlayerState {
             is_paused: AtomicBool::new(true),
             auto_paused_on_unfocus: AtomicBool::new(false),
             auto_pause_enabled: AtomicBool::new(true),
+            pip_disables_auto_pause: AtomicBool::new(true),
             is_pip_mode: AtomicBool::new(false),
             pre_pip_geometry: Mutex::new(None),
         }
@@ -784,6 +789,13 @@ pub fn auto_pause_on_unfocus(app: &AppHandle) {
 
     // Feature disabled by user — do nothing
     if !state.auto_pause_enabled.load(Ordering::Relaxed) {
+        return;
+    }
+
+    // PiP mode suppresses auto-pause when the setting is enabled
+    if state.pip_disables_auto_pause.load(Ordering::Relaxed)
+        && state.is_pip_mode.load(Ordering::Relaxed)
+    {
         return;
     }
 

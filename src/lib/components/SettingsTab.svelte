@@ -8,7 +8,9 @@
     autoPauseEnabled,
     toggleAutoPause,
     pipFeatureEnabled,
-    togglePipFeature
+    togglePipFeature,
+    pipDisablesAutoPause,
+    togglePipDisablesAutoPause
   } from '../stores/settings';
 
   let discordOn = $state(false);
@@ -16,12 +18,14 @@
   let blurVal = $state(100);
   let autoPauseOn = $state(true);
   let pipFeatureOn = $state(true);
+  let pipDisablesAutoPauseOn = $state(true);
 
   discordRpcEnabled.subscribe((v) => { discordOn = v; });
   blurEnabled.subscribe((v) => { blurOn = v; });
   blurIntensity.subscribe((v) => { blurVal = v; });
   autoPauseEnabled.subscribe((v) => { autoPauseOn = v; });
   pipFeatureEnabled.subscribe((v) => { pipFeatureOn = v; });
+  pipDisablesAutoPause.subscribe((v) => { pipDisablesAutoPauseOn = v; });
 
   async function handleDiscordToggle(e: Event) {
     const checked = (e.target as HTMLInputElement).checked;
@@ -62,6 +66,16 @@
   function handlePipFeatureToggle(e: Event) {
     const checked = (e.target as HTMLInputElement).checked;
     togglePipFeature(checked);
+  }
+
+  async function handlePipDisablesAutoPauseToggle(e: Event) {
+    const checked = (e.target as HTMLInputElement).checked;
+    try {
+      await togglePipDisablesAutoPause(checked);
+    } catch (err) {
+      console.error('Failed to toggle PiP disables auto-pause:', err);
+      pipDisablesAutoPause.set(!checked);
+    }
   }
 </script>
 
@@ -112,6 +126,20 @@
       <!-- svelte-ignore a11y_label_has_associated_control -->
       <label class="sl-toggle">
         <input type="checkbox" checked={autoPauseOn} onchange={handleAutoPauseToggle} />
+        <div class="sl-toggle-track"><div class="sl-toggle-thumb"></div></div>
+      </label>
+    </div>
+  </div>
+
+  <div class="sl-setting-row" style="{autoPauseOn ? '' : 'opacity:0.4; pointer-events:none;'}">
+    <div class="sl-setting-label">
+      <div class="sl-setting-label-text">Don't Auto Pause in PiP</div>
+      <div class="sl-setting-label-desc">When Picture-in-Picture is active, skip auto-pause so playback continues while you use other windows</div>
+    </div>
+    <div class="sl-setting-control">
+      <!-- svelte-ignore a11y_label_has_associated_control -->
+      <label class="sl-toggle">
+        <input type="checkbox" checked={pipDisablesAutoPauseOn} onchange={handlePipDisablesAutoPauseToggle} />
         <div class="sl-toggle-track"><div class="sl-toggle-thumb"></div></div>
       </label>
     </div>

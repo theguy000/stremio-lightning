@@ -92,6 +92,8 @@ pub fn run() {
             commands::check_app_update,
             commands::set_auto_pause,
             commands::get_auto_pause,
+            commands::set_pip_disables_auto_pause,
+            commands::get_pip_disables_auto_pause,
             commands::toggle_pip,
             commands::get_pip_mode,
         ])

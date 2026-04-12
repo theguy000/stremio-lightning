@@ -1,5 +1,5 @@
 import { writable, get } from 'svelte/store';
-import { startDiscordRpc, stopDiscordRpc, setAutoPause, getAutoPause, togglePip, getPipMode } from '../ipc';
+import { startDiscordRpc, stopDiscordRpc, setAutoPause, getAutoPause, setPipDisablesAutoPause, getPipDisablesAutoPause, togglePip, getPipMode } from '../ipc';
 
 // Discord RPC
 export const discordRpcEnabled = writable(localStorage.getItem('discordrichpresence') === 'true');
@@ -83,6 +83,17 @@ export async function toggleAutoPause(enabled: boolean): Promise<void> {
   autoPauseEnabled.set(enabled);
 }
 
+// PiP disables auto-pause
+export const pipDisablesAutoPause = writable(true);
+
+/** Toggle the "PiP disables auto-pause" setting.
+ *  When enabled, auto-pause-on-unfocus is suppressed while PiP is active. */
+export async function togglePipDisablesAutoPause(enabled: boolean): Promise<void> {
+  await setPipDisablesAutoPause(enabled);
+  localStorage.setItem('sl-pip-disables-auto-pause', String(enabled));
+  pipDisablesAutoPause.set(enabled);
+}
+
 export function loadSettingsFromStorage(): void {
   const blurEn = localStorage.getItem('sl-blur-enabled') !== 'false';
   const blurIntRaw = parseInt(localStorage.getItem('sl-blur-intensity') || '100', 10);
@@ -106,6 +117,18 @@ export function loadSettingsFromStorage(): void {
     // First launch — ask the Rust backend for its default and sync the store
     getAutoPause().then((enabled) => {
       autoPauseEnabled.set(enabled);
+    }).catch(() => {});
+  }
+
+  // ── PiP disables auto-pause ──
+  const pipPauseStored = localStorage.getItem('sl-pip-disables-auto-pause');
+  if (pipPauseStored !== null) {
+    const enabled = pipPauseStored === 'true';
+    pipDisablesAutoPause.set(enabled);
+    setPipDisablesAutoPause(enabled).catch(() => {});
+  } else {
+    getPipDisablesAutoPause().then((enabled) => {
+      pipDisablesAutoPause.set(enabled);
     }).catch(() => {});
   }
 

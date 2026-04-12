@@ -76,6 +76,17 @@ export function getAutoPause(): Promise<boolean> {
   return invoke('get_auto_pause');
 }
 
+/** Enable or disable the "PiP disables auto-pause" setting on the Rust side.
+ *  When enabled, auto-pause-on-unfocus is suppressed while PiP is active. */
+export function setPipDisablesAutoPause(enabled: boolean): Promise<void> {
+  return invoke('set_pip_disables_auto_pause', { enabled });
+}
+
+/** Query whether the "PiP disables auto-pause" setting is enabled on the Rust side. */
+export function getPipDisablesAutoPause(): Promise<boolean> {
+  return invoke('get_pip_disables_auto_pause');
+}
+
 // ── Picture-in-Picture ──
 
 /** Toggle Picture-in-Picture mode on the Rust side.

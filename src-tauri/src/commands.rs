@@ -228,6 +228,22 @@ pub async fn get_auto_pause(app: tauri::AppHandle) -> bool {
     state.auto_pause_enabled.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+/// Tauri command: enable or disable the "PiP disables auto-pause" setting.
+/// When enabled (default), auto-pause-on-unfocus is suppressed while PiP is active.
+#[tauri::command]
+pub async fn set_pip_disables_auto_pause(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    let state = app.state::<player::PlayerState>();
+    state.pip_disables_auto_pause.store(enabled, std::sync::atomic::Ordering::Relaxed);
+    Ok(())
+}
+
+/// Tauri command: query whether the "PiP disables auto-pause" setting is enabled.
+#[tauri::command]
+pub async fn get_pip_disables_auto_pause(app: tauri::AppHandle) -> bool {
+    let state = app.state::<player::PlayerState>();
+    state.pip_disables_auto_pause.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 // ── Picture-in-Picture ──
 
 /// Tauri command: toggle Picture-in-Picture mode.
