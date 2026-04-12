@@ -28,9 +28,12 @@
       }
     }
 
-    // Re-apply blur intensity when theme changes
-    window.addEventListener('sl-theme-changed', () => {
-      loadSettingsFromStorage();
+    // Re-apply blur intensity when theme changes (defer one frame so browser
+    // has processed the new <style> element before we read computed styles)
+    document.addEventListener('sl-theme-changed', () => {
+      requestAnimationFrame(() => {
+        loadSettingsFromStorage();
+      });
     });
   });
 </script>

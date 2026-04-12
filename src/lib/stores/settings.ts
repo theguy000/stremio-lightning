@@ -29,6 +29,12 @@ export const blurEnabled = writable(localStorage.getItem('sl-blur-enabled') !== 
 const _blurIntRaw = parseInt(localStorage.getItem('sl-blur-intensity') || '100', 10);
 export const blurIntensity = writable(isNaN(_blurIntRaw) ? 100 : _blurIntRaw);
 
+function adjustAlpha(color: string, alpha: number): string {
+  const match = color.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
+  if (match) return `rgba(${match[1]}, ${match[2]}, ${match[3]}, ${alpha})`;
+  return `rgba(0, 0, 0, ${alpha})`;
+}
+
 export function applyBlurIntensity(percent: number, enabled: boolean): void {
   const root = document.documentElement;
   const blurVal = enabled ? `${16 * (percent / 100)}px` : '0px';
@@ -37,12 +43,17 @@ export function applyBlurIntensity(percent: number, enabled: boolean): void {
   root.style.setProperty('--sl-blur', blurVal);
   root.style.setProperty('--sl-blur-panel', blurPanelVal);
 
+  const bg = root.style.getPropertyValue('--primary-background-color').trim()
+    || getComputedStyle(root).getPropertyValue('--primary-background-color').trim()
+    || 'rgba(12, 11, 17, 1)';
+  const bg2 = root.style.getPropertyValue('--secondary-background-color').trim()
+    || getComputedStyle(root).getPropertyValue('--secondary-background-color').trim()
+    || 'rgba(26, 23, 62, 1)';
+
   if (!enabled) {
-    const bg = getComputedStyle(root).getPropertyValue('--primary-background-color').trim() || 'rgba(12, 11, 17, 1)';
-    const bg2 = getComputedStyle(root).getPropertyValue('--secondary-background-color').trim() || 'rgba(26, 23, 62, 1)';
     root.style.setProperty('--sl-panel-bg', `linear-gradient(41deg, ${bg} 0%, ${bg2} 100%)`);
   } else {
-    root.style.removeProperty('--sl-panel-bg');
+    root.style.setProperty('--sl-panel-bg', `linear-gradient(180deg, ${adjustAlpha(bg, 0.28)} 0%, ${adjustAlpha(bg2, 0.16)} 16%, ${adjustAlpha(bg2, 0.12)} 100%)`);
   }
 
   // Force repaint: Chromium doesn't always re-composite backdrop-filter when
