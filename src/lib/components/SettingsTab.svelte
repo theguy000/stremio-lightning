@@ -6,18 +6,22 @@
     blurIntensity,
     applyBlurIntensity,
     autoPauseEnabled,
-    toggleAutoPause
+    toggleAutoPause,
+    pipFeatureEnabled,
+    togglePipFeature
   } from '../stores/settings';
 
   let discordOn = $state(false);
   let blurOn = $state(true);
   let blurVal = $state(100);
   let autoPauseOn = $state(true);
+  let pipFeatureOn = $state(true);
 
   discordRpcEnabled.subscribe((v) => { discordOn = v; });
   blurEnabled.subscribe((v) => { blurOn = v; });
   blurIntensity.subscribe((v) => { blurVal = v; });
   autoPauseEnabled.subscribe((v) => { autoPauseOn = v; });
+  pipFeatureEnabled.subscribe((v) => { pipFeatureOn = v; });
 
   async function handleDiscordToggle(e: Event) {
     const checked = (e.target as HTMLInputElement).checked;
@@ -54,6 +58,11 @@
       autoPauseEnabled.set(!checked);
     }
   }
+
+  function handlePipFeatureToggle(e: Event) {
+    const checked = (e.target as HTMLInputElement).checked;
+    togglePipFeature(checked);
+  }
 </script>
 
 <div style="max-width:35rem;">
@@ -79,6 +88,20 @@
 
   <!-- Player section: settings that control native MPV playback behavior -->
   <h3 style="margin:1.5rem 0 0.75rem; font-size:1.1rem; font-weight:500; color:var(--primary-foreground-color, #f2f2f2); opacity:0.6;">Player</h3>
+
+  <div class="sl-setting-row">
+    <div class="sl-setting-label">
+      <div class="sl-setting-label-text">Picture in Picture</div>
+      <div class="sl-setting-label-desc">Show a PiP button in the player controls to pop out the video into a compact, always-on-top window</div>
+    </div>
+    <div class="sl-setting-control">
+      <!-- svelte-ignore a11y_label_has_associated_control -->
+      <label class="sl-toggle">
+        <input type="checkbox" checked={pipFeatureOn} onchange={handlePipFeatureToggle} />
+        <div class="sl-toggle-track"><div class="sl-toggle-thumb"></div></div>
+      </label>
+    </div>
+  </div>
 
   <div class="sl-setting-row">
     <div class="sl-setting-label">

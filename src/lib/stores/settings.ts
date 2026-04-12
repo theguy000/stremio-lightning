@@ -1,5 +1,5 @@
-import { writable } from 'svelte/store';
-import { startDiscordRpc, stopDiscordRpc, setAutoPause, getAutoPause } from '../ipc';
+import { writable, get } from 'svelte/store';
+import { startDiscordRpc, stopDiscordRpc, setAutoPause, getAutoPause, togglePip, getPipMode } from '../ipc';
 
 // Discord RPC
 export const discordRpcEnabled = writable(localStorage.getItem('discordrichpresence') === 'true');
@@ -108,5 +108,58 @@ export function loadSettingsFromStorage(): void {
       autoPauseEnabled.set(enabled);
     }).catch(() => {});
   }
+
+  // ── Picture-in-Picture ──
+  // PiP feature preference: persisted to localStorage, controls whether
+  // the PiP button appears in the player control bar.
+  const pipStored = localStorage.getItem('sl-pip-feature');
+  if (pipStored !== null) {
+    pipFeatureEnabled.set(pipStored === 'true');
+  } else {
+    pipFeatureEnabled.set(true); // enabled by default
+  }
+
+  // Sync runtime PiP state with the Rust backend on startup
+  getPipMode().then((active) => {
+    pipModeActive.set(active);
+  }).catch(() => {});
+}
+
+export const pipFeatureEnabled = writable(true);
+
+/** Toggle the PiP feature preference (whether the PiP button is shown).
+ *  This does NOT activate PiP — it only controls whether the feature is available. */
+export function togglePipFeature(enabled: boolean): void {
+  localStorage.setItem('sl-pip-feature', String(enabled));
+  pipFeatureEnabled.set(enabled);
+  // If disabling the feature while PiP is active, exit PiP
+  if (!enabled && get(pipModeActive)) {
+    togglePipActivation().catch(() => {});
+  }
+  // Notify bridge.js so the injected PiP button can show/hide
+  document.dispatchEvent(new CustomEvent('sl-pip-feature-changed', { detail: enabled }));
+}
+
+export const pipModeActive = writable(false);
+
+/** Activate or deactivate Picture-in-Picture mode.
+ *  Calls the Rust backend to toggle the window state (borderless, always-on-top).
+ *  Only works when the player is active. Updates the runtime store with the
+ *  new state returned by Rust. */
+export async function togglePipActivation(): Promise<void> {
+  try {
+    const newState = await togglePip();
+    pipModeActive.set(newState);
+  } catch (err) {
+    console.warn('PiP toggle failed (player may not be active):', err);
+    pipModeActive.set(false);
+  }
+}
+
+// Listen for PiP events dispatched by bridge.js (from shell transport or keyboard shortcut)
+// so the runtime store stays in sync regardless of how PiP was toggled.
+if (typeof document !== 'undefined') {
+  document.addEventListener('sl-pip-enabled', () => pipModeActive.set(true));
+  document.addEventListener('sl-pip-disabled', () => pipModeActive.set(false));
 }
 

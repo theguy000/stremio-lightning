@@ -227,3 +227,19 @@ pub async fn get_auto_pause(app: tauri::AppHandle) -> bool {
     let state = app.state::<player::PlayerState>();
     state.auto_pause_enabled.load(std::sync::atomic::Ordering::Relaxed)
 }
+
+// ── Picture-in-Picture ──
+
+/// Tauri command: toggle Picture-in-Picture mode.
+/// Returns the new PiP state (`true` = PiP active, `false` = normal mode).
+#[tauri::command]
+pub async fn toggle_pip(app: tauri::AppHandle) -> Result<bool, String> {
+    player::toggle_pip_mode(&app)
+}
+
+/// Tauri command: query whether Picture-in-Picture mode is currently active.
+/// Used by the frontend on startup to sync the settings UI toggle with the Rust-side state.
+#[tauri::command]
+pub async fn get_pip_mode(app: tauri::AppHandle) -> bool {
+    player::get_pip_mode(&app)
+}

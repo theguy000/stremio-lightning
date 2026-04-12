@@ -117,6 +117,21 @@
 
     updateDiscordMpvStateFromTransport(payload);
 
+    // Handle Picture-in-Picture events from the Rust backend
+    try {
+      var parsed = typeof payload === "string" ? JSON.parse(payload) : payload;
+      if (parsed && parsed.args && Array.isArray(parsed.args) && parsed.args.length >= 1) {
+        var eventName = parsed.args[0];
+        if (eventName === "showPictureInPicture") {
+          document.dispatchEvent(new CustomEvent("sl-pip-enabled"));
+        } else if (eventName === "hidePictureInPicture") {
+          document.dispatchEvent(new CustomEvent("sl-pip-disabled"));
+        }
+      }
+    } catch (error) {
+      // Ignore parse errors for non-PiP payloads
+    }
+
     try {
       if (
         window.qt &&
@@ -340,6 +355,17 @@
   }
 
   // ============================================
+  // Picture-in-Picture: shared state
+  // ============================================
+  // Declared early so the keyboard shortcut handler can access them.
+  var _pipFeatureOn = localStorage.getItem("sl-pip-feature") !== "false";
+
+  function isPlayerRoute() {
+    var hash = window.location.hash || "";
+    return hash.indexOf("/player") !== -1;
+  }
+
+  // ============================================
   // Keyboard Shortcuts
   // ============================================
   var zoomLevel = 1.0;
@@ -411,6 +437,17 @@
       return;
     }
 
+    // Ctrl+Shift+P: Toggle Picture-in-Picture (only on player route when feature is enabled)
+    if (e.shiftKey && (e.key === "P" || e.key === "p")) {
+      if (isPlayerRoute() && _pipFeatureOn) {
+        e.preventDefault();
+        invoke("toggle_pip").catch(function (err) {
+          console.error("[StremioLightning] PiP toggle failed:", err);
+        });
+      }
+      return;
+    }
+
     // Ctrl+R: Reload page
     if (!e.shiftKey && (e.key === "r" || e.key === "R")) {
       e.preventDefault();
@@ -434,6 +471,182 @@
       return;
     }
   });
+
+  // ============================================
+  // Picture-in-Picture Button Injection
+  // ============================================
+  // Injects a PiP button into the Stremio web player's ControlBar.
+  // The button only appears when the PiP feature is enabled (localStorage)
+  // and the user is on the player route. Clicking it calls toggle_pip.
+  // ============================================
+
+  var _pipBtnInjected = false;
+
+  function injectPipButton() {
+    if (_pipBtnInjected) return;
+    // Find the control-bar-buttons-container inside the player
+    var containers = document.querySelectorAll(
+      '[class*="control-bar-buttons-container"]'
+    );
+    if (!containers.length) return;
+
+    var btnContainer = containers[containers.length - 1];
+
+    // Create the PiP button matching the ControlBar button style
+    var btn = document.createElement("button");
+    btn.id = "sl-pip-btn";
+    btn.title = "Picture in Picture";
+    btn.setAttribute("tabindex", "-1");
+    btn.innerHTML =
+      '<svg viewBox="0 0 24 24" style="width:3rem;height:2rem;fill:rgba(255,255,255,0.85);">' +
+      '<path d="M19 11h-8v6h8v-6zm4 8V4.98C23 3.88 22.1 3 21 3H3c-1.1 0-2 .88-2 1.98V19c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2zm-2 .02H3V4.97h18v14.05z"/>' +
+      "</svg>";
+
+    // Style to match existing control-bar-button class
+    btn.style.cssText =
+      "flex:none;width:4rem;height:4rem;display:flex;justify-content:center;align-items:center;" +
+      "background:transparent;border:none;cursor:pointer;padding:0;outline:none;";
+
+    btn.addEventListener("mouseenter", function () {
+      btn.querySelector("svg").style.fill = "rgba(255,255,255,1)";
+    });
+    btn.addEventListener("mouseleave", function () {
+      btn.querySelector("svg").style.fill = "rgba(255,255,255,0.85)";
+    });
+
+    btn.addEventListener("click", function () {
+      invoke("toggle_pip").catch(function (err) {
+        console.error("[StremioLightning] PiP toggle failed:", err);
+      });
+    });
+
+    // Insert before the .spacing div (left side of the control bar, after volume)
+    var spacing = btnContainer.querySelector('[class*="spacing"]');
+    if (spacing) {
+      btnContainer.insertBefore(btn, spacing);
+    } else {
+      btnContainer.appendChild(btn);
+    }
+
+    _pipBtnInjected = true;
+  }
+
+  function removePipButton() {
+    var btn = document.getElementById("sl-pip-btn");
+    if (btn) {
+      btn.remove();
+      _pipBtnInjected = false;
+    }
+  }
+
+  function updatePipButton() {
+    if (isPlayerRoute() && _pipFeatureOn) {
+      // Try to inject; the control bar may not be in the DOM yet
+      injectPipButton();
+      // If not yet injected, observe for it
+      if (!_pipBtnInjected) {
+        var observer = new MutationObserver(function () {
+          if (_pipBtnInjected) {
+            observer.disconnect();
+            return;
+          }
+          injectPipButton();
+          if (_pipBtnInjected) {
+            observer.disconnect();
+          }
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
+        // Safety: stop observing after 30s
+        setTimeout(function () { observer.disconnect(); }, 30000);
+      }
+    } else {
+      removePipButton();
+    }
+  }
+
+  // Listen for route changes
+  window.addEventListener("hashchange", updatePipButton);
+  if (document.body) {
+    updatePipButton();
+  } else {
+    document.addEventListener("DOMContentLoaded", updatePipButton);
+  }
+
+  // Listen for PiP feature toggle from the Svelte settings UI
+  document.addEventListener("sl-pip-feature-changed", function (e) {
+    _pipFeatureOn = e.detail !== false;
+    updatePipButton();
+  });
+
+  // When PiP is activated/deactivated, update the button icon
+  document.addEventListener("sl-pip-enabled", function () {
+    var btn = document.getElementById("sl-pip-btn");
+    if (btn) btn.title = "Exit Picture in Picture";
+    _pipDragActive = true;
+  });
+  document.addEventListener("sl-pip-disabled", function () {
+    var btn = document.getElementById("sl-pip-btn");
+    if (btn) btn.title = "Picture in Picture";
+    _pipDragActive = false;
+  });
+
+  // ============================================
+  // PiP Drag-from-Anywhere
+  // ============================================
+  // When PiP mode is active (borderless window), allow the user to
+  // grab and drag the window from anywhere by clicking on non-interactive
+  // areas. Interactive elements (buttons, inputs, sliders, etc.) are
+  // excluded so they still work normally.
+  // ============================================
+
+  var _pipDragActive = false;
+
+  function isInteractiveNode(el) {
+    var tag = el.tagName;
+    if (tag === "BUTTON" || tag === "INPUT" || tag === "TEXTAREA" ||
+        tag === "SELECT" || tag === "A" || tag === "LABEL") {
+      return true;
+    }
+    if (el.isContentEditable) return true;
+    var role = el.getAttribute && el.getAttribute("role");
+    if (role === "button" || role === "slider" || role === "textbox" ||
+        role === "menuitem" || role === "tab" || role === "option") {
+      return true;
+    }
+    if (el.className && typeof el.className === "string") {
+      var cls = el.className;
+      if (cls.indexOf("control-bar") !== -1 || cls.indexOf("button") !== -1 ||
+          cls.indexOf("slider") !== -1 || cls.indexOf("seek") !== -1 ||
+          cls.indexOf("volume") !== -1) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // Walk from the click target up to the document to see if any ancestor is interactive
+  function isInsideInteractive(el) {
+    while (el && el !== document.body && el !== document.documentElement) {
+      if (isInteractiveNode(el)) return true;
+      el = el.parentElement;
+    }
+    return false;
+  }
+
+  document.addEventListener("mousedown", function (e) {
+    if (!_pipDragActive) return;
+    // Only left-click
+    if (e.button !== 0) return;
+    // Don't drag if clicking on/inside an interactive element
+    if (isInsideInteractive(e.target)) return;
+    // Stop the event so Stremio's "hold for 2x speed" never sees this mousedown.
+    // Without this, the player enters 2x mode but never gets the matching mouseup
+    // (because startDragging captures the mouse at the OS level), leaving it stuck.
+    // Buttons/sliders are safe — isInsideInteractive above already bails out for them.
+    e.stopImmediatePropagation();
+    e.preventDefault();
+    appWindow.startDragging();
+  }, true);
 
   // ============================================
   // Discord Rich Presence API & Tracker

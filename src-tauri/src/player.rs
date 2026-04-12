@@ -5,6 +5,10 @@ use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use tauri::{AppHandle, Manager, Window};
+use tauri::PhysicalPosition;
+use tauri::PhysicalSize;
+
+use crate::shell_transport;
 
 #[cfg(windows)]
 use std::os::windows::ffi::OsStrExt;
@@ -63,6 +67,22 @@ pub struct PlayerState {
     /// Toggled via the `set_auto_pause` Tauri command from the settings UI.
     /// When disabled, both `auto_pause_on_unfocus` and `auto_resume_on_focus` become no-ops.
     pub auto_pause_enabled: AtomicBool,
+    /// Whether Picture-in-Picture mode is currently active.
+    /// When enabled, the window becomes borderless and always-on-top.
+    /// The web UI handles the compact visual layout.
+    pub is_pip_mode: AtomicBool,
+    /// Saved window geometry before entering PiP mode.
+    /// Used to restore the window size and position when exiting PiP.
+    pub pre_pip_geometry: Mutex<Option<PrePipGeometry>>,
+}
+
+/// Stores the window size and position before PiP mode was activated,
+/// so they can be restored when PiP is exited.
+pub struct PrePipGeometry {
+    pub width: u32,
+    pub height: u32,
+    pub x: i32,
+    pub y: i32,
 }
 
 impl Default for PlayerState {
@@ -72,6 +92,8 @@ impl Default for PlayerState {
             is_paused: AtomicBool::new(true),
             auto_paused_on_unfocus: AtomicBool::new(false),
             auto_pause_enabled: AtomicBool::new(true),
+            is_pip_mode: AtomicBool::new(false),
+            pre_pip_geometry: Mutex::new(None),
         }
     }
 }
@@ -113,7 +135,7 @@ enum PlayerCommand {
 
 #[cfg(windows)]
 mod platform {
-    use super::{OBSERVED_PROPERTIES, PlayerState};
+    use super::{OBSERVED_PROPERTIES, PlayerState, exit_pip_internal};
     use libmpv2::{mpv_end_file_reason, Format, Mpv, Result as MpvResult};
     use libmpv2_sys as sys;
     use serde::Serialize;
@@ -363,6 +385,13 @@ mod platform {
                         if let Some(state) = app.try_state::<PlayerState>() {
                             state.is_paused.store(true, Ordering::Relaxed);
                             state.auto_paused_on_unfocus.store(false, Ordering::Relaxed);
+
+                            // Auto-exit PiP mode when playback ends
+                            if state.is_pip_mode.load(Ordering::Relaxed) {
+                                eprintln!("[StremioLightning] Playback ended, auto-exiting PiP mode");
+                                drop(state);
+                                let _ = exit_pip_internal(&app);
+                            }
                         }
                         let error_msg = if ef.reason == mpv_end_file_reason::Error as u32 {
                             let msg = format!(
@@ -787,11 +816,129 @@ pub fn auto_resume_on_focus(app: &AppHandle) {
         return;
     }
 
-    // Clear the flag before resuming so we don't double-resume on a spurious focus event
-    state.auto_paused_on_unfocus.store(false, Ordering::Relaxed);
-
     // Send the unpause command to MPV
     if send_pause(app, false) {
+        // Only clear the flag after a successful resume
+        state.auto_paused_on_unfocus.store(false, Ordering::Relaxed);
         eprintln!("[StremioLightning] Auto-resumed native player on focus");
     }
+}
+
+/// Internal helper to exit PiP mode without requiring the caller to hold any locks.
+/// Used by the MPV event loop when playback ends.
+/// Restores decorations, removes always-on-top, restores saved window geometry,
+/// and notifies the web UI via the hidePictureInPicture event.
+fn exit_pip_internal(app: &AppHandle) -> Result<bool, String> {
+    let window = app
+        .get_window(MAIN_APP_LABEL)
+        .ok_or_else(|| "Main window not found".to_string())?;
+    let state = app.state::<PlayerState>();
+
+    let _ = window.set_decorations(true);
+    let _ = window.set_always_on_top(false);
+    state.is_pip_mode.store(false, Ordering::Relaxed);
+
+    // Restore the saved window geometry (size + position)
+    if let Ok(mut geo) = state.pre_pip_geometry.lock() {
+        if let Some(saved) = geo.take() {
+            let _ = window.set_size(PhysicalSize::new(saved.width, saved.height));
+            let _ = window.set_position(PhysicalPosition::new(saved.x, saved.y));
+            eprintln!(
+                "[StremioLightning] Restored window geometry: {}x{} at ({},{})",
+                saved.width, saved.height, saved.x, saved.y
+            );
+        }
+    }
+
+    let _ = shell_transport::emit_transport_event(
+        app,
+        serde_json::json!(["hidePictureInPicture", {}]),
+    );
+
+    eprintln!("[StremioLightning] PiP mode disabled");
+    Ok(false)
+}
+
+/// Toggle Picture-in-Picture mode.
+/// - Enter PiP: saves current window geometry, removes decorations, sets always-on-top,
+///   resizes to a compact 16:9 PiP window, and notifies the web UI.
+/// - Exit PiP: restores decorations, removes always-on-top, restores saved geometry,
+///   and notifies the web UI.
+/// PiP can only be entered when the native player backend is active (video playing).
+pub fn toggle_pip_mode(app: &AppHandle) -> Result<bool, String> {
+    let state = app.state::<PlayerState>();
+    let currently_pip = state.is_pip_mode.load(Ordering::Relaxed);
+
+    if currently_pip {
+        // ── Exit PiP ──
+        exit_pip_internal(app)
+    } else {
+        // ── Enter PiP ──
+        let window = app
+            .get_window(MAIN_APP_LABEL)
+            .ok_or_else(|| "Main window not found".to_string())?;
+
+        // Only allow PiP when the native player backend is initialized (i.e., video is playing)
+        {
+            let backend = state.backend.lock().map_err(|e| e.to_string())?;
+            if backend.is_none() {
+                return Err("Picture-in-Picture is only available while the player is active".to_string());
+            }
+        }
+
+        // Save current window geometry before resizing
+        let current_size = window.inner_size().map_err(|e| e.to_string())?;
+        let current_pos = window.outer_position().map_err(|e| e.to_string())?;
+        if let Ok(mut geo) = state.pre_pip_geometry.lock() {
+            *geo = Some(PrePipGeometry {
+                width: current_size.width,
+                height: current_size.height,
+                x: current_pos.x,
+                y: current_pos.y,
+            });
+            eprintln!(
+                "[StremioLightning] Saved window geometry: {}x{} at ({},{})",
+                current_size.width, current_size.height, current_pos.x, current_pos.y
+            );
+        }
+
+        // Remove title bar and set always-on-top
+        let _ = window.set_decorations(false);
+        let _ = window.set_always_on_top(true);
+
+        // Resize to compact PiP dimensions (logical 480×270, 16:9 ratio)
+        let scale = window.scale_factor().unwrap_or(1.0);
+        let pip_w = (480.0 * scale) as u32;
+        let pip_h = (270.0 * scale) as u32;
+        let _ = window.set_size(PhysicalSize::new(pip_w, pip_h));
+
+        // Position near the bottom-right of the primary monitor
+        if let Ok(monitor) = window.primary_monitor() {
+            if let Some(monitor) = monitor {
+                let screen_size = monitor.size();
+                let screen_pos = monitor.position();
+                let margin = (16.0 * scale) as i32;
+                let pip_x = screen_pos.x + screen_size.width as i32 - pip_w as i32 - margin;
+                let pip_y = screen_pos.y + screen_size.height as i32 - pip_h as i32 - margin;
+                let _ = window.set_position(PhysicalPosition::new(pip_x, pip_y));
+            }
+        }
+
+        state.is_pip_mode.store(true, Ordering::Relaxed);
+
+        // Notify the web UI to switch to compact PiP layout
+        let _ = shell_transport::emit_transport_event(
+            app,
+            serde_json::json!(["showPictureInPicture", {}]),
+        );
+
+        eprintln!("[StremioLightning] PiP mode enabled ({}x{})", pip_w, pip_h);
+        Ok(true)
+    }
+}
+
+/// Query whether PiP mode is currently active.
+pub fn get_pip_mode(app: &AppHandle) -> bool {
+    let state = app.state::<PlayerState>();
+    state.is_pip_mode.load(Ordering::Relaxed)
 }

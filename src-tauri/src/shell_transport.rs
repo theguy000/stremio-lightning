@@ -141,6 +141,10 @@ pub fn handle_message(app: &AppHandle, message: &str) -> Result<(), String> {
                 with_main_window(app, |w| w.set_fullscreen(!w.is_fullscreen()?), "toggle fullscreen")
             }
             "native-player-stop" => player::stop_and_hide(app),
+            "win-toggle-pip" => {
+                player::toggle_pip_mode(app)?;
+                Ok(())
+            }
             "mpv-observe-prop" | "mpv-set-prop" | "mpv-command" => {
                 player::handle_transport(app, &method, data)
             }

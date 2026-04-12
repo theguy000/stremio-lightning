@@ -76,6 +76,20 @@ export function getAutoPause(): Promise<boolean> {
   return invoke('get_auto_pause');
 }
 
+// ── Picture-in-Picture ──
+
+/** Toggle Picture-in-Picture mode on the Rust side.
+ *  Returns the new PiP state (true = PiP active, false = normal mode). */
+export function togglePip(): Promise<boolean> {
+  return invoke('toggle_pip');
+}
+
+/** Query whether Picture-in-Picture mode is currently active on the Rust side.
+ *  Used on startup to sync the frontend toggle with the Rust backend's state. */
+export function getPipMode(): Promise<boolean> {
+  return invoke('get_pip_mode');
+}
+
 // ── Misc ──
 
 export function openExternalUrl(url: string): Promise<void> {
