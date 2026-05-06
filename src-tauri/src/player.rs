@@ -506,7 +506,6 @@ mod platform {
     }
 }
 
-
 pub fn native_player_enabled() -> bool {
     cfg!(windows)
         && std::env::var("STREMIO_LIGHTNING_NATIVE_PLAYER")

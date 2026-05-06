@@ -4,6 +4,7 @@
 .github\instructions\codacy.instructions.md
 
 # Rust
+target/
 src-tauri/target/
 
 # Tauri generated

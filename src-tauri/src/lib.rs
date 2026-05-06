@@ -6,7 +6,6 @@ mod player;
 mod shell_transport;
 mod streaming_server;
 
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -100,10 +99,7 @@ pub fn run() {
         .manage(player::PlayerState::default())
         .manage(shell_transport::ShellTransportState::default())
         .manage(discord_rpc::DiscordRpcState::default())
-        .manage(mod_manager::ModManagerState {
-            registered_schemas: Mutex::new(HashMap::new()),
-            settings_lock: Mutex::new(()),
-        })
+        .manage(mod_manager::ModManagerState::default())
         .invoke_handler(tauri::generate_handler![
             commands::toggle_devtools,
             commands::open_external_url,

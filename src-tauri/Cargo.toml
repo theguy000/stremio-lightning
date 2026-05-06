@@ -11,6 +11,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+stremio-lightning-core = { path = "../crates/stremio-lightning-core" }
 tauri = { version = "2", features = ["devtools", "unstable"] }
 tauri-plugin-single-instance = "2"
 tauri-plugin-deep-link = "2"

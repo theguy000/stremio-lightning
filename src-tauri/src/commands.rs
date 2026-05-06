@@ -9,6 +9,7 @@ use crate::mod_manager::{self, ModManagerState};
 use crate::player;
 use crate::shell_transport;
 use crate::streaming_server;
+use stremio_lightning_core::streaming_server as core_streaming_server;
 
 const STREAMING_SERVER_PROXY_CONNECT_RETRIES: usize = 30;
 const STREAMING_SERVER_PROXY_RETRY_DELAY: std::time::Duration =
@@ -82,58 +83,10 @@ pub async fn get_streaming_server_status(app: tauri::AppHandle) -> bool {
     streaming_server::is_server_running(&app)
 }
 
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProxyStreamingServerResponse {
-    status: u16,
-    status_text: String,
-    headers: Vec<(String, String)>,
-    body: Vec<u8>,
-}
-
-fn is_hop_by_hop_header(name: &str) -> bool {
-    matches!(
-        name.to_ascii_lowercase().as_str(),
-        "connection"
-            | "keep-alive"
-            | "proxy-authenticate"
-            | "proxy-authorization"
-            | "te"
-            | "trailer"
-            | "transfer-encoding"
-            | "upgrade"
-            | "host"
-            | "content-length"
-    )
-}
-
-fn should_forward_streaming_server_proxy_header(name: &str) -> bool {
-    !is_hop_by_hop_header(name)
-}
-
-fn validate_streaming_server_proxy_path(path: &str) -> Result<(), String> {
-    if !path.starts_with('/') || path.starts_with("//") || path.contains("://") {
-        return Err("Rejected invalid streaming server proxy path".into());
-    }
-
-    if path.contains('\\') || path.contains('\0') {
-        return Err("Rejected invalid streaming server proxy path".into());
-    }
-
-    Ok(())
-}
-
 fn parse_streaming_server_proxy_method(method: &str) -> Result<reqwest::Method, String> {
-    match method.trim().to_ascii_uppercase().as_str() {
-        "GET" => Ok(reqwest::Method::GET),
-        "POST" => Ok(reqwest::Method::POST),
-        "PUT" => Ok(reqwest::Method::PUT),
-        "PATCH" => Ok(reqwest::Method::PATCH),
-        "DELETE" => Ok(reqwest::Method::DELETE),
-        "OPTIONS" => Ok(reqwest::Method::OPTIONS),
-        "HEAD" => Ok(reqwest::Method::HEAD),
-        _ => Err("Rejected unsupported streaming server proxy method".into()),
-    }
+    core_streaming_server::normalize_proxy_method(method)?
+        .parse()
+        .map_err(|e| format!("Failed to parse streaming server proxy method: {e}"))
 }
 
 #[tauri::command]
@@ -142,8 +95,8 @@ pub async fn proxy_streaming_server_request(
     path: String,
     headers: Option<HashMap<String, String>>,
     body: Option<Vec<u8>>,
-) -> Result<ProxyStreamingServerResponse, String> {
-    validate_streaming_server_proxy_path(&path)?;
+) -> Result<core_streaming_server::ProxyStreamingServerResponse, String> {
+    core_streaming_server::validate_proxy_path(&path)?;
 
     let method = parse_streaming_server_proxy_method(&method)?;
 
@@ -153,7 +106,7 @@ pub async fn proxy_streaming_server_request(
 
     if let Some(headers) = headers {
         for (name, value) in headers {
-            if !should_forward_streaming_server_proxy_header(&name) {
+            if !core_streaming_server::should_forward_proxy_header(&name) {
                 continue;
             }
             request = request.header(name, value);
@@ -205,7 +158,7 @@ pub async fn proxy_streaming_server_request(
         .headers()
         .iter()
         .filter_map(|(name, value)| {
-            if is_hop_by_hop_header(name.as_str()) {
+            if core_streaming_server::is_hop_by_hop_header(name.as_str()) {
                 return None;
             }
             value
@@ -228,7 +181,7 @@ pub async fn proxy_streaming_server_request(
         status.as_u16()
     );
 
-    Ok(ProxyStreamingServerResponse {
+    Ok(core_streaming_server::ProxyStreamingServerResponse {
         status: status.as_u16(),
         status_text: status.canonical_reason().unwrap_or("").to_string(),
         headers: response_headers,
@@ -318,12 +271,11 @@ pub async fn register_settings(
 ) -> Result<(), String> {
     let parsed: serde_json::Value = serde_json::from_str(&schema).map_err(|e| e.to_string())?;
     let state = app.state::<ModManagerState>();
-    let mut schemas = state
-        .registered_schemas
-        .lock()
-        .map_err(|e: std::sync::PoisonError<_>| e.to_string())?;
-    schemas.insert(plugin_name, parsed);
-    Ok(())
+    stremio_lightning_core::settings::register_settings(
+        &state.registered_schemas,
+        plugin_name,
+        parsed,
+    )
 }
 
 #[tauri::command]
@@ -332,14 +284,10 @@ pub async fn get_registered_settings(
     plugin_name: String,
 ) -> Result<serde_json::Value, String> {
     let state = app.state::<ModManagerState>();
-    let schemas = state
-        .registered_schemas
-        .lock()
-        .map_err(|e: std::sync::PoisonError<_>| e.to_string())?;
-    Ok(schemas
-        .get(&plugin_name)
-        .cloned()
-        .unwrap_or(serde_json::Value::Null))
+    stremio_lightning_core::settings::get_registered_settings(
+        &state.registered_schemas,
+        &plugin_name,
+    )
 }
 
 // ── Discord RPC commands ──
@@ -445,61 +393,9 @@ pub async fn get_pip_mode(app: tauri::AppHandle) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        parse_streaming_server_proxy_method, should_forward_streaming_server_proxy_header,
-        validate_streaming_server_proxy_path,
-    };
-
-    #[test]
-    fn rejects_invalid_streaming_server_proxy_paths() {
-        for path in [
-            "http://127.0.0.1:11470/status",
-            "https://example.com/status",
-            "//example.com/status",
-            "status",
-            "/videos\\movie.mp4",
-            "/videos/\0movie.mp4",
-        ] {
-            assert!(
-                validate_streaming_server_proxy_path(path).is_err(),
-                "path should be rejected: {path:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn accepts_relative_streaming_server_proxy_paths() {
-        for path in ["/", "/status", "/stream/movie.mp4?token=abc"] {
-            assert!(
-                validate_streaming_server_proxy_path(path).is_ok(),
-                "path should be accepted: {path:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn rejects_hop_by_hop_streaming_server_proxy_headers() {
-        for name in [
-            "Connection",
-            "keep-alive",
-            "Proxy-Authenticate",
-            "Proxy-Authorization",
-            "TE",
-            "Trailer",
-            "Transfer-Encoding",
-            "Upgrade",
-            "Host",
-            "Content-Length",
-        ] {
-            assert!(
-                !should_forward_streaming_server_proxy_header(name),
-                "header should be stripped: {name}"
-            );
-        }
-
-        assert!(should_forward_streaming_server_proxy_header("Range"));
-        assert!(should_forward_streaming_server_proxy_header("Accept"));
-    }
+    use super::parse_streaming_server_proxy_method;
+    use serde::Deserialize;
+    use serde_json::json;
 
     #[test]
     fn parses_supported_streaming_server_proxy_methods() {
@@ -516,5 +412,34 @@ mod tests {
                 "method should be rejected: {method:?}"
             );
         }
+    }
+
+    #[test]
+    fn command_wrappers_accept_existing_camel_case_payloads() {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct DownloadPayload {
+            url: String,
+            mod_type: String,
+        }
+
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct SettingsPayload {
+            plugin_name: String,
+            status_text: String,
+        }
+
+        let download: DownloadPayload = serde_json::from_value(
+            json!({"url": "https://example.test/a.plugin.js", "modType": "plugin"}),
+        )
+        .unwrap();
+        assert_eq!(download.url, "https://example.test/a.plugin.js");
+        assert_eq!(download.mod_type, "plugin");
+
+        let settings: SettingsPayload =
+            serde_json::from_value(json!({"pluginName": "cinema", "statusText": "OK"})).unwrap();
+        assert_eq!(settings.plugin_name, "cinema");
+        assert_eq!(settings.status_text, "OK");
     }
 }

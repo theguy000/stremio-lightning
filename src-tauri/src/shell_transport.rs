@@ -1,18 +1,14 @@
-use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::VecDeque;
 use std::sync::{Condvar, Mutex};
 use std::time::Duration;
+use stremio_lightning_core::host_api::{self, ParsedRequest};
 use tauri::{AppHandle, Emitter, Manager, Webview, Window};
 use tauri_plugin_opener::OpenerExt;
 
 use crate::player;
 
 pub const SHELL_TRANSPORT_EVENT: &str = "shell-transport-message";
-const TRANSPORT_OBJECT: &str = "transport";
-const RPC_TYPE_INIT: u8 = 3;
-const RPC_TYPE_SIGNAL: u8 = 1;
-const RPC_TYPE_INVOKE_METHOD: u8 = 6;
 const WIN_STATE_NORMAL: u32 = 8;
 const WIN_STATE_MINIMIZED: u32 = 9;
 const MAX_PENDING_MESSAGES: usize = 512;
@@ -39,44 +35,6 @@ impl Default for ShellTransportState {
             }),
         }
     }
-}
-
-#[derive(Deserialize, Debug)]
-struct RpcRequest {
-    id: u64,
-    #[serde(rename = "type")]
-    request_type: Option<u8>,
-    args: Option<Value>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-struct RpcResponseDataTransport {
-    properties: Vec<Vec<String>>,
-    signals: Vec<String>,
-    methods: Vec<Vec<String>>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-struct RpcResponseData {
-    transport: RpcResponseDataTransport,
-}
-
-#[derive(Default, Serialize, Deserialize, Debug, Clone)]
-struct RpcResponse {
-    id: u64,
-    object: String,
-    #[serde(rename = "type")]
-    response_type: u8,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    data: Option<RpcResponseData>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    args: Option<Value>,
-}
-
-#[derive(Debug, PartialEq)]
-enum ParsedRequest {
-    Handshake,
-    Command { method: String, data: Option<Value> },
 }
 
 pub fn notify_bridge_ready(app: &AppHandle) -> Result<(), String> {
@@ -106,7 +64,7 @@ pub fn wait_until_bridge_ready(app: &AppHandle, timeout: Duration) -> bool {
 }
 
 pub fn handle_message(app: &AppHandle, message: &str) -> Result<(), String> {
-    match parse_request(message)? {
+    match host_api::parse_request(message)? {
         ParsedRequest::Handshake => emit_message_now(app, handshake_response()),
         ParsedRequest::Command { method, data } => match method.as_str() {
             "app-ready" => {
@@ -216,70 +174,12 @@ pub fn enqueue_open_media(app: &AppHandle, url: String) -> Result<(), String> {
     emit_or_queue_message(app, response_message(json!(["open-media", url])))
 }
 
-fn parse_request(message: &str) -> Result<ParsedRequest, String> {
-    let request: RpcRequest = serde_json::from_str(message)
-        .map_err(|e| format!("Failed to parse shell transport message: {e}"))?;
-
-    if request.id == 0 || request.request_type == Some(RPC_TYPE_INIT) {
-        return Ok(ParsedRequest::Handshake);
-    }
-
-    if let Some(request_type) = request.request_type {
-        if request_type != RPC_TYPE_INVOKE_METHOD {
-            return Err(format!(
-                "Unsupported shell transport request type: {request_type}"
-            ));
-        }
-    }
-
-    let args = request
-        .args
-        .and_then(|value| value.as_array().cloned())
-        .ok_or_else(|| "Missing shell transport args".to_string())?;
-    let method = args
-        .first()
-        .and_then(Value::as_str)
-        .ok_or_else(|| "Missing shell transport method".to_string())?
-        .to_string();
-    let data = args.get(1).cloned();
-
-    Ok(ParsedRequest::Command { method, data })
-}
-
 fn handshake_response() -> String {
-    serde_json::to_string(&RpcResponse {
-        id: 0,
-        object: TRANSPORT_OBJECT.to_string(),
-        response_type: RPC_TYPE_INIT,
-        data: Some(RpcResponseData {
-            transport: RpcResponseDataTransport {
-                properties: vec![
-                    vec![],
-                    vec![
-                        String::new(),
-                        "shellVersion".to_string(),
-                        String::new(),
-                        env!("CARGO_PKG_VERSION").to_string(),
-                    ],
-                ],
-                signals: vec![],
-                methods: vec![vec!["onEvent".to_string()]],
-            },
-        }),
-        ..Default::default()
-    })
-    .expect("failed to serialize handshake response")
+    host_api::handshake_response(env!("CARGO_PKG_VERSION"))
 }
 
 fn response_message(args: Value) -> String {
-    serde_json::to_string(&RpcResponse {
-        id: 1,
-        object: TRANSPORT_OBJECT.to_string(),
-        response_type: RPC_TYPE_SIGNAL,
-        args: Some(args),
-        ..Default::default()
-    })
-    .expect("failed to serialize transport response")
+    host_api::response_message(args)
 }
 
 fn mark_transport_ready(app: &AppHandle) -> Result<(), String> {
@@ -384,11 +284,11 @@ fn toggle_devtools(app: &AppHandle) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        handshake_response, parse_request, response_message, ParsedRequest, RPC_TYPE_INIT,
-        RPC_TYPE_SIGNAL,
-    };
+    use super::{handshake_response, response_message};
     use serde_json::{json, Value};
+    use stremio_lightning_core::host_api::{
+        parse_request, ParsedRequest, RPC_TYPE_INIT, RPC_TYPE_SIGNAL,
+    };
 
     #[test]
     fn parses_handshake_request() {

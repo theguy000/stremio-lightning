@@ -1,0 +1,6 @@
+[workspace]
+members = [
+    "src-tauri",
+    "crates/stremio-lightning-core",
+]
+resolver = "2"
