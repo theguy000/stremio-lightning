@@ -9,14 +9,18 @@
     "generate-config": "node scripts/generate-tauri-config.js",
     "check-deps": "node scripts/check-deps.js",
     "build:ui": "node scripts/check-deps.js && vite build",
-    "dev:ui": "node scripts/check-deps.js && vite build --watch"
+    "dev:ui": "node scripts/check-deps.js && vite build --watch",
+    "test:ui": "vitest run"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.0.0",
     "@tauri-apps/api": "^2.10.1",
     "@tauri-apps/cli": "^2",
+    "@types/node": "^25.6.0",
+    "jsdom": "^29.1.1",
     "svelte": "^5.55.3",
     "typescript": "^6.0.2",
-    "vite": "^8.0.8"
+    "vite": "^8.0.8",
+    "vitest": "^4.1.5"
   }
 }

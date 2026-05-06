@@ -3,20 +3,63 @@
 (function () {
   "use strict";
 
-  // Guard: ensure Tauri IPC is available
-  if (!window.__TAURI__) {
+  var host = window.StremioLightningHost || null;
+
+  if (!host && window.__TAURI__) {
+    var tauriWindow = window.__TAURI__.window.getCurrentWindow();
+    var tauriWebview = window.__TAURI__.webview.getCurrentWebview();
+
+    host = {
+      invoke: function (command, payload) {
+        if (arguments.length > 1) {
+          return window.__TAURI__.core.invoke(command, payload);
+        }
+        return window.__TAURI__.core.invoke(command);
+      },
+      listen: function (event, callback) {
+        return window.__TAURI__.event.listen(event, callback);
+      },
+      window: {
+        minimize: function () {
+          return tauriWindow.minimize();
+        },
+        toggleMaximize: function () {
+          return tauriWindow.toggleMaximize();
+        },
+        close: function () {
+          return tauriWindow.close();
+        },
+        isMaximized: function () {
+          return tauriWindow.isMaximized();
+        },
+        isFullscreen: function () {
+          return tauriWindow.isFullscreen();
+        },
+        setFullscreen: function (fullscreen) {
+          return tauriWindow.setFullscreen(fullscreen);
+        },
+        startDragging: function () {
+          return tauriWindow.startDragging();
+        },
+      },
+      webview: {
+        setZoom: function (level) {
+          return tauriWebview.setZoom(level);
+        },
+      },
+    };
+    window.StremioLightningHost = host;
+  }
+
+  if (!host) {
     console.error(
-      "[StremioLightning] __TAURI__ not available - bridge not loaded",
+      "[StremioLightning] host adapter not available - bridge not loaded",
     );
     return;
   }
 
-  // Tauri APIs exposed via withGlobalTauri: true
-  var invoke = window.__TAURI__.core.invoke;
-  var listen = window.__TAURI__.event.listen;
-  var getCurrentWindow = window.__TAURI__.window.getCurrentWindow;
-  var getCurrentWebview = window.__TAURI__.webview.getCurrentWebview;
-
+  var appWindow = host.window;
+  var webview = host.webview;
 
   // ============================================
   // Chromecast API Availability Fallback
@@ -193,7 +236,7 @@
 
       return bodyPromise
         .then(function (body) {
-          return invoke("proxy_streaming_server_request", {
+          return host.invoke("proxy_streaming_server_request", {
             method: String(method || "GET").toUpperCase(),
             path: proxyPath,
             headers: headers,
@@ -461,7 +504,7 @@
       worker.addEventListener("message", function (event) {
         var msg = event.data;
         if (!msg || msg.channel !== channelId || !msg.request) return;
-        invoke("proxy_streaming_server_request", msg.request)
+        host.invoke("proxy_streaming_server_request", msg.request)
           .then(function (response) {
             worker.postMessage({
               channel: channelId,
@@ -488,10 +531,6 @@
     window.Worker.prototype = NativeWorker.prototype;
     Object.setPrototypeOf(window.Worker, NativeWorker);
   })();
-
-
-  var appWindow = getCurrentWindow();
-  var webview = getCurrentWebview();
 
   // ============================================
   // IPC Shell Transport Compatibility
@@ -662,7 +701,7 @@
   function sendShellTransportMessage(payload) {
     var serialized =
       typeof payload === "string" ? payload : JSON.stringify(payload);
-    return invoke("shell_transport_send", { message: serialized }).catch(
+    return host.invoke("shell_transport_send", { message: serialized }).catch(
       function (error) {
         console.error(
           "[StremioLightning] shell transport send failed:",
@@ -674,13 +713,13 @@
   }
 
   function notifyShellBridgeReady() {
-    invoke("shell_bridge_ready").catch(function (error) {
+    host.invoke("shell_bridge_ready").catch(function (error) {
       console.error("[StremioLightning] shell bridge ready failed:", error);
     });
   }
 
   if (window.self === window.top && shellTransportEnabled) {
-    listen("shell-transport-message", function (event) {
+    host.listen("shell-transport-message", function (event) {
       dispatchShellTransportMessage(event.payload);
     }).then(function () {
       if (document.readyState === "loading") {
@@ -742,7 +781,7 @@
   // This mirrors Electron's setWindowOpenHandler -> shell.openExternal.
   window.open = function (url) {
     if (url) {
-      invoke("open_external_url", { url: String(url) }).catch(function (e) {
+      host.invoke("open_external_url", { url: String(url) }).catch(function (e) {
         console.error(
           "[StremioLightning] Failed to open external URL:",
           url,
@@ -916,7 +955,7 @@
     // Ctrl+Shift+I: Toggle DevTools
     if (e.shiftKey && (e.key === "I" || e.key === "i")) {
       e.preventDefault();
-      invoke("toggle_devtools");
+      host.invoke("toggle_devtools");
       return;
     }
 
@@ -924,7 +963,7 @@
     if (e.shiftKey && (e.key === "P" || e.key === "p")) {
       if (isPlayerRoute() && _pipFeatureOn) {
         e.preventDefault();
-        invoke("toggle_pip").catch(function (err) {
+        host.invoke("toggle_pip").catch(function (err) {
           console.error("[StremioLightning] PiP toggle failed:", err);
         });
       }
@@ -998,7 +1037,7 @@
     });
 
     btn.addEventListener("click", function () {
-      invoke("toggle_pip").catch(function (err) {
+      host.invoke("toggle_pip").catch(function (err) {
         console.error("[StremioLightning] PiP toggle failed:", err);
       });
       btn.blur();
@@ -1545,7 +1584,7 @@
                   playback.isPaused,
                 );
 
-                invoke("update_discord_activity", { activity: activity })
+                host.invoke("update_discord_activity", { activity: activity })
                   .then(function () {
                     console.info(
                       "[DiscordRPC] Activity sent:",
@@ -1606,7 +1645,7 @@
                   !!video.paused,
                 );
 
-                invoke("update_discord_activity", { activity: activity }).catch(
+                host.invoke("update_discord_activity", { activity: activity }).catch(
                   function (e) {
                     console.error("[DiscordRPC] update failed:", e);
                   },
@@ -1646,7 +1685,7 @@
           return;
         }
         console.info("[DiscordRPC] Exploring:", meta.name);
-        invoke("update_discord_activity", {
+        host.invoke("update_discord_activity", {
           activity: {
             details: meta.name,
             state: "Exploring",
@@ -1683,7 +1722,7 @@
           "hash:",
           location.hash,
         );
-        invoke("update_discord_activity", {
+        host.invoke("update_discord_activity", {
           activity: {
             details: activity,
             largeImageKey: "stremio",
@@ -1730,7 +1769,7 @@
     if (e.detail) {
       // Panel opened
       console.info("[DiscordRPC] Mods panel opened");
-      invoke("update_discord_activity", {
+      host.invoke("update_discord_activity", {
         activity: {
           details: "Mods",
           state: "Browsing mods",
@@ -1824,7 +1863,7 @@
     downloadBtn.className = "sl-update-banner-download";
     downloadBtn.textContent = "Download Update";
     downloadBtn.addEventListener("click", function () {
-      invoke("open_external_url", { url: info.releaseUrl }).catch(function (e) {
+      host.invoke("open_external_url", { url: info.releaseUrl }).catch(function (e) {
         console.error("[AppUpdater] Failed to open release URL:", e);
       });
     });
@@ -1908,7 +1947,7 @@
     );
     if (enabled === "true") {
       console.info("[DiscordRPC] Calling start_discord_rpc...");
-      invoke("start_discord_rpc")
+      host.invoke("start_discord_rpc")
         .then(function () {
           console.info(
             "[DiscordRPC] start_discord_rpc succeeded, initializing tracker",

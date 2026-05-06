@@ -1,5 +1,6 @@
 import App from './App.svelte';
 import { mount } from 'svelte';
+import { hasHost } from './lib/host/host-api';
 import { initPluginAPI } from './lib/plugin-api';
 import './app.css';
 
@@ -7,10 +8,11 @@ console.log('[SL-Svelte] Module loaded, readyState:', document.readyState);
 
 function init() {
   try {
-    console.log('[SL-Svelte] init() called, __TAURI__:', !!(window as any).__TAURI__);
+    const hostAvailable = hasHost();
+    console.log('[SL-Svelte] init() called, host:', hostAvailable);
 
-    if (!(window as any).__TAURI__) {
-      console.warn('[SL-Svelte] __TAURI__ not available, retrying in 500ms...');
+    if (!hostAvailable) {
+      console.warn('[SL-Svelte] host adapter not available, retrying in 500ms...');
       setTimeout(init, 500);
       return;
     }

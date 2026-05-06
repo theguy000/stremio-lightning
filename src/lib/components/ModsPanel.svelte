@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { invoke } from '@tauri-apps/api/core';
+  import { openExternalUrl } from '../ipc';
   import { ICONS } from '../icons';
   import PluginsTab from './PluginsTab.svelte';
   import ThemesTab from './ThemesTab.svelte';
@@ -62,7 +62,7 @@
     if (href.startsWith('http://') || href.startsWith('https://')) {
       e.preventDefault();
       e.stopPropagation();
-      invoke('open_external_url', { url: href });
+      openExternalUrl(href);
     }
   }
 

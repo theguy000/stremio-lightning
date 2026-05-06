@@ -1,7 +1,5 @@
 // src/lib/plugin-api.ts
-import { invoke } from '@tauri-apps/api/core';
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import { getCurrentWindow } from '@tauri-apps/api/window';
+import { getHost, type HostUnlistenFn } from './host/host-api';
 import { applyTheme } from './stores/themes';
 
 type SettingsCallback = (values: Record<string, unknown>) => void;
@@ -9,7 +7,8 @@ type SettingsCallback = (values: Record<string, unknown>) => void;
 const _settingsCallbacks: Record<string, SettingsCallback> = {};
 
 export function initPluginAPI(): void {
-  const appWindow = getCurrentWindow();
+  const host = getHost();
+  const appWindow = host.window;
 
   const api = {
     // ── Window management ──
@@ -21,42 +20,42 @@ export function initPluginAPI(): void {
     dragWindow: () => appWindow.startDragging(),
 
     // ── Streaming server ──
-    startStreamingServer: (): Promise<void> => invoke('start_streaming_server'),
-    stopStreamingServer: (): Promise<void> => invoke('stop_streaming_server'),
-    restartStreamingServer: (): Promise<void> => invoke('restart_streaming_server'),
-    getStreamingServerStatus: (): Promise<boolean> => invoke('get_streaming_server_status'),
+    startStreamingServer: (): Promise<void> => host.invoke('start_streaming_server'),
+    stopStreamingServer: (): Promise<void> => host.invoke('stop_streaming_server'),
+    restartStreamingServer: (): Promise<void> => host.invoke('restart_streaming_server'),
+    getStreamingServerStatus: (): Promise<boolean> => host.invoke('get_streaming_server_status'),
 
     // ── Native player ──
-    getNativePlayerStatus: (): Promise<unknown> => invoke('get_native_player_status'),
+    getNativePlayerStatus: (): Promise<unknown> => host.invoke('get_native_player_status'),
 
     // ── Mod management ──
-    getPlugins: (): Promise<unknown> => invoke('get_plugins'),
-    getThemes: (): Promise<unknown> => invoke('get_themes'),
+    getPlugins: (): Promise<unknown> => host.invoke('get_plugins'),
+    getThemes: (): Promise<unknown> => host.invoke('get_themes'),
     downloadMod: (url: string, modType: string): Promise<unknown> =>
-      invoke('download_mod', { url, modType }),
+      host.invoke('download_mod', { url, modType }),
     deleteMod: (filename: string, modType: string): Promise<void> =>
-      invoke('delete_mod', { filename, modType }),
+      host.invoke('delete_mod', { filename, modType }),
     checkModUpdates: (filename: string, modType: string): Promise<unknown> =>
-      invoke('check_mod_updates', { filename, modType }),
+      host.invoke('check_mod_updates', { filename, modType }),
     getModContent: (filename: string, modType: string): Promise<string> =>
-      invoke('get_mod_content', { filename, modType }),
-    getRegistry: (): Promise<unknown> => invoke('get_registry'),
+      host.invoke('get_mod_content', { filename, modType }),
+    getRegistry: (): Promise<unknown> => host.invoke('get_registry'),
     getRegisteredSettings: (pluginName: string): Promise<unknown> =>
-      invoke('get_registered_settings', { pluginName }),
+      host.invoke('get_registered_settings', { pluginName }),
 
     // ── Settings ──
     getSetting: (pluginName: string, key: string): Promise<unknown> =>
-      invoke('get_setting', { pluginName, key }),
+      host.invoke('get_setting', { pluginName, key }),
     saveSetting: (pluginName: string, key: string, value: unknown): Promise<void> =>
-      invoke('save_setting', { pluginName, key, value: JSON.stringify(value) }),
+      host.invoke('save_setting', { pluginName, key, value: JSON.stringify(value) }),
     registerSettings: (pluginName: string, schema: unknown): Promise<void> =>
-      invoke('register_settings', { pluginName, schema: JSON.stringify(schema) }),
+      host.invoke('register_settings', { pluginName, schema: JSON.stringify(schema) }),
 
     // ── Theme ──
     applyTheme: (filename: string) => applyTheme(filename),
 
     // ── App updates ──
-    checkAppUpdate: (): Promise<unknown> => invoke('check_app_update'),
+    checkAppUpdate: (): Promise<unknown> => host.invoke('check_app_update'),
 
     // ── Logging ──
     info: (...args: unknown[]) => console.info('[StremioEnhanced]', ...args),
@@ -64,14 +63,14 @@ export function initPluginAPI(): void {
     error: (...args: unknown[]) => console.error('[StremioEnhanced]', ...args),
 
     // ── Event subscriptions ──
-    onMaximizedChange: (cb: (maximized: boolean) => void): Promise<UnlistenFn> =>
-      listen<boolean>('window-maximized-changed', (e) => cb(e.payload)),
-    onFullscreenChange: (cb: (fullscreen: boolean) => void): Promise<UnlistenFn> =>
-      listen<boolean>('window-fullscreen-changed', (e) => cb(e.payload)),
-    onServerStarted: (cb: () => void): Promise<UnlistenFn> =>
-      listen('server-started', () => cb()),
-    onServerStopped: (cb: () => void): Promise<UnlistenFn> =>
-      listen('server-stopped', () => cb()),
+    onMaximizedChange: (cb: (maximized: boolean) => void): Promise<HostUnlistenFn> =>
+      host.listen('window-maximized-changed', (e) => cb(e.payload)),
+    onFullscreenChange: (cb: (fullscreen: boolean) => void): Promise<HostUnlistenFn> =>
+      host.listen('window-fullscreen-changed', (e) => cb(e.payload)),
+    onServerStarted: (cb: () => void): Promise<HostUnlistenFn> =>
+      host.listen('server-started', () => cb()),
+    onServerStopped: (cb: () => void): Promise<HostUnlistenFn> =>
+      host.listen('server-stopped', () => cb()),
 
     // ── Plugin settings callbacks ──
     _settingsCallbacks: _settingsCallbacks,
