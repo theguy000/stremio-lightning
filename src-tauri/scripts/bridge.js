@@ -17,6 +17,314 @@
   var getCurrentWindow = window.__TAURI__.window.getCurrentWindow;
   var getCurrentWebview = window.__TAURI__.webview.getCurrentWebview;
 
+
+  // ============================================
+  // Chromecast API Availability Fallback
+  // ============================================
+  // Stremio always loads Google's Cast sender script and its Chromecast transport
+  // waits for __onGCastApiAvailable. On WebKitGTK/Linux the sender API is not
+  // available, so the callback may never fire and Stremio logs an initialization
+  // error. Report Chromecast as unavailable up front; if the real sender script
+  // later calls the callback successfully, that value can still be updated. This
+  // uses a timer so Stremio's transport can finish assigning n/r listeners before
+  // the callback fires.
+  var castApiAvailabilityCallback = window.__onGCastApiAvailable;
+  var castApiUnavailableTimer = null;
+  Object.defineProperty(window, "__onGCastApiAvailable", {
+    configurable: true,
+    enumerable: true,
+    get: function () {
+      return castApiAvailabilityCallback;
+    },
+    set: function (callback) {
+      castApiAvailabilityCallback = function (available) {
+        if (castApiUnavailableTimer !== null) {
+          clearTimeout(castApiUnavailableTimer);
+          castApiUnavailableTimer = null;
+        }
+        return callback.apply(this, arguments);
+      };
+
+      castApiUnavailableTimer = setTimeout(function () {
+        if (castApiAvailabilityCallback) {
+          castApiAvailabilityCallback(false);
+        }
+      }, 0);
+    },
+  });
+  // ============================================
+  // Streaming Server Fetch Proxy
+  // ============================================
+  // WebKitGTK blocks HTTPS pages from fetching the local HTTP streaming server
+  // directly. Proxy loopback requests through Rust so web.stremio.com can still
+  // read settings/casting/network/device metadata from the bundled server.
+  var nativeFetch = window.fetch ? window.fetch.bind(window) : null;
+
+  function getStreamingServerProxyPath(input) {
+    var rawUrl;
+    var parsed;
+
+    try {
+      rawUrl = typeof input === "string" ? input : input && input.url;
+      if (!rawUrl) return null;
+      parsed = new URL(rawUrl, window.location.href);
+    } catch (error) {
+      return null;
+    }
+
+    if (parsed.protocol !== "http:") return null;
+    if (parsed.port !== "11470") return null;
+    if (parsed.hostname !== "127.0.0.1" && parsed.hostname !== "localhost") {
+      return null;
+    }
+
+    return parsed.pathname + parsed.search;
+  }
+
+  function collectHeaders(headers) {
+    var out = {};
+
+    if (!headers) return out;
+
+    try {
+      if (headers instanceof Headers) {
+        headers.forEach(function (value, name) {
+          out[name] = value;
+        });
+        return out;
+      }
+    } catch (error) {
+      // Fall through to object/array handling below.
+    }
+
+    if (Array.isArray(headers)) {
+      headers.forEach(function (pair) {
+        if (pair && pair.length >= 2) out[String(pair[0])] = String(pair[1]);
+      });
+      return out;
+    }
+
+    Object.keys(headers).forEach(function (name) {
+      if (headers[name] != null) out[name] = String(headers[name]);
+    });
+
+    return out;
+  }
+
+  function normalizeProxyHeaders(headers) {
+    try {
+      return new Headers(headers || []);
+    } catch (error) {
+      var normalized = new Headers();
+      (headers || []).forEach(function (pair) {
+        if (pair && pair.length >= 2) normalized.append(pair[0], pair[1]);
+      });
+      return normalized;
+    }
+  }
+
+  function bodyToProxyString(body) {
+    if (body == null) return Promise.resolve(null);
+    if (typeof body === "string") return Promise.resolve(body);
+    if (body instanceof URLSearchParams) return Promise.resolve(body.toString());
+    if (body instanceof Blob) return body.text();
+    if (body instanceof ArrayBuffer) {
+      return Promise.resolve(new TextDecoder().decode(new Uint8Array(body)));
+    }
+    if (ArrayBuffer.isView(body)) {
+      return Promise.resolve(
+        new TextDecoder().decode(new Uint8Array(body.buffer, body.byteOffset, body.byteLength)),
+      );
+    }
+    return Promise.resolve(String(body));
+  }
+
+  if (nativeFetch) {
+    window.fetch = function stremioLightningFetchProxy(input, init) {
+      var proxyPath = getStreamingServerProxyPath(input);
+      var request;
+      var method;
+      var headers;
+      var bodyPromise;
+
+      if (!proxyPath) {
+        return nativeFetch(input, init);
+      }
+
+      request = typeof Request !== "undefined" && input instanceof Request ? input : null;
+      method =
+        (init && init.method) ||
+        (request && request.method) ||
+        "GET";
+      headers = Object.assign(
+        {},
+        collectHeaders(request && request.headers),
+        collectHeaders(init && init.headers),
+      );
+
+      if (init && Object.prototype.hasOwnProperty.call(init, "body")) {
+        bodyPromise = bodyToProxyString(init.body);
+      } else if (request && method !== "GET" && method !== "HEAD") {
+        bodyPromise = request.clone().text();
+      } else {
+        bodyPromise = Promise.resolve(null);
+      }
+
+      return bodyPromise
+        .then(function (body) {
+          return invoke("proxy_streaming_server_request", {
+            method: String(method || "GET").toUpperCase(),
+            path: proxyPath,
+            headers: headers,
+            body: body,
+          });
+        })
+        .then(function (proxied) {
+          return new Response(proxied.body || "", {
+            status: proxied.status || 200,
+            statusText: proxied.statusText || "",
+            headers: normalizeProxyHeaders(proxied.headers),
+          });
+        })
+        .catch(function (error) {
+          console.error(
+            "[StremioLightning] streaming server fetch proxy failed:",
+            proxyPath,
+            error,
+          );
+          throw error;
+        });
+    };
+  }
+
+
+  // Stremio Core performs localhost checks from worker.js, where Tauri's
+  // initialization_script and window.fetch patch are not available. On WebKitGTK,
+  // HTTPS -> HTTP loopback requests are blocked before fetch/CORS can complete.
+  // Recreate the worker from its original source plus a worker-local fetch shim.
+  // The worker script itself is classic, same-origin, and uses importScripts for
+  // the WASM glue, so blob execution with an explicit sourceURL keeps its
+  // webpack publicPath/importScripts behavior intact while allowing fetch patching.
+  (function installStreamingServerWorkerProxy() {
+    var NativeWorker = window.Worker;
+    var proxyWorkerId = 1;
+    var workerProxyPrefix = "__stremioLightningWorkerProxy:";
+
+    if (!NativeWorker || !nativeFetch) return;
+
+    function shouldPatchWorkerUrl(url) {
+      try {
+        return /\/scripts\/worker\.js(?:[?#].*)?$/.test(
+          new URL(url, window.location.href).href,
+        );
+      } catch (error) {
+        return false;
+      }
+    }
+
+    function buildWorkerFetchShim(channelId) {
+      return (
+        "\n;(function(){" +
+        "var nativeFetch=self.fetch&&self.fetch.bind(self);" +
+        "function proxyPath(input){try{var raw=typeof input==='string'?input:input&&input.url;if(!raw)return null;var u=new URL(raw,self.location.href);if(u.protocol!=='http:'||u.port!=='11470'||(u.hostname!=='127.0.0.1'&&u.hostname!=='localhost'))return null;return u.pathname+u.search;}catch(e){return null;}}" +
+        "function headersToObject(headers){var out={};try{if(headers&&typeof headers.forEach==='function'){headers.forEach(function(v,n){out[n]=v;});return out;}}catch(e){};return out;}" +
+        "function bodyToText(body){if(body==null)return Promise.resolve(null);if(typeof body==='string')return Promise.resolve(body);if(body instanceof URLSearchParams)return Promise.resolve(body.toString());if(body instanceof Blob)return body.text();if(body instanceof ArrayBuffer)return Promise.resolve(new TextDecoder().decode(new Uint8Array(body)));if(ArrayBuffer.isView(body))return Promise.resolve(new TextDecoder().decode(new Uint8Array(body.buffer,body.byteOffset,body.byteLength)));return Promise.resolve(String(body));}" +
+        "function normalizeHeaders(headers){try{return new Headers(headers||[]);}catch(e){var h=new Headers();(headers||[]).forEach(function(p){if(p&&p.length>=2)h.append(p[0],p[1]);});return h;}}" +
+        "self.fetch=function(input,init){var path=proxyPath(input);if(!path)return nativeFetch(input,init);var req=typeof Request!=='undefined'&&input instanceof Request?input:null;var method=(init&&init.method)||(req&&req.method)||'GET';var headers=Object.assign({},headersToObject(req&&req.headers),headersToObject(init&&init.headers));var bodyPromise=init&&Object.prototype.hasOwnProperty.call(init,'body')?bodyToText(init.body):(req&&method!=='GET'&&method!=='HEAD'?req.clone().text():Promise.resolve(null));return bodyPromise.then(function(body){return new Promise(function(resolve,reject){var id=Math.random().toString(36).slice(2);function onMessage(event){var msg=event.data;if(!msg||msg.channel!=='" +
+        channelId +
+        "'||msg.id!==id)return;self.removeEventListener('message',onMessage);if(msg.error)reject(new Error(msg.error));else resolve(new Response(msg.response.body||'',{status:msg.response.status||200,statusText:msg.response.statusText||'',headers:normalizeHeaders(msg.response.headers)}));}self.addEventListener('message',onMessage);self.postMessage({channel:'" +
+        channelId +
+        "',id:id,request:{method:String(method||'GET').toUpperCase(),path:path,headers:headers,body:body}});});});};" +
+        "})();\n"
+      );
+    }
+
+    window.Worker = function StremioLightningWorker(url, options) {
+      var absoluteUrl;
+      var channelId;
+      var blobUrl;
+      var worker;
+      var xhr;
+      var source;
+
+      if (!shouldPatchWorkerUrl(url)) {
+        return new NativeWorker(url, options);
+      }
+
+      absoluteUrl = new URL(url, window.location.href).href;
+      channelId = workerProxyPrefix + proxyWorkerId++;
+
+      // Worker construction must be synchronous. Fetch the same-origin worker
+      // source synchronously, then patch webpack's automatic publicPath logic:
+      // in a blob worker self.location is blob:..., but Stremio's worker must
+      // resolve stremio_core_web.js relative to the original worker.js URL.
+      xhr = new XMLHttpRequest();
+      xhr.open("GET", absoluteUrl, false);
+      xhr.send(null);
+      if (xhr.status < 200 || xhr.status >= 300) {
+        throw new Error("Failed to fetch worker.js: " + xhr.status);
+      }
+
+      source = xhr.responseText
+        // Avoid WebKitGTK trying to resolve worker.js.map relative to the blob URL
+        // (it logs a noisy `blob://null...worker.js.map` local-resource error).
+        .replace(/\n?\/\/# sourceMappingURL=worker\.js\.map\s*$/g, "")
+        // In a blob worker, `self.location.href` is a blob URL. Stremio's generated
+        // WASM glue later runs `new URL("/stremio_core_web.js", document.baseURI)`;
+        // WebKitGTK rejects that when the base is the blob URL. Keep document.baseURI
+        // anchored to the original Stremio worker URL instead.
+        .replace(
+          "self.document={baseURI:self.location.href}",
+          "self.document={baseURI:" + JSON.stringify(absoluteUrl) + "}",
+        )
+        // Patch webpack's automatic publicPath logic for the same reason: chunks and
+        // WASM assets must resolve as if the worker was loaded from its real URL.
+        .replace(
+          'n.g.importScripts&&(e=n.g.location+"");',
+          'n.g.importScripts&&(e=' + JSON.stringify(absoluteUrl) + ');',
+        );
+
+      blobUrl = URL.createObjectURL(
+        new Blob([
+          buildWorkerFetchShim(channelId),
+          source,
+          "\n",
+        ], { type: "application/javascript" }),
+      );
+
+      worker = new NativeWorker(blobUrl, options);
+      worker.addEventListener("message", function (event) {
+        var msg = event.data;
+        if (!msg || msg.channel !== channelId || !msg.request) return;
+        invoke("proxy_streaming_server_request", msg.request)
+          .then(function (response) {
+            worker.postMessage({
+              channel: channelId,
+              id: msg.id,
+              response: response,
+            });
+          })
+          .catch(function (error) {
+            worker.postMessage({
+              channel: channelId,
+              id: msg.id,
+              error: String(error && error.message ? error.message : error),
+            });
+          });
+      });
+      setTimeout(function () {
+        URL.revokeObjectURL(blobUrl);
+      }, 10000);
+
+      console.info("[StremioLightning] Patched Stremio worker fetch proxy installed");
+      return worker;
+    };
+
+    window.Worker.prototype = NativeWorker.prototype;
+    Object.setPrototypeOf(window.Worker, NativeWorker);
+  })();
+
+
   var appWindow = getCurrentWindow();
   var webview = getCurrentWebview();
 
@@ -25,14 +333,17 @@
   // ============================================
   var nativePlayerEnabled =
     window.__STREMIO_LIGHTNING_ENABLE_NATIVE_PLAYER__ === true;
+  var desktopShellMode = false;
   if (nativePlayerEnabled) {
     console.info(
       "[StremioLightning] Native player mode enabled (libmpv transport)",
     );
   }
-  // Shell transport is always enabled — the Stremio web app needs
-  // qt.webChannelTransport / chrome.webview to detect it's running
-  // inside a desktop shell and connect to the streaming server.
+  // Keep the desktop shell transport enabled on every platform. Stremio uses
+  // qt.webChannelTransport / chrome.webview to detect that it is running in a
+  // desktop shell and to wire up streaming-server integration. Native MPV may
+  // still be unavailable on Linux; MPV commands are ignored on the Rust side
+  // when the native player backend is disabled.
   var shellTransportEnabled = true;
   var shellMessageListeners = [];
   var nativeChromeWebview = null;
@@ -204,7 +515,7 @@
     });
   }
 
-  if (window.self === window.top) {
+  if (window.self === window.top && shellTransportEnabled) {
     listen("shell-transport-message", function (event) {
       dispatchShellTransportMessage(event.payload);
     }).then(function () {
@@ -217,34 +528,32 @@
       }
     });
 
-    if (shellTransportEnabled) {
-      window.qt = window.qt || {};
-      window.qt.webChannelTransport = window.qt.webChannelTransport || {};
-      window.qt.webChannelTransport.send = sendShellTransportMessage;
+    window.qt = window.qt || {};
+    window.qt.webChannelTransport = window.qt.webChannelTransport || {};
+    window.qt.webChannelTransport.send = sendShellTransportMessage;
 
-      if (!nativeChromeWebview) {
-        window.chrome = window.chrome || {};
-        window.chrome.webview = {
-          postMessage: sendShellTransportMessage,
-          addEventListener: function (name, listener) {
-            if (name !== "message") {
-              throw new Error("Unsupported event: " + name);
-            }
-            shellMessageListeners.push(listener);
-          },
-          removeEventListener: function (name, listener) {
-            if (name !== "message") {
-              throw new Error("Unsupported event: " + name);
-            }
-            shellMessageListeners = shellMessageListeners.filter(
-              function (item) {
-                return item !== listener;
-              },
-            );
-          },
-        };
-        nativeChromeWebview = window.chrome.webview;
-      }
+    if (!nativeChromeWebview) {
+      window.chrome = window.chrome || {};
+      window.chrome.webview = {
+        postMessage: sendShellTransportMessage,
+        addEventListener: function (name, listener) {
+          if (name !== "message") {
+            throw new Error("Unsupported event: " + name);
+          }
+          shellMessageListeners.push(listener);
+        },
+        removeEventListener: function (name, listener) {
+          if (name !== "message") {
+            throw new Error("Unsupported event: " + name);
+          }
+          shellMessageListeners = shellMessageListeners.filter(
+            function (item) {
+              return item !== listener;
+            },
+          );
+        },
+      };
+      nativeChromeWebview = window.chrome.webview;
     }
   }
 

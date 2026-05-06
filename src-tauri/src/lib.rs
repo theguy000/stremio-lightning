@@ -75,6 +75,7 @@ pub fn run() {
             commands::stop_streaming_server,
             commands::restart_streaming_server,
             commands::get_streaming_server_status,
+            commands::proxy_streaming_server_request,
             commands::get_plugins,
             commands::get_themes,
             commands::download_mod,
@@ -139,6 +140,7 @@ pub fn run() {
             )?;
             webview.set_background_color(Some(tauri::webview::Color(0, 0, 0, 0)))?;
             window.show()?;
+
 
             if let Err(error) = player::initialize(app.handle()) {
                 eprintln!("Failed to initialize native player: {error}");

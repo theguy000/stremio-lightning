@@ -152,6 +152,14 @@ pub fn handle_message(app: &AppHandle, message: &str) -> Result<(), String> {
                 Ok(())
             }
             "mpv-observe-prop" | "mpv-set-prop" | "mpv-command" => {
+                if !player::native_player_enabled() {
+                    // The web app may send native-player commands as soon as it
+                    // detects a desktop shell. On platforms where libmpv is not
+                    // implemented yet (currently Linux/macOS), keep the shell
+                    // transport alive for streaming-server integration but drop
+                    // MPV commands instead of returning noisy errors.
+                    return Ok(());
+                }
                 player::handle_transport(app, &method, data)
             }
             other => {

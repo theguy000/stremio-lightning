@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use tauri::Manager;
 use tauri_plugin_opener::OpenerExt;
 
@@ -75,6 +77,124 @@ pub async fn restart_streaming_server(app: tauri::AppHandle) -> Result<(), Strin
 pub async fn get_streaming_server_status(app: tauri::AppHandle) -> bool {
     streaming_server::is_server_running(&app)
 }
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyStreamingServerResponse {
+    status: u16,
+    status_text: String,
+    headers: Vec<(String, String)>,
+    body: String,
+}
+
+fn is_hop_by_hop_header(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "connection"
+            | "keep-alive"
+            | "proxy-authenticate"
+            | "proxy-authorization"
+            | "te"
+            | "trailer"
+            | "transfer-encoding"
+            | "upgrade"
+            | "host"
+            | "content-length"
+    )
+}
+
+fn validate_streaming_server_proxy_path(path: &str) -> Result<(), String> {
+    if !path.starts_with('/') || path.starts_with("//") || path.contains("://") {
+        return Err("Rejected invalid streaming server proxy path".into());
+    }
+
+    if path.contains('\\') || path.contains('\0') {
+        return Err("Rejected invalid streaming server proxy path".into());
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn proxy_streaming_server_request(
+    method: String,
+    path: String,
+    headers: Option<HashMap<String, String>>,
+    body: Option<String>,
+) -> Result<ProxyStreamingServerResponse, String> {
+    validate_streaming_server_proxy_path(&path)?;
+
+    let method = method.trim().to_ascii_uppercase();
+    let method = match method.as_str() {
+        "GET" => reqwest::Method::GET,
+        "POST" => reqwest::Method::POST,
+        "PUT" => reqwest::Method::PUT,
+        "PATCH" => reqwest::Method::PATCH,
+        "DELETE" => reqwest::Method::DELETE,
+        "OPTIONS" => reqwest::Method::OPTIONS,
+        "HEAD" => reqwest::Method::HEAD,
+        _ => return Err("Rejected unsupported streaming server proxy method".into()),
+    };
+
+    let url = format!("http://127.0.0.1:11470{}", path);
+    let client = reqwest::Client::new();
+    let mut request = client.request(method.clone(), &url);
+
+    if let Some(headers) = headers {
+        for (name, value) in headers {
+            if is_hop_by_hop_header(&name) {
+                continue;
+            }
+            request = request.header(name, value);
+        }
+    }
+
+    if method != reqwest::Method::GET && method != reqwest::Method::HEAD {
+        if let Some(body) = body {
+            request = request.body(body);
+        }
+    }
+
+    let response = request
+        .send()
+        .await
+        .map_err(|e| format!("Streaming server proxy request failed: {}", e))?;
+
+    let status = response.status();
+    let response_headers = response
+        .headers()
+        .iter()
+        .filter_map(|(name, value)| {
+            if is_hop_by_hop_header(name.as_str()) {
+                return None;
+            }
+            value
+                .to_str()
+                .ok()
+                .map(|value| (name.as_str().to_string(), value.to_string()))
+        })
+        .collect::<Vec<_>>();
+
+    let response_body = response
+        .text()
+        .await
+        .map_err(|e| format!("Failed to read streaming server proxy response: {}", e))?;
+
+    eprintln!(
+        "[StreamingServerProxy] {} {} -> {}",
+        method.as_str(),
+        path,
+        status.as_u16()
+    );
+
+    Ok(ProxyStreamingServerResponse {
+        status: status.as_u16(),
+        status_text: status.canonical_reason().unwrap_or("").to_string(),
+        headers: response_headers,
+        body: response_body,
+    })
+}
+
 
 // ── Mod management commands ──
 
