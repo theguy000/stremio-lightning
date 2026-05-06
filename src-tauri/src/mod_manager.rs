@@ -471,24 +471,6 @@ pub fn save_setting(
     Ok(())
 }
 
-/// Gets all settings for a plugin.
-pub fn get_all_settings(
-    app: &tauri::AppHandle,
-    plugin_name: &str,
-) -> Result<serde_json::Value, String> {
-    validate_filename(plugin_name)?;
-    let dir = get_mods_dir(app, "plugin")?;
-    let config_path = dir.join(format!("{}.plugin.json", plugin_name));
-
-    if !config_path.exists() {
-        return Ok(serde_json::json!({}));
-    }
-
-    let content = std::fs::read_to_string(&config_path)
-        .map_err(|e| format!("Failed to read settings: {}", e))?;
-
-    serde_json::from_str(&content).map_err(|e| format!("Failed to parse settings: {}", e))
-}
 
 /// Validates that a filename doesn't contain path traversal characters.
 fn validate_filename(filename: &str) -> Result<(), String> {

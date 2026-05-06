@@ -7,7 +7,6 @@ mod shell_transport;
 mod streaming_server;
 
 use std::collections::HashMap;
-use std::io::Read;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -121,7 +120,7 @@ pub fn run() {
             .background_color(tauri::webview::Color(0, 0, 0, 255))
             .build()?;
 
-            let mut webview_builder = WebviewBuilder::new(
+            let webview_builder = WebviewBuilder::new(
                     player::MAIN_APP_LABEL,
                     tauri::WebviewUrl::External("https://web.stremio.com/".parse().unwrap()),
                 )
@@ -131,9 +130,7 @@ pub fn run() {
                 .initialization_script(mod_ui_js);
 
             #[cfg(windows)]
-            {
-                webview_builder = webview_builder.transparent(true);
-            }
+            let webview_builder = webview_builder.transparent(true);
 
             let webview = window.add_child(
                 webview_builder,

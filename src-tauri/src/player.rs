@@ -1,8 +1,11 @@
 use serde::Serialize;
 use serde_json::Value;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Sender};
+#[cfg(windows)]
+use std::sync::mpsc;
+use std::sync::mpsc::Sender;
 use std::sync::{Arc, Condvar, Mutex};
+#[cfg(windows)]
 use std::thread;
 use tauri::PhysicalPosition;
 use tauri::PhysicalSize;
@@ -14,8 +17,8 @@ use crate::shell_transport;
 use std::os::windows::ffi::OsStrExt;
 
 pub const MAIN_APP_LABEL: &str = "main";
-pub const PLAYER_HOST_LABEL: &str = MAIN_APP_LABEL;
 
+#[cfg_attr(not(windows), allow(dead_code))]
 /// All properties observed as MPV_FORMAT_NODE.
 const OBSERVED_PROPERTIES: &[&str] = &[
     "time-pos",
@@ -132,6 +135,7 @@ fn signal_wakeup(wakeup: &Arc<(Mutex<bool>, Condvar)>) {
     }
 }
 
+#[cfg_attr(not(windows), allow(dead_code))]
 enum PlayerCommand {
     Observe(String),
     SetProperty { name: String, value: Value },
@@ -502,27 +506,6 @@ mod platform {
     }
 }
 
-#[cfg(not(windows))]
-mod platform {
-    use std::sync::mpsc::Receiver;
-
-    use tauri::AppHandle;
-
-    use super::PlayerCommand;
-
-    pub struct UnsupportedMpv;
-
-    pub fn create(_window_handle: isize) -> Result<UnsupportedMpv, String> {
-        Err("Native MPV is only implemented on Windows in this build".to_string())
-    }
-
-    pub fn run_event_loop(
-        _app: AppHandle,
-        _mpv: &UnsupportedMpv,
-        _command_receiver: Receiver<PlayerCommand>,
-    ) {
-    }
-}
 
 pub fn native_player_enabled() -> bool {
     cfg!(windows)
@@ -535,6 +518,8 @@ pub fn native_player_enabled() -> bool {
 }
 
 pub fn initialize(app: &AppHandle) -> Result<(), String> {
+    #[cfg(not(windows))]
+    let _ = app;
     if !native_player_enabled() {
         return Ok(());
     }
@@ -612,7 +597,7 @@ pub fn initialize(app: &AppHandle) -> Result<(), String> {
 
         eprintln!(
             "[StremioLightning] Native player initialized with backend=libmpv window={}",
-            PLAYER_HOST_LABEL
+            MAIN_APP_LABEL
         );
     }
 
