@@ -10,6 +10,10 @@ use crate::player;
 use crate::shell_transport;
 use crate::streaming_server;
 
+const STREAMING_SERVER_PROXY_CONNECT_RETRIES: usize = 30;
+const STREAMING_SERVER_PROXY_RETRY_DELAY: std::time::Duration =
+    std::time::Duration::from_millis(250);
+
 #[tauri::command]
 pub fn toggle_devtools(app: tauri::AppHandle) {
     if let Some(webview) = app.get_webview(player::MAIN_APP_LABEL) {
@@ -84,7 +88,7 @@ pub struct ProxyStreamingServerResponse {
     status: u16,
     status_text: String,
     headers: Vec<(String, String)>,
-    body: String,
+    body: Vec<u8>,
 }
 
 fn is_hop_by_hop_header(name: &str) -> bool {
@@ -120,7 +124,7 @@ pub async fn proxy_streaming_server_request(
     method: String,
     path: String,
     headers: Option<HashMap<String, String>>,
-    body: Option<String>,
+    body: Option<Vec<u8>>,
 ) -> Result<ProxyStreamingServerResponse, String> {
     validate_streaming_server_proxy_path(&path)?;
 
@@ -155,10 +159,39 @@ pub async fn proxy_streaming_server_request(
         }
     }
 
-    let response = request
-        .send()
-        .await
-        .map_err(|e| format!("Streaming server proxy request failed: {}", e))?;
+    let mut response = None;
+    let mut last_error = None;
+
+    for attempt in 0..STREAMING_SERVER_PROXY_CONNECT_RETRIES {
+        match request
+            .try_clone()
+            .ok_or_else(|| "Failed to clone streaming server proxy request".to_string())?
+            .send()
+            .await
+        {
+            Ok(ok_response) => {
+                response = Some(ok_response);
+                break;
+            }
+            Err(error) => {
+                last_error = Some(error);
+                if attempt + 1 < STREAMING_SERVER_PROXY_CONNECT_RETRIES {
+                    tokio::time::sleep(STREAMING_SERVER_PROXY_RETRY_DELAY).await;
+                }
+            }
+        }
+    }
+
+    let response = response.ok_or_else(|| {
+        format!(
+            "Streaming server proxy request failed after {:.2}s: {}",
+            STREAMING_SERVER_PROXY_CONNECT_RETRIES as f32
+                * STREAMING_SERVER_PROXY_RETRY_DELAY.as_secs_f32(),
+            last_error
+                .map(|error| error.to_string())
+                .unwrap_or_else(|| "unknown error".to_string())
+        )
+    })?;
 
     let status = response.status();
     let response_headers = response
@@ -176,9 +209,10 @@ pub async fn proxy_streaming_server_request(
         .collect::<Vec<_>>();
 
     let response_body = response
-        .text()
+        .bytes()
         .await
-        .map_err(|e| format!("Failed to read streaming server proxy response: {}", e))?;
+        .map_err(|e| format!("Failed to read streaming server proxy response: {}", e))?
+        .to_vec();
 
     eprintln!(
         "[StreamingServerProxy] {} {} -> {}",
@@ -194,7 +228,6 @@ pub async fn proxy_streaming_server_request(
         body: response_body,
     })
 }
-
 
 // ── Mod management commands ──
 

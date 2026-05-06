@@ -14,6 +14,45 @@ use tauri::webview::WebviewBuilder;
 use tauri::window::WindowBuilder;
 use tauri::{Emitter, Manager};
 
+const STREAMING_SERVER_RELOAD_SCRIPT: &str = r#"
+(function () {
+    var attempts = 0;
+    var maxAttempts = 120;
+    var delayMs = 250;
+
+    function getCoreTransport() {
+        var coreService = (typeof core !== 'undefined' && core) ||
+            (window.services && window.services.core) ||
+            (window.app && window.app.core);
+        return coreService && coreService.transport ? coreService.transport : null;
+    }
+
+    function dispatchReload() {
+        attempts += 1;
+
+        try {
+            var transport = getCoreTransport();
+            if (transport && typeof transport.dispatch === 'function') {
+                transport.dispatch({ action: 'StreamingServer', args: { action: 'Reload' } });
+                console.log('[StremioLightning] StreamingServer Reload dispatched');
+                return;
+            }
+        } catch (error) {
+            console.error('[StremioLightning] Reload error:', error);
+            return;
+        }
+
+        if (attempts < maxAttempts) {
+            setTimeout(dispatchReload, delayMs);
+        } else {
+            console.warn('[StremioLightning] core.transport not available for Reload after retrying');
+        }
+    }
+
+    dispatchReload();
+})();
+"#;
+
 /// Poll until the streaming server is listening on port 11470.
 /// Returns `true` if the server accepted a TCP connection within the timeout.
 fn wait_for_server_ready(timeout: std::time::Duration) -> bool {
@@ -105,30 +144,31 @@ pub fn run() {
             }
 
             let native_player_flag_js = format!(
-                "window.__STREMIO_LIGHTNING_ENABLE_NATIVE_PLAYER__ = {};",
-                if player::native_player_enabled() { "true" } else { "false" }
+                "window.__STREMIO_LIGHTNING_ENABLE_NATIVE_PLAYER__ = {};\nwindow.__STREMIO_LIGHTNING_ENABLE_WEBKITGTK_WORKAROUNDS__ = {};",
+                if player::native_player_enabled() { "true" } else { "false" },
+                if cfg!(target_os = "linux") { "true" } else { "false" }
             );
             let bridge_js = include_str!("../scripts/bridge.js");
             let mod_ui_js = include_str!("../../src/dist/mod-ui-svelte.iife.js");
 
             let window = WindowBuilder::new(app, player::MAIN_APP_LABEL)
-            .title("Stremio Lightning")
-            .inner_size(1500.0, 850.0)
-            .center()
-            .resizable(true)
-            .maximizable(true)
-            .visible(false)
-            .background_color(tauri::webview::Color(0, 0, 0, 255))
-            .build()?;
+                .title("Stremio Lightning")
+                .inner_size(1500.0, 850.0)
+                .center()
+                .resizable(true)
+                .maximizable(true)
+                .visible(false)
+                .background_color(tauri::webview::Color(0, 0, 0, 255))
+                .build()?;
 
             let webview_builder = WebviewBuilder::new(
-                    player::MAIN_APP_LABEL,
-                    tauri::WebviewUrl::External("https://web.stremio.com/".parse().unwrap()),
-                )
-                .auto_resize()
-                .initialization_script(&native_player_flag_js)
-                .initialization_script(bridge_js)
-                .initialization_script(mod_ui_js);
+                player::MAIN_APP_LABEL,
+                tauri::WebviewUrl::External("https://web.stremio.com/".parse().unwrap()),
+            )
+            .auto_resize()
+            .initialization_script(&native_player_flag_js)
+            .initialization_script(bridge_js)
+            .initialization_script(mod_ui_js);
 
             #[cfg(windows)]
             let webview_builder = webview_builder.transparent(true);
@@ -276,25 +316,17 @@ pub fn run() {
                             eprintln!("[StreamingServer] Bridge ready: {bridge_ready}");
 
                             // 3. Only now tell the web app the server is available.
-                            if server_ready {
-                                if let Some(webview) = app_for_reload.get_webview(player::MAIN_APP_LABEL) {
-                                    eprintln!("[StreamingServer] Sending StreamingServer Reload to web app");
-                                    let _ = webview.eval(
-                                        "try { \
-                                            var c = (typeof core !== 'undefined' && core) || \
-                                                    (window.services && window.services.core); \
-                                            if (c && c.transport) { \
-                                                c.transport.dispatch({ action: 'StreamingServer', args: { action: 'Reload' } }); \
-                                                console.log('[StremioLightning] StreamingServer Reload dispatched'); \
-                                            } else { \
-                                                console.warn('[StremioLightning] core.transport not available for Reload'); \
-                                            } \
-                                        } catch(e) { console.error('[StremioLightning] Reload error:', e); }"
-                                    );
-                                }
-                            } else {
+                            if !server_ready {
                                 eprintln!("[StreamingServer] Server never became ready, skipping Reload");
+                                return;
                             }
+
+                            let Some(webview) = app_for_reload.get_webview(player::MAIN_APP_LABEL) else {
+                                return;
+                            };
+
+                            eprintln!("[StreamingServer] Scheduling StreamingServer Reload in web app");
+                            let _ = webview.eval(STREAMING_SERVER_RELOAD_SCRIPT);
                         });
                     }
                     Err(e) => {

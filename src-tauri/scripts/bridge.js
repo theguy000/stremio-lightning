@@ -59,6 +59,8 @@
   // directly. Proxy loopback requests through Rust so web.stremio.com can still
   // read settings/casting/network/device metadata from the bundled server.
   var nativeFetch = window.fetch ? window.fetch.bind(window) : null;
+  var webkitGtkWorkaroundsEnabled =
+    window.__STREMIO_LIGHTNING_ENABLE_WEBKITGTK_WORKAROUNDS__ === true;
 
   function getStreamingServerProxyPath(input) {
     var rawUrl;
@@ -123,23 +125,42 @@
     }
   }
 
-  function bodyToProxyString(body) {
-    if (body == null) return Promise.resolve(null);
-    if (typeof body === "string") return Promise.resolve(body);
-    if (body instanceof URLSearchParams) return Promise.resolve(body.toString());
-    if (body instanceof Blob) return body.text();
-    if (body instanceof ArrayBuffer) {
-      return Promise.resolve(new TextDecoder().decode(new Uint8Array(body)));
-    }
-    if (ArrayBuffer.isView(body)) {
-      return Promise.resolve(
-        new TextDecoder().decode(new Uint8Array(body.buffer, body.byteOffset, body.byteLength)),
-      );
-    }
-    return Promise.resolve(String(body));
+  function arrayBufferToByteArray(buffer) {
+    return Array.prototype.slice.call(new Uint8Array(buffer));
   }
 
-  if (nativeFetch) {
+  function bodyToProxyBytes(body) {
+    if (body == null) return Promise.resolve(null);
+    if (typeof body === "string") {
+      return Promise.resolve(arrayBufferToByteArray(new TextEncoder().encode(body).buffer));
+    }
+    if (body instanceof URLSearchParams) {
+      return Promise.resolve(
+        arrayBufferToByteArray(new TextEncoder().encode(body.toString()).buffer),
+      );
+    }
+    if (body instanceof Blob) return body.arrayBuffer().then(arrayBufferToByteArray);
+    if (body instanceof ArrayBuffer) return Promise.resolve(arrayBufferToByteArray(body));
+    if (ArrayBuffer.isView(body)) {
+      return Promise.resolve(
+        arrayBufferToByteArray(body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength)),
+      );
+    }
+    return Promise.resolve(
+      arrayBufferToByteArray(new TextEncoder().encode(String(body)).buffer),
+    );
+  }
+
+  function proxyBodyToResponseBody(body) {
+    if (!body || !body.length) return null;
+    return new Uint8Array(body);
+  }
+
+  function isNullBodyStatus(status) {
+    return status === 204 || status === 205 || status === 304;
+  }
+
+  if (nativeFetch && webkitGtkWorkaroundsEnabled) {
     window.fetch = function stremioLightningFetchProxy(input, init) {
       var proxyPath = getStreamingServerProxyPath(input);
       var request;
@@ -163,9 +184,9 @@
       );
 
       if (init && Object.prototype.hasOwnProperty.call(init, "body")) {
-        bodyPromise = bodyToProxyString(init.body);
+        bodyPromise = bodyToProxyBytes(init.body);
       } else if (request && method !== "GET" && method !== "HEAD") {
-        bodyPromise = request.clone().text();
+        bodyPromise = request.clone().arrayBuffer().then(arrayBufferToByteArray);
       } else {
         bodyPromise = Promise.resolve(null);
       }
@@ -180,11 +201,14 @@
           });
         })
         .then(function (proxied) {
-          return new Response(proxied.body || "", {
-            status: proxied.status || 200,
-            statusText: proxied.statusText || "",
-            headers: normalizeProxyHeaders(proxied.headers),
-          });
+          return new Response(
+            isNullBodyStatus(proxied.status) ? null : proxyBodyToResponseBody(proxied.body),
+            {
+              status: proxied.status || 200,
+              statusText: proxied.statusText || "",
+              headers: normalizeProxyHeaders(proxied.headers),
+            },
+          );
         })
         .catch(function (error) {
           console.error(
@@ -210,7 +234,7 @@
     var proxyWorkerId = 1;
     var workerProxyPrefix = "__stremioLightningWorkerProxy:";
 
-    if (!NativeWorker || !nativeFetch) return;
+    if (!NativeWorker || !nativeFetch || !webkitGtkWorkaroundsEnabled) return;
 
     function shouldPatchWorkerUrl(url) {
       try {
@@ -224,20 +248,161 @@
 
     function buildWorkerFetchShim(channelId) {
       return (
-        "\n;(function(){" +
-        "var nativeFetch=self.fetch&&self.fetch.bind(self);" +
-        "function proxyPath(input){try{var raw=typeof input==='string'?input:input&&input.url;if(!raw)return null;var u=new URL(raw,self.location.href);if(u.protocol!=='http:'||u.port!=='11470'||(u.hostname!=='127.0.0.1'&&u.hostname!=='localhost'))return null;return u.pathname+u.search;}catch(e){return null;}}" +
-        "function headersToObject(headers){var out={};try{if(headers&&typeof headers.forEach==='function'){headers.forEach(function(v,n){out[n]=v;});return out;}}catch(e){};return out;}" +
-        "function bodyToText(body){if(body==null)return Promise.resolve(null);if(typeof body==='string')return Promise.resolve(body);if(body instanceof URLSearchParams)return Promise.resolve(body.toString());if(body instanceof Blob)return body.text();if(body instanceof ArrayBuffer)return Promise.resolve(new TextDecoder().decode(new Uint8Array(body)));if(ArrayBuffer.isView(body))return Promise.resolve(new TextDecoder().decode(new Uint8Array(body.buffer,body.byteOffset,body.byteLength)));return Promise.resolve(String(body));}" +
-        "function normalizeHeaders(headers){try{return new Headers(headers||[]);}catch(e){var h=new Headers();(headers||[]).forEach(function(p){if(p&&p.length>=2)h.append(p[0],p[1]);});return h;}}" +
-        "self.fetch=function(input,init){var path=proxyPath(input);if(!path)return nativeFetch(input,init);var req=typeof Request!=='undefined'&&input instanceof Request?input:null;var method=(init&&init.method)||(req&&req.method)||'GET';var headers=Object.assign({},headersToObject(req&&req.headers),headersToObject(init&&init.headers));var bodyPromise=init&&Object.prototype.hasOwnProperty.call(init,'body')?bodyToText(init.body):(req&&method!=='GET'&&method!=='HEAD'?req.clone().text():Promise.resolve(null));return bodyPromise.then(function(body){return new Promise(function(resolve,reject){var id=Math.random().toString(36).slice(2);function onMessage(event){var msg=event.data;if(!msg||msg.channel!=='" +
-        channelId +
-        "'||msg.id!==id)return;self.removeEventListener('message',onMessage);if(msg.error)reject(new Error(msg.error));else resolve(new Response(msg.response.body||'',{status:msg.response.status||200,statusText:msg.response.statusText||'',headers:normalizeHeaders(msg.response.headers)}));}self.addEventListener('message',onMessage);self.postMessage({channel:'" +
-        channelId +
-        "',id:id,request:{method:String(method||'GET').toUpperCase(),path:path,headers:headers,body:body}});});});};" +
-        "})();\n"
+        "\n;(" +
+        function (workerChannelId) {
+          var nativeFetch = self.fetch && self.fetch.bind(self);
+
+          function proxyPath(input) {
+            var raw;
+            var url;
+
+            try {
+              raw = typeof input === "string" ? input : input && input.url;
+              if (!raw) return null;
+
+              url = new URL(raw, self.location.href);
+            } catch (error) {
+              return null;
+            }
+
+            if (url.protocol !== "http:") return null;
+            if (url.port !== "11470") return null;
+            if (url.hostname !== "127.0.0.1" && url.hostname !== "localhost") {
+              return null;
+            }
+
+            return url.pathname + url.search;
+          }
+
+          function headersToObject(headers) {
+            var out = {};
+
+            try {
+              if (headers && typeof headers.forEach === "function") {
+                headers.forEach(function (value, name) {
+                  out[name] = value;
+                });
+                return out;
+              }
+            } catch (error) {
+              return out;
+            }
+
+            return out;
+          }
+
+          function toBytes(buffer) {
+            return Array.prototype.slice.call(new Uint8Array(buffer));
+          }
+
+          function bodyToBytes(body) {
+            if (body == null) return Promise.resolve(null);
+            if (typeof body === "string") {
+              return Promise.resolve(toBytes(new TextEncoder().encode(body).buffer));
+            }
+            if (body instanceof URLSearchParams) {
+              return Promise.resolve(toBytes(new TextEncoder().encode(body.toString()).buffer));
+            }
+            if (body instanceof Blob) return body.arrayBuffer().then(toBytes);
+            if (body instanceof ArrayBuffer) return Promise.resolve(toBytes(body));
+            if (ArrayBuffer.isView(body)) {
+              return Promise.resolve(
+                toBytes(body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength)),
+              );
+            }
+            return Promise.resolve(toBytes(new TextEncoder().encode(String(body)).buffer));
+          }
+
+          function responseBody(body) {
+            return body && body.length ? new Uint8Array(body) : null;
+          }
+
+          function nullBodyStatus(status) {
+            return status === 204 || status === 205 || status === 304;
+          }
+
+          function normalizeHeaders(headers) {
+            try {
+              return new Headers(headers || []);
+            } catch (error) {
+              var normalized = new Headers();
+              (headers || []).forEach(function (pair) {
+                if (pair && pair.length >= 2) normalized.append(pair[0], pair[1]);
+              });
+              return normalized;
+            }
+          }
+
+          self.fetch = function (input, init) {
+            var path = proxyPath(input);
+            var request;
+            var method;
+            var headers;
+            var bodyPromise;
+
+            if (!path) return nativeFetch(input, init);
+
+            request = typeof Request !== "undefined" && input instanceof Request ? input : null;
+            method = (init && init.method) || (request && request.method) || "GET";
+            headers = Object.assign(
+              {},
+              headersToObject(request && request.headers),
+              headersToObject(init && init.headers),
+            );
+            bodyPromise =
+              init && Object.prototype.hasOwnProperty.call(init, "body")
+                ? bodyToBytes(init.body)
+                : request && method !== "GET" && method !== "HEAD"
+                  ? request.clone().arrayBuffer().then(toBytes)
+                  : Promise.resolve(null);
+
+            return bodyPromise.then(function (body) {
+              return new Promise(function (resolve, reject) {
+                var id = Math.random().toString(36).slice(2);
+
+                function onMessage(event) {
+                  var msg = event.data;
+                  if (!msg || msg.channel !== workerChannelId || msg.id !== id) return;
+
+                  self.removeEventListener("message", onMessage);
+                  if (msg.error) {
+                    reject(new Error(msg.error));
+                    return;
+                  }
+
+                  resolve(
+                    new Response(
+                      nullBodyStatus(msg.response.status) ? null : responseBody(msg.response.body),
+                      {
+                        status: msg.response.status || 200,
+                        statusText: msg.response.statusText || "",
+                        headers: normalizeHeaders(msg.response.headers),
+                      },
+                    ),
+                  );
+                }
+
+                self.addEventListener("message", onMessage);
+                self.postMessage({
+                  channel: workerChannelId,
+                  id: id,
+                  request: {
+                    method: String(method || "GET").toUpperCase(),
+                    path: path,
+                    headers: headers,
+                    body: body,
+                  },
+                });
+              });
+            });
+          };
+        }.toString() +
+        ")(" +
+        JSON.stringify(channelId) +
+        ");\n"
       );
     }
+
 
     window.Worker = function StremioLightningWorker(url, options) {
       var absoluteUrl;
@@ -333,7 +498,6 @@
   // ============================================
   var nativePlayerEnabled =
     window.__STREMIO_LIGHTNING_ENABLE_NATIVE_PLAYER__ === true;
-  var desktopShellMode = false;
   if (nativePlayerEnabled) {
     console.info(
       "[StremioLightning] Native player mode enabled (libmpv transport)",
