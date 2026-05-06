@@ -23,13 +23,17 @@
   // ============================================
   // IPC Shell Transport Compatibility
   // ============================================
-  var shellTransportEnabled =
+  var nativePlayerEnabled =
     window.__STREMIO_LIGHTNING_ENABLE_NATIVE_PLAYER__ === true;
-  if (shellTransportEnabled) {
+  if (nativePlayerEnabled) {
     console.info(
       "[StremioLightning] Native player mode enabled (libmpv transport)",
     );
   }
+  // Shell transport is always enabled — the Stremio web app needs
+  // qt.webChannelTransport / chrome.webview to detect it's running
+  // inside a desktop shell and connect to the streaming server.
+  var shellTransportEnabled = true;
   var shellMessageListeners = [];
   var nativeChromeWebview = null;
   var discordMpvState = {
@@ -47,7 +51,7 @@
     var eventName;
     var eventPayload;
 
-    if (!shellTransportEnabled || !payload) return;
+    if (!nativePlayerEnabled || !payload) return;
 
     try {
       parsed = typeof payload === "string" ? JSON.parse(payload) : payload;
@@ -82,7 +86,7 @@
   }
 
   function observeDiscordMpvProperties() {
-    if (!shellTransportEnabled || discordMpvState.observed) return;
+    if (!nativePlayerEnabled || discordMpvState.observed) return;
 
     discordMpvState.observed = true;
     ["time-pos", "duration", "pause", "paused-for-cache"].forEach(
@@ -120,7 +124,12 @@
     // Handle Picture-in-Picture events from the Rust backend
     try {
       var parsed = typeof payload === "string" ? JSON.parse(payload) : payload;
-      if (parsed && parsed.args && Array.isArray(parsed.args) && parsed.args.length >= 1) {
+      if (
+        parsed &&
+        parsed.args &&
+        Array.isArray(parsed.args) &&
+        parsed.args.length >= 1
+      ) {
         var eventName = parsed.args[0];
         if (eventName === "showPictureInPicture") {
           document.dispatchEvent(new CustomEvent("sl-pip-enabled"));
@@ -239,6 +248,7 @@
     }
   }
 
+
   // ============================================
   // Frontend Bridge: window.StremioEnhancedAPI
   // ============================================
@@ -273,7 +283,7 @@
   // ============================================
   // Shell Detection (StremioShell user agent)
   // ============================================
-  if (shellTransportEnabled) {
+  if (nativePlayerEnabled) {
     try {
       var originalUA = navigator.userAgent;
       Object.defineProperty(Navigator.prototype, "userAgent", {
@@ -486,7 +496,7 @@
     if (_pipBtnInjected) return;
     // Find the control-bar-buttons-container inside the player
     var containers = document.querySelectorAll(
-      '[class*="control-bar-buttons-container"]'
+      '[class*="control-bar-buttons-container"]',
     );
     if (!containers.length) return;
 
@@ -558,7 +568,9 @@
         });
         observer.observe(document.body, { childList: true, subtree: true });
         // Safety: stop observing after 30s
-        setTimeout(function () { observer.disconnect(); }, 30000);
+        setTimeout(function () {
+          observer.disconnect();
+        }, 30000);
       }
     } else {
       removePipButton();
@@ -604,21 +616,37 @@
 
   function isInteractiveNode(el) {
     var tag = el.tagName;
-    if (tag === "BUTTON" || tag === "INPUT" || tag === "TEXTAREA" ||
-        tag === "SELECT" || tag === "A" || tag === "LABEL") {
+    if (
+      tag === "BUTTON" ||
+      tag === "INPUT" ||
+      tag === "TEXTAREA" ||
+      tag === "SELECT" ||
+      tag === "A" ||
+      tag === "LABEL"
+    ) {
       return true;
     }
     if (el.isContentEditable) return true;
     var role = el.getAttribute && el.getAttribute("role");
-    if (role === "button" || role === "slider" || role === "textbox" ||
-        role === "menuitem" || role === "tab" || role === "option") {
+    if (
+      role === "button" ||
+      role === "slider" ||
+      role === "textbox" ||
+      role === "menuitem" ||
+      role === "tab" ||
+      role === "option"
+    ) {
       return true;
     }
     if (el.className && typeof el.className === "string") {
       var cls = el.className;
-      if (cls.indexOf("control-bar") !== -1 || cls.indexOf("button") !== -1 ||
-          cls.indexOf("slider") !== -1 || cls.indexOf("seek") !== -1 ||
-          cls.indexOf("volume") !== -1) {
+      if (
+        cls.indexOf("control-bar") !== -1 ||
+        cls.indexOf("button") !== -1 ||
+        cls.indexOf("slider") !== -1 ||
+        cls.indexOf("seek") !== -1 ||
+        cls.indexOf("volume") !== -1
+      ) {
         return true;
       }
     }
@@ -634,17 +662,21 @@
     return false;
   }
 
-  document.addEventListener("mousedown", function (e) {
-    if (!_pipDragActive) return;
-    // Only left-click
-    if (e.button !== 0) return;
-    // Don't drag if clicking on/inside an interactive element
-    if (isInsideInteractive(e.target)) return;
-    // Stop the event so Stremio's "hold for 2x speed" never sees this mousedown.
-    e.stopImmediatePropagation();
-    e.preventDefault();
-    appWindow.startDragging();
-  }, true);
+  document.addEventListener(
+    "mousedown",
+    function (e) {
+      if (!_pipDragActive) return;
+      // Only left-click
+      if (e.button !== 0) return;
+      // Don't drag if clicking on/inside an interactive element
+      if (isInsideInteractive(e.target)) return;
+      // Stop the event so Stremio's "hold for 2x speed" never sees this mousedown.
+      e.stopImmediatePropagation();
+      e.preventDefault();
+      appWindow.startDragging();
+    },
+    true,
+  );
 
   // ============================================
   // Discord Rich Presence API & Tracker
@@ -951,7 +983,7 @@
         return;
       }
 
-      if (shellTransportEnabled) {
+      if (nativePlayerEnabled) {
         // MPV native player path: poll core transport state since there's no <video> element
         console.info(
           "[DiscordRPC] On player page (MPV mode), starting poll-based tracker...",
@@ -1255,7 +1287,6 @@
     style.textContent =
       "@keyframes sl-banner-slide-down { from { transform:translateY(-100%); opacity:0; } to { transform:translateY(0); opacity:1; } }" +
       ".sl-update-banner { position:fixed; top:0; left:0; right:0; z-index:200000; display:flex; align-items:center; justify-content:center; padding:0; background:linear-gradient(180deg, rgba(12,11,17,0.95) 0%, rgba(12,11,17,0.88) 100%); border-bottom:1px solid rgba(255,255,255,0.06); backdrop-filter:blur(30px) saturate(140%); -webkit-backdrop-filter:blur(30px) saturate(140%); box-shadow:0 8px 32px rgba(0,0,0,0.4), 0 2px 8px rgba(0,0,0,0.2); animation:sl-banner-slide-down 0.4s cubic-bezier(0.16,1,0.3,1); font-family:inherit; box-sizing:border-box; }" +
-
       ".sl-update-banner-content { display:flex; align-items:center; gap:1rem; width:100%; padding:0.75rem 1.25rem; box-sizing:border-box; }" +
       ".sl-update-banner-icon { flex:none; display:flex; align-items:center; justify-content:center; width:2rem; height:2rem; border-radius:50%; background:rgba(123,91,245,0.12); color:var(--primary-accent-color, #7b5bf5); }" +
       ".sl-update-banner-icon svg { width:1rem; height:1rem; }" +
@@ -1288,12 +1319,17 @@
     // Icon (static SVG, no user data)
     var iconDiv = document.createElement("div");
     iconDiv.className = "sl-update-banner-icon";
-    iconDiv.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
+    iconDiv.innerHTML =
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
 
     // Text — using textContent for user-controlled values (auto-escapes)
     var textSpan = document.createElement("span");
     textSpan.className = "sl-update-banner-text";
-    textSpan.appendChild(document.createTextNode("A new version of Stremio Lightning is available: "));
+    textSpan.appendChild(
+      document.createTextNode(
+        "A new version of Stremio Lightning is available: ",
+      ),
+    );
 
     var versionSpan = document.createElement("span");
     versionSpan.className = "sl-update-banner-version";
@@ -1315,20 +1351,20 @@
     downloadBtn.className = "sl-update-banner-download";
     downloadBtn.textContent = "Download Update";
     downloadBtn.addEventListener("click", function () {
-      invoke("open_external_url", { url: info.releaseUrl }).catch(
-        function (e) {
-          console.error("[AppUpdater] Failed to open release URL:", e);
-        },
-      );
+      invoke("open_external_url", { url: info.releaseUrl }).catch(function (e) {
+        console.error("[AppUpdater] Failed to open release URL:", e);
+      });
     });
 
     var closeBtn = document.createElement("button");
     closeBtn.className = "sl-update-banner-close";
     closeBtn.title = "Dismiss";
-    closeBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+    closeBtn.innerHTML =
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
     closeBtn.addEventListener("click", function () {
       banner.style.animation = "none";
-      banner.style.transition = "transform 0.25s ease-in, opacity 0.25s ease-in";
+      banner.style.transition =
+        "transform 0.25s ease-in, opacity 0.25s ease-in";
       banner.style.transform = "translateY(-100%)";
       banner.style.opacity = "0";
       setTimeout(function () {
@@ -1417,10 +1453,13 @@
     initDiscordRpc();
     initUpdateChecker();
   } else {
-    window.addEventListener("load", function () {
-      initDiscordRpc();
-      initUpdateChecker();
-    }, { once: true });
+    window.addEventListener(
+      "load",
+      function () {
+        initDiscordRpc();
+        initUpdateChecker();
+      },
+      { once: true },
+    );
   }
-
 })();

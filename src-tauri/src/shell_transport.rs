@@ -90,7 +90,11 @@ pub fn notify_bridge_ready(app: &AppHandle) -> Result<(), String> {
 pub fn wait_until_bridge_ready(app: &AppHandle, timeout: Duration) -> bool {
     let state = app.state::<ShellTransportState>();
     let result = if let Ok(ready_guard) = state.bridge_ready.lock() {
-        if let Ok((guard, _)) = state.bridge_ready_condvar.wait_timeout_while(ready_guard, timeout, |ready| !*ready) {
+        if let Ok((guard, _)) =
+            state
+                .bridge_ready_condvar
+                .wait_timeout_while(ready_guard, timeout, |ready| !*ready)
+        {
             *guard
         } else {
             false
@@ -137,9 +141,11 @@ pub fn handle_message(app: &AppHandle, message: &str) -> Result<(), String> {
             "win-hide" => with_main_window(app, Window::hide, "hide"),
             "win-dev-tools" => toggle_devtools(app),
             "win-center" => with_main_window(app, Window::center, "center"),
-            "win-toggle-fullscreen" => {
-                with_main_window(app, |w| w.set_fullscreen(!w.is_fullscreen()?), "toggle fullscreen")
-            }
+            "win-toggle-fullscreen" => with_main_window(
+                app,
+                |w| w.set_fullscreen(!w.is_fullscreen()?),
+                "toggle fullscreen",
+            ),
             "native-player-stop" => player::stop_and_hide(app),
             "win-toggle-pip" => {
                 player::toggle_pip_mode(app)?;
@@ -181,7 +187,11 @@ pub fn emit_window_visibility_change(app: &AppHandle) -> Result<(), String> {
 pub fn emit_window_state_change(app: &AppHandle) -> Result<(), String> {
     let window = main_window(app)?;
     let minimized = window.is_minimized().map_err(|e| e.to_string())?;
-    let state = if minimized { WIN_STATE_MINIMIZED } else { WIN_STATE_NORMAL };
+    let state = if minimized {
+        WIN_STATE_MINIMIZED
+    } else {
+        WIN_STATE_NORMAL
+    };
 
     emit_or_queue_message(
         app,
@@ -208,7 +218,9 @@ fn parse_request(message: &str) -> Result<ParsedRequest, String> {
 
     if let Some(request_type) = request.request_type {
         if request_type != RPC_TYPE_INVOKE_METHOD {
-            return Err(format!("Unsupported shell transport request type: {request_type}"));
+            return Err(format!(
+                "Unsupported shell transport request type: {request_type}"
+            ));
         }
     }
 
@@ -319,9 +331,11 @@ fn apply_window_visibility(app: &AppHandle, data: Option<&Value>) -> Result<(), 
 
 fn open_external_if_allowed(app: &AppHandle, url: &str) -> Result<(), String> {
     let lower = url.to_lowercase();
-    let allowed = ["http://", "https://", "rtp://", "rtsp://", "ftp://", "ipfs://"]
-        .iter()
-        .any(|prefix| lower.starts_with(prefix));
+    let allowed = [
+        "http://", "https://", "rtp://", "rtsp://", "ftp://", "ipfs://",
+    ]
+    .iter()
+    .any(|prefix| lower.starts_with(prefix));
 
     if !allowed {
         return Err("Rejected non-whitelisted open-external URL".into());
@@ -362,7 +376,10 @@ fn toggle_devtools(app: &AppHandle) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{handshake_response, parse_request, response_message, ParsedRequest, RPC_TYPE_INIT, RPC_TYPE_SIGNAL};
+    use super::{
+        handshake_response, parse_request, response_message, ParsedRequest, RPC_TYPE_INIT,
+        RPC_TYPE_SIGNAL,
+    };
     use serde_json::{json, Value};
 
     #[test]
@@ -373,7 +390,8 @@ mod tests {
 
     #[test]
     fn parses_command_request() {
-        let request = parse_request(r#"{"id":7,"type":6,"args":["mpv-command",["stop"]]}"#).unwrap();
+        let request =
+            parse_request(r#"{"id":7,"type":6,"args":["mpv-command",["stop"]]}"#).unwrap();
         assert_eq!(
             request,
             ParsedRequest::Command {
@@ -393,7 +411,9 @@ mod tests {
 
     #[test]
     fn serializes_event_shape() {
-        let payload: Value = serde_json::from_str(&response_message(json!(["open-media", "stremio://foo"]))).unwrap();
+        let payload: Value =
+            serde_json::from_str(&response_message(json!(["open-media", "stremio://foo"])))
+                .unwrap();
         assert_eq!(payload["object"], "transport");
         assert_eq!(payload["type"], RPC_TYPE_SIGNAL);
         assert_eq!(payload["args"][0], "open-media");

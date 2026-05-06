@@ -4,8 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "tauri": "tauri",
+    "tauri": "node scripts/generate-tauri-config.js && tauri",
     "setup": "node scripts/setup.js",
+    "generate-config": "node scripts/generate-tauri-config.js",
     "check-deps": "node scripts/check-deps.js",
     "build:ui": "node scripts/check-deps.js && vite build",
     "dev:ui": "node scripts/check-deps.js && vite build --watch"

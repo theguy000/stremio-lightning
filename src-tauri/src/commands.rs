@@ -19,10 +19,21 @@ pub fn toggle_devtools(app: tauri::AppHandle) {
     }
 }
 
+fn is_allowed_external_url(url: &str) -> bool {
+    let normalized = url.trim().to_ascii_lowercase();
+    ["http://", "https://", "stremio://"]
+        .iter()
+        .any(|prefix| normalized.starts_with(prefix))
+}
+
 #[tauri::command]
 pub async fn open_external_url(app: tauri::AppHandle, url: String) -> Result<(), String> {
+    if !is_allowed_external_url(&url) {
+        return Err("Rejected non-whitelisted external URL".into());
+    }
+
     app.opener()
-        .open_url(&url, None::<&str>)
+        .open_url(url.trim(), None::<&str>)
         .map_err(|e| format!("Failed to open URL: {}", e))
 }
 
@@ -145,8 +156,7 @@ pub async fn register_settings(
     plugin_name: String,
     schema: String,
 ) -> Result<(), String> {
-    let parsed: serde_json::Value =
-        serde_json::from_str(&schema).map_err(|e| e.to_string())?;
+    let parsed: serde_json::Value = serde_json::from_str(&schema).map_err(|e| e.to_string())?;
     let state = app.state::<ModManagerState>();
     let mut schemas = state
         .registered_schemas
@@ -212,10 +222,14 @@ pub async fn check_app_update() -> Result<app_updater::AppUpdateInfo, String> {
 #[tauri::command]
 pub async fn set_auto_pause(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
     let state = app.state::<player::PlayerState>();
-    state.auto_pause_enabled.store(enabled, std::sync::atomic::Ordering::Relaxed);
+    state
+        .auto_pause_enabled
+        .store(enabled, std::sync::atomic::Ordering::Relaxed);
     // If disabling, clear any existing auto-pause flag so we don't resume on next focus
     if !enabled {
-        state.auto_paused_on_unfocus.store(false, std::sync::atomic::Ordering::Relaxed);
+        state
+            .auto_paused_on_unfocus
+            .store(false, std::sync::atomic::Ordering::Relaxed);
     }
     Ok(())
 }
@@ -225,15 +239,22 @@ pub async fn set_auto_pause(app: tauri::AppHandle, enabled: bool) -> Result<(), 
 #[tauri::command]
 pub async fn get_auto_pause(app: tauri::AppHandle) -> bool {
     let state = app.state::<player::PlayerState>();
-    state.auto_pause_enabled.load(std::sync::atomic::Ordering::Relaxed)
+    state
+        .auto_pause_enabled
+        .load(std::sync::atomic::Ordering::Relaxed)
 }
 
 /// Tauri command: enable or disable the "PiP disables auto-pause" setting.
 /// When enabled (default), auto-pause-on-unfocus is suppressed while PiP is active.
 #[tauri::command]
-pub async fn set_pip_disables_auto_pause(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+pub async fn set_pip_disables_auto_pause(
+    app: tauri::AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
     let state = app.state::<player::PlayerState>();
-    state.pip_disables_auto_pause.store(enabled, std::sync::atomic::Ordering::Relaxed);
+    state
+        .pip_disables_auto_pause
+        .store(enabled, std::sync::atomic::Ordering::Relaxed);
     Ok(())
 }
 
@@ -241,7 +262,9 @@ pub async fn set_pip_disables_auto_pause(app: tauri::AppHandle, enabled: bool) -
 #[tauri::command]
 pub async fn get_pip_disables_auto_pause(app: tauri::AppHandle) -> bool {
     let state = app.state::<player::PlayerState>();
-    state.pip_disables_auto_pause.load(std::sync::atomic::Ordering::Relaxed)
+    state
+        .pip_disables_auto_pause
+        .load(std::sync::atomic::Ordering::Relaxed)
 }
 
 // ── Picture-in-Picture ──

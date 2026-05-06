@@ -7,6 +7,7 @@ mod shell_transport;
 mod streaming_server;
 
 use std::collections::HashMap;
+use std::io::Read;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;

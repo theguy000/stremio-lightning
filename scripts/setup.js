@@ -2,8 +2,9 @@
 /**
  * Stremio Lightning - Dependency Setup Script
  *
- * Downloads server.cjs, ffmpeg, ffprobe, and stremio-runtime for your platform.
- * Run this once after cloning the repo before building or running `tauri dev`.
+ * Downloads server.cjs, ffmpeg, ffprobe, stremio-runtime, and Windows MPV files
+ * for your platform. Run this once after cloning the repo before building or
+ * running `tauri dev`.
  *
  * Usage:
  *   npm run setup
@@ -23,7 +24,6 @@ import { fileURLToPath } from "url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
 const SCRIPT = path.join(ROOT, "src-tauri", "scripts", "download-deps.sh");
-const SERVER_CJS = path.join(ROOT, "src-tauri", "resources", "server.cjs");
 
 // ── Platform detection ────────────────────────────────────────────────────────
 function detectPlatform() {
@@ -38,6 +38,78 @@ function detectPlatform() {
   process.exit(1);
 }
 
+function requiredDepsFor(platform) {
+  const deps = [
+    {
+      file: path.join(ROOT, "src-tauri", "resources", "server.cjs"),
+      minBytes: 100 * 1024,
+      label: "src-tauri/resources/server.cjs",
+    },
+  ];
+
+  if (platform === "windows") {
+    deps.push(
+      {
+        file: path.join(
+          ROOT,
+          "src-tauri",
+          "binaries",
+          "stremio-runtime-x86_64-pc-windows-msvc.exe",
+        ),
+        minBytes: 100 * 1024,
+        label: "src-tauri/binaries/stremio-runtime-x86_64-pc-windows-msvc.exe",
+      },
+      {
+        file: path.join(ROOT, "src-tauri", "resources", "ffmpeg.exe"),
+        minBytes: 100 * 1024,
+        label: "src-tauri/resources/ffmpeg.exe",
+      },
+      {
+        file: path.join(ROOT, "src-tauri", "resources", "ffprobe.exe"),
+        minBytes: 100 * 1024,
+        label: "src-tauri/resources/ffprobe.exe",
+      },
+      {
+        file: path.join(ROOT, "src-tauri", "resources", "libmpv-2.dll"),
+        minBytes: 100 * 1024,
+        label: "src-tauri/resources/libmpv-2.dll",
+      },
+      {
+        file: path.join(ROOT, "src-tauri", "mpv-dev", "mpv.lib"),
+        minBytes: 1024,
+        label: "src-tauri/mpv-dev/mpv.lib",
+      },
+    );
+  } else {
+    const targetTriple =
+      platform === "macos-arm64"
+        ? "aarch64-apple-darwin"
+        : platform === "macos-x86_64"
+          ? "x86_64-apple-darwin"
+          : "x86_64-unknown-linux-gnu";
+
+    deps.push(
+      {
+        file: path.join(ROOT, "src-tauri", "binaries", `stremio-runtime-${targetTriple}`),
+        minBytes: 100 * 1024,
+        label: `src-tauri/binaries/stremio-runtime-${targetTriple}`,
+      },
+      {
+        file: path.join(ROOT, "src-tauri", "resources", "ffmpeg"),
+        minBytes: 100 * 1024,
+        label: "src-tauri/resources/ffmpeg",
+      },
+      {
+        file: path.join(ROOT, "src-tauri", "resources", "ffprobe"),
+        minBytes: 100 * 1024,
+        label: "src-tauri/resources/ffprobe",
+      },
+    );
+  }
+
+  return deps;
+}
+
 // ── Prerequisite checks ───────────────────────────────────────────────────────
 function checkCommand(cmd, installHint) {
   const result = spawnSync(cmd, ["--version"], { stdio: "pipe" });
@@ -49,7 +121,7 @@ function checkCommand(cmd, installHint) {
   return true;
 }
 
-function checkPrerequisites() {
+function checkPrerequisites(platform) {
   let ok = true;
 
   ok = checkCommand("gh", "Install GitHub CLI: https://cli.github.com/") && ok;
@@ -59,6 +131,23 @@ function checkPrerequisites() {
       "Install Git for Windows (includes bash): https://git-scm.com/ — or use WSL",
     ) && ok;
   ok = checkCommand("curl", "Install curl: https://curl.se/") && ok;
+  ok = checkCommand("unzip", "Install unzip or ensure it is available on PATH") && ok;
+
+  if (platform === "windows" || platform.startsWith("macos")) {
+    const has7z =
+      spawnSync("7z", ["--help"], { stdio: "pipe" }).status === 0 ||
+      spawnSync("7zz", ["--help"], { stdio: "pipe" }).status === 0;
+    if (!has7z) {
+      console.error("[setup] Missing required tool: 7z or 7zz");
+      console.error("        Windows: install 7-Zip; macOS: brew install p7zip");
+      ok = false;
+    }
+  }
+
+  if (platform === "linux") {
+    ok = checkCommand("dpkg-deb", "Install dpkg-deb (usually provided by dpkg)") && ok;
+    ok = checkCommand("tar", "Install tar") && ok;
+  }
 
   if (!ok) {
     console.error("\n[setup] Please install the missing tools and try again.");
@@ -67,23 +156,30 @@ function checkPrerequisites() {
 }
 
 // ── Skip if already downloaded ────────────────────────────────────────────────
-function alreadySetUp() {
-  if (!existsSync(SERVER_CJS)) return false;
-  try {
-    // server.cjs is ~6 MB; 100 KB is a safe lower bound to confirm it's real
-    return statSync(SERVER_CJS).size > 100 * 1024;
-  } catch {
-    return false;
+function fileOk(filePath, minBytes) {
+  if (!existsSync(filePath)) return false;
+  if (minBytes) {
+    try {
+      return statSync(filePath).size >= minBytes;
+    } catch {
+      return false;
+    }
   }
+  return true;
+}
+
+function missingDeps(platform) {
+  return requiredDepsFor(platform).filter((dep) => !fileOk(dep.file, dep.minBytes));
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 const forceFlag = process.argv.includes("--force");
 const depsPlatform = detectPlatform();
+const missing = missingDeps(depsPlatform);
 
 console.log(`[setup] Platform : ${depsPlatform}`);
 
-if (alreadySetUp() && !forceFlag) {
+if (missing.length === 0 && !forceFlag) {
   console.log("[setup] Dependencies already present. Nothing to do.");
   console.log(
     "        Run with --force to re-download:  npm run setup -- --force",
@@ -91,8 +187,15 @@ if (alreadySetUp() && !forceFlag) {
   process.exit(0);
 }
 
+if (missing.length > 0) {
+  console.log("[setup] Missing dependencies:");
+  for (const dep of missing) {
+    console.log(`        - ${dep.label}`);
+  }
+}
+
 console.log("[setup] Checking prerequisites...");
-checkPrerequisites();
+checkPrerequisites(depsPlatform);
 
 console.log(
   `[setup] Running download-deps.sh --platform ${depsPlatform} ...\n`,
@@ -119,5 +222,14 @@ if (result.status !== 0) {
   process.exit(result.status);
 }
 
+const stillMissing = missingDeps(depsPlatform);
+if (stillMissing.length > 0) {
+  console.error("\n[setup] Setup finished, but these files are still missing:");
+  for (const dep of stillMissing) {
+    console.error(`        - ${dep.label}`);
+  }
+  process.exit(1);
+}
+
 console.log("\n[setup] All dependencies downloaded successfully.");
-console.log("        You can now run: npx tauri dev");
+console.log("        You can now run: npm run tauri dev");

@@ -8,6 +8,7 @@ src-tauri/target/
 
 # Tauri generated
 src-tauri/gen/
+src-tauri/tauri.conf.json
 
 # Node
 node_modules/
@@ -22,6 +23,8 @@ Thumbs.db
 # Streaming server binaries (downloaded at build time)
 src-tauri/binaries/
 src-tauri/resources/*.exe
+src-tauri/resources/ffmpeg
+src-tauri/resources/ffprobe
 src-tauri/resources/server.js
 src-tauri/resources/server.cjs
 

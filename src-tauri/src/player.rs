@@ -4,9 +4,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
-use tauri::{AppHandle, Manager, Window};
 use tauri::PhysicalPosition;
 use tauri::PhysicalSize;
+use tauri::{AppHandle, Manager, Window};
 
 use crate::shell_transport;
 
@@ -140,7 +140,7 @@ enum PlayerCommand {
 
 #[cfg(windows)]
 mod platform {
-    use super::{OBSERVED_PROPERTIES, PlayerState, exit_pip_internal};
+    use super::{exit_pip_internal, PlayerState, OBSERVED_PROPERTIES};
     use libmpv2::{mpv_end_file_reason, Format, Mpv, Result as MpvResult};
     use libmpv2_sys as sys;
     use serde::Serialize;
@@ -179,18 +179,15 @@ mod platform {
     unsafe fn mpv_node_to_json(node: &sys::mpv_node) -> Value {
         match node.format {
             sys::mpv_format_MPV_FORMAT_NONE => Value::Null,
-            sys::mpv_format_MPV_FORMAT_STRING
-                | sys::mpv_format_MPV_FORMAT_OSD_STRING => {
+            sys::mpv_format_MPV_FORMAT_STRING | sys::mpv_format_MPV_FORMAT_OSD_STRING => {
                 let s = CStr::from_ptr(node.u.string);
                 Value::String(s.to_string_lossy().into_owned())
             }
             sys::mpv_format_MPV_FORMAT_FLAG => Value::Bool(node.u.flag != 0),
             sys::mpv_format_MPV_FORMAT_INT64 => json!(node.u.int64),
-            sys::mpv_format_MPV_FORMAT_DOUBLE => {
-                serde_json::Number::from_f64(node.u.double_)
-                    .map(Value::Number)
-                    .unwrap_or(Value::Null)
-            }
+            sys::mpv_format_MPV_FORMAT_DOUBLE => serde_json::Number::from_f64(node.u.double_)
+                .map(Value::Number)
+                .unwrap_or(Value::Null),
             sys::mpv_format_MPV_FORMAT_NODE_ARRAY => {
                 let list = node.u.list;
                 if list.is_null() {
@@ -252,16 +249,16 @@ mod platform {
         // probe/analyze phase and enabling a larger forward cache.
         fn apply_stream_tuning(mpv: &Mpv) {
             let props: &[(&str, &str)] = &[
-                ("demuxer-lavf-probesize",      "524288"),
+                ("demuxer-lavf-probesize", "524288"),
                 ("demuxer-lavf-analyzeduration", "0.5"),
-                ("demuxer-max-bytes",           "300000000"),
-                ("demuxer-max-packets",          "150000000"),
-                ("cache",                       "yes"),
-                ("cache-pause",                 "no"),
-                ("cache-secs",                  "60"),
-                ("vd-lavc-threads",             "0"),
-                ("ad-lavc-threads",             "0"),
-                ("audio-fallback-to-null",      "yes"),
+                ("demuxer-max-bytes", "300000000"),
+                ("demuxer-max-packets", "150000000"),
+                ("cache", "yes"),
+                ("cache-pause", "no"),
+                ("cache-secs", "60"),
+                ("vd-lavc-threads", "0"),
+                ("ad-lavc-threads", "0"),
+                ("audio-fallback-to-null", "yes"),
             ];
             for (name, value) in props {
                 if let Err(e) = mpv.set_property(name, *value) {
@@ -393,16 +390,15 @@ mod platform {
 
                             // Auto-exit PiP mode when playback ends
                             if state.is_pip_mode.load(Ordering::Relaxed) {
-                                eprintln!("[StremioLightning] Playback ended, auto-exiting PiP mode");
+                                eprintln!(
+                                    "[StremioLightning] Playback ended, auto-exiting PiP mode"
+                                );
                                 drop(state);
                                 let _ = exit_pip_internal(&app);
                             }
                         }
                         let error_msg = if ef.reason == mpv_end_file_reason::Error as u32 {
-                            let msg = format!(
-                                "MPV playback error (end-file reason={})",
-                                ef.reason
-                            );
+                            let msg = format!("MPV playback error (end-file reason={})", ef.reason);
                             eprintln!("[StremioLightning] {}", msg);
                             Some(PlayerEndedError {
                                 message: msg,
@@ -566,7 +562,11 @@ pub fn initialize(app: &AppHandle) -> Result<(), String> {
             } else {
                 0
             };
-            let wide: Vec<u16> = wide[start..].iter().copied().chain(std::iter::once(0)).collect();
+            let wide: Vec<u16> = wide[start..]
+                .iter()
+                .copied()
+                .chain(std::iter::once(0))
+                .collect();
             unsafe {
                 let handle = windows_sys::Win32::System::LibraryLoader::LoadLibraryExW(
                     wide.as_ptr(),
@@ -861,10 +861,8 @@ fn exit_pip_internal(app: &AppHandle) -> Result<bool, String> {
         }
     }
 
-    let _ = shell_transport::emit_transport_event(
-        app,
-        serde_json::json!(["hidePictureInPicture", {}]),
-    );
+    let _ =
+        shell_transport::emit_transport_event(app, serde_json::json!(["hidePictureInPicture", {}]));
 
     eprintln!("[StremioLightning] PiP mode disabled");
     Ok(false)
@@ -893,7 +891,9 @@ pub fn toggle_pip_mode(app: &AppHandle) -> Result<bool, String> {
         {
             let backend = state.backend.lock().map_err(|e| e.to_string())?;
             if backend.is_none() {
-                return Err("Picture-in-Picture is only available while the player is active".to_string());
+                return Err(
+                    "Picture-in-Picture is only available while the player is active".to_string(),
+                );
             }
         }
 
@@ -933,7 +933,7 @@ pub fn toggle_pip_mode(app: &AppHandle) -> Result<bool, String> {
                 let _ = window.set_position(PhysicalPosition::new(pip_x, pip_y));
             }
         }
-        
+
         let _ = window.set_always_on_top(true);
 
         state.is_pip_mode.store(true, Ordering::Relaxed);

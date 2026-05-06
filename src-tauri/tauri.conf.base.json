@@ -13,14 +13,8 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "externalBin": [
-      "binaries/stremio-runtime"
-    ],
-    "resources": [
-      "resources/server.cjs",
-      "resources/ffmpeg",
-      "resources/ffprobe"
-    ],
+    "externalBin": ["binaries/stremio-runtime"],
+    "resources": [],
     "windows": {
       "nsis": {
         "displayLanguageSelector": false,
@@ -34,30 +28,17 @@
     "macOS": {
       "minimumSystemVersion": "10.15",
       "dmg": {
-        "appPosition": {
-          "x": 180,
-          "y": 170
-        },
-        "applicationFolderPosition": {
-          "x": 480,
-          "y": 170
-        },
-        "windowSize": {
-          "height": 400,
-          "width": 660
-        }
+        "appPosition": { "x": 180, "y": 170 },
+        "applicationFolderPosition": { "x": 480, "y": 170 },
+        "windowSize": { "height": 400, "width": 660 }
       }
     },
     "linux": {
       "deb": {
-        "depends": [
-          "libwebkit2gtk-4.1-0"
-        ]
+        "depends": ["libwebkit2gtk-4.1-0"]
       },
       "rpm": {
-        "depends": [
-          "webkit2gtk4.1"
-        ]
+        "depends": ["webkit2gtk4.1"]
       },
       "appimage": {
         "bundleMediaFramework": false
@@ -79,9 +60,7 @@
   "plugins": {
     "deep-link": {
       "desktop": {
-        "schemes": [
-          "stremio"
-        ]
+        "schemes": ["stremio"]
       }
     }
   }

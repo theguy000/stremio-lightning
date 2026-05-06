@@ -1,8 +1,8 @@
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::PathBuf;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Mutex;
 
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
@@ -57,8 +57,18 @@ pub fn start_server(app: &AppHandle) -> Result<(), String> {
 
     // Resolve resource paths
     let server_js = resolve_resource(app, "server.cjs")?;
-    let ffmpeg_path = resolve_resource(app, "ffmpeg.exe")?;
-    let ffprobe_path = resolve_resource(app, "ffprobe.exe")?;
+    let ffmpeg_name = if cfg!(target_os = "windows") {
+        "ffmpeg.exe"
+    } else {
+        "ffmpeg"
+    };
+    let ffprobe_name = if cfg!(target_os = "windows") {
+        "ffprobe.exe"
+    } else {
+        "ffprobe"
+    };
+    let ffmpeg_path = resolve_resource(app, ffmpeg_name)?;
+    let ffprobe_path = resolve_resource(app, ffprobe_name)?;
 
     eprintln!("[StreamingServer] server.cjs path: {:?}", server_js);
     eprintln!("[StreamingServer] ffmpeg path: {:?}", ffmpeg_path);
@@ -125,7 +135,8 @@ pub fn start_server(app: &AppHandle) -> Result<(), String> {
                 CommandEvent::Terminated(payload) => {
                     let _ = app_handle.emit("server-stopped", &payload.code);
                     if let Some(ref mut f) = log_file {
-                        let msg = format!("[server] Process exited with code: {:?}\n", payload.code);
+                        let msg =
+                            format!("[server] Process exited with code: {:?}\n", payload.code);
                         let _ = f.write_all(msg.as_bytes());
                     }
 
@@ -162,7 +173,9 @@ pub fn start_server(app: &AppHandle) -> Result<(), String> {
                         } else {
                             eprintln!("[StreamingServer] Server exited after intentional stop (code={:?})", payload.code);
                             if let Some(ref mut f) = log_file {
-                                let _ = f.write_all(b"[server] Stopped intentionally, not auto-restarting.\n");
+                                let _ = f.write_all(
+                                    b"[server] Stopped intentionally, not auto-restarting.\n",
+                                );
                             }
                         }
                     }
@@ -186,7 +199,9 @@ pub fn stop_server(app: &AppHandle) -> Result<(), String> {
         // Signal that this is an intentional stop so the terminated handler
         // does not auto-restart the server.
         state.intentional_stop.store(true, Ordering::SeqCst);
-        child.kill().map_err(|e| format!("Failed to kill server: {}", e))?;
+        child
+            .kill()
+            .map_err(|e| format!("Failed to kill server: {}", e))?;
         // Don't emit server-stopped here — the background monitor task
         // will emit it when it receives CommandEvent::Terminated
         Ok(())

@@ -39,6 +39,8 @@
         }
       ]
     },
-    "shell:allow-kill"
+    "shell:allow-kill",
+    "shell:allow-open",
+    "opener:allow-open-url"
   ]
 }

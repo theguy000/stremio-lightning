@@ -17,11 +17,12 @@ SERVICE_REPO="Stremio/stremio-service"
 TAURI_DIR="src-tauri"
 TEMP_DIR=$(mktemp -d)
 
-# Static FFmpeg sources
+# Static FFmpeg / MPV sources
 FFMPEG_WIN_URL="https://github.com/GyanD/codexffmpeg/releases/download/7.1.1/ffmpeg-7.1.1-essentials_build.zip"
 FFMPEG_LINUX_URL="https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz"
 FFMPEG_MAC_URL="https://evermeet.cx/ffmpeg/getrelease"
 FFPROBE_MAC_URL="https://evermeet.cx/ffmpeg/getrelease/ffprobe"
+MPV_DEV_WIN_URL="https://sourceforge.net/projects/mpv-player-windows/files/libmpv/mpv-dev-x86_64-v3-20240211-git-f5c4f0b.7z/download"
 
 # --- Parse arguments ---
 PLATFORM=""
@@ -50,7 +51,21 @@ cleanup() {
 trap cleanup EXIT
 
 ensure_dirs() {
-    mkdir -p "$TAURI_DIR/binaries" "$TAURI_DIR/resources"
+    mkdir -p "$TAURI_DIR/binaries" "$TAURI_DIR/resources" "$TAURI_DIR/mpv-dev"
+}
+
+extract_7z() {
+    local archive="$1"
+    local destination="$2"
+
+    if command -v 7z &>/dev/null; then
+        7z x "$archive" -o"$destination" -y
+    elif command -v 7zz &>/dev/null; then
+        7zz x "$archive" -o"$destination" -y
+    else
+        echo "ERROR: 7z or 7zz not found. Install 7-Zip/p7zip." >&2
+        exit 1
+    fi
 }
 
 # --- Platform-specific downloads ---
@@ -76,17 +91,54 @@ download_windows() {
         exit 1
     fi
 
+    echo "==> Downloading libmpv development files (Windows)..."
+    curl -L "$MPV_DEV_WIN_URL" -o "$TEMP_DIR/mpv-dev.7z"
+    extract_7z "$TEMP_DIR/mpv-dev.7z" "$TEMP_DIR/mpv-dev"
+
+    LIBMPV_DLL=$(find "$TEMP_DIR/mpv-dev" -type f -name "libmpv-2.dll" | head -n 1)
+    MPV_LIB=$(find "$TEMP_DIR/mpv-dev" -type f -name "mpv.lib" | head -n 1)
+    MPV_DEF=$(find "$TEMP_DIR/mpv-dev" -type f -name "mpv.def" | head -n 1)
+
+    if [[ -z "$LIBMPV_DLL" ]]; then
+        echo "ERROR: Could not find libmpv-2.dll in downloaded MPV archive" >&2
+        exit 1
+    fi
+
+    if [[ -z "$MPV_LIB" && -n "$MPV_DEF" ]]; then
+        echo "==> mpv.lib not found; attempting to generate it from mpv.def..."
+        cp "$MPV_DEF" "$TAURI_DIR/mpv-dev/mpv.def"
+        if command -v lib.exe &>/dev/null; then
+            (cd "$TAURI_DIR/mpv-dev" && lib.exe /def:mpv.def /name:libmpv-2.dll /out:mpv.lib /MACHINE:X64)
+            MPV_LIB="$TAURI_DIR/mpv-dev/mpv.lib"
+        elif command -v llvm-lib &>/dev/null; then
+            (cd "$TAURI_DIR/mpv-dev" && llvm-lib /def:mpv.def /name:libmpv-2.dll /out:mpv.lib /MACHINE:X64)
+            MPV_LIB="$TAURI_DIR/mpv-dev/mpv.lib"
+        fi
+    fi
+
+    if [[ -z "$MPV_LIB" || ! -f "$MPV_LIB" ]]; then
+        echo "ERROR: Could not find or generate mpv.lib for MSVC linking" >&2
+        echo "       Install Visual Studio Build Tools, open a Developer shell, then re-run:" >&2
+        echo "       npm run setup -- --force" >&2
+        exit 1
+    fi
+
     # Place files
     cp "$TEMP_DIR/extracted/stremio-runtime.exe" "$TAURI_DIR/binaries/stremio-runtime-${TARGET_TRIPLE}.exe"
     cp "$TEMP_DIR/extracted/server.js" "$TAURI_DIR/resources/server.cjs"
     cp "$FFMPEG_EXE" "$TAURI_DIR/resources/ffmpeg.exe"
     cp "$FFPROBE_EXE" "$TAURI_DIR/resources/ffprobe.exe"
+    cp "$LIBMPV_DLL" "$TAURI_DIR/resources/libmpv-2.dll"
+    cp "$MPV_LIB" "$TAURI_DIR/mpv-dev/mpv.lib"
+    [[ -n "$MPV_DEF" ]] && cp "$MPV_DEF" "$TAURI_DIR/mpv-dev/mpv.def"
 
     echo "==> Windows dependencies ready:"
     echo "    $TAURI_DIR/binaries/stremio-runtime-${TARGET_TRIPLE}.exe"
     echo "    $TAURI_DIR/resources/server.cjs"
     echo "    $TAURI_DIR/resources/ffmpeg.exe"
     echo "    $TAURI_DIR/resources/ffprobe.exe"
+    echo "    $TAURI_DIR/resources/libmpv-2.dll"
+    echo "    $TAURI_DIR/mpv-dev/mpv.lib"
 }
 
 download_macos() {
@@ -108,16 +160,8 @@ download_macos() {
     curl -L "$FFPROBE_MAC_URL" -o "$TEMP_DIR/ffprobe.7z"
 
     # Extract ffmpeg and ffprobe from 7z archives
-    if command -v 7z &>/dev/null; then
-        7z x "$TEMP_DIR/ffmpeg.7z" -o"$TEMP_DIR/ffmpeg-extracted" -y
-        7z x "$TEMP_DIR/ffprobe.7z" -o"$TEMP_DIR/ffprobe-extracted" -y
-    elif command -v 7zz &>/dev/null; then
-        7zz x "$TEMP_DIR/ffmpeg.7z" -o"$TEMP_DIR/ffmpeg-extracted" -y
-        7zz x "$TEMP_DIR/ffprobe.7z" -o"$TEMP_DIR/ffprobe-extracted" -y
-    else
-        echo "ERROR: 7z or 7zz not found. Install p7zip: brew install p7zip" >&2
-        exit 1
-    fi
+    extract_7z "$TEMP_DIR/ffmpeg.7z" "$TEMP_DIR/ffmpeg-extracted"
+    extract_7z "$TEMP_DIR/ffprobe.7z" "$TEMP_DIR/ffprobe-extracted"
 
     FFMPEG_BIN=$(find "$TEMP_DIR/ffmpeg-extracted" -type f -name "ffmpeg" | head -n 1)
     FFPROBE_BIN=$(find "$TEMP_DIR/ffprobe-extracted" -type f -name "ffprobe" | head -n 1)

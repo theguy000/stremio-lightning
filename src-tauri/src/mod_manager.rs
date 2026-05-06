@@ -67,10 +67,7 @@ pub struct ModManagerState {
 
 /// Returns the directory for the given mod type (plugin or theme).
 pub fn get_mods_dir(app: &tauri::AppHandle, mod_type: &str) -> Result<PathBuf, String> {
-    let base = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?;
+    let base = app.path().app_data_dir().map_err(|e| e.to_string())?;
 
     let sub = match mod_type {
         "plugin" => "plugins",
@@ -86,8 +83,10 @@ pub fn ensure_dirs(app: &tauri::AppHandle) -> Result<(), String> {
     let plugins_dir = get_mods_dir(app, "plugin")?;
     let themes_dir = get_mods_dir(app, "theme")?;
 
-    std::fs::create_dir_all(&plugins_dir).map_err(|e| format!("Failed to create plugins dir: {}", e))?;
-    std::fs::create_dir_all(&themes_dir).map_err(|e| format!("Failed to create themes dir: {}", e))?;
+    std::fs::create_dir_all(&plugins_dir)
+        .map_err(|e| format!("Failed to create plugins dir: {}", e))?;
+    std::fs::create_dir_all(&themes_dir)
+        .map_err(|e| format!("Failed to create themes dir: {}", e))?;
 
     Ok(())
 }
@@ -97,11 +96,13 @@ static BLOCK_RE: OnceLock<Regex> = OnceLock::new();
 static TAG_RE: OnceLock<Regex> = OnceLock::new();
 
 pub fn parse_metadata(content: &str) -> Option<ModMetadata> {
-    let block_re = BLOCK_RE.get_or_init(|| Regex::new(r"(?s)/\*\*(.*?)\*/").expect("block regex should compile"));
+    let block_re = BLOCK_RE
+        .get_or_init(|| Regex::new(r"(?s)/\*\*(.*?)\*/").expect("block regex should compile"));
     let block_match = block_re.find(content)?;
     let block = block_match.as_str();
 
-    let tag_re = TAG_RE.get_or_init(|| Regex::new(r"@(\w+)\s+([^\n\r]+)").expect("tag regex should compile"));
+    let tag_re = TAG_RE
+        .get_or_init(|| Regex::new(r"@(\w+)\s+([^\n\r]+)").expect("tag regex should compile"));
 
     let mut tags: HashMap<String, String> = HashMap::new();
     for cap in tag_re.captures_iter(block) {
@@ -126,7 +127,10 @@ pub fn parse_metadata(content: &str) -> Option<ModMetadata> {
             parsed
         } else {
             // Fall back to comma-separated
-            raw.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
+            raw.split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect()
         }
     });
 
@@ -195,7 +199,8 @@ pub fn list_mods(app: &tauri::AppHandle, mod_type: &str) -> Result<Vec<Installed
         _ => return Err(format!("Unknown mod type: {}", mod_type)),
     };
 
-    let entries = std::fs::read_dir(&dir).map_err(|e| format!("Failed to read directory: {}", e))?;
+    let entries =
+        std::fs::read_dir(&dir).map_err(|e| format!("Failed to read directory: {}", e))?;
 
     let mut mods = Vec::new();
     for entry in entries {
@@ -245,7 +250,10 @@ pub async fn download_mod(
         .map_err(|e| format!("Failed to download: {}", e))?;
 
     if !response.status().is_success() {
-        return Err(format!("Download failed with status: {}", response.status()));
+        return Err(format!(
+            "Download failed with status: {}",
+            response.status()
+        ));
     }
 
     // Extract filename from URL path (last segment)
@@ -264,18 +272,13 @@ pub async fn download_mod(
         .map_err(|e| format!("Failed to read response body: {}", e))?;
 
     let file_path = dir.join(&filename);
-    std::fs::write(&file_path, &content)
-        .map_err(|e| format!("Failed to write file: {}", e))?;
+    std::fs::write(&file_path, &content).map_err(|e| format!("Failed to write file: {}", e))?;
 
     Ok(filename)
 }
 
 /// Deletes a mod file and its associated config file (for plugins).
-pub fn delete_mod(
-    app: &tauri::AppHandle,
-    filename: &str,
-    mod_type: &str,
-) -> Result<(), String> {
+pub fn delete_mod(app: &tauri::AppHandle, filename: &str, mod_type: &str) -> Result<(), String> {
     validate_filename(filename)?;
 
     let dir = get_mods_dir(app, mod_type)?;
@@ -304,7 +307,10 @@ pub async fn fetch_registry() -> Result<Registry, String> {
         .map_err(|e| format!("Failed to fetch registry: {}", e))?;
 
     if !response.status().is_success() {
-        return Err(format!("Registry fetch failed with status: {}", response.status()));
+        return Err(format!(
+            "Registry fetch failed with status: {}",
+            response.status()
+        ));
     }
 
     response
@@ -322,8 +328,8 @@ pub async fn check_mod_updates(
     let dir = get_mods_dir(app, mod_type)?;
     let path = dir.join(filename);
 
-    let content = std::fs::read_to_string(&path)
-        .map_err(|e| format!("Failed to read file: {}", e))?;
+    let content =
+        std::fs::read_to_string(&path).map_err(|e| format!("Failed to read file: {}", e))?;
 
     let metadata = match parse_metadata(&content) {
         Some(m) => m,
@@ -399,7 +405,11 @@ pub async fn check_mod_updates(
         installed_version: Some(installed_version),
         new_version,
         registry_version,
-        update_url: if has_update { Some(resolved_update_url) } else { None },
+        update_url: if has_update {
+            Some(resolved_update_url)
+        } else {
+            None
+        },
     })
 }
 
@@ -423,7 +433,10 @@ pub fn get_setting(
     let settings: serde_json::Value =
         serde_json::from_str(&content).map_err(|e| format!("Failed to parse settings: {}", e))?;
 
-    Ok(settings.get(key).cloned().unwrap_or(serde_json::Value::Null))
+    Ok(settings
+        .get(key)
+        .cloned()
+        .unwrap_or(serde_json::Value::Null))
 }
 
 /// Saves a single setting value for a plugin.
@@ -453,8 +466,7 @@ pub fn save_setting(
     let json = serde_json::to_string_pretty(&settings)
         .map_err(|e| format!("Failed to serialize settings: {}", e))?;
 
-    std::fs::write(&config_path, json)
-        .map_err(|e| format!("Failed to write settings: {}", e))?;
+    std::fs::write(&config_path, json).map_err(|e| format!("Failed to write settings: {}", e))?;
 
     Ok(())
 }
@@ -480,10 +492,7 @@ pub fn get_all_settings(
 
 /// Validates that a filename doesn't contain path traversal characters.
 fn validate_filename(filename: &str) -> Result<(), String> {
-    if filename.contains('/')
-        || filename.contains('\\')
-        || filename.contains("..")
-    {
+    if filename.contains('/') || filename.contains('\\') || filename.contains("..") {
         return Err("Invalid filename: path separators or traversal not allowed".to_string());
     }
     Ok(())
