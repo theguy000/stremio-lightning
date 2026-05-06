@@ -1,7 +1,7 @@
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::OnceLock;
 use tauri::Manager;
@@ -193,11 +193,7 @@ pub fn list_mods(app: &tauri::AppHandle, mod_type: &str) -> Result<Vec<Installed
         return Ok(Vec::new());
     }
 
-    let ext = match mod_type {
-        "plugin" => ".plugin.js",
-        "theme" => ".theme.css",
-        _ => return Err(format!("Unknown mod type: {}", mod_type)),
-    };
+    let ext = mod_file_extension(mod_type)?;
 
     let entries =
         std::fs::read_dir(&dir).map_err(|e| format!("Failed to read directory: {}", e))?;
@@ -229,7 +225,7 @@ pub fn read_mod_content(
     filename: &str,
     mod_type: &str,
 ) -> Result<String, String> {
-    validate_filename(filename)?;
+    validate_mod_filename(filename, mod_type)?;
 
     let dir = get_mods_dir(app, mod_type)?;
     let path = dir.join(filename);
@@ -244,6 +240,9 @@ pub async fn download_mod(
     mod_type: &str,
 ) -> Result<String, String> {
     let dir = get_mods_dir(app, mod_type)?;
+    let _ = mod_file_extension(mod_type)?;
+    let filename = filename_from_url(url)?;
+    validate_mod_filename(&filename, mod_type)?;
 
     let response = reqwest::get(url)
         .await
@@ -255,16 +254,6 @@ pub async fn download_mod(
             response.status()
         ));
     }
-
-    // Extract filename from URL path (last segment)
-    let filename = url
-        .split('/')
-        .last()
-        .ok_or_else(|| "Could not extract filename from URL".to_string())?
-        .split('?')
-        .next()
-        .unwrap_or("mod_file")
-        .to_string();
 
     let content = response
         .bytes()
@@ -279,7 +268,7 @@ pub async fn download_mod(
 
 /// Deletes a mod file and its associated config file (for plugins).
 pub fn delete_mod(app: &tauri::AppHandle, filename: &str, mod_type: &str) -> Result<(), String> {
-    validate_filename(filename)?;
+    validate_mod_filename(filename, mod_type)?;
 
     let dir = get_mods_dir(app, mod_type)?;
     let path = dir.join(filename);
@@ -421,17 +410,8 @@ pub fn get_setting(
 ) -> Result<serde_json::Value, String> {
     validate_filename(plugin_name)?;
     let dir = get_mods_dir(app, "plugin")?;
-    let config_path = dir.join(format!("{}.plugin.json", plugin_name));
-
-    if !config_path.exists() {
-        return Ok(serde_json::Value::Null);
-    }
-
-    let content = std::fs::read_to_string(&config_path)
-        .map_err(|e| format!("Failed to read settings: {}", e))?;
-
-    let settings: serde_json::Value =
-        serde_json::from_str(&content).map_err(|e| format!("Failed to parse settings: {}", e))?;
+    let config_path = plugin_settings_path(&dir, plugin_name)?;
+    let settings = load_settings_file(&config_path)?;
 
     Ok(settings
         .get(key)
@@ -451,11 +431,25 @@ pub fn save_setting(
     let _guard = state.settings_lock.lock().map_err(|e| e.to_string())?;
 
     let dir = get_mods_dir(app, "plugin")?;
-    let config_path = dir.join(format!("{}.plugin.json", plugin_name));
+    let config_path = plugin_settings_path(&dir, plugin_name)?;
+    save_setting_file(&config_path, key, value)
+}
 
-    let mut settings: serde_json::Map<String, serde_json::Value> = if config_path.exists() {
-        let content = std::fs::read_to_string(&config_path)
-            .map_err(|e| format!("Failed to read settings: {}", e))?;
+fn load_settings_file(path: &Path) -> Result<serde_json::Value, String> {
+    if !path.exists() {
+        return Ok(serde_json::Value::Null);
+    }
+
+    let content =
+        std::fs::read_to_string(path).map_err(|e| format!("Failed to read settings: {}", e))?;
+
+    serde_json::from_str(&content).map_err(|e| format!("Failed to parse settings: {}", e))
+}
+
+fn save_setting_file(path: &Path, key: &str, value: serde_json::Value) -> Result<(), String> {
+    let mut settings: serde_json::Map<String, serde_json::Value> = if path.exists() {
+        let content =
+            std::fs::read_to_string(path).map_err(|e| format!("Failed to read settings: {}", e))?;
         serde_json::from_str(&content).unwrap_or_default()
     } else {
         serde_json::Map::new()
@@ -466,16 +460,145 @@ pub fn save_setting(
     let json = serde_json::to_string_pretty(&settings)
         .map_err(|e| format!("Failed to serialize settings: {}", e))?;
 
-    std::fs::write(&config_path, json).map_err(|e| format!("Failed to write settings: {}", e))?;
-
-    Ok(())
+    std::fs::write(path, json).map_err(|e| format!("Failed to write settings: {}", e))
 }
-
 
 /// Validates that a filename doesn't contain path traversal characters.
 fn validate_filename(filename: &str) -> Result<(), String> {
-    if filename.contains('/') || filename.contains('\\') || filename.contains("..") {
+    if filename.is_empty()
+        || filename.contains('/')
+        || filename.contains('\\')
+        || filename.contains("..")
+        || filename.contains('\0')
+    {
         return Err("Invalid filename: path separators or traversal not allowed".to_string());
     }
     Ok(())
+}
+
+fn mod_file_extension(mod_type: &str) -> Result<&'static str, String> {
+    match mod_type {
+        "plugin" => Ok(".plugin.js"),
+        "theme" => Ok(".theme.css"),
+        _ => Err(format!("Unknown mod type: {}", mod_type)),
+    }
+}
+
+fn validate_mod_filename(filename: &str, mod_type: &str) -> Result<(), String> {
+    validate_filename(filename)?;
+    let ext = mod_file_extension(mod_type)?;
+    if !filename.ends_with(ext) {
+        return Err(format!("Invalid {mod_type} filename extension"));
+    }
+    Ok(())
+}
+
+fn filename_from_url(url: &str) -> Result<String, String> {
+    let path = url.split('?').next().unwrap_or(url);
+    if path.contains("/../") || path.ends_with("/..") || path.contains('\\') || path.contains('\0')
+    {
+        return Err("Invalid URL path: traversal not allowed".to_string());
+    }
+    let normalized = path.to_ascii_lowercase();
+    if normalized.contains("%2e") || normalized.contains("%2f") || normalized.contains("%5c") {
+        return Err("Invalid URL path: encoded traversal not allowed".to_string());
+    }
+
+    path.split('/')
+        .last()
+        .filter(|filename| !filename.is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| "Could not extract filename from URL".to_string())
+}
+
+fn plugin_settings_path(dir: &Path, plugin_name: &str) -> Result<PathBuf, String> {
+    validate_filename(plugin_name)?;
+    Ok(dir.join(format!("{}.plugin.json", plugin_name)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        filename_from_url, load_settings_file, mod_file_extension, plugin_settings_path,
+        save_setting_file, validate_filename, validate_mod_filename,
+    };
+    use serde_json::json;
+    use std::fs;
+
+    fn temp_file(name: &str) -> std::path::PathBuf {
+        let mut path = std::env::temp_dir();
+        path.push(format!(
+            "stremio-lightning-test-{}-{}",
+            std::process::id(),
+            name
+        ));
+        let _ = fs::remove_file(&path);
+        path
+    }
+
+    #[test]
+    fn validates_mod_types_and_extensions() {
+        assert_eq!(mod_file_extension("plugin").unwrap(), ".plugin.js");
+        assert_eq!(mod_file_extension("theme").unwrap(), ".theme.css");
+        assert!(mod_file_extension("script").is_err());
+
+        assert!(validate_mod_filename("example.plugin.js", "plugin").is_ok());
+        assert!(validate_mod_filename("example.theme.css", "theme").is_ok());
+        assert!(validate_mod_filename("example.theme.css", "plugin").is_err());
+        assert!(validate_mod_filename("example.plugin.js", "theme").is_err());
+    }
+
+    #[test]
+    fn rejects_path_traversal_filenames() {
+        for filename in [
+            "../evil.plugin.js",
+            "..\\evil.plugin.js",
+            "nested/evil.plugin.js",
+            "nested\\evil.plugin.js",
+            "evil\0.plugin.js",
+            "",
+        ] {
+            assert!(validate_filename(filename).is_err());
+            assert!(validate_mod_filename(filename, "plugin").is_err());
+        }
+    }
+
+    #[test]
+    fn extracts_download_filename_before_validation() {
+        assert_eq!(
+            filename_from_url("https://example.com/mods/example.plugin.js?download=1").unwrap(),
+            "example.plugin.js"
+        );
+        assert!(filename_from_url("https://example.com/mods/").is_err());
+        assert!(filename_from_url("https://example.com/mods/../evil.plugin.js").is_err());
+        assert!(filename_from_url("https://example.com/mods/%2e%2e%2fevil.plugin.js").is_err());
+    }
+
+    #[test]
+    fn settings_load_missing_file_as_null() {
+        let path = temp_file("missing-settings.json");
+        assert_eq!(load_settings_file(&path).unwrap(), serde_json::Value::Null);
+    }
+
+    #[test]
+    fn settings_save_and_load_round_trip() {
+        let path = temp_file("settings-round-trip.json");
+
+        save_setting_file(&path, "enabled", json!(true)).unwrap();
+        save_setting_file(&path, "quality", json!("1080p")).unwrap();
+
+        let settings = load_settings_file(&path).unwrap();
+        assert_eq!(settings["enabled"], true);
+        assert_eq!(settings["quality"], "1080p");
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn plugin_settings_path_rejects_traversal_names() {
+        let dir = std::env::temp_dir();
+        assert!(plugin_settings_path(&dir, "cinema").is_ok());
+        assert!(plugin_settings_path(&dir, "../cinema").is_err());
+        assert!(plugin_settings_path(&dir, "nested\\cinema").is_err());
+    }
 }

@@ -107,6 +107,10 @@ fn is_hop_by_hop_header(name: &str) -> bool {
     )
 }
 
+fn should_forward_streaming_server_proxy_header(name: &str) -> bool {
+    !is_hop_by_hop_header(name)
+}
+
 fn validate_streaming_server_proxy_path(path: &str) -> Result<(), String> {
     if !path.starts_with('/') || path.starts_with("//") || path.contains("://") {
         return Err("Rejected invalid streaming server proxy path".into());
@@ -119,6 +123,19 @@ fn validate_streaming_server_proxy_path(path: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn parse_streaming_server_proxy_method(method: &str) -> Result<reqwest::Method, String> {
+    match method.trim().to_ascii_uppercase().as_str() {
+        "GET" => Ok(reqwest::Method::GET),
+        "POST" => Ok(reqwest::Method::POST),
+        "PUT" => Ok(reqwest::Method::PUT),
+        "PATCH" => Ok(reqwest::Method::PATCH),
+        "DELETE" => Ok(reqwest::Method::DELETE),
+        "OPTIONS" => Ok(reqwest::Method::OPTIONS),
+        "HEAD" => Ok(reqwest::Method::HEAD),
+        _ => Err("Rejected unsupported streaming server proxy method".into()),
+    }
+}
+
 #[tauri::command]
 pub async fn proxy_streaming_server_request(
     method: String,
@@ -128,17 +145,7 @@ pub async fn proxy_streaming_server_request(
 ) -> Result<ProxyStreamingServerResponse, String> {
     validate_streaming_server_proxy_path(&path)?;
 
-    let method = method.trim().to_ascii_uppercase();
-    let method = match method.as_str() {
-        "GET" => reqwest::Method::GET,
-        "POST" => reqwest::Method::POST,
-        "PUT" => reqwest::Method::PUT,
-        "PATCH" => reqwest::Method::PATCH,
-        "DELETE" => reqwest::Method::DELETE,
-        "OPTIONS" => reqwest::Method::OPTIONS,
-        "HEAD" => reqwest::Method::HEAD,
-        _ => return Err("Rejected unsupported streaming server proxy method".into()),
-    };
+    let method = parse_streaming_server_proxy_method(&method)?;
 
     let url = format!("http://127.0.0.1:11470{}", path);
     let client = reqwest::Client::new();
@@ -146,7 +153,7 @@ pub async fn proxy_streaming_server_request(
 
     if let Some(headers) = headers {
         for (name, value) in headers {
-            if is_hop_by_hop_header(&name) {
+            if !should_forward_streaming_server_proxy_header(&name) {
                 continue;
             }
             request = request.header(name, value);
@@ -434,4 +441,80 @@ pub async fn toggle_pip(app: tauri::AppHandle) -> Result<bool, String> {
 #[tauri::command]
 pub async fn get_pip_mode(app: tauri::AppHandle) -> bool {
     player::get_pip_mode(&app)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        parse_streaming_server_proxy_method, should_forward_streaming_server_proxy_header,
+        validate_streaming_server_proxy_path,
+    };
+
+    #[test]
+    fn rejects_invalid_streaming_server_proxy_paths() {
+        for path in [
+            "http://127.0.0.1:11470/status",
+            "https://example.com/status",
+            "//example.com/status",
+            "status",
+            "/videos\\movie.mp4",
+            "/videos/\0movie.mp4",
+        ] {
+            assert!(
+                validate_streaming_server_proxy_path(path).is_err(),
+                "path should be rejected: {path:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn accepts_relative_streaming_server_proxy_paths() {
+        for path in ["/", "/status", "/stream/movie.mp4?token=abc"] {
+            assert!(
+                validate_streaming_server_proxy_path(path).is_ok(),
+                "path should be accepted: {path:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_hop_by_hop_streaming_server_proxy_headers() {
+        for name in [
+            "Connection",
+            "keep-alive",
+            "Proxy-Authenticate",
+            "Proxy-Authorization",
+            "TE",
+            "Trailer",
+            "Transfer-Encoding",
+            "Upgrade",
+            "Host",
+            "Content-Length",
+        ] {
+            assert!(
+                !should_forward_streaming_server_proxy_header(name),
+                "header should be stripped: {name}"
+            );
+        }
+
+        assert!(should_forward_streaming_server_proxy_header("Range"));
+        assert!(should_forward_streaming_server_proxy_header("Accept"));
+    }
+
+    #[test]
+    fn parses_supported_streaming_server_proxy_methods() {
+        for method in ["GET", "post", " Put ", "PATCH", "DELETE", "OPTIONS", "HEAD"] {
+            assert!(
+                parse_streaming_server_proxy_method(method).is_ok(),
+                "method should be supported: {method:?}"
+            );
+        }
+
+        for method in ["CONNECT", "TRACE", "", "GET / HTTP/1.1"] {
+            assert!(
+                parse_streaming_server_proxy_method(method).is_err(),
+                "method should be rejected: {method:?}"
+            );
+        }
+    }
 }
