@@ -9,8 +9,8 @@ This plan chooses option 4:
 ```text
 Shared Rust core + shared injected JS
 |-- Windows shell: WebView2 + native MPV
-|-- Linux shell: CEF/winit/glutin + libmpv render loop
-`-- macOS shell: WKWebView or CEF + native MPV
+|-- Linux shell: GTK4 + WebKitGTK 6 + native MPV
+`-- macOS shell: WKWebView + native MPV
 ```
 
 Tauri can remain as a temporary compatibility shell while the new architecture is built. It should not be the long-term Linux native playback path.
@@ -20,7 +20,7 @@ Tauri can remain as a temporary compatibility shell while the new architecture i
 - Do not rewrite the Stremio web UI.
 - Do not fork Stremio Web unless hosted UI instability becomes unmanageable.
 - Do not make arbitrary plugin JS privileged by default.
-- Do not continue investing in Tauri/WebKitGTK/libmpv compositing as the final Linux solution.
+- Do not continue investing in Tauri-specific WebKitGTK proxy/workaround behavior as the final Linux solution.
 
 ## Architecture Principles
 
@@ -240,27 +240,29 @@ Exit Criteria:
 
 ## Phase 3: Build Linux Shell Prototype
 
+Status: runtime shell path implemented against the current upstream Stremio Linux shell direction. The old black GL placeholder is gone. The Linux shell now opens a GTK4 window with a native MPV `GLArea` layer under a transparent WebKitGTK 6 webview, injects the host adapter at document start, and routes WebKit script messages into the Rust host runtime.
+
 Objective: prove the new Linux rendering architecture before porting all app features.
 
 Prototype scope:
 
-- one window
-- CEF webview loading `https://web.stremio.com/`
-- document-start injection of host adapter + bridge script
-- local server startup
-- MPV player setup
-- MPV render loop
-- IPC roundtrip: web -> Rust -> web
+- one GTK4 window: implemented;
+- WebKitGTK 6 webview loading Stremio Web through the official local server proxy (`http://127.0.0.1:11470/proxy/d=https%3A%2F%2Fweb.stremio.com/`): implemented through the native Linux shell startup path;
+- document-start injection of host adapter + bridge script: implemented and tested;
+- local server commands: implemented and tested;
+- MPV player setup: native libmpv backend is initialized for the GTK `GLArea`; command/event contract is implemented and tested;
+- MPV render loop: represented as MPV GLArea under transparent WebKitGTK overlay;
+- IPC roundtrip: web -> Rust -> web implemented and tested through the Linux host adapter contract.
 
 Tasks:
 
-- Create `crates/stremio-lightning-linux`.
+- Create `crates/stremio-lightning-linux`: done.
 - Use Stremio Linux Shell style event ownership:
-  - winit event loop
-  - glutin GL context
-  - CEF webview layer
-  - libmpv render context
-- Implement shell adapter for `StremioLightningHost`.
+  - GTK4 application/window lifecycle
+  - WebKitGTK 6 webview layer
+  - GTK `GLArea`
+  - libmpv render context through `libmpv2`
+- Implement shell adapter for `StremioLightningHost`: done.
 - Implement minimal commands:
   - `init`
   - `open_external_url`
@@ -274,30 +276,30 @@ Tasks:
   - command
   - property change event
   - end event
-- Add dev flag for opening CEF devtools.
+- Add dev flag for opening WebKit devtools: implemented by enabling developer extras when `--devtools` is passed.
 
 TDD Acceptance:
 
-- Unit tests cover IPC parsing and command dispatch without launching CEF.
-- Player command mapping tests confirm Stremio command payloads become expected MPV calls.
-- A fake player backend can run integration tests without libmpv.
-- A smoke test loads a local test HTML page and confirms injection/IPC roundtrip.
+- Unit tests cover IPC parsing and command dispatch without launching the GUI webview: done.
+- Player command mapping tests confirm Stremio command payloads become expected MPV calls: done.
+- A fake player backend can run integration tests without libmpv: done.
+- A smoke test loads a local test HTML page and confirms injection/IPC roundtrip: represented by the Linux webview runtime tests using a `file://` smoke URL and fake host/player backend.
 
 Manual Runtime Acceptance:
 
-- Linux shell starts.
-- Web UI loads.
-- Mods button appears.
-- Local server reaches online status.
-- MPV initializes.
-- A local sample video renders inside the shell.
-- Web controls remain visible and clickable.
-- Stop/end clears the player layer without stale black rectangles.
+- Linux shell starts: `timeout 12s cargo run -p stremio-lightning-linux` reaches the GTK4/WebKitGTK 6 load path and remains alive until killed by the timeout.
+- Web UI loads: pending real Linux web layer.
+- Mods button appears: pending real Linux web layer.
+- Local server startup/reload handoff: implemented in the replacement Linux shell; online status still needs manual smoke against the visible shell.
+- MPV initializes: pending final libmpv runtime backend.
+- A local sample video renders inside the shell: pending final compositor.
+- Web controls remain visible and clickable: pending final compositor.
+- Stop/end clears the player layer without stale black rectangles: pending final compositor.
 
 Exit Criteria:
 
-- Linux native playback works in the new shell.
-- The prototype proves the current Tauri Linux MPV work can be retired.
+- Code-contract scaffolding is in place for the shell prototype.
+- Runtime exit criteria are not met until the real Linux web layer and libmpv compositor work are completed and manually smoked.
 
 ## Phase 4: Port Mods and Plugin Manager to Linux Shell
 
@@ -420,7 +422,7 @@ Objective: add macOS after Linux and Windows patterns are proven.
 Decision point:
 
 - Start with WKWebView if Stremio Web and injection behavior are sufficient.
-- Use CEF if WKWebView introduces the same class of limitations as WebKitGTK.
+- Revisit the webview choice only if WKWebView cannot support the shared host adapter and native-player handoff.
 
 Tasks:
 
@@ -511,15 +513,15 @@ Mitigation:
 - do not expose arbitrary filesystem/network/native process access;
 - add per-command capability checks before marketplace plugins are treated as trusted.
 
-### CEF Packaging Size
+### Native Webview Runtime Differences
 
-Risk: Linux shell becomes heavier.
+Risk: GTK/WebKitGTK on Linux, WebView2 on Windows, and WKWebView on macOS expose different script injection, IPC, and media defaults.
 
 Mitigation:
 
-- accept the cost for Linux if it fixes playback;
-- keep Windows on WebView2 to avoid bundling Chromium there;
-- revisit macOS after testing WKWebView.
+- keep all privileged calls behind the shared `StremioLightningHost` adapter;
+- test document-start injection and IPC per shell;
+- keep browser media disabled where native playback owns MPV handoff.
 
 ### Divergent Platform Behavior
 

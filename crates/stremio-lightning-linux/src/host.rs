@@ -33,6 +33,11 @@ impl ListenerRegistry {
         self.next_id
     }
 
+    fn listen_with_id(&mut self, id: u64, event: impl Into<String>) {
+        self.next_id = self.next_id.max(id);
+        self.listeners.insert(id, event.into());
+    }
+
     fn unlisten(&mut self, id: u64) {
         self.listeners.remove(&id);
     }
@@ -42,6 +47,10 @@ impl ListenerRegistry {
         if self.listeners.values().any(|listener| listener == &event) {
             self.emitted.push(HostEventRecord { event, payload });
         }
+    }
+
+    fn drain_emitted(&mut self) -> Vec<HostEventRecord> {
+        std::mem::take(&mut self.emitted)
     }
 }
 
@@ -112,6 +121,49 @@ where
         }
     }
 
+    pub fn start_streaming_server(&self) -> Result<(), String> {
+        self.streaming_server.start()?;
+        self.emit_server_started()?;
+        Ok(())
+    }
+
+    pub fn dispatch_linux_ipc(&self, kind: &str, payload: Option<Value>) -> Result<Value, String> {
+        match kind {
+            "invoke" => {
+                let payload: InvokeIpcPayload = parse_payload(kind, payload)?;
+                self.invoke(&payload.command, payload.payload)
+            }
+            "listen" => {
+                let payload: ListenIpcPayload = parse_payload(kind, payload)?;
+                self.listen_with_id(payload.id, payload.event)?;
+                Ok(Value::Null)
+            }
+            "unlisten" => {
+                let payload: UnlistenIpcPayload = parse_payload(kind, payload)?;
+                self.unlisten(payload.id)?;
+                Ok(Value::Null)
+            }
+            "window.minimize"
+            | "window.toggleMaximize"
+            | "window.close"
+            | "window.startDragging" => Ok(Value::Null),
+            "window.isMaximized" | "window.isFullscreen" => Ok(json!(false)),
+            "window.setFullscreen" => {
+                let payload: FullscreenIpcPayload = parse_payload(kind, payload)?;
+                self.emit_window_fullscreen_changed(payload.fullscreen)?;
+                Ok(Value::Null)
+            }
+            "webview.setZoom" => {
+                let payload: ZoomIpcPayload = parse_payload(kind, payload)?;
+                if !payload.level.is_finite() || payload.level <= 0.0 {
+                    return Err("Invalid webview zoom level".to_string());
+                }
+                Ok(Value::Null)
+            }
+            other => Err(format!("Unsupported Linux IPC kind: {other}")),
+        }
+    }
+
     pub async fn invoke_async(
         &self,
         command: &str,
@@ -142,6 +194,12 @@ where
 
     fn invoke_sync(&self, command: &str, payload: Option<Value>) -> Result<Value, String> {
         match command {
+            "init" => Ok(json!({
+                "platform": "linux",
+                "shellVersion": env!("CARGO_PKG_VERSION"),
+                "nativePlayer": self.native_player_status(),
+                "streamingServerRunning": self.streaming_server.is_running(),
+            })),
             "open_external_url" => {
                 let url = payload
                     .as_ref()
@@ -152,8 +210,7 @@ where
                 Ok(Value::Null)
             }
             "start_streaming_server" => {
-                self.streaming_server.start()?;
-                self.emit_server_started()?;
+                self.start_streaming_server()?;
                 Ok(Value::Null)
             }
             "stop_streaming_server" => {
@@ -266,6 +323,14 @@ where
             .listen(event))
     }
 
+    pub fn listen_with_id(&self, id: u64, event: impl Into<String>) -> Result<(), String> {
+        self.listeners
+            .lock()
+            .map_err(|e| e.to_string())?
+            .listen_with_id(id, event);
+        Ok(())
+    }
+
     pub fn unlisten(&self, id: u64) -> Result<(), String> {
         self.listeners
             .lock()
@@ -281,6 +346,14 @@ where
             .map_err(|e| e.to_string())?
             .emitted
             .clone())
+    }
+
+    pub fn drain_emitted_events(&self) -> Result<Vec<HostEventRecord>, String> {
+        Ok(self
+            .listeners
+            .lock()
+            .map_err(|e| e.to_string())?
+            .drain_emitted())
     }
 
     pub fn native_player_status(&self) -> NativePlayerStatus {
@@ -449,6 +522,33 @@ struct RegisterSettingsPayload {
     schema: String,
 }
 
+#[derive(Debug, Deserialize)]
+struct InvokeIpcPayload {
+    command: String,
+    payload: Option<Value>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ListenIpcPayload {
+    id: u64,
+    event: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct UnlistenIpcPayload {
+    id: u64,
+}
+
+#[derive(Debug, Deserialize)]
+struct FullscreenIpcPayload {
+    fullscreen: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct ZoomIpcPayload {
+    level: f64,
+}
+
 fn parse_payload<T>(command: &str, payload: Option<Value>) -> Result<T, String>
 where
     T: for<'de> Deserialize<'de>,
@@ -562,6 +662,11 @@ mod tests {
             json!(false)
         );
         assert_eq!(spawner.calls().len(), 1);
+
+        let init = host.invoke("init", None).unwrap();
+        assert_eq!(init["platform"], "linux");
+        assert_eq!(init["nativePlayer"]["enabled"], true);
+        assert_eq!(init["streamingServerRunning"], false);
 
         let status = host.invoke("get_native_player_status", None).unwrap();
         assert_eq!(status["enabled"], true);
@@ -768,6 +873,46 @@ console.log("sample");"#,
             .as_str()
             .unwrap()
             .contains("mpv-prop-change"));
+    }
+
+    #[test]
+    fn dispatches_linux_js_ipc_roundtrip() {
+        let (host, _player, _spawner) = host();
+
+        assert_eq!(
+            host.dispatch_linux_ipc(
+                "invoke",
+                Some(json!({"command": "get_streaming_server_status"})),
+            )
+            .unwrap(),
+            json!(false)
+        );
+
+        host.dispatch_linux_ipc(
+            "listen",
+            Some(json!({"id": 77, "event": SHELL_TRANSPORT_EVENT})),
+        )
+        .unwrap();
+        host.dispatch_linux_ipc("invoke", Some(json!({"command": "shell_bridge_ready"})))
+            .unwrap();
+        host.emit_native_player_property_changed("pause", json!(true))
+            .unwrap();
+        host.dispatch_linux_ipc(
+            "invoke",
+            Some(json!({
+                "command": "shell_transport_send",
+                "payload": {"message": r#"{"id":1,"type":6,"args":["app-ready"]}"#}
+            })),
+        )
+        .unwrap();
+
+        assert_eq!(host.emitted_events().unwrap().len(), 1);
+        host.dispatch_linux_ipc("unlisten", Some(json!({"id": 77})))
+            .unwrap();
+        let _ = host.drain_emitted_events().unwrap();
+        host.emit_native_player_property_changed("pause", json!(false))
+            .unwrap();
+        assert!(host.emitted_events().unwrap().is_empty());
     }
 
     #[test]

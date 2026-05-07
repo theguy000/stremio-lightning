@@ -4,6 +4,7 @@ use serde_json::Value;
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum HostCommand {
+    Init,
     ToggleDevtools,
     OpenExternalUrl,
     ShellTransportSend,

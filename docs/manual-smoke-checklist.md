@@ -14,7 +14,7 @@ Use this checklist before and after migration work that touches shell startup, i
 
 - Start the app with `npm run tauri dev`.
 - Confirm the main window opens.
-- Confirm `https://web.stremio.com/` loads.
+- Confirm Stremio Web loads. In the native Linux shell, it should load through `http://127.0.0.1:11470/proxy/d=https%3A%2F%2Fweb.stremio.com/`.
 - Open devtools and confirm there are no repeated bridge initialization errors.
 
 ## Injected UI

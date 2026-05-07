@@ -8,15 +8,15 @@ stremio-lightning-core = { path = "../stremio-lightning-core" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["process", "rt", "sync"] }
-winit = { version = "0.30.13", features = ["rwh_06", "x11", "wayland"] }
-glutin = { version = "0.32.3", features = ["egl", "glx", "x11", "wayland"] }
-glutin-winit = { version = "0.5.0", features = ["egl", "glx", "x11", "wayland"] }
-raw-window-handle = "0.6.2"
-glow = "0.17.0"
+gtk = { package = "gtk4", version = "0.11.3", features = ["v4_20"] }
+webkit = { package = "webkit6", version = "0.6.1", features = ["v2_50"] }
+libmpv2 = "5.0.3"
+epoxy = "0.1.0"
+libc = "0.2"
+libloading = "0.9.0"
 
 [features]
 default = []
-# Phase 3 keeps CEF/glutin/winit integration isolated so workspace tests do not
-# require local CEF binaries. The module boundaries are in place for enabling
-# the native renderer once those prerequisites are installed.
+# Phase 3 follows the upstream stremio-linux-shell stack: GTK4 + WebKitGTK 6
+# for the web layer, with libmpv rendered through GTK GLArea for native video.
 native-shell = []

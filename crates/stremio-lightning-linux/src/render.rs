@@ -8,10 +8,9 @@ impl Default for RenderLoopPlan {
         Self {
             steps: vec![
                 "clear-frame",
-                "render-mpv-default-framebuffer",
-                "upload-cef-osr-texture",
-                "render-cef-texture-overlay",
-                "swap-buffers",
+                "render-mpv-gtk-glarea",
+                "compose-transparent-webkitgtk6-overlay",
+                "gtk-present-frame",
             ],
         }
     }
@@ -30,17 +29,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn render_order_composites_cef_above_mpv() {
+    fn render_order_composites_webview_above_mpv() {
         let plan = RenderLoopPlan::default();
         assert_eq!(plan.steps[0], "clear-frame");
         assert!(
             plan.steps
                 .iter()
-                .position(|step| *step == "render-mpv-default-framebuffer")
+                .position(|step| *step == "render-mpv-gtk-glarea")
                 < plan
                     .steps
                     .iter()
-                    .position(|step| *step == "render-cef-texture-overlay")
+                    .position(|step| *step == "compose-transparent-webkitgtk6-overlay")
         );
     }
 }

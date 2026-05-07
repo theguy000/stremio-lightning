@@ -315,8 +315,14 @@ mod tests {
             spec.env.get("FFPROBE_BIN").unwrap(),
             "/repo/src-tauri/resources/ffprobe"
         );
-        assert_eq!(spec.stdout_log, PathBuf::from("/logs/stremio-server.stdout.log"));
-        assert_eq!(spec.stderr_log, PathBuf::from("/logs/stremio-server.stderr.log"));
+        assert_eq!(
+            spec.stdout_log,
+            PathBuf::from("/logs/stremio-server.stdout.log")
+        );
+        assert_eq!(
+            spec.stderr_log,
+            PathBuf::from("/logs/stremio-server.stderr.log")
+        );
     }
 
     #[test]

@@ -10,6 +10,7 @@ export type AppUpdateInfo = {
 };
 
 type HostCommandMap = {
+  init: { payload: undefined; result: unknown };
   toggle_devtools: { payload: undefined; result: void };
   open_external_url: { payload: { url: string }; result: void };
   shell_transport_send: { payload: { message: string }; result: void };

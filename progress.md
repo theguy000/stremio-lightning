@@ -6,7 +6,7 @@
 - Remote: `origin` (`https://github.com/theguy000/stremio-lightning.git`)
 - Last base commit before this progress update: `0cb8737 Port mods and settings to Linux host`
 
-## Completed In This Change
+## Completed Previously
 
 - Configured Cargo on Linux to use `clang` with `mold` for faster linking.
 - Removed the abandoned streaming-server proxy path:
@@ -23,27 +23,55 @@
   - writes stdout/stderr to log files.
 - Updated docs and manual smoke checks to use direct local server access instead of the removed proxy.
 
+## Completed In This Change
+
+- Completed the Phase 3 Linux runtime path against the current upstream `stremio-linux-shell` architecture:
+  - replaced the fake black GL compositor and the rejected GTK3/WebKit2 experiment with GTK4 + WebKitGTK 6;
+  - added the upstream-style `libepoxy` bootstrap required before using GTK GL functions;
+  - created a GTK `ApplicationWindow` with a native `GLArea` MPV layer under a transparent WebKitGTK 6 webview overlay;
+  - wired WebKit document-start scripts and `window.webkit.messageHandlers.ipc` to the existing Rust host runtime;
+  - disabled WebKit web media so playback is routed through the native-player contract instead of browser media.
+- Added Phase 3 shell-contract scaffolding:
+  - added a Linux webview runtime object that owns URL loading state, devtools intent, document-start injection order, and JS event dispatch;
+  - wired the runtime into Linux app startup instead of discarding the injection bundle after bootstrap logging;
+  - added a JS-to-Rust IPC dispatcher for the Linux host adapter paths:
+    - `invoke`;
+    - `listen`;
+    - `unlisten`;
+    - minimal window methods;
+    - `webview.setZoom`;
+  - fixed listener id handling so ids created by the injected JavaScript adapter are the ids removed by `unlisten`;
+  - added drainable host events so native events can be delivered back into the loaded webview through `window.__STREMIO_LIGHTNING_LINUX_DISPATCH__`;
+  - ported streaming-server startup/reload behavior into the replacement Linux shell:
+    - starts the sidecar during `stremio-lightning-linux` boot;
+    - waits for the local server to accept connections on `127.0.0.1:11470`;
+    - loads Stremio Web through the official local server proxy to avoid HTTPS-to-local-HTTP mixed-content blocking;
+    - dispatches Stremio Web's `StreamingServer Reload` after the WebKit page finishes loading;
+  - added unit coverage for document-start injection, IPC roundtrip, event delivery, listener removal, server commands, and MPV transport command mapping.
+
 ## Verification
 
-- `npm run test:ui` passed.
-- `cargo test --workspace` passed.
+- `cargo check -p stremio-lightning-linux` passed.
+- `cargo test -p stremio-lightning-linux` passed: 29 unit tests, smoke test still ignored unless `STREMIO_LIGHTNING_LINUX_SMOKE=1`.
+- `timeout 12s cargo run -p stremio-lightning-linux` reached the GTK4/WebKitGTK 6 load path and stayed alive until the timeout killed it.
 
-## Important Runtime Finding
+## Runtime Status
 
-The Linux shell binary is not yet a usable Stremio shell. It opens a placeholder GL window and does not currently create a real CEF/webview instance or load `https://web.stremio.com/`.
+Phase 3 now has a real Linux shell surface using GTK4/WebKitGTK 6 plus a native MPV GLArea layer, matching the current upstream Stremio Linux shell direction. A local review identified the next blocking runtime gap: the `GLArea` currently owns a separate `libmpv2::Mpv` instance while `LinuxHost` sends native-player transport commands to `MpvPlayerBackend`, whose command methods are still stubs. The next commit should connect those two paths so web-issued `mpv-command`, property, observe, and stop messages control the MPV instance that is actually rendered.
 
-This means the migration plan is out of sync with implementation reality:
+Runtime manual acceptance still needs an interactive pass after that MPV ownership/command wiring is fixed:
 
-- Phase 3 is not complete because the real Linux webview runtime, document-start injection, and JS-to-Rust IPC bridge are still missing.
-- Phase 4 cannot be considered complete at runtime because mods/plugin UI cannot be exercised inside the Linux shell without the webview.
-- Phase 5 cleanup has been applied, but its runtime acceptance depends on completing Phase 3 first.
+- visual confirmation that the local server proxy renders Stremio Web in the Linux shell;
+- visual confirmation that the mods button appears in that rendered page;
+- visual confirmation that Stremio Web reports the local streaming server online after the replacement shell dispatches `StreamingServer Reload`;
+- local sample playback rendered through the MPV GLArea below the WebKitGTK overlay.
 
 ## Next Work
 
-Complete Phase 3 before continuing later phases:
+Immediate goal for the next commit:
 
-1. Add the real Linux webview runtime.
-2. Load `https://web.stremio.com/` in the Linux shell.
-3. Inject the Linux host adapter, bridge script, and mod UI at document start.
-4. Wire JS IPC to `LinuxHost`.
-5. Run the Linux manual smoke checks against the actual loaded web UI.
+1. Wire `LinuxHost`/`MpvPlayerBackend` to the same MPV instance or command handle used by the GTK `GLArea` renderer.
+2. Implement real `MpvPlayerBackend` handling for `mpv-observe-prop`, `mpv-set-prop`, `mpv-command`, and `native-player-stop`.
+3. Add a local sample-video smoke path proving load, render, stop/end cleanup, and WebKit overlay visibility.
+4. Run the Linux manual smoke checks against the actual rendered Stremio Web UI.
+5. Exercise Phase 4 mod/plugin flows inside the Linux shell with the real webview.

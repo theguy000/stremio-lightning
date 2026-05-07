@@ -1,11 +1,12 @@
-use crate::cef::InjectionBundle;
 use crate::host::LinuxHost;
 use crate::native_window::run_native_window;
 use crate::player::MpvPlayerBackend;
 use crate::render::RenderLoopPlan;
 use crate::streaming_server::{RealProcessSpawner, StreamingServer};
+use crate::webview_runtime::{InjectionBundle, LinuxWebviewRuntime};
+use std::sync::Arc;
 
-pub const DEFAULT_URL: &str = "https://web.stremio.com/";
+pub const DEFAULT_URL: &str = "http://127.0.0.1:11470/proxy/d=https%3A%2F%2Fweb.stremio.com/";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AppConfig {
@@ -53,15 +54,20 @@ where
 }
 
 pub fn run(config: AppConfig) -> Result<(), String> {
-    let host = LinuxHost::new(
+    let host = Arc::new(LinuxHost::new(
         MpvPlayerBackend::default(),
         StreamingServer::new(RealProcessSpawner::default()),
-    );
+    ));
+    match host.start_streaming_server() {
+        Ok(()) => println!("[StreamingServer] Linux sidecar spawned"),
+        Err(error) => eprintln!("[StreamingServer] Failed to start Linux sidecar: {error}"),
+    }
+
     let injection = InjectionBundle::load()?;
     let render_plan = RenderLoopPlan::default();
 
     println!(
-        "[StremioLightning] Linux shell prototype url={} devtools={} native_player={}",
+        "[StremioLightning] Linux shell contract bootstrap url={} devtools={} native_player={}",
         config.url,
         config.devtools,
         host.native_player_status().enabled
@@ -78,8 +84,9 @@ pub fn run(config: AppConfig) -> Result<(), String> {
     if config.headless_bootstrap {
         Ok(())
     } else {
-        host.invoke("start_streaming_server", None)?;
-        run_native_window(config)
+        let webview =
+            LinuxWebviewRuntime::new(config.url.clone(), config.devtools, injection, host);
+        run_native_window(config, webview)
     }
 }
 
@@ -88,7 +95,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn defaults_to_stremio_web() {
+    fn defaults_to_streaming_server_proxy() {
         let config = parse_args(["stremio-lightning-linux"]);
         assert_eq!(config.url, DEFAULT_URL);
     }

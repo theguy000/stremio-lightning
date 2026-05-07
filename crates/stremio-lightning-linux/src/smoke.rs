@@ -1,7 +1,7 @@
-use crate::cef::{linux_host_adapter, native_flags, InjectionBundle, MOD_UI_NAME};
 use crate::host::{LinuxHost, SHELL_TRANSPORT_EVENT};
 use crate::player::FakePlayerBackend;
 use crate::streaming_server::{FakeProcessSpawner, StreamingServer};
+use crate::webview_runtime::{linux_host_adapter, native_flags, InjectionBundle, MOD_UI_NAME};
 use serde_json::json;
 use std::path::PathBuf;
 
