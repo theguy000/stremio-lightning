@@ -56,7 +56,7 @@ This document freezes the current Tauri baseline before the platform shell migra
 3. Unexpected sidecar termination auto-restarts after a short delay.
 4. `stop_streaming_server` marks the stop as intentional and kills the child process.
 5. `get_streaming_server_status` reports whether a child process is currently tracked.
-6. `proxy_streaming_server_request` forwards supported HTTP methods to `http://127.0.0.1:11470`.
+6. The hosted UI talks to `http://127.0.0.1:11470` directly; the shell no longer exposes a streaming-server proxy command.
 
 ### Native player command flow
 

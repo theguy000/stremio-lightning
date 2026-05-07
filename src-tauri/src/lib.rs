@@ -110,7 +110,6 @@ pub fn run() {
             commands::stop_streaming_server,
             commands::restart_streaming_server,
             commands::get_streaming_server_status,
-            commands::proxy_streaming_server_request,
             commands::get_plugins,
             commands::get_themes,
             commands::download_mod,
@@ -140,9 +139,8 @@ pub fn run() {
             }
 
             let native_player_flag_js = format!(
-                "window.__STREMIO_LIGHTNING_ENABLE_NATIVE_PLAYER__ = {};\nwindow.__STREMIO_LIGHTNING_ENABLE_WEBKITGTK_WORKAROUNDS__ = {};",
-                if player::native_player_enabled() { "true" } else { "false" },
-                if cfg!(target_os = "linux") { "true" } else { "false" }
+                "window.__STREMIO_LIGHTNING_ENABLE_NATIVE_PLAYER__ = {};",
+                if player::native_player_enabled() { "true" } else { "false" }
             );
             let bridge_js = include_str!("../scripts/bridge.js");
             let mod_ui_js = include_str!("../../src/dist/mod-ui-svelte.iife.js");

@@ -1,19 +1,5 @@
 import type { InstalledMod, Registry, UpdateInfo } from '../types';
 
-export type StreamingServerProxyRequest = {
-  method: string;
-  path: string;
-  headers?: Record<string, string>;
-  body?: number[] | null;
-};
-
-export type StreamingServerProxyResponse = {
-  status: number;
-  statusText: string;
-  headers: Array<[string, string]>;
-  body: number[];
-};
-
 export type DiscordActivity = Record<string, unknown>;
 
 export type AppUpdateInfo = {
@@ -33,10 +19,6 @@ type HostCommandMap = {
   stop_streaming_server: { payload: undefined; result: void };
   restart_streaming_server: { payload: undefined; result: void };
   get_streaming_server_status: { payload: undefined; result: boolean };
-  proxy_streaming_server_request: {
-    payload: StreamingServerProxyRequest;
-    result: StreamingServerProxyResponse;
-  };
   get_plugins: { payload: undefined; result: InstalledMod[] };
   get_themes: { payload: undefined; result: InstalledMod[] };
   download_mod: { payload: { url: string; modType: string }; result: string };

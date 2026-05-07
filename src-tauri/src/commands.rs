@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use tauri::Manager;
 use tauri_plugin_opener::OpenerExt;
 
@@ -9,11 +7,6 @@ use crate::mod_manager::{self, ModManagerState};
 use crate::player;
 use crate::shell_transport;
 use crate::streaming_server;
-use stremio_lightning_core::streaming_server as core_streaming_server;
-
-const STREAMING_SERVER_PROXY_CONNECT_RETRIES: usize = 30;
-const STREAMING_SERVER_PROXY_RETRY_DELAY: std::time::Duration =
-    std::time::Duration::from_millis(250);
 
 #[tauri::command]
 pub fn toggle_devtools(app: tauri::AppHandle) {
@@ -81,112 +74,6 @@ pub async fn restart_streaming_server(app: tauri::AppHandle) -> Result<(), Strin
 #[tauri::command]
 pub async fn get_streaming_server_status(app: tauri::AppHandle) -> bool {
     streaming_server::is_server_running(&app)
-}
-
-fn parse_streaming_server_proxy_method(method: &str) -> Result<reqwest::Method, String> {
-    core_streaming_server::normalize_proxy_method(method)?
-        .parse()
-        .map_err(|e| format!("Failed to parse streaming server proxy method: {e}"))
-}
-
-#[tauri::command]
-pub async fn proxy_streaming_server_request(
-    method: String,
-    path: String,
-    headers: Option<HashMap<String, String>>,
-    body: Option<Vec<u8>>,
-) -> Result<core_streaming_server::ProxyStreamingServerResponse, String> {
-    core_streaming_server::validate_proxy_path(&path)?;
-
-    let method = parse_streaming_server_proxy_method(&method)?;
-
-    let url = format!("http://127.0.0.1:11470{}", path);
-    let client = reqwest::Client::new();
-    let mut request = client.request(method.clone(), &url);
-
-    if let Some(headers) = headers {
-        for (name, value) in headers {
-            if !core_streaming_server::should_forward_proxy_header(&name) {
-                continue;
-            }
-            request = request.header(name, value);
-        }
-    }
-
-    if method != reqwest::Method::GET && method != reqwest::Method::HEAD {
-        if let Some(body) = body {
-            request = request.body(body);
-        }
-    }
-
-    let mut response = None;
-    let mut last_error = None;
-
-    for attempt in 0..STREAMING_SERVER_PROXY_CONNECT_RETRIES {
-        match request
-            .try_clone()
-            .ok_or_else(|| "Failed to clone streaming server proxy request".to_string())?
-            .send()
-            .await
-        {
-            Ok(ok_response) => {
-                response = Some(ok_response);
-                break;
-            }
-            Err(error) => {
-                last_error = Some(error);
-                if attempt + 1 < STREAMING_SERVER_PROXY_CONNECT_RETRIES {
-                    tokio::time::sleep(STREAMING_SERVER_PROXY_RETRY_DELAY).await;
-                }
-            }
-        }
-    }
-
-    let response = response.ok_or_else(|| {
-        format!(
-            "Streaming server proxy request failed after {:.2}s: {}",
-            STREAMING_SERVER_PROXY_CONNECT_RETRIES as f32
-                * STREAMING_SERVER_PROXY_RETRY_DELAY.as_secs_f32(),
-            last_error
-                .map(|error| error.to_string())
-                .unwrap_or_else(|| "unknown error".to_string())
-        )
-    })?;
-
-    let status = response.status();
-    let response_headers = response
-        .headers()
-        .iter()
-        .filter_map(|(name, value)| {
-            if core_streaming_server::is_hop_by_hop_header(name.as_str()) {
-                return None;
-            }
-            value
-                .to_str()
-                .ok()
-                .map(|value| (name.as_str().to_string(), value.to_string()))
-        })
-        .collect::<Vec<_>>();
-
-    let response_body = response
-        .bytes()
-        .await
-        .map_err(|e| format!("Failed to read streaming server proxy response: {}", e))?
-        .to_vec();
-
-    eprintln!(
-        "[StreamingServerProxy] {} {} -> {}",
-        method.as_str(),
-        path,
-        status.as_u16()
-    );
-
-    Ok(core_streaming_server::ProxyStreamingServerResponse {
-        status: status.as_u16(),
-        status_text: status.canonical_reason().unwrap_or("").to_string(),
-        headers: response_headers,
-        body: response_body,
-    })
 }
 
 // ── Mod management commands ──
@@ -393,26 +280,8 @@ pub async fn get_pip_mode(app: tauri::AppHandle) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_streaming_server_proxy_method;
     use serde::Deserialize;
     use serde_json::json;
-
-    #[test]
-    fn parses_supported_streaming_server_proxy_methods() {
-        for method in ["GET", "post", " Put ", "PATCH", "DELETE", "OPTIONS", "HEAD"] {
-            assert!(
-                parse_streaming_server_proxy_method(method).is_ok(),
-                "method should be supported: {method:?}"
-            );
-        }
-
-        for method in ["CONNECT", "TRACE", "", "GET / HTTP/1.1"] {
-            assert!(
-                parse_streaming_server_proxy_method(method).is_err(),
-                "method should be rejected: {method:?}"
-            );
-        }
-    }
 
     #[test]
     fn command_wrappers_accept_existing_camel_case_payloads() {

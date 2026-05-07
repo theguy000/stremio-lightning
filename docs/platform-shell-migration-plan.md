@@ -352,10 +352,9 @@ Objective: remove Tauri/WebKitGTK-specific workarounds from the Linux path.
 
 Tasks:
 
-- Decide whether Linux CEF can fetch local server directly or still needs a native proxy.
-- Keep proxy validation in shared core regardless.
-- Remove Linux-only WebKitGTK workaround branches from Linux shell adapter.
-- Keep the Tauri workaround only inside the Tauri adapter.
+- Use direct local-server access from the Linux shell; do not keep a native fetch proxy.
+- Remove WebKitGTK fetch/worker proxy branches from the injected bridge.
+- Remove the native proxy command and shared proxy validation types.
 - Validate server lifecycle:
   - start on app start
   - stop on app exit
@@ -365,9 +364,8 @@ Tasks:
 
 TDD Acceptance:
 
-- Proxy path/header tests remain shared.
 - Server process lifecycle tests use a dummy process or fixture script.
-- Linux command dispatcher tests cover both direct and proxied server calls if both exist.
+- Host command contracts no longer include `proxy_streaming_server_request`.
 
 Manual Runtime Acceptance:
 

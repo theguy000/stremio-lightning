@@ -13,7 +13,6 @@ pub enum HostCommand {
     StopStreamingServer,
     RestartStreamingServer,
     GetStreamingServerStatus,
-    ProxyStreamingServerRequest,
     GetPlugins,
     GetThemes,
     DownloadMod,
@@ -171,10 +170,6 @@ mod tests {
         assert_eq!(
             serde_json::to_value(HostCommand::ToggleDevtools).unwrap(),
             json!("toggle_devtools")
-        );
-        assert_eq!(
-            serde_json::to_value(HostCommand::ProxyStreamingServerRequest).unwrap(),
-            json!("proxy_streaming_server_request")
         );
         assert_eq!(
             serde_json::to_value(HostCommand::SetPipDisablesAutoPause).unwrap(),

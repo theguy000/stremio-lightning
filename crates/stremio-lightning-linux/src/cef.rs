@@ -101,7 +101,7 @@ pub fn linux_host_adapter() -> String {
 }
 
 pub fn native_flags() -> String {
-    "window.__STREMIO_LIGHTNING_ENABLE_NATIVE_PLAYER__ = true;\nwindow.__STREMIO_LIGHTNING_ENABLE_WEBKITGTK_WORKAROUNDS__ = false;".to_string()
+    "window.__STREMIO_LIGHTNING_ENABLE_NATIVE_PLAYER__ = true;".to_string()
 }
 
 #[derive(Debug, Default)]
@@ -154,6 +154,6 @@ mod tests {
     fn native_flags_enable_linux_native_player_only() {
         let flags = native_flags();
         assert!(flags.contains("__STREMIO_LIGHTNING_ENABLE_NATIVE_PLAYER__ = true"));
-        assert!(flags.contains("__STREMIO_LIGHTNING_ENABLE_WEBKITGTK_WORKAROUNDS__ = false"));
+        assert!(!flags.contains("__STREMIO_LIGHTNING_ENABLE_WEBKITGTK_WORKAROUNDS__"));
     }
 }

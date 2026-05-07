@@ -52,7 +52,8 @@ Use this checklist before and after migration work that touches shell startup, i
 - Stop the server from the UI and confirm status changes to stopped.
 - Start the server and confirm status changes to running.
 - Trigger a streaming-server reload from the hosted UI.
-- Confirm a proxied request through `proxy_streaming_server_request` succeeds for a relative path.
+- Confirm direct local server requests work for `/settings`, `/casting`, `/network-info`, and `/device-info`.
+- Confirm no `proxy_streaming_server_request` calls appear in devtools.
 
 ## Playback
 

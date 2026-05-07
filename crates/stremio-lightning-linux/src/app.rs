@@ -78,6 +78,7 @@ pub fn run(config: AppConfig) -> Result<(), String> {
     if config.headless_bootstrap {
         Ok(())
     } else {
+        host.invoke("start_streaming_server", None)?;
         run_native_window(config)
     }
 }
