@@ -78,7 +78,10 @@ impl WindowsWebView2Shell {
 #[cfg(windows)]
 mod platform {
     use super::{Arc, InjectionBundle, WindowsHost};
-    use crate::window::{run_native_window_with_handler, NativeWindowHandler, WindowConfig};
+    use crate::host::WindowsIpcOutbound;
+    use crate::window::{
+        run_native_window_with_handler, NativeWindowHandler, UiThreadNotifier, WindowConfig,
+    };
     use std::ptr;
     use webview2_com::{
         AddScriptToExecuteOnDocumentCreatedCompletedHandler, CoTaskMemPWSTR,
@@ -147,6 +150,9 @@ mod platform {
 
     impl NativeWindowHandler for WebView2WindowHost {
         fn on_created(&mut self, hwnd: HWND) -> Result<(), String> {
+            self.host
+                .initialize_native_player(hwnd, UiThreadNotifier { hwnd })?;
+
             let environment = create_environment()?;
             let controller = create_controller(&environment, hwnd)?;
 
@@ -177,6 +183,13 @@ mod platform {
 
         fn on_resized(&mut self, hwnd: HWND, _client_rect: RECT) -> Result<(), String> {
             self.resize_to_client_rect(hwnd)
+        }
+
+        fn on_ui_thread_wake(&mut self, _hwnd: HWND) -> Result<(), String> {
+            let Some(webview) = self.webview.as_ref() else {
+                return Ok(());
+            };
+            post_outbound_messages(webview, self.host.drain_ipc_events())
         }
 
         fn on_destroying(&mut self, _hwnd: HWND) {
@@ -305,22 +318,13 @@ mod platform {
                             let mut message = PWSTR(ptr::null_mut());
                             if args.WebMessageAsJson(&mut message).is_ok() {
                                 let message = CoTaskMemPWSTR::from(message);
-                                for outbound in host.dispatch_ipc_message(&message.to_string()) {
-                                    match serde_json::to_string(&outbound) {
-                                        Ok(serialized) => {
-                                            let serialized = CoTaskMemPWSTR::from(serialized.as_str());
-                                            if let Err(error) = webview.PostWebMessageAsJson(
-                                                *serialized.as_ref().as_pcwstr(),
-                                            ) {
-                                                eprintln!(
-                                                    "[StremioLightning] Failed to post WebView2 IPC response: {error}"
-                                                );
-                                            }
-                                        }
-                                        Err(error) => eprintln!(
-                                            "[StremioLightning] Failed to serialize Windows IPC response: {error}"
-                                        ),
-                                    }
+                                if let Err(error) = post_outbound_messages(
+                                    &webview,
+                                    host.dispatch_ipc_message(&message.to_string()),
+                                ) {
+                                    eprintln!(
+                                        "[StremioLightning] Failed to post WebView2 IPC response: {error}"
+                                    );
                                 }
                             }
                         }
@@ -329,6 +333,23 @@ mod platform {
                     &mut token,
                 )
                 .map_err(|error| format!("Failed to attach WebView2 message handler: {error}"))?;
+        }
+        Ok(())
+    }
+
+    fn post_outbound_messages(
+        webview: &ICoreWebView2,
+        messages: Vec<WindowsIpcOutbound>,
+    ) -> Result<(), String> {
+        for outbound in messages {
+            let serialized = serde_json::to_string(&outbound)
+                .map_err(|error| format!("Failed to serialize Windows IPC response: {error}"))?;
+            let serialized = CoTaskMemPWSTR::from(serialized.as_str());
+            unsafe {
+                webview
+                    .PostWebMessageAsJson(*serialized.as_ref().as_pcwstr())
+                    .map_err(|error| format!("Failed to post WebView2 IPC response: {error}"))?;
+            }
         }
         Ok(())
     }

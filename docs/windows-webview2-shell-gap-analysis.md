@@ -210,22 +210,26 @@ Acceptance:
 
 ## 4. Native MPV Backend
 
-Missing:
+Implemented baseline:
 
 - Real libmpv initialization in the Windows crate.
-- `HWND` handoff from the native window to MPV.
-- Direct rendering/embedding strategy.
-- MPV event loop thread.
-- MPV command thread.
+- `HWND` handoff from the native window to MPV through the `wid` option.
+- Direct MPV embedding into the owned Win32 window, matching the initial `stremio-shell-ng` reference strategy.
+- MPV command/event loop thread.
 - Property observation handling.
 - Event conversion back to web transport messages.
-- Player shutdown and cleanup.
+- Player shutdown and cleanup through MPV `quit` on backend drop.
+
+Still needs runtime verification / later hardening:
+
 - Runtime loading/copying of `libmpv-2.dll` beside the executable or in a known DLL search path.
+- Actual Windows playback smoke testing with `mpv-command loadfile`.
+- Overlay/UI behavior verification when WebView2 and MPV share the native parent window.
+- More complete event/error parity with the old Tauri Windows player path.
 
 Needed:
 
-- Port the proven parts of the old Tauri Windows MPV path and the `stremio-shell-ng` MPV shape into `crates/stremio-lightning-windows/src/player.rs`.
-- Initialize MPV with at least these properties where applicable: `wid`, `title`, `audio-client-name`, `terminal`, `msg-level`, `quiet`, and `hwdec`.
+- Continue hardening the proven parts of the old Tauri Windows MPV path and the `stremio-shell-ng` MPV shape in `crates/stremio-lightning-windows/src/player.rs`.
 - Preserve the current Stremio Lightning shell transport names: `mpv-observe-prop`, `mpv-set-prop`, `mpv-command`, `native-player-stop`, `mpv-prop-change`, and `mpv-event-ended`.
 - Decide whether to render MPV into the main window, a child window, or a dedicated video host area layered with WebView2. `stremio-shell-ng` uses the parent `HWND` directly; that is the simplest reference, but Stremio Lightning must verify overlay/UI expectations with the hosted web app.
 - Wake the MPV event context when new property observations are registered.

@@ -26,7 +26,7 @@ pub fn run_native_window(config: WindowConfig) -> Result<(), String> {
 }
 
 #[cfg(windows)]
-pub use platform::{run_native_window_with_handler, NativeWindowHandler};
+pub use platform::{run_native_window_with_handler, NativeWindowHandler, UiThreadNotifier};
 
 #[cfg(windows)]
 mod platform {
@@ -69,8 +69,11 @@ mod platform {
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct UiThreadNotifier {
-        hwnd: HWND,
+        pub(crate) hwnd: HWND,
     }
+
+    unsafe impl Send for UiThreadNotifier {}
+    unsafe impl Sync for UiThreadNotifier {}
 
     impl UiThreadNotifier {
         pub fn notify(self) -> Result<(), String> {

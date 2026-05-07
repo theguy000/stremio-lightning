@@ -98,15 +98,32 @@ impl WindowsHost {
         };
 
         outbound.extend(
-            self.drain_emitted_events()
+            self.drain_all_emitted_events()
                 .unwrap_or_default()
                 .into_iter()
-                .map(|record| WindowsIpcOutbound::Event {
-                    event: record.event,
-                    payload: record.payload,
-                }),
+                .map(WindowsIpcOutbound::from),
         );
         outbound
+    }
+
+    #[cfg(windows)]
+    pub fn initialize_native_player(
+        &self,
+        hwnd: windows::Win32::Foundation::HWND,
+        notifier: crate::window::UiThreadNotifier,
+    ) -> Result<(), String> {
+        self.player
+            .lock()
+            .map_err(|_| "Windows player lock poisoned".to_string())?
+            .initialize(hwnd, notifier)
+    }
+
+    pub fn drain_ipc_events(&self) -> Vec<WindowsIpcOutbound> {
+        self.drain_all_emitted_events()
+            .unwrap_or_default()
+            .into_iter()
+            .map(WindowsIpcOutbound::from)
+            .collect()
     }
 
     pub fn dispatch_windows_ipc(
@@ -246,6 +263,24 @@ impl WindowsHost {
             .drain_emitted())
     }
 
+    fn drain_all_emitted_events(&self) -> Result<Vec<HostEventRecord>, String> {
+        self.emit_player_events()?;
+        self.drain_emitted_events()
+    }
+
+    fn emit_player_events(&self) -> Result<(), String> {
+        let events = self
+            .player
+            .lock()
+            .map_err(|_| "Windows player lock poisoned".to_string())?
+            .drain_events();
+
+        for event in events {
+            self.emit_transport_message(host_api::response_message(event.transport_args()))?;
+        }
+        Ok(())
+    }
+
     fn emit_transport_message(&self, message: String) -> Result<(), String> {
         self.emit_event(SHELL_TRANSPORT_EVENT, json!(message))
     }
@@ -269,6 +304,15 @@ impl WindowsHost {
             .map_err(|e| e.to_string())?
             .emit(event, payload);
         Ok(())
+    }
+}
+
+impl From<HostEventRecord> for WindowsIpcOutbound {
+    fn from(record: HostEventRecord) -> Self {
+        Self::Event {
+            event: record.event,
+            payload: record.payload,
+        }
     }
 }
 

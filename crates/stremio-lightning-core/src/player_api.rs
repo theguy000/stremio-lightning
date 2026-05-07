@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-#[derive(Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 #[serde(tag = "method", content = "data")]
 pub enum PlayerCommand {
     #[serde(rename = "mpv-observe-prop")]
@@ -14,26 +14,26 @@ pub enum PlayerCommand {
     Stop,
 }
 
-#[derive(Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub struct PlayerPropertyChange {
     pub name: String,
     pub data: Value,
 }
 
-#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub struct PlayerEndedError {
     pub message: String,
     pub critical: bool,
 }
 
-#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub struct PlayerEnded {
     pub reason: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<PlayerEndedError>,
 }
 
-#[derive(Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub enum PlayerEvent {
     #[serde(rename = "mpv-prop-change")]
     PropertyChange(PlayerPropertyChange),

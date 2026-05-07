@@ -176,18 +176,27 @@ Validation completed:
 
 ## Milestone 5: Native MPV Baseline
 
-- [ ] Load/link libmpv from the Windows shell resource layout.
-- [ ] Initialize MPV in `crates/stremio-lightning-windows`.
-- [ ] Pass the native `HWND` to MPV via `wid`.
-- [ ] Set baseline MPV options: app title, audio client name, terminal/log level, hwdec, audio fallback.
-- [ ] Implement `mpv-command`.
-- [ ] Implement `mpv-set-prop`.
-- [ ] Implement `mpv-observe-prop`.
-- [ ] Implement MPV event loop and wakeup handling.
-- [ ] Emit `mpv-prop-change` to the web app.
-- [ ] Emit `mpv-event-ended` to the web app.
-- [ ] Implement `native-player-stop`.
-- [ ] Cleanly shut down MPV on app exit.
+- [x] Load/link libmpv from the Windows shell resource layout.
+- [x] Initialize MPV in `crates/stremio-lightning-windows`.
+- [x] Pass the native `HWND` to MPV via `wid`.
+- [x] Set baseline MPV options: app title, audio client name, terminal/log level, hwdec, audio fallback.
+- [x] Implement `mpv-command`.
+- [x] Implement `mpv-set-prop`.
+- [x] Implement `mpv-observe-prop`.
+- [x] Implement MPV event loop and wakeup handling.
+- [x] Emit `mpv-prop-change` to the web app.
+- [x] Emit `mpv-event-ended` to the web app.
+- [x] Implement `native-player-stop`.
+- [x] Cleanly shut down MPV on app exit.
+
+Implementation notes:
+
+- `crates/stremio-lightning-windows/src/player.rs` now owns a Windows-only `libmpv2` backend initialized from the native Win32 `HWND`.
+- The backend sets `wid`, app/audio title, terminal/log level, `quiet`, `hwdec`, and audio fallback options during MPV initialization.
+- Shell transport methods `mpv-command`, `mpv-set-prop`, `mpv-observe-prop`, and `native-player-stop` are mapped to MPV calls.
+- MPV `PropertyChange` and `EndFile` events are converted to shared `mpv-prop-change` and `mpv-event-ended` transport messages and posted back through WebView2 listener dispatch.
+- The WebView2 window host initializes MPV after native window creation and drains MPV events on the reserved UI-thread wake message.
+- Linux-side validation completed with `cargo test -p stremio-lightning-windows` and `cargo check -p stremio-lightning-windows --target x86_64-pc-windows-msvc`; runtime playback validation still requires Windows.
 
 Acceptance:
 
