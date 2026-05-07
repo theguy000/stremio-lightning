@@ -78,9 +78,10 @@ impl WindowsWebView2Shell {
 #[cfg(windows)]
 mod platform {
     use super::InjectionBundle;
+    use crate::window::{run_native_window, WindowConfig};
 
     pub fn run_webview2_shell(_url: &str, _injection: &InjectionBundle) -> Result<(), String> {
-        Err("WebView2 window creation is not wired yet".to_string())
+        run_native_window(WindowConfig::default())
     }
 }
 

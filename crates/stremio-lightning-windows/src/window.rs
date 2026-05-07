@@ -18,3 +18,224 @@ impl Default for WindowConfig {
         }
     }
 }
+
+pub const UI_THREAD_WAKE_MESSAGE: u32 = platform::UI_THREAD_WAKE_MESSAGE;
+
+pub fn run_native_window(config: WindowConfig) -> Result<(), String> {
+    platform::run_native_window(config)
+}
+
+#[cfg(windows)]
+mod platform {
+    use super::WindowConfig;
+    use std::ffi::c_void;
+    use windows::core::{w, PCWSTR};
+    use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+    use windows::Win32::Graphics::Gdi::HBRUSH;
+    use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+    use windows::Win32::UI::HiDpi::{
+        SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::{
+        CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW,
+        GetWindowLongPtrW, LoadCursorW, PostMessageW, PostQuitMessage, RegisterClassW,
+        SetWindowLongPtrW, ShowWindow, TranslateMessage, CREATESTRUCTW, CS_HREDRAW, CS_VREDRAW,
+        CW_USEDEFAULT, GWLP_USERDATA, IDC_ARROW, MINMAXINFO, MSG, SHOW_WINDOW_CMD, SW_SHOWDEFAULT,
+        WINDOW_EX_STYLE, WM_ACTIVATE, WM_APP, WM_CLOSE, WM_DESTROY, WM_DPICHANGED,
+        WM_GETMINMAXINFO, WM_NCCREATE, WM_NCDESTROY, WM_SIZE, WNDCLASSW, WS_OVERLAPPEDWINDOW,
+        WS_VISIBLE,
+    };
+
+    pub const UI_THREAD_WAKE_MESSAGE: u32 = WM_APP + 1;
+
+    #[derive(Debug)]
+    struct WindowState {
+        config: WindowConfig,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct UiThreadNotifier {
+        hwnd: HWND,
+    }
+
+    impl UiThreadNotifier {
+        pub fn notify(self) -> Result<(), String> {
+            unsafe {
+                PostMessageW(
+                    Some(self.hwnd),
+                    UI_THREAD_WAKE_MESSAGE,
+                    WPARAM(0),
+                    LPARAM(0),
+                )
+            }
+            .map_err(|error| format!("Failed to notify Windows UI thread: {error}"))
+        }
+    }
+
+    pub fn run_native_window(config: WindowConfig) -> Result<(), String> {
+        unsafe {
+            let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+        }
+
+        let hwnd = create_main_window(config)?;
+        unsafe {
+            let notifier = UiThreadNotifier { hwnd };
+            notifier.notify()?;
+            let _ = ShowWindow(hwnd, SHOW_WINDOW_CMD(SW_SHOWDEFAULT.0));
+            run_message_loop()
+        }
+    }
+
+    fn create_main_window(config: WindowConfig) -> Result<HWND, String> {
+        let instance = unsafe { GetModuleHandleW(None) }
+            .map_err(|error| format!("Failed to get module handle: {error}"))?;
+        let class_name = w!("StremioLightningWindow");
+
+        let cursor = unsafe { LoadCursorW(None, IDC_ARROW) }
+            .map_err(|error| format!("Failed to load default cursor: {error}"))?;
+
+        let window_class = WNDCLASSW {
+            style: CS_HREDRAW | CS_VREDRAW,
+            lpfnWndProc: Some(window_proc),
+            hInstance: instance.into(),
+            hCursor: cursor,
+            hbrBackground: HBRUSH::default(),
+            lpszClassName: class_name,
+            ..Default::default()
+        };
+
+        let atom = unsafe { RegisterClassW(&window_class) };
+        if atom == 0 {
+            return Err("Failed to register Windows window class".to_string());
+        }
+
+        let title = to_wide_null(config.title);
+        let state = Box::new(WindowState { config });
+        let state_ptr = Box::into_raw(state);
+
+        let hwnd = unsafe {
+            CreateWindowExW(
+                WINDOW_EX_STYLE::default(),
+                class_name,
+                PCWSTR(title.as_ptr()),
+                WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+                CW_USEDEFAULT,
+                CW_USEDEFAULT,
+                (*state_ptr).config.width,
+                (*state_ptr).config.height,
+                None,
+                None,
+                Some(instance.into()),
+                Some(state_ptr.cast::<c_void>()),
+            )
+        };
+
+        match hwnd {
+            Ok(hwnd) => Ok(hwnd),
+            Err(error) => {
+                unsafe {
+                    drop(Box::from_raw(state_ptr));
+                }
+                Err(format!("Failed to create Windows window: {error}"))
+            }
+        }
+    }
+
+    unsafe fn run_message_loop() -> Result<(), String> {
+        let mut message = MSG::default();
+        loop {
+            let result = GetMessageW(&mut message, None, 0, 0).0;
+            if result == -1 {
+                return Err("Windows message loop failed".to_string());
+            }
+            if result == 0 {
+                return Ok(());
+            }
+            let _ = TranslateMessage(&message);
+            DispatchMessageW(&message);
+        }
+    }
+
+    extern "system" fn window_proc(
+        hwnd: HWND,
+        message: u32,
+        wparam: WPARAM,
+        lparam: LPARAM,
+    ) -> LRESULT {
+        unsafe {
+            match message {
+                WM_NCCREATE => {
+                    let create = lparam.0 as *const CREATESTRUCTW;
+                    let state = (*create).lpCreateParams.cast::<WindowState>();
+                    SetWindowLongPtrW(hwnd, GWLP_USERDATA, state as isize);
+                    LRESULT(1)
+                }
+                WM_GETMINMAXINFO => {
+                    let state = window_state(hwnd);
+                    if !state.is_null() {
+                        let minmax = lparam.0 as *mut MINMAXINFO;
+                        (*minmax).ptMinTrackSize.x = (*state).config.min_width;
+                        (*minmax).ptMinTrackSize.y = (*state).config.min_height;
+                    }
+                    LRESULT(0)
+                }
+                WM_CLOSE => {
+                    let _ = DestroyWindow(hwnd);
+                    LRESULT(0)
+                }
+                WM_DESTROY => {
+                    PostQuitMessage(0);
+                    LRESULT(0)
+                }
+                WM_NCDESTROY => {
+                    let state = window_state(hwnd);
+                    if !state.is_null() {
+                        SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+                        drop(Box::from_raw(state));
+                    }
+                    DefWindowProcW(hwnd, message, wparam, lparam)
+                }
+                WM_SIZE | WM_ACTIVATE | WM_DPICHANGED | UI_THREAD_WAKE_MESSAGE => LRESULT(0),
+                _ => DefWindowProcW(hwnd, message, wparam, lparam),
+            }
+        }
+    }
+
+    unsafe fn window_state(hwnd: HWND) -> *mut WindowState {
+        GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut WindowState
+    }
+
+    fn to_wide_null(value: &str) -> Vec<u16> {
+        value.encode_utf16().chain(std::iter::once(0)).collect()
+    }
+}
+
+#[cfg(not(windows))]
+mod platform {
+    use super::WindowConfig;
+
+    pub const UI_THREAD_WAKE_MESSAGE: u32 = 0x8001;
+
+    pub fn run_native_window(_config: WindowConfig) -> Result<(), String> {
+        Err("Native Windows window can only run on Windows".to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_window_config_matches_milestone_baseline() {
+        let config = WindowConfig::default();
+
+        assert_eq!(config.title, crate::APP_NAME);
+        assert_eq!((config.width, config.height), (1280, 720));
+        assert_eq!((config.min_width, config.min_height), (640, 480));
+    }
+
+    #[test]
+    fn ui_thread_wake_message_uses_app_message_range() {
+        assert!(UI_THREAD_WAKE_MESSAGE >= 0x8000);
+    }
+}

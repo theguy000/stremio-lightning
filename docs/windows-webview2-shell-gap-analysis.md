@@ -67,16 +67,20 @@ Completed so far:
 - Added Windows-resource layout helpers, baseline server config scaffolding, launch argument classification, shell settings, and default window config.
 - Made `stremio-lightning-windows` depend on `stremio-lightning-core` with default features disabled so the Windows target check only pulls platform-neutral host/player/settings contracts.
 - Moved shared filename validation into `stremio-lightning-core::validation`, keeping mods behind the core `mods` feature.
+- Completed Milestone 2 of `docs/windows-webview2-shell-crate-plan.md`.
+- Added a raw Win32 native window baseline in `src/window.rs` with app class registration, direct `HWND` ownership, minimum size handling, message loop ownership, and a reserved UI-thread wake message.
+- Routed the Windows shell run path through the native blank window while WebView2 remains a Milestone 3 task.
 - Verified the workspace after the scaffold with `cargo fmt --all`, `cargo test -p stremio-lightning-windows`, and `cargo test --workspace`.
 - Verified Milestone 1 with `cargo fmt --all`, `cargo test -p stremio-lightning-windows`, `cargo check -p stremio-lightning-windows --target x86_64-pc-windows-msvc`, and `cargo test --workspace`.
+- Verified Milestone 2 with `cargo fmt --all`, `cargo test -p stremio-lightning-windows`, and `cargo check -p stremio-lightning-windows --target x86_64-pc-windows-msvc`.
 
 Current status:
 
 - The Windows crate is structurally present.
-- Milestone 1 is complete.
+- Milestone 1 and Milestone 2 are complete.
 - Shared bridge ownership is no longer under `src-tauri`.
-- Direct Windows runtime behavior is not implemented yet.
-- The direct shell cannot yet create a real Win32 window, create WebView2, run the web UI, route real WebView2 messages, or render MPV video.
+- The direct shell can now create and own a native blank Win32 window on Windows.
+- The direct shell cannot yet create WebView2, run the web UI, route real WebView2 messages, or render MPV video.
 
 ## Missing Work By Area
 
@@ -84,21 +88,17 @@ Current status:
 
 Missing:
 
-- Real Windows application initialization.
-- Main window creation.
-- Message loop ownership.
-- Minimum window size handling.
 - Center-on-start behavior.
-- Close/minimize/show-hide policy.
-- Runtime-visible app title and icon.
+- Full close/minimize/show-hide policy beyond blank-window shutdown.
+- Runtime icon resource wiring.
 - Splash behavior, if still desired.
-- Clean application shutdown path.
+- Cleanup integration for future WebView2, MPV, server, and IPC resources.
 
 Needed:
 
-- Choose the Windows UI/windowing layer for this crate. `stremio-shell-ng` uses `native-windows-gui`; Stremio Lightning can use that, raw `windows` crate Win32 wrappers, or a smaller custom abstraction. The important requirement is that the shell owns the parent `HWND`.
+- Extend the raw `windows` crate Win32 wrapper chosen in Milestone 2.
 - Add a `WindowController` or equivalent module that exposes a small tested surface for `show`, `hide`, `focus`, `quit`, `set_fullscreen`, `toggle_topmost`, `window_state`, and `client_bounds`.
-- Implement a Win32 message loop and dispatch model compatible with WebView2 callbacks and MPV background threads.
+- Expand the Win32 message dispatch model as WebView2 callbacks and MPV background threads are wired in.
 - Preserve a clean separation: windowing code stays in `crates/stremio-lightning-windows`; shared command schemas stay in core if they are platform-neutral.
 
 Reference behavior to copy conceptually:

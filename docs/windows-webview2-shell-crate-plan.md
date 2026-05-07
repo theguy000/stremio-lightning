@@ -82,19 +82,33 @@ Validation completed:
 
 ## Milestone 2: Native Window And Message Loop
 
-- [ ] Choose the implementation layer: raw `windows` crate Win32, `native-windows-gui`, or a small wrapper.
-- [ ] Create the main native window and own the parent `HWND`.
-- [ ] Register app class, title, icon, default size, minimum size, and dark background.
-- [ ] Implement the Win32 message loop.
-- [ ] Handle `WM_SIZE`, `WM_CLOSE`, `WM_DESTROY`, `WM_ACTIVATE`, and `WM_DPICHANGED` at minimum.
-- [ ] Add a safe channel or event mechanism for background threads to notify the UI thread.
-- [ ] Add clean shutdown ordering for WebView2, MPV, server process, and IPC resources.
+- [x] Choose the implementation layer: raw `windows` crate Win32, `native-windows-gui`, or a small wrapper.
+- [x] Create the main native window and own the parent `HWND`.
+- [x] Register app class, title, icon, default size, minimum size, and dark background.
+- [x] Implement the Win32 message loop.
+- [x] Handle `WM_SIZE`, `WM_CLOSE`, `WM_DESTROY`, `WM_ACTIVATE`, and `WM_DPICHANGED` at minimum.
+- [x] Add a safe channel or event mechanism for background threads to notify the UI thread.
+- [x] Add clean shutdown ordering for WebView2, MPV, server process, and IPC resources.
 
 Acceptance:
 
 - On Windows, `cargo run -p stremio-lightning-windows` opens a native blank window.
 - The window closes cleanly without orphaned processes or panics.
 - The app can receive internal messages from background tasks on the UI thread.
+
+Implementation notes:
+
+- The crate uses raw Win32 through the `windows` crate to preserve direct `HWND` ownership for WebView2 and MPV.
+- `src/window.rs` registers the app class, creates the main overlapped window, stores window state in `GWLP_USERDATA`, enforces the minimum track size through `WM_GETMINMAXINFO`, and owns the message loop.
+- `WM_SIZE`, `WM_CLOSE`, `WM_DESTROY`, `WM_ACTIVATE`, and `WM_DPICHANGED` are handled as the baseline event surface for later WebView2/MPV work.
+- `UI_THREAD_WAKE_MESSAGE` reserves a `WM_APP` message for background-thread-to-UI-thread notifications.
+- `src/webview.rs` now routes the Windows shell run path to the native blank window until Milestone 3 creates the WebView2 controller.
+
+Validation completed:
+
+- `cargo fmt --all`
+- `cargo test -p stremio-lightning-windows`
+- `cargo check -p stremio-lightning-windows --target x86_64-pc-windows-msvc`
 
 ## Milestone 3: WebView2 Host
 
