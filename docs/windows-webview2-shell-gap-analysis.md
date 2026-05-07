@@ -319,18 +319,18 @@ Acceptance:
 
 ## 7. Single Instance, Deep Links, And Open Media
 
-Missing:
+Implemented baseline:
 
 - Direct Windows replacement for Tauri single-instance/deeplink behavior.
-- A way for second invocations to send open-media commands to the running app.
-- Focus existing window on second invocation.
+- Second invocations send normalized launch intents to the running app over a named pipe and exit.
+- The primary window restores/focuses on second invocation.
+- The primary host queues and emits shell transport `['open-media', value]` messages after the web app reports `app-ready`.
+- Existing file paths are converted to `file:///...` before delivery, matching `stremio-shell-ng`.
 
-Needed:
+Remaining hardening:
 
-- Implement a named-pipe or mutex-plus-pipe mechanism for single-instance behavior.
-- Parse CLI/deeplink/media arguments at startup.
-- If another instance is running, send the command to the existing instance and exit.
-- If this is the first instance, start a pipe server and forward incoming commands to the web side as `open-media` events.
+- Runtime validate foreground activation behavior on Windows.
+- Add installer-level protocol/file association registration later; the current baseline only handles arguments passed to the executable.
 
 Reference behavior to copy conceptually:
 

@@ -1,6 +1,7 @@
 use crate::player::WindowsPlayer;
 use crate::resources::WindowsResourceLayout;
 use crate::server::{RealProcessSpawner, WindowsStreamingServer};
+use crate::single_instance::LaunchIntent;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -20,12 +21,19 @@ struct ListenerRegistry {
     next_id: u64,
     listeners: HashMap<u64, String>,
     emitted: Vec<HostEventRecord>,
+    shell_transport_ready: bool,
+    pending_open_media: Vec<String>,
 }
 
 impl ListenerRegistry {
     fn listen_with_id(&mut self, id: u64, event: impl Into<String>) {
         self.next_id = self.next_id.max(id);
-        self.listeners.insert(id, event.into());
+        let event = event.into();
+        let is_shell_transport = event == SHELL_TRANSPORT_EVENT;
+        self.listeners.insert(id, event);
+        if is_shell_transport {
+            self.flush_pending_open_media();
+        }
     }
 
     fn unlisten(&mut self, id: u64) {
@@ -36,6 +44,34 @@ impl ListenerRegistry {
         let event = event.into();
         if self.listeners.values().any(|listener| listener == &event) {
             self.emitted.push(HostEventRecord { event, payload });
+        }
+    }
+
+    fn mark_shell_transport_ready(&mut self) {
+        self.shell_transport_ready = true;
+        self.flush_pending_open_media();
+    }
+
+    fn queue_open_media(&mut self, value: String) {
+        self.pending_open_media.push(value);
+        self.flush_pending_open_media();
+    }
+
+    fn flush_pending_open_media(&mut self) {
+        if !self.shell_transport_ready
+            || !self
+                .listeners
+                .values()
+                .any(|listener| listener == SHELL_TRANSPORT_EVENT)
+        {
+            return;
+        }
+
+        for value in std::mem::take(&mut self.pending_open_media) {
+            self.emitted.push(HostEventRecord {
+                event: SHELL_TRANSPORT_EVENT.to_string(),
+                payload: json!(host_api::response_message(json!(["open-media", value]))),
+            });
         }
     }
 
@@ -95,6 +131,17 @@ impl WindowsHost {
         if !self.streaming_server.disabled() {
             self.emit_server_started()?;
         }
+        Ok(())
+    }
+
+    pub fn emit_launch_intent(&self, intent: LaunchIntent) -> Result<(), String> {
+        let Some(value) = intent.open_media_value() else {
+            return Ok(());
+        };
+        self.listeners
+            .lock()
+            .map_err(|e| e.to_string())?
+            .queue_open_media(value);
         Ok(())
     }
 
@@ -273,7 +320,7 @@ impl WindowsHost {
                 self.emit_transport_message(host_api::handshake_response(self.package_version))
             }
             ParsedRequest::Command { method, data } => match method.as_str() {
-                "app-ready" | "app-error" => Ok(()),
+                "app-ready" | "app-error" => self.mark_shell_transport_ready(),
                 "mpv-observe-prop" | "mpv-set-prop" | "mpv-command" | "native-player-stop" => {
                     self.player
                         .lock()
@@ -299,6 +346,14 @@ impl WindowsHost {
             .lock()
             .map_err(|e| e.to_string())?
             .unlisten(id);
+        Ok(())
+    }
+
+    fn mark_shell_transport_ready(&self) -> Result<(), String> {
+        self.listeners
+            .lock()
+            .map_err(|e| e.to_string())?
+            .mark_shell_transport_ready();
         Ok(())
     }
 
@@ -517,6 +572,40 @@ mod tests {
                 event: "window-fullscreen-changed".to_string(),
                 payload: json!(true),
             }
+        );
+    }
+
+    #[test]
+    fn queues_open_media_until_shell_transport_is_ready() {
+        let host = WindowsHost::default();
+        host.emit_launch_intent(LaunchIntent::Magnet("magnet:?xt=urn:btih:test".to_string()))
+            .unwrap();
+
+        assert!(host.drain_ipc_events().is_empty());
+
+        host.dispatch_windows_ipc(
+            "listen",
+            Some(json!({ "id": 8, "event": "shell-transport-message" })),
+        )
+        .unwrap();
+        assert!(host.drain_ipc_events().is_empty());
+
+        host.invoke(
+            "shell_transport_send",
+            Some(json!({ "message": r#"{"id":1,"type":6,"args":["app-ready"]}"# })),
+        )
+        .unwrap();
+
+        let events = host.drain_ipc_events();
+        assert_eq!(events.len(), 1);
+        let WindowsIpcOutbound::Event { event, payload } = &events[0] else {
+            panic!("expected shell transport event");
+        };
+        assert_eq!(event, "shell-transport-message");
+        let transport: Value = serde_json::from_str(payload.as_str().unwrap()).unwrap();
+        assert_eq!(
+            transport["args"],
+            json!(["open-media", "magnet:?xt=urn:btih:test"])
         );
     }
 

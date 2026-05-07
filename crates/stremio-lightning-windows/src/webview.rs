@@ -1,6 +1,9 @@
 use crate::host::WindowsHost;
 use crate::settings::WindowsShellSettings;
-use std::sync::Arc;
+use crate::single_instance::LaunchIntent;
+#[cfg(windows)]
+use std::sync::Mutex;
+use std::sync::{mpsc, Arc};
 
 pub const WINDOWS_HOST_ADAPTER_NAME: &str = "windows-host-adapter";
 pub const NATIVE_FLAGS_NAME: &str = "native-flags";
@@ -47,10 +50,35 @@ pub struct WindowsWebView2Shell {
     injection: InjectionBundle,
     #[allow(dead_code)]
     host: Arc<WindowsHost>,
+    launch_intents: mpsc::Receiver<LaunchIntent>,
+    #[cfg(windows)]
+    ui_notifier: Arc<Mutex<Option<crate::window::UiThreadNotifier>>>,
 }
 
 impl WindowsWebView2Shell {
-    pub fn new(settings: WindowsShellSettings) -> Result<Self, String> {
+    #[cfg(windows)]
+    pub fn new(
+        settings: WindowsShellSettings,
+        launch_intents: mpsc::Receiver<LaunchIntent>,
+        ui_notifier: Arc<Mutex<Option<crate::window::UiThreadNotifier>>>,
+    ) -> Result<Self, String> {
+        Self::build(settings, launch_intents, ui_notifier)
+    }
+
+    #[cfg(not(windows))]
+    pub fn new(
+        settings: WindowsShellSettings,
+        launch_intents: mpsc::Receiver<LaunchIntent>,
+    ) -> Result<Self, String> {
+        Self::build(settings, launch_intents)
+    }
+
+    #[cfg(windows)]
+    fn build(
+        settings: WindowsShellSettings,
+        launch_intents: mpsc::Receiver<LaunchIntent>,
+        ui_notifier: Arc<Mutex<Option<crate::window::UiThreadNotifier>>>,
+    ) -> Result<Self, String> {
         let url = settings.webui_url;
         if !(url.starts_with("https://") || url.starts_with("http://127.0.0.1:")) {
             return Err(format!("Unsupported WebView2 load URL: {url}"));
@@ -63,6 +91,29 @@ impl WindowsWebView2Shell {
                 env!("CARGO_PKG_VERSION"),
                 settings.streaming_server_disabled,
             )),
+            launch_intents,
+            ui_notifier,
+        })
+    }
+
+    #[cfg(not(windows))]
+    fn build(
+        settings: WindowsShellSettings,
+        launch_intents: mpsc::Receiver<LaunchIntent>,
+    ) -> Result<Self, String> {
+        let url = settings.webui_url;
+        if !(url.starts_with("https://") || url.starts_with("http://127.0.0.1:")) {
+            return Err(format!("Unsupported WebView2 load URL: {url}"));
+        }
+
+        Ok(Self {
+            url,
+            injection: InjectionBundle::load(),
+            host: Arc::new(WindowsHost::with_streaming_server_disabled(
+                env!("CARGO_PKG_VERSION"),
+                settings.streaming_server_disabled,
+            )),
+            launch_intents,
         })
     }
 
@@ -74,17 +125,25 @@ impl WindowsWebView2Shell {
             .collect()
     }
 
-    pub fn run(&self) -> Result<(), String> {
-        platform::run_webview2_shell(&self.url, &self.injection, self.host.clone())
+    pub fn run(self) -> Result<(), String> {
+        platform::run_webview2_shell(
+            &self.url,
+            &self.injection,
+            self.host,
+            self.launch_intents,
+            #[cfg(windows)]
+            self.ui_notifier,
+        )
     }
 }
 
 #[cfg(windows)]
 mod platform {
-    use super::{Arc, InjectionBundle, WindowsHost};
+    use super::{mpsc, Arc, InjectionBundle, LaunchIntent, Mutex, WindowsHost};
     use crate::host::WindowsIpcOutbound;
     use crate::window::{
-        run_native_window_with_handler, NativeWindowHandler, UiThreadNotifier, WindowConfig,
+        focus_window, run_native_window_with_handler, NativeWindowHandler, UiThreadNotifier,
+        WindowConfig,
     };
     use std::ptr;
     use webview2_com::{
@@ -101,6 +160,8 @@ mod platform {
         url: &str,
         injection: &InjectionBundle,
         host: Arc<WindowsHost>,
+        launch_intents: mpsc::Receiver<LaunchIntent>,
+        ui_notifier: Arc<Mutex<Option<UiThreadNotifier>>>,
     ) -> Result<(), String> {
         unsafe {
             CoInitializeEx(None, COINIT_APARTMENTTHREADED)
@@ -110,7 +171,13 @@ mod platform {
 
         run_native_window_with_handler(
             WindowConfig::default(),
-            WebView2WindowHost::new(url.to_string(), injection.clone(), host),
+            WebView2WindowHost::new(
+                url.to_string(),
+                injection.clone(),
+                host,
+                launch_intents,
+                ui_notifier,
+            ),
         )
     }
 
@@ -121,10 +188,18 @@ mod platform {
         controller: Option<ICoreWebView2Controller>,
         webview: Option<ICoreWebView2>,
         navigation_completed_token: Option<i64>,
+        launch_intents: mpsc::Receiver<LaunchIntent>,
+        ui_notifier: Arc<Mutex<Option<UiThreadNotifier>>>,
     }
 
     impl WebView2WindowHost {
-        fn new(url: String, injection: InjectionBundle, host: Arc<WindowsHost>) -> Self {
+        fn new(
+            url: String,
+            injection: InjectionBundle,
+            host: Arc<WindowsHost>,
+            launch_intents: mpsc::Receiver<LaunchIntent>,
+            ui_notifier: Arc<Mutex<Option<UiThreadNotifier>>>,
+        ) -> Self {
             Self {
                 url,
                 injection,
@@ -132,6 +207,8 @@ mod platform {
                 controller: None,
                 webview: None,
                 navigation_completed_token: None,
+                launch_intents,
+                ui_notifier,
             }
         }
 
@@ -154,8 +231,9 @@ mod platform {
 
     impl NativeWindowHandler for WebView2WindowHost {
         fn on_created(&mut self, hwnd: HWND) -> Result<(), String> {
-            self.host
-                .initialize_native_player(hwnd, UiThreadNotifier { hwnd })?;
+            let notifier = UiThreadNotifier { hwnd };
+            *self.ui_notifier.lock().map_err(|e| e.to_string())? = Some(notifier);
+            self.host.initialize_native_player(hwnd, notifier)?;
             self.host.start_streaming_server()?;
 
             let environment = create_environment()?;
@@ -190,7 +268,12 @@ mod platform {
             self.resize_to_client_rect(hwnd)
         }
 
-        fn on_ui_thread_wake(&mut self, _hwnd: HWND) -> Result<(), String> {
+        fn on_ui_thread_wake(&mut self, hwnd: HWND) -> Result<(), String> {
+            while let Ok(intent) = self.launch_intents.try_recv() {
+                focus_window(hwnd);
+                self.host.emit_launch_intent(intent)?;
+            }
+
             let Some(webview) = self.webview.as_ref() else {
                 return Ok(());
             };
@@ -198,6 +281,9 @@ mod platform {
         }
 
         fn on_destroying(&mut self, _hwnd: HWND) {
+            if let Ok(mut notifier) = self.ui_notifier.lock() {
+                *notifier = None;
+            }
             if let (Some(webview), Some(token)) = (
                 self.webview.as_ref(),
                 self.navigation_completed_token.take(),
@@ -399,12 +485,13 @@ mod platform {
 
 #[cfg(not(windows))]
 mod platform {
-    use super::{Arc, InjectionBundle, WindowsHost};
+    use super::{mpsc, Arc, InjectionBundle, LaunchIntent, WindowsHost};
 
     pub fn run_webview2_shell(
         _url: &str,
         _injection: &InjectionBundle,
         _host: Arc<WindowsHost>,
+        _launch_intents: mpsc::Receiver<LaunchIntent>,
     ) -> Result<(), String> {
         Err("WebView2 shell can only run on Windows".to_string())
     }
@@ -504,8 +591,18 @@ mod tests {
 
     #[test]
     fn injects_windows_adapter_before_shared_bridge() {
-        let shell =
-            WindowsWebView2Shell::new(WindowsShellSettings::from_args([] as [&str; 0])).unwrap();
+        let (_tx, rx) = mpsc::channel();
+        #[cfg(windows)]
+        let shell = WindowsWebView2Shell::new(
+            WindowsShellSettings::from_args([] as [&str; 0]),
+            rx,
+            Arc::new(Mutex::new(None)),
+        )
+        .unwrap();
+
+        #[cfg(not(windows))]
+        let shell = WindowsWebView2Shell::new(WindowsShellSettings::from_args([] as [&str; 0]), rx)
+            .unwrap();
 
         assert_eq!(
             shell.document_start_script_names(),

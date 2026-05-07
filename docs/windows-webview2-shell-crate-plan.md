@@ -233,13 +233,22 @@ Acceptance:
 
 ## Milestone 7: Single Instance And Open Media Baseline
 
-- [ ] Choose IPC: named pipe or mutex plus `WM_COPYDATA`.
-- [ ] Detect second instance.
-- [ ] Focus/restore existing window.
-- [ ] Forward first non-option argument to existing instance.
-- [ ] Classify file paths, `stremio://`, `magnet:`, and torrent arguments.
-- [ ] Queue launch/open-media events until web app is ready.
-- [ ] Emit open-media/deeplink events to the web app.
+- [x] Choose IPC: named mutex plus named pipe handoff.
+- [x] Detect second instance.
+- [x] Focus/restore existing window.
+- [x] Forward first non-option argument to existing instance.
+- [x] Classify file paths, `stremio://`, `magnet:`, and torrent arguments.
+- [x] Queue launch/open-media events until web app is ready.
+- [x] Emit open-media/deeplink events to the web app through shell transport.
+
+Implementation notes:
+
+- `crates/stremio-lightning-windows/src/single_instance.rs` now parses launch arguments into normalized launch intents and uses a local named mutex to split primary and secondary startup paths.
+- Secondary invocations serialize the launch intent over a local named pipe and exit before creating another WebView, server, or MPV stack.
+- The primary process owns a pipe listener thread and wakes the UI thread when a secondary launch arrives.
+- The native window restores/focuses itself for secondary launches, and `src/host.rs` queues shell transport `['open-media', value]` messages until the web app reports `app-ready`.
+- Existing file paths are normalized to `file:///...` before delivery, matching `stremio-shell-ng` behavior.
+- The first implementation handles runtime launch arguments only; installer file association and protocol registration remain out of scope for this milestone.
 
 Acceptance:
 

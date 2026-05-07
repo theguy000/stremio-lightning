@@ -26,7 +26,9 @@ pub fn run_native_window(config: WindowConfig) -> Result<(), String> {
 }
 
 #[cfg(windows)]
-pub use platform::{run_native_window_with_handler, NativeWindowHandler, UiThreadNotifier};
+pub use platform::{
+    focus_window, run_native_window_with_handler, NativeWindowHandler, UiThreadNotifier,
+};
 
 #[cfg(windows)]
 mod platform {
@@ -41,12 +43,12 @@ mod platform {
     };
     use windows::Win32::UI::WindowsAndMessaging::{
         CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetClientRect,
-        GetMessageW, GetWindowLongPtrW, LoadCursorW, PostMessageW, PostQuitMessage, RegisterClassW,
-        SetWindowLongPtrW, ShowWindow, TranslateMessage, CREATESTRUCTW, CS_HREDRAW, CS_VREDRAW,
-        CW_USEDEFAULT, GWLP_USERDATA, IDC_ARROW, MINMAXINFO, MSG, SHOW_WINDOW_CMD, SW_SHOWDEFAULT,
-        WINDOW_EX_STYLE, WM_ACTIVATE, WM_APP, WM_CLOSE, WM_DESTROY, WM_DPICHANGED,
-        WM_GETMINMAXINFO, WM_NCCREATE, WM_NCDESTROY, WM_SIZE, WNDCLASSW, WS_OVERLAPPEDWINDOW,
-        WS_VISIBLE,
+        GetMessageW, GetWindowLongPtrW, IsIconic, LoadCursorW, PostMessageW, PostQuitMessage,
+        RegisterClassW, SetForegroundWindow, SetWindowLongPtrW, ShowWindow, TranslateMessage,
+        CREATESTRUCTW, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, GWLP_USERDATA, IDC_ARROW, MINMAXINFO,
+        MSG, SHOW_WINDOW_CMD, SW_RESTORE, SW_SHOWDEFAULT, WINDOW_EX_STYLE, WM_ACTIVATE, WM_APP,
+        WM_CLOSE, WM_DESTROY, WM_DPICHANGED, WM_GETMINMAXINFO, WM_NCCREATE, WM_NCDESTROY, WM_SIZE,
+        WNDCLASSW, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
     };
 
     pub const UI_THREAD_WAKE_MESSAGE: u32 = WM_APP + 1;
@@ -91,6 +93,15 @@ mod platform {
 
     pub fn run_native_window(config: WindowConfig) -> Result<(), String> {
         run_native_window_with_handler(config, NoopWindowHandler)
+    }
+
+    pub fn focus_window(hwnd: HWND) {
+        unsafe {
+            if IsIconic(hwnd).as_bool() {
+                let _ = ShowWindow(hwnd, SHOW_WINDOW_CMD(SW_RESTORE.0));
+            }
+            let _ = SetForegroundWindow(hwnd);
+        }
     }
 
     pub fn run_native_window_with_handler(
