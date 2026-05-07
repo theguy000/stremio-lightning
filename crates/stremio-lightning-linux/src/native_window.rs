@@ -6,6 +6,7 @@ use gtk::gdk::{GLContext, RGBA};
 use gtk::glib::{self, Propagation};
 use gtk::prelude::*;
 use libc::{setlocale, LC_NUMERIC};
+use libmpv2::events::{Event, PropertyData};
 use libmpv2::render::{OpenGLInitParams, RenderContext, RenderParam, RenderParamApiType};
 use libmpv2::{Format, Mpv};
 use serde::Deserialize;
@@ -132,12 +133,12 @@ fn build_window(
         .build();
 
     let overlay = gtk::Overlay::new();
-    let video = build_native_video(player)?;
+    let webview = build_webview(config, runtime.clone())?;
+    let video = build_native_video(player, runtime, webview.clone())?;
     video.set_hexpand(true);
     video.set_vexpand(true);
     overlay.set_child(Some(&video));
 
-    let webview = build_webview(config, runtime)?;
     overlay.add_overlay(&webview);
     window.set_child(Some(&overlay));
     window.present();
@@ -448,7 +449,13 @@ impl NativeVideoState {
             Format::Flag
         } else if matches!(
             name,
-            "time-pos" | "duration" | "volume" | "speed" | "percent-pos" | "sub-delay" | "audio-delay"
+            "time-pos"
+                | "duration"
+                | "volume"
+                | "speed"
+                | "percent-pos"
+                | "sub-delay"
+                | "audio-delay"
         ) {
             Format::Double
         } else {
@@ -468,7 +475,10 @@ impl NativeVideoState {
                 .ok_or_else(|| libmpv2::Error::Raw(-4))
                 .and_then(|value| self.mpv.borrow().set_property(name, value)),
             Value::String(value) => self.mpv.borrow().set_property(name, value.as_str()),
-            other => self.mpv.borrow().set_property(name, other.to_string().as_str()),
+            other => self
+                .mpv
+                .borrow()
+                .set_property(name, other.to_string().as_str()),
         };
 
         if let Err(error) = result {
@@ -482,15 +492,34 @@ impl NativeVideoState {
             eprintln!("[StremioLightning] Failed to run MPV command {name}: {error}");
         }
     }
+
+    fn poll_event<T: FnOnce(Event)>(&self, callback: T) -> bool {
+        let mut mpv = self.mpv.borrow_mut();
+        let Some(result) = mpv.wait_event(0.0) else {
+            return false;
+        };
+
+        match result {
+            Ok(event) => callback(event),
+            Err(error) => eprintln!("[StremioLightning] Failed to read MPV event: {error}"),
+        }
+
+        true
+    }
 }
 
-fn build_native_video(player: MpvPlayerBackend) -> Result<gtk::GLArea, String> {
+fn build_native_video(
+    player: MpvPlayerBackend,
+    runtime: Rc<LinuxWebviewRuntime<MpvPlayerBackend, RealProcessSpawner>>,
+    webview: WebKitWebView,
+) -> Result<gtk::GLArea, String> {
     let area = gtk::GLArea::new();
     let state = Rc::new(NativeVideoState::new()?);
     let (command_sender, command_receiver) = mpsc::channel::<MpvBackendCommand>();
     player.attach(command_sender)?;
 
     install_mpv_command_drain(&state, command_receiver);
+    install_mpv_event_drain(&state, runtime, webview);
 
     {
         let state = state.clone();
@@ -560,6 +589,59 @@ fn build_native_video(player: MpvPlayerBackend) -> Result<gtk::GLArea, String> {
     }
 
     Ok(area)
+}
+
+fn install_mpv_event_drain(
+    state: &Rc<NativeVideoState>,
+    runtime: Rc<LinuxWebviewRuntime<MpvPlayerBackend, RealProcessSpawner>>,
+    webview: WebKitWebView,
+) {
+    let state = state.clone();
+    glib::idle_add_local(move || {
+        while state.poll_event(|event| match event {
+            Event::PropertyChange { name, change, .. } => {
+                if let Some(value) = property_data_to_json(change) {
+                    if let Err(error) = runtime.emit_native_player_property_changed(name, value) {
+                        eprintln!("[StremioLightning] Failed to emit MPV property change: {error}");
+                    }
+                }
+            }
+            Event::EndFile(_) => {
+                if let Err(error) = runtime.emit_native_player_ended("eof") {
+                    eprintln!("[StremioLightning] Failed to emit MPV ended event: {error}");
+                }
+            }
+            _ => {}
+        }) {}
+
+        drain_runtime_events_to_webview(&runtime, &webview);
+        glib::ControlFlow::Continue
+    });
+}
+
+fn property_data_to_json(change: PropertyData) -> Option<Value> {
+    match change {
+        PropertyData::Str(value) => {
+            Some(serde_json::from_str(value).unwrap_or_else(|_| Value::String(value.to_string())))
+        }
+        PropertyData::Flag(value) => Some(Value::Bool(value)),
+        PropertyData::Double(value) => serde_json::Number::from_f64(value).map(Value::Number),
+        _ => None,
+    }
+}
+
+fn drain_runtime_events_to_webview(
+    runtime: &LinuxWebviewRuntime<MpvPlayerBackend, RealProcessSpawner>,
+    webview: &WebKitWebView,
+) {
+    match runtime.drain_event_dispatch_scripts() {
+        Ok(scripts) => {
+            for script in scripts {
+                evaluate_javascript(webview, &script);
+            }
+        }
+        Err(error) => eprintln!("[StremioLightning] Failed to drain host events: {error}"),
+    }
 }
 
 fn install_mpv_command_drain(

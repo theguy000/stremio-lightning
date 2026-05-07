@@ -5,6 +5,7 @@
 - Branch: `master`
 - Remote: `origin` (`https://github.com/theguy000/stremio-lightning.git`)
 - Last base commit before this progress update: `0cb8737 Port mods and settings to Linux host`
+- Local upstream reference checkout: `/tmp/stremio-linux-shell`
 
 ## Completed Previously
 
@@ -52,17 +53,18 @@
   - kept the GTK `GLArea` video state as the owner of the real `libmpv2::Mpv` instance and render context;
   - changed `MpvPlayerBackend` from stub methods into a lightweight command handle attached to that rendered MPV state;
   - forwarded web-issued `mpv-command`, `mpv-set-prop`, `mpv-observe-prop`, and `native-player-stop` commands through the host backend into the GLArea-owned MPV instance;
+  - added an upstream-style MPV event drain that polls the GLArea-owned MPV instance for property changes and end-file events, serializes them as `mpv-prop-change` / `mpv-event-ended`, and dispatches them into WebKit through the Linux host event bridge;
   - added focused test coverage proving `MpvPlayerBackend` forwards commands to the attached renderer channel.
 
 ## Verification
 
 - `cargo check -p stremio-lightning-linux` passed.
-- `cargo test -p stremio-lightning-linux` passed: 30 unit tests, smoke test still ignored unless `STREMIO_LIGHTNING_LINUX_SMOKE=1`.
+- `cargo test -p stremio-lightning-linux` passed: 32 unit tests, smoke test still ignored unless `STREMIO_LIGHTNING_LINUX_SMOKE=1`.
 - `timeout 12s cargo run -p stremio-lightning-linux` reached the GTK4/WebKitGTK 6 load path and stayed alive until the timeout killed it.
 
 ## Runtime Status
 
-Phase 3 now has a real Linux shell surface using GTK4/WebKitGTK 6 plus a native MPV GLArea layer, matching the current upstream Stremio Linux shell direction. The previous blocking runtime gap is fixed: `LinuxHost` and `MpvPlayerBackend` now send native-player transport commands to the same MPV command path used by the GTK `GLArea` renderer, so web-issued MPV commands no longer disappear into stub methods.
+Phase 3 now has a real Linux shell surface using GTK4/WebKitGTK 6 plus a native MPV GLArea layer, matching the current upstream Stremio Linux shell direction. The previous blocking runtime gap is fixed: `LinuxHost` and `MpvPlayerBackend` now send native-player transport commands to the same MPV command path used by the GTK `GLArea` renderer, and observed MPV property/end events are forwarded back to Stremio Web through the Linux host event bridge.
 
 Runtime manual acceptance still needs an interactive pass:
 
@@ -77,5 +79,4 @@ Immediate goal for the next commit:
 
 1. Add a local sample-video smoke path proving load, render, stop/end cleanup, and WebKit overlay visibility.
 2. Run the Linux manual smoke checks against the actual rendered Stremio Web UI.
-3. Forward MPV property-change/end events from the rendered MPV instance back through the Linux host event bridge.
-4. Exercise Phase 4 mod/plugin flows inside the Linux shell with the real webview.
+3. Exercise Phase 4 mod/plugin flows inside the Linux shell with the real webview.

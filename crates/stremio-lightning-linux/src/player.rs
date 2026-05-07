@@ -121,7 +121,9 @@ impl MpvPlayerBackend {
             .lock()
             .map_err(|e| e.to_string())?
             .clone()
-            .ok_or_else(|| "MPV backend is not attached to the native video renderer".to_string())?;
+            .ok_or_else(|| {
+                "MPV backend is not attached to the native video renderer".to_string()
+            })?;
         sender
             .send(command)
             .map_err(|e| format!("Failed to send MPV command to renderer: {e}"))
@@ -374,7 +376,12 @@ mod tests {
         let (sender, receiver) = std::sync::mpsc::channel();
         backend.attach(sender).unwrap();
 
-        backend.command("loadfile".to_string(), vec!["file:///tmp/a.mp4".to_string()]).unwrap();
+        backend
+            .command(
+                "loadfile".to_string(),
+                vec!["file:///tmp/a.mp4".to_string()],
+            )
+            .unwrap();
 
         assert_eq!(
             receiver.recv().unwrap(),

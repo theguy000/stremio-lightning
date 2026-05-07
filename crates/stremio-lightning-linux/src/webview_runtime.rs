@@ -135,6 +135,18 @@ where
             })
             .collect()
     }
+
+    pub fn emit_native_player_property_changed(
+        &self,
+        name: impl Into<String>,
+        data: Value,
+    ) -> Result<(), String> {
+        self.host.emit_native_player_property_changed(name, data)
+    }
+
+    pub fn emit_native_player_ended(&self, reason: impl Into<String>) -> Result<(), String> {
+        self.host.emit_native_player_ended(reason)
+    }
 }
 
 pub fn linux_host_adapter() -> String {
