@@ -1,6 +1,11 @@
 pub mod host;
 pub mod player;
+pub mod resources;
+pub mod server;
+pub mod settings;
+pub mod single_instance;
 pub mod webview;
+pub mod window;
 
 pub const APP_NAME: &str = "Stremio Lightning";
 
@@ -11,7 +16,8 @@ pub fn run() -> Result<(), String> {
 #[cfg(windows)]
 mod platform {
     pub fn run() -> Result<(), String> {
-        crate::webview::WindowsWebView2Shell::new("https://web.stremio.com/")?.run()
+        let settings = crate::settings::WindowsShellSettings::default();
+        crate::webview::WindowsWebView2Shell::new(settings.webui_url)?.run()
     }
 }
 

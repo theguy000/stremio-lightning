@@ -378,17 +378,7 @@ pub async fn check_mod_updates(
     })
 }
 
-pub fn validate_filename(filename: &str) -> Result<(), String> {
-    if filename.is_empty()
-        || filename.contains('/')
-        || filename.contains('\\')
-        || filename.contains("..")
-        || filename.contains('\0')
-    {
-        return Err("Invalid filename: path separators or traversal not allowed".to_string());
-    }
-    Ok(())
-}
+pub use crate::validation::validate_filename;
 
 pub fn mod_file_extension(mod_type: ModType) -> &'static str {
     mod_type.file_extension()

@@ -18,7 +18,7 @@ impl Default for SettingsState {
 }
 
 pub fn plugin_settings_path(plugins_dir: &Path, plugin_name: &str) -> Result<PathBuf, String> {
-    crate::mods::validate_filename(plugin_name)?;
+    crate::validation::validate_filename(plugin_name)?;
     Ok(plugins_dir.join(format!("{}.plugin.json", plugin_name)))
 }
 

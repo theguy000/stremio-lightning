@@ -387,6 +387,10 @@ Tasks:
 
 - Reuse shared core and JS host adapter.
 - Move reusable Windows shell code out of `src-tauri` into `crates/stremio-lightning-windows` or shared core crates as appropriate: started by moving the shared injected bridge to `web/bridge/bridge.js`, adding `crates/stremio-lightning-windows`, and adding a Windows-shell-owned dependency downloader/build link path.
+- Use `https://github.com/Stremio/stremio-shell-ng` as the direct Windows WebView2 + MPV architecture reference. Its implementation proves the target shape: native Windows window ownership, WebView2 controller hosted inside the native window, MPV initialized directly with the window `HWND` through `wid`, shell-to-web RPC over WebView2 messages, native server process management, tray/window/fullscreen helpers, named-pipe single-instance IPC, and Windows resource/libmpv packaging.
+- Execute the foundational crate-first plan in `docs/windows-webview2-shell-crate-plan.md` before feature expansion.
+- Track current progress, missing implementation, and direct shell gaps in `docs/windows-webview2-shell-gap-analysis.md`.
+- Track Stremio Community feature parity separately in `docs/stremio-community-feature-parity-todo.md` after the direct Windows shell crate is functional.
 - Implement WebView2 host adapter.
 - Implement native MPV embedding/rendering using the currently stable Windows approach.
 - Preserve installer/dependency download behavior for libmpv.
