@@ -98,6 +98,13 @@ struct WebkitIpcRequest {
     payload: Option<Value>,
 }
 
+#[derive(Debug, Deserialize)]
+struct ShellTransportMessage {
+    #[serde(rename = "type")]
+    message_type: u8,
+    args: Option<Value>,
+}
+
 pub fn run_native_window(
     config: AppConfig,
     mut runtime: LinuxWebviewRuntime<MpvPlayerBackend, RealProcessSpawner>,
@@ -207,13 +214,7 @@ fn build_webview(
         let window = window.clone();
         let fullscreen = fullscreen.clone();
         user_content.connect_script_message_received(Some(IPC_HANDLER_NAME), move |_, value| {
-            handle_ipc_message(
-                &webview,
-                &runtime,
-                &window,
-                &fullscreen,
-                &value.to_string(),
-            );
+            handle_ipc_message(&webview, &runtime, &window, &fullscreen, &value.to_string());
         });
     }
 
@@ -408,6 +409,21 @@ impl NativeWindowIpc for LinuxWebviewRuntime<MpvPlayerBackend, RealProcessSpawne
         webview: &WebKitWebView,
     ) -> Result<Value, String> {
         match kind {
+            "invoke" => {
+                if let Some(fullscreen_value) =
+                    shell_transport_fullscreen_request(payload.as_ref())?
+                {
+                    let fullscreen_value = if fullscreen_value && fullscreen.get() {
+                        false
+                    } else {
+                        fullscreen_value
+                    };
+                    set_window_fullscreen(webview, self, window, fullscreen, fullscreen_value);
+                    return Ok(Value::Null);
+                }
+
+                LinuxWebviewRuntime::dispatch_ipc(self, kind, payload)
+            }
             "window.isFullscreen" => Ok(json!(fullscreen.get())),
             "window.setFullscreen" => {
                 let fullscreen_value = payload
@@ -434,6 +450,42 @@ impl NativeWindowIpc for LinuxWebviewRuntime<MpvPlayerBackend, RealProcessSpawne
             _ => LinuxWebviewRuntime::dispatch_ipc(self, kind, payload),
         }
     }
+}
+
+fn shell_transport_fullscreen_request(payload: Option<&Value>) -> Result<Option<bool>, String> {
+    let Some(payload) = payload else {
+        return Ok(None);
+    };
+    if payload.get("command").and_then(Value::as_str) != Some("shell_transport_send") {
+        return Ok(None);
+    }
+
+    let Some(message) = payload
+        .get("payload")
+        .and_then(|payload| payload.get("message"))
+        .and_then(Value::as_str)
+    else {
+        return Ok(None);
+    };
+
+    let request: ShellTransportMessage = serde_json::from_str(message)
+        .map_err(|error| format!("Invalid shell transport message: {error}"))?;
+    if request.message_type != 6 {
+        return Ok(None);
+    }
+
+    let args: Vec<Value> = serde_json::from_value(request.args.unwrap_or(Value::Null))
+        .map_err(|error| format!("Invalid shell transport arguments: {error}"))?;
+    if args.first().and_then(Value::as_str) != Some("win-set-visibility") {
+        return Ok(None);
+    }
+
+    let fullscreen = args
+        .get(1)
+        .and_then(|value| value.get("fullscreen"))
+        .and_then(Value::as_bool)
+        .ok_or_else(|| "Invalid win-set-visibility payload".to_string())?;
+    Ok(Some(fullscreen))
 }
 
 fn set_window_fullscreen(
@@ -839,6 +891,21 @@ mod tests {
         };
 
         assert_eq!(external_url_from_ipc_request(&request), None);
+    }
+
+    #[test]
+    fn extracts_shell_transport_fullscreen_request() {
+        let payload = json!({
+            "command": "shell_transport_send",
+            "payload": {
+                "message": r#"{"id":7,"type":6,"args":["win-set-visibility",{"fullscreen":true}]}"#
+            }
+        });
+
+        assert_eq!(
+            shell_transport_fullscreen_request(Some(&payload)).unwrap(),
+            Some(true)
+        );
     }
 
     #[test]

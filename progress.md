@@ -4,7 +4,7 @@
 
 - Branch: `master`
 - Remote: `origin` (`https://github.com/theguy000/stremio-lightning.git`)
-- Last base commit before this progress update: `0cb8737 Port mods and settings to Linux host`
+- Last pushed commit before this progress update: `7bac0f2 Fix Linux shell fullscreen handling`
 - Local upstream reference checkout: `/tmp/stremio-linux-shell`
 
 ## Completed Previously
@@ -55,16 +55,23 @@
   - forwarded web-issued `mpv-command`, `mpv-set-prop`, `mpv-observe-prop`, and `native-player-stop` commands through the host backend into the GLArea-owned MPV instance;
   - added an upstream-style MPV event drain that polls the GLArea-owned MPV instance for property changes and end-file events, serializes them as `mpv-prop-change` / `mpv-event-ended`, and dispatches them into WebKit through the Linux host event bridge;
   - added focused test coverage proving `MpvPlayerBackend` forwards commands to the attached renderer channel.
+- Fixed Linux shell fullscreen handling in the replacement GTK/WebKit path:
+  - kept fullscreen ownership in the Linux native shell instead of adding custom shared bridge JavaScript;
+  - connected WebKit `enter_fullscreen` / `leave_fullscreen` signals to GTK `ApplicationWindow::fullscreen` / `unfullscreen`, matching the upstream Linux shell direction;
+  - routed Linux host adapter `window.setFullscreen` IPC to the real GTK window instead of only emitting a synthetic event;
+  - made Linux `window.isFullscreen` return the tracked native fullscreen state instead of always returning `false`;
+  - mapped Stremio Web's Qt WebChannel `win-set-visibility` transport event to native GTK fullscreen so player double-click fullscreen follows the same upstream Linux shell path;
+  - pushed the fix to `origin/master` as `7bac0f2 Fix Linux shell fullscreen handling`.
 
 ## Verification
 
 - `cargo check -p stremio-lightning-linux` passed.
-- `cargo test -p stremio-lightning-linux` passed: 32 unit tests, smoke test still ignored unless `STREMIO_LIGHTNING_LINUX_SMOKE=1`.
+- `cargo test -p stremio-lightning-linux` passed: 34 unit tests, smoke test still ignored unless `STREMIO_LIGHTNING_LINUX_SMOKE=1`.
 - `timeout 12s cargo run -p stremio-lightning-linux` reached the GTK4/WebKitGTK 6 load path and stayed alive until the timeout killed it.
 
 ## Runtime Status
 
-Phase 3 now has a real Linux shell surface using GTK4/WebKitGTK 6 plus a native MPV GLArea layer, matching the current upstream Stremio Linux shell direction. The previous blocking runtime gap is fixed: `LinuxHost` and `MpvPlayerBackend` now send native-player transport commands to the same MPV command path used by the GTK `GLArea` renderer, and observed MPV property/end events are forwarded back to Stremio Web through the Linux host event bridge.
+Phase 3 now has a real Linux shell surface using GTK4/WebKitGTK 6 plus a native MPV GLArea layer, matching the current upstream Stremio Linux shell direction. The previous blocking runtime gap is fixed: `LinuxHost` and `MpvPlayerBackend` now send native-player transport commands to the same MPV command path used by the GTK `GLArea` renderer, and observed MPV property/end events are forwarded back to Stremio Web through the Linux host event bridge. Fullscreen requests in the Linux shell now follow the upstream-style native WebKit/GTK path instead of relying on bridge-level JavaScript workarounds, including Stremio Web's `win-set-visibility` transport event used by player double-click fullscreen.
 
 Runtime manual acceptance still needs an interactive pass:
 
