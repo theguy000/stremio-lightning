@@ -2,5 +2,6 @@
 members = [
     "src-tauri",
     "crates/stremio-lightning-core",
+    "crates/stremio-lightning-linux",
 ]
 resolver = "2"

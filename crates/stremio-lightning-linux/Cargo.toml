@@ -1,0 +1,22 @@
+[package]
+name = "stremio-lightning-linux"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+stremio-lightning-core = { path = "../stremio-lightning-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["process", "rt", "sync"] }
+winit = { version = "0.30.13", features = ["rwh_06", "x11", "wayland"] }
+glutin = { version = "0.32.3", features = ["egl", "glx", "x11", "wayland"] }
+glutin-winit = { version = "0.5.0", features = ["egl", "glx", "x11", "wayland"] }
+raw-window-handle = "0.6.2"
+glow = "0.17.0"
+
+[features]
+default = []
+# Phase 3 keeps CEF/glutin/winit integration isolated so workspace tests do not
+# require local CEF binaries. The module boundaries are in place for enabling
+# the native renderer once those prerequisites are installed.
+native-shell = []
