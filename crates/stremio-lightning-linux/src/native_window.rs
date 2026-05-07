@@ -1,5 +1,5 @@
 use crate::app::AppConfig;
-use crate::player::MpvPlayerBackend;
+use crate::player::{MpvBackendCommand, MpvPlayerBackend};
 use crate::streaming_server::RealProcessSpawner;
 use crate::webview_runtime::LinuxWebviewRuntime;
 use gtk::gdk::{GLContext, RGBA};
@@ -7,7 +7,7 @@ use gtk::glib::{self, Propagation};
 use gtk::prelude::*;
 use libc::{setlocale, LC_NUMERIC};
 use libmpv2::render::{OpenGLInitParams, RenderContext, RenderParam, RenderParamApiType};
-use libmpv2::Mpv;
+use libmpv2::{Format, Mpv};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::cell::{Cell, RefCell};
@@ -15,7 +15,7 @@ use std::net::{SocketAddr, TcpStream};
 use std::os::raw::c_void;
 use std::ptr;
 use std::rc::Rc;
-use std::sync::mpsc;
+use std::sync::mpsc::{self, Receiver};
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 use webkit::prelude::*;
@@ -77,6 +77,7 @@ struct WebkitIpcRequest {
 pub fn run_native_window(
     config: AppConfig,
     mut runtime: LinuxWebviewRuntime<MpvPlayerBackend, RealProcessSpawner>,
+    player: MpvPlayerBackend,
 ) -> Result<(), String> {
     load_epoxy()?;
 
@@ -87,9 +88,10 @@ pub fn run_native_window(
 
     {
         let runtime = runtime.clone();
+        let player = player.clone();
         let startup_error = startup_error.clone();
         app.connect_activate(move |app| {
-            if let Err(error) = build_window(app, &config, runtime.clone()) {
+            if let Err(error) = build_window(app, &config, runtime.clone(), player.clone()) {
                 *startup_error.borrow_mut() = Some(error);
                 app.quit();
             }
@@ -120,6 +122,7 @@ fn build_window(
     app: &gtk::Application,
     config: &AppConfig,
     runtime: Rc<LinuxWebviewRuntime<MpvPlayerBackend, RealProcessSpawner>>,
+    player: MpvPlayerBackend,
 ) -> Result<(), String> {
     let window = gtk::ApplicationWindow::builder()
         .application(app)
@@ -129,7 +132,7 @@ fn build_window(
         .build();
 
     let overlay = gtk::Overlay::new();
-    let video = build_native_video();
+    let video = build_native_video(player)?;
     video.set_hexpand(true);
     video.set_vexpand(true);
     overlay.set_child(Some(&video));
@@ -382,12 +385,64 @@ impl NativeVideoState {
         }
         fbo as i32
     }
+
+    fn handle_command(&self, command: MpvBackendCommand) {
+        match command {
+            MpvBackendCommand::ObserveProperty(name) => self.observe_property(&name),
+            MpvBackendCommand::SetProperty { name, value } => self.set_property(&name, value),
+            MpvBackendCommand::Command { name, args } => self.command(&name, &args),
+            MpvBackendCommand::Stop => self.command("stop", &[]),
+        }
+    }
+
+    fn observe_property(&self, name: &str) {
+        let format = if matches!(name, "pause" | "mute" | "fullscreen") {
+            Format::Flag
+        } else if matches!(
+            name,
+            "time-pos" | "duration" | "volume" | "speed" | "percent-pos" | "sub-delay" | "audio-delay"
+        ) {
+            Format::Double
+        } else {
+            Format::String
+        };
+
+        if let Err(error) = self.mpv.borrow().observe_property(name, format, 0) {
+            eprintln!("[StremioLightning] Failed to observe MPV property {name}: {error}");
+        }
+    }
+
+    fn set_property(&self, name: &str, value: Value) {
+        let result = match value {
+            Value::Bool(value) => self.mpv.borrow().set_property(name, value),
+            Value::Number(value) => value
+                .as_f64()
+                .ok_or_else(|| libmpv2::Error::Raw(-4))
+                .and_then(|value| self.mpv.borrow().set_property(name, value)),
+            Value::String(value) => self.mpv.borrow().set_property(name, value.as_str()),
+            other => self.mpv.borrow().set_property(name, other.to_string().as_str()),
+        };
+
+        if let Err(error) = result {
+            eprintln!("[StremioLightning] Failed to set MPV property {name}: {error}");
+        }
+    }
+
+    fn command(&self, name: &str, args: &[String]) {
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        if let Err(error) = self.mpv.borrow().command(name, &args) {
+            eprintln!("[StremioLightning] Failed to run MPV command {name}: {error}");
+        }
+    }
 }
 
-fn build_native_video() -> gtk::GLArea {
+fn build_native_video(player: MpvPlayerBackend) -> Result<gtk::GLArea, String> {
     let area = gtk::GLArea::new();
-    let state =
-        Rc::new(NativeVideoState::new().expect("Failed to initialize native mpv video backend"));
+    let state = Rc::new(NativeVideoState::new()?);
+    let (command_sender, command_receiver) = mpsc::channel::<MpvBackendCommand>();
+    player.attach(command_sender)?;
+
+    install_mpv_command_drain(&state, command_receiver);
 
     {
         let state = state.clone();
@@ -456,7 +511,20 @@ fn build_native_video() -> gtk::GLArea {
         });
     }
 
-    area
+    Ok(area)
+}
+
+fn install_mpv_command_drain(
+    state: &Rc<NativeVideoState>,
+    command_receiver: Receiver<MpvBackendCommand>,
+) {
+    let state = state.clone();
+    glib::idle_add_local(move || {
+        while let Ok(command) = command_receiver.try_recv() {
+            state.handle_command(command);
+        }
+        glib::ControlFlow::Continue
+    });
 }
 
 #[cfg(test)]

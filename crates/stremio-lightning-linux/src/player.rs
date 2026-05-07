@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 use stremio_lightning_core::player_api::{
     PlayerCommand as TransportPlayerCommand, PlayerEnded, PlayerEvent, PlayerPropertyChange,
@@ -14,6 +15,14 @@ pub struct NativePlayerStatus {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum PlayerAction {
+    ObserveProperty(String),
+    SetProperty { name: String, value: Value },
+    Command { name: String, args: Vec<String> },
+    Stop,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum MpvBackendCommand {
     ObserveProperty(String),
     SetProperty { name: String, value: Value },
     Command { name: String, args: Vec<String> },
@@ -92,12 +101,30 @@ impl PlayerBackend for FakePlayerBackend {
 #[derive(Debug, Default, Clone)]
 pub struct MpvPlayerBackend {
     initialized: Arc<Mutex<bool>>,
+    sender: Arc<Mutex<Option<Sender<MpvBackendCommand>>>>,
 }
 
 impl MpvPlayerBackend {
+    pub fn attach(&self, sender: Sender<MpvBackendCommand>) -> Result<(), String> {
+        *self.sender.lock().map_err(|e| e.to_string())? = Some(sender);
+        self.mark_initialized()
+    }
+
     pub fn mark_initialized(&self) -> Result<(), String> {
         *self.initialized.lock().map_err(|e| e.to_string())? = true;
         Ok(())
+    }
+
+    fn send(&self, command: MpvBackendCommand) -> Result<(), String> {
+        let sender = self
+            .sender
+            .lock()
+            .map_err(|e| e.to_string())?
+            .clone()
+            .ok_or_else(|| "MPV backend is not attached to the native video renderer".to_string())?;
+        sender
+            .send(command)
+            .map_err(|e| format!("Failed to send MPV command to renderer: {e}"))
     }
 }
 
@@ -110,20 +137,20 @@ impl PlayerBackend for MpvPlayerBackend {
         }
     }
 
-    fn observe_property(&self, _name: String) -> Result<(), String> {
-        Ok(())
+    fn observe_property(&self, name: String) -> Result<(), String> {
+        self.send(MpvBackendCommand::ObserveProperty(name))
     }
 
-    fn set_property(&self, _name: String, _value: Value) -> Result<(), String> {
-        Ok(())
+    fn set_property(&self, name: String, value: Value) -> Result<(), String> {
+        self.send(MpvBackendCommand::SetProperty { name, value })
     }
 
-    fn command(&self, _name: String, _args: Vec<String>) -> Result<(), String> {
-        Ok(())
+    fn command(&self, name: String, args: Vec<String>) -> Result<(), String> {
+        self.send(MpvBackendCommand::Command { name, args })
     }
 
     fn stop(&self) -> Result<(), String> {
-        Ok(())
+        self.send(MpvBackendCommand::Stop)
     }
 }
 
@@ -339,5 +366,23 @@ mod tests {
             serialize_ended("eof"),
             json!(["mpv-event-ended", {"reason": "eof"}])
         );
+    }
+
+    #[test]
+    fn mpv_backend_forwards_to_attached_renderer() {
+        let backend = MpvPlayerBackend::default();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        backend.attach(sender).unwrap();
+
+        backend.command("loadfile".to_string(), vec!["file:///tmp/a.mp4".to_string()]).unwrap();
+
+        assert_eq!(
+            receiver.recv().unwrap(),
+            MpvBackendCommand::Command {
+                name: "loadfile".to_string(),
+                args: vec!["file:///tmp/a.mp4".to_string()],
+            }
+        );
+        assert!(backend.status().initialized);
     }
 }

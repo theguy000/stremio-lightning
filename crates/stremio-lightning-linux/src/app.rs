@@ -54,8 +54,9 @@ where
 }
 
 pub fn run(config: AppConfig) -> Result<(), String> {
+    let player = MpvPlayerBackend::default();
     let host = Arc::new(LinuxHost::new(
-        MpvPlayerBackend::default(),
+        player.clone(),
         StreamingServer::new(RealProcessSpawner::default()),
     ));
     match host.start_streaming_server() {
@@ -86,7 +87,7 @@ pub fn run(config: AppConfig) -> Result<(), String> {
     } else {
         let webview =
             LinuxWebviewRuntime::new(config.url.clone(), config.devtools, injection, host);
-        run_native_window(config, webview)
+        run_native_window(config, webview, player)
     }
 }
 
