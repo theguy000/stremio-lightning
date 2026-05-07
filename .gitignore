@@ -35,6 +35,10 @@ src-tauri/resources/libmpv-2.dll
 src-tauri/resources/libmpv.2.dylib
 src-tauri/resources/libmpv.so.2
 
+# Windows native shell resources (downloaded at build time)
+crates/stremio-lightning-windows/mpv-dev/
+crates/stremio-lightning-windows/resources/
+
 
 nul
 

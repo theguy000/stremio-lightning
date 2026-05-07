@@ -379,22 +379,18 @@ Exit Criteria:
 
 - Linux shell no longer depends on Tauri/WebKitGTK behavior.
 
-## Phase 6: Windows Shell Decision
+## Phase 6: Direct Windows WebView2 Shell
 
-Objective: decide whether to keep Tauri on Windows temporarily or replace it with a direct WebView2 shell.
-
-Recommended direction:
-
-- Keep Tauri Windows only until Linux shell is stable.
-- Then build `stremio-lightning-windows` using WebView2 + native MPV directly.
+Objective: replace the Windows Tauri shell with a direct WebView2 shell that uses the shared Rust core, shared injected JS host adapter, and native MPV directly.
 
 Tasks:
 
 - Reuse shared core and JS host adapter.
+- Move reusable Windows shell code out of `src-tauri` into `crates/stremio-lightning-windows` or shared core crates as appropriate: started by moving the shared injected bridge to `web/bridge/bridge.js`, adding `crates/stremio-lightning-windows`, and adding a Windows-shell-owned dependency downloader/build link path.
 - Implement WebView2 host adapter.
 - Implement native MPV embedding/rendering using the currently stable Windows approach.
 - Preserve installer/dependency download behavior for libmpv.
-- Compare runtime behavior with Tauri Windows.
+- Retire the Windows Tauri runtime path after direct WebView2 feature parity is reached.
 
 TDD Acceptance:
 
@@ -413,7 +409,8 @@ Manual Runtime Acceptance:
 
 Exit Criteria:
 
-- Windows can move off Tauri when feature parity is reached.
+- Windows runs through the direct WebView2 shell with no Tauri runtime dependency.
+- Windows-specific files needed by the replacement shell have been moved out of `src-tauri`.
 
 ## Phase 7: macOS Shell
 

@@ -34,7 +34,7 @@ impl InjectionBundle {
                 },
                 InjectionScript {
                     name: BRIDGE_NAME,
-                    source: include_str!("../../../src-tauri/scripts/bridge.js").to_string(),
+                    source: include_str!("../../../web/bridge/bridge.js").to_string(),
                 },
                 InjectionScript {
                     name: MOD_UI_NAME,

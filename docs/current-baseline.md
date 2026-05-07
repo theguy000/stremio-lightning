@@ -12,7 +12,7 @@ This document freezes the current Tauri baseline before the platform shell migra
 4. The main window and child webview load `https://web.stremio.com/`.
 5. Initialization scripts are injected in this order:
    - native-player/WebKitGTK capability flags
-   - `src-tauri/scripts/bridge.js`
+   - `web/bridge/bridge.js`
    - bundled Svelte mod UI IIFE
 6. The streaming server starts during setup and the web app receives a delayed `StreamingServer Reload` dispatch once the local server is ready.
 
