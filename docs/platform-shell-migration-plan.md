@@ -391,7 +391,7 @@ Tasks:
 - Execute the foundational crate-first plan in `docs/windows-webview2-shell-crate-plan.md` before feature expansion.
 - Track current progress, missing implementation, and direct shell gaps in `docs/windows-webview2-shell-gap-analysis.md`.
 - Track Stremio Community feature parity separately in `docs/stremio-community-feature-parity-todo.md` after the direct Windows shell crate is functional.
-- Implement WebView2 host adapter: baseline complete in `crates/stremio-lightning-windows` with WebView2 environment/controller creation, `HWND` attachment, resize handling, configured URL navigation, and simple native/WebView2 message plumbing.
+- Implement WebView2 host adapter: baseline complete in `crates/stremio-lightning-windows` with WebView2 environment/controller creation, `HWND` attachment, resize handling, configured URL navigation, request/response IPC IDs, structured native errors, and native event listener dispatch through the shared bridge.
 - Implement native MPV embedding/rendering using the currently stable Windows approach.
 - Preserve installer/dependency download behavior for libmpv.
 - Retire the Windows Tauri runtime path after direct WebView2 feature parity is reached.

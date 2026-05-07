@@ -145,20 +145,34 @@ Validation completed:
 
 ## Milestone 4: Bridge Injection And Host Contract
 
-- [ ] Inject the Windows WebView2 adapter at document start or earliest supported equivalent.
-- [ ] Inject/load `web/bridge/bridge.js` without duplicating shell-specific logic in the shared bridge.
-- [ ] Implement handshake/initialization expected by the hosted web app.
-- [ ] Implement request/response IDs.
-- [ ] Implement structured native errors for invalid commands.
-- [ ] Implement host commands currently used by the app and mods panel.
-- [ ] Implement native event listener registration/unregistration.
-- [ ] Add JSON fixtures for shared host contract tests.
+- [x] Inject the Windows WebView2 adapter at document start or earliest supported equivalent.
+- [x] Inject/load `web/bridge/bridge.js` without duplicating shell-specific logic in the shared bridge.
+- [x] Implement handshake/initialization expected by the hosted web app.
+- [x] Implement request/response IDs.
+- [x] Implement structured native errors for invalid commands.
+- [x] Implement host commands currently used by the app and mods panel.
+- [x] Implement native event listener registration/unregistration.
+- [x] Add JSON fixtures for shared host contract tests.
 
 Acceptance:
 
 - The mods panel can call native host APIs through the shared bridge.
 - Unsupported native commands fail with structured errors.
 - Contract tests are shared with or mirrored from Linux/Tauri host behavior.
+
+Implementation notes:
+
+- The Windows WebView2 adapter now owns a Promise-based request/response map and sends `{ id, kind, payload }` messages to native through `chrome.webview.postMessage`.
+- `src/host.rs` mirrors the Linux IPC envelope for `invoke`, `listen`, `unlisten`, window commands, and `webview.setZoom`, returning structured `{ kind: "response", id, ok, value }` messages.
+- Native event listener registration is tracked by ID and drained back to WebView2 as `{ kind: "event", event, payload }` messages.
+- Shell transport handshake messages are emitted through the shared `shell-transport-message` event so `web/bridge/bridge.js` keeps the same Qt-compatible transport path.
+- The JSON contract fixture lives at `crates/stremio-lightning-windows/tests/fixtures/host_contract.json` and is exercised by platform-neutral unit tests.
+
+Validation completed:
+
+- `cargo fmt --all`
+- `cargo test -p stremio-lightning-windows`
+- `cargo check -p stremio-lightning-windows --target x86_64-pc-windows-msvc`
 
 ## Milestone 5: Native MPV Baseline
 

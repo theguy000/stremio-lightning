@@ -71,13 +71,13 @@ impl WindowsWebView2Shell {
     }
 
     pub fn run(&self) -> Result<(), String> {
-        platform::run_webview2_shell(&self.url, &self.injection)
+        platform::run_webview2_shell(&self.url, &self.injection, self.host.clone())
     }
 }
 
 #[cfg(windows)]
 mod platform {
-    use super::InjectionBundle;
+    use super::{Arc, InjectionBundle, WindowsHost};
     use crate::window::{run_native_window_with_handler, NativeWindowHandler, WindowConfig};
     use std::ptr;
     use webview2_com::{
@@ -90,7 +90,11 @@ mod platform {
     use windows::Win32::Foundation::{E_POINTER, HWND, RECT};
     use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
 
-    pub fn run_webview2_shell(url: &str, injection: &InjectionBundle) -> Result<(), String> {
+    pub fn run_webview2_shell(
+        url: &str,
+        injection: &InjectionBundle,
+        host: Arc<WindowsHost>,
+    ) -> Result<(), String> {
         unsafe {
             CoInitializeEx(None, COINIT_APARTMENTTHREADED)
                 .ok()
@@ -99,23 +103,25 @@ mod platform {
 
         run_native_window_with_handler(
             WindowConfig::default(),
-            WebView2WindowHost::new(url.to_string(), injection.clone()),
+            WebView2WindowHost::new(url.to_string(), injection.clone(), host),
         )
     }
 
     struct WebView2WindowHost {
         url: String,
         injection: InjectionBundle,
+        host: Arc<WindowsHost>,
         controller: Option<ICoreWebView2Controller>,
         webview: Option<ICoreWebView2>,
         navigation_completed_token: Option<i64>,
     }
 
     impl WebView2WindowHost {
-        fn new(url: String, injection: InjectionBundle) -> Self {
+        fn new(url: String, injection: InjectionBundle, host: Arc<WindowsHost>) -> Self {
             Self {
                 url,
                 injection,
+                host,
                 controller: None,
                 webview: None,
                 navigation_completed_token: None,
@@ -161,7 +167,7 @@ mod platform {
 
             configure_webview(&webview)?;
             add_injection_scripts(&webview, &self.injection)?;
-            add_message_handler(&webview)?;
+            add_message_handler(&webview, self.host.clone())?;
             self.navigation_completed_token = Some(add_navigation_completed_handler(&webview)?);
             navigate(&webview, &self.url)?;
 
@@ -289,17 +295,33 @@ mod platform {
         Ok(())
     }
 
-    fn add_message_handler(webview: &ICoreWebView2) -> Result<(), String> {
+    fn add_message_handler(webview: &ICoreWebView2, host: Arc<WindowsHost>) -> Result<(), String> {
         let mut token = 0;
         unsafe {
             webview
                 .add_WebMessageReceived(
-                    &WebMessageReceivedEventHandler::create(Box::new(move |_webview, args| {
-                        if let Some(args) = args {
+                    &WebMessageReceivedEventHandler::create(Box::new(move |webview, args| {
+                        if let (Some(webview), Some(args)) = (webview, args) {
                             let mut message = PWSTR(ptr::null_mut());
                             if args.WebMessageAsJson(&mut message).is_ok() {
                                 let message = CoTaskMemPWSTR::from(message);
-                                eprintln!("WebView2 message received: {}", message.to_string());
+                                for outbound in host.dispatch_ipc_message(&message.to_string()) {
+                                    match serde_json::to_string(&outbound) {
+                                        Ok(serialized) => {
+                                            let serialized = CoTaskMemPWSTR::from(serialized.as_str());
+                                            if let Err(error) = webview.PostWebMessageAsJson(
+                                                *serialized.as_ref().as_pcwstr(),
+                                            ) {
+                                                eprintln!(
+                                                    "[StremioLightning] Failed to post WebView2 IPC response: {error}"
+                                                );
+                                            }
+                                        }
+                                        Err(error) => eprintln!(
+                                            "[StremioLightning] Failed to serialize Windows IPC response: {error}"
+                                        ),
+                                    }
+                                }
                             }
                         }
                         Ok(())
@@ -351,9 +373,13 @@ mod platform {
 
 #[cfg(not(windows))]
 mod platform {
-    use super::InjectionBundle;
+    use super::{Arc, InjectionBundle, WindowsHost};
 
-    pub fn run_webview2_shell(_url: &str, _injection: &InjectionBundle) -> Result<(), String> {
+    pub fn run_webview2_shell(
+        _url: &str,
+        _injection: &InjectionBundle,
+        _host: Arc<WindowsHost>,
+    ) -> Result<(), String> {
         Err("WebView2 shell can only run on Windows".to_string())
     }
 }
@@ -364,17 +390,56 @@ fn windows_host_adapter() -> String {
 
   if (window.StremioLightningHost) return;
 
+  var nextRequestId = 1;
   var nextListenerId = 1;
+  var pending = {};
   var listeners = {};
 
   function post(kind, payload) {
-    var message = JSON.stringify({ kind: kind, payload: payload || null });
     if (!window.chrome || !window.chrome.webview) {
       return Promise.reject(new Error("WebView2 host bridge is not available"));
     }
-    window.chrome.webview.postMessage(message);
-    return Promise.resolve(null);
+    return new Promise(function (resolve, reject) {
+      var id = nextRequestId++;
+      pending[id] = { resolve: resolve, reject: reject };
+      window.chrome.webview.postMessage({
+        id: id,
+        kind: kind,
+        payload: payload || null
+      });
+    });
   }
+
+  function resolveResponse(message) {
+    var callbacks = pending[message.id];
+    if (!callbacks) return;
+    delete pending[message.id];
+    if (message.ok) {
+      callbacks.resolve(message.value);
+    } else {
+      var errorMessage = message.value && message.value.message ? message.value.message : String(message.value);
+      callbacks.reject(new Error(errorMessage));
+    }
+  }
+
+  function dispatchEventMessage(message) {
+    Object.keys(listeners).forEach(function (id) {
+      var listener = listeners[id];
+      if (!listener || listener.event !== message.event) return;
+      try {
+        listener.callback({ event: message.event, payload: message.payload });
+      } catch (error) {
+        console.error("[StremioLightning] Windows listener failed:", error);
+      }
+    });
+  }
+
+  window.chrome.webview.addEventListener("message", function (event) {
+    var message = typeof event.data === "string" ? JSON.parse(event.data) : event.data;
+    if (!message || !message.kind) return;
+    if (message.kind === "response") resolveResponse(message);
+    else if (message.kind === "event") dispatchEventMessage(message);
+  });
 
   window.StremioLightningHost = {
     invoke: function (command, payload) {
@@ -383,14 +448,19 @@ fn windows_host_adapter() -> String {
     listen: function (event, callback) {
       var id = nextListenerId++;
       listeners[id] = { event: event, callback: callback };
-      return Promise.resolve(function () { delete listeners[id]; });
+      return post("listen", { id: id, event: event }).then(function () {
+        return function () {
+          delete listeners[id];
+          return post("unlisten", { id: id });
+        };
+      });
     },
     window: {
       minimize: function () { return post("window.minimize"); },
       toggleMaximize: function () { return post("window.toggleMaximize"); },
       close: function () { return post("window.close"); },
-      isMaximized: function () { return Promise.resolve(false); },
-      isFullscreen: function () { return Promise.resolve(false); },
+      isMaximized: function () { return post("window.isMaximized"); },
+      isFullscreen: function () { return post("window.isFullscreen"); },
       setFullscreen: function (fullscreen) { return post("window.setFullscreen", { fullscreen: fullscreen }); },
       startDragging: function () { return post("window.startDragging"); }
     },

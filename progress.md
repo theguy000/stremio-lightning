@@ -4,86 +4,57 @@
 
 - Branch: `master`
 - Remote: `origin` (`https://github.com/theguy000/stremio-lightning.git`)
-- Last pushed commit before this progress update: `7bac0f2 Fix Linux shell fullscreen handling`
-- Local upstream reference checkout: `/tmp/stremio-linux-shell`
-
-## Completed Previously
-
-- Configured Cargo on Linux to use `clang` with `mold` for faster linking.
-- Removed the abandoned streaming-server proxy path:
-  - removed `proxy_streaming_server_request` from the shared host command contract;
-  - removed shared proxy request/response validation code;
-  - removed the Tauri proxy command and command registration;
-  - removed the injected fetch/worker proxy shims from `bridge.js`;
-  - removed proxy types from the frontend host API.
-- Updated Linux shell server lifecycle handling:
-  - starts the streaming server before opening the Linux shell window;
-  - stops the child process on drop/app exit;
-  - supports restart;
-  - detects exited children;
-  - writes stdout/stderr to log files.
-- Updated docs and manual smoke checks to use direct local server access instead of the removed proxy.
+- Last pushed commit before this progress update: `4f48d1c Add Windows WebView2 host baseline`
+- Active track: Phase 6 direct Windows WebView2 shell migration
+- Active plan: `docs/windows-webview2-shell-crate-plan.md`
+- Official Windows reference checkout: `/tmp/stremio-shell-ng-reference`
 
 ## Completed In This Change
 
-- Completed the Phase 3 Linux runtime path against the current upstream `stremio-linux-shell` architecture:
-  - replaced the fake black GL compositor and the rejected GTK3/WebKit2 experiment with GTK4 + WebKitGTK 6;
-  - added the upstream-style `libepoxy` bootstrap required before using GTK GL functions;
-  - created a GTK `ApplicationWindow` with a native `GLArea` MPV layer under a transparent WebKitGTK 6 webview overlay;
-  - wired WebKit document-start scripts and `window.webkit.messageHandlers.ipc` to the existing Rust host runtime;
-  - disabled WebKit web media so playback is routed through the native-player contract instead of browser media.
-- Added Phase 3 shell-contract scaffolding:
-  - added a Linux webview runtime object that owns URL loading state, devtools intent, document-start injection order, and JS event dispatch;
-  - wired the runtime into Linux app startup instead of discarding the injection bundle after bootstrap logging;
-  - added a JS-to-Rust IPC dispatcher for the Linux host adapter paths:
-    - `invoke`;
-    - `listen`;
-    - `unlisten`;
-    - minimal window methods;
-    - `webview.setZoom`;
-  - fixed listener id handling so ids created by the injected JavaScript adapter are the ids removed by `unlisten`;
-  - added drainable host events so native events can be delivered back into the loaded webview through `window.__STREMIO_LIGHTNING_LINUX_DISPATCH__`;
-  - ported streaming-server startup/reload behavior into the replacement Linux shell:
-    - starts the sidecar during `stremio-lightning-linux` boot;
-    - waits for the local server to accept connections on `127.0.0.1:11470`;
-    - loads Stremio Web through the official local server proxy to avoid HTTPS-to-local-HTTP mixed-content blocking;
-    - dispatches Stremio Web's `StreamingServer Reload` after the WebKit page finishes loading;
-  - added unit coverage for document-start injection, IPC roundtrip, event delivery, listener removal, server commands, and MPV transport command mapping.
-- Wired the Linux native-player command path to the rendered MPV layer using the official Stremio Linux shell architecture as the design reference:
-  - kept the GTK `GLArea` video state as the owner of the real `libmpv2::Mpv` instance and render context;
-  - changed `MpvPlayerBackend` from stub methods into a lightweight command handle attached to that rendered MPV state;
-  - forwarded web-issued `mpv-command`, `mpv-set-prop`, `mpv-observe-prop`, and `native-player-stop` commands through the host backend into the GLArea-owned MPV instance;
-  - added an upstream-style MPV event drain that polls the GLArea-owned MPV instance for property changes and end-file events, serializes them as `mpv-prop-change` / `mpv-event-ended`, and dispatches them into WebKit through the Linux host event bridge;
-  - added focused test coverage proving `MpvPlayerBackend` forwards commands to the attached renderer channel.
-- Fixed Linux shell fullscreen handling in the replacement GTK/WebKit path:
-  - kept fullscreen ownership in the Linux native shell instead of adding custom shared bridge JavaScript;
-  - connected WebKit `enter_fullscreen` / `leave_fullscreen` signals to GTK `ApplicationWindow::fullscreen` / `unfullscreen`, matching the upstream Linux shell direction;
-  - routed Linux host adapter `window.setFullscreen` IPC to the real GTK window instead of only emitting a synthetic event;
-  - made Linux `window.isFullscreen` return the tracked native fullscreen state instead of always returning `false`;
-  - mapped Stremio Web's Qt WebChannel `win-set-visibility` transport event to native GTK fullscreen so player double-click fullscreen follows the same upstream Linux shell path;
-  - pushed the fix to `origin/master` as `7bac0f2 Fix Linux shell fullscreen handling`.
+- Completed Milestone 4: Bridge Injection And Host Contract.
+- Implemented Promise-based Windows WebView2 IPC in the injected Windows host adapter:
+  - `invoke`;
+  - `listen`;
+  - `unlisten`;
+  - baseline window methods;
+  - `webview.setZoom`.
+- Added native request/response routing in `crates/stremio-lightning-windows/src/host.rs` using `{ id, kind, payload }` inbound messages and `{ kind: "response", id, ok, value }` outbound messages.
+- Added structured native errors for unsupported and failed commands so JavaScript receives a single rejected Promise instead of repeated bridge exceptions.
+- Added listener registration and event dispatch back to JavaScript with `{ kind: "event", event, payload }` messages.
+- Routed Stremio shell transport handshake responses through the shared `shell-transport-message` event used by `web/bridge/bridge.js`.
+- Added baseline Windows host command behavior for bridge/plugin-facing calls, with storage-heavy mod commands still blocked behind structured not-yet-implemented errors until the later mods/storage work.
+- Added JSON host contract fixture coverage at `crates/stremio-lightning-windows/tests/fixtures/host_contract.json`.
+- Updated Windows migration progress docs:
+  - `docs/windows-webview2-shell-crate-plan.md`;
+  - `docs/windows-webview2-shell-gap-analysis.md`;
+  - `docs/platform-shell-migration-plan.md`.
+
+## Completed Previously On Windows Track
+
+- Milestone 1: Windows shell crate foundation, module boundaries, shared bridge relocation, resource/settings/server/single-instance scaffolding, and core feature gating.
+- Milestone 2: raw Win32 native window baseline with direct `HWND` ownership, app class registration, message loop, resize/close/dpi handling, and UI-thread wake message reservation.
+- Milestone 3: WebView2 environment/controller creation attached to the native `HWND`, client-rect resizing, configured URL navigation, baseline WebView2 settings, document-created script injection, and simple native/WebView2 smoke plumbing.
 
 ## Verification
 
-- `cargo check -p stremio-lightning-linux` passed.
-- `cargo test -p stremio-lightning-linux` passed: 34 unit tests, smoke test still ignored unless `STREMIO_LIGHTNING_LINUX_SMOKE=1`.
-- `timeout 12s cargo run -p stremio-lightning-linux` reached the GTK4/WebKitGTK 6 load path and stayed alive until the timeout killed it.
+- `cargo fmt --all` passed.
+- `cargo test -p stremio-lightning-windows` passed: 14 tests.
+- `cargo check -p stremio-lightning-windows --target x86_64-pc-windows-msvc` passed.
+- `cargo test --workspace` passed.
 
 ## Runtime Status
 
-Phase 3 now has a real Linux shell surface using GTK4/WebKitGTK 6 plus a native MPV GLArea layer, matching the current upstream Stremio Linux shell direction. The previous blocking runtime gap is fixed: `LinuxHost` and `MpvPlayerBackend` now send native-player transport commands to the same MPV command path used by the GTK `GLArea` renderer, and observed MPV property/end events are forwarded back to Stremio Web through the Linux host event bridge. Fullscreen requests in the Linux shell now follow the upstream-style native WebKit/GTK path instead of relying on bridge-level JavaScript workarounds, including Stremio Web's `win-set-visibility` transport event used by player double-click fullscreen.
+The direct Windows shell can now own a native Win32 window, host WebView2, inject the Windows adapter and shared bridge at document-created time, navigate to the configured Stremio Web URL, and route baseline host IPC with request IDs, structured errors, listener registration, and native event dispatch.
 
-Runtime manual acceptance still needs an interactive pass:
+Runtime testing still requires Windows:
 
-- visual confirmation that the local server proxy renders Stremio Web in the Linux shell;
-- visual confirmation that the mods button appears in that rendered page;
-- visual confirmation that Stremio Web reports the local streaming server online after the replacement shell dispatches `StreamingServer Reload`;
-- local sample playback rendered through the MPV GLArea below the WebKitGTK overlay.
+- `npm run setup:windows-shell`
+- `cargo run -p stremio-lightning-windows`
 
 ## Next Work
 
-Immediate goal for the next commit:
+Immediate next milestone:
 
-1. Add a local sample-video smoke path proving load, render, stop/end cleanup, and WebKit overlay visibility.
-2. Run the Linux manual smoke checks against the actual rendered Stremio Web UI.
-3. Exercise Phase 4 mod/plugin flows inside the Linux shell with the real webview.
+1. Execute Milestone 5: Native MPV Baseline from `docs/windows-webview2-shell-crate-plan.md`.
+2. Load/link `libmpv` from the Windows shell resource layout.
+3. Initialize MPV with the native window `HWND` and implement `mpv-command`, `mpv-set-prop`, `mpv-observe-prop`, player events, and clean shutdown.

@@ -78,14 +78,18 @@ Completed so far:
 - Added baseline WebView2 settings and browser flags for autoplay, status bar suppression, zoom control suppression, host-object disablement, script-dialog suppression, and debug-build devtools policy.
 - Added document-created injection of the Windows adapter, native-player flag, and shared bridge script.
 - Added simple WebView2 native-to-web and web-to-native smoke plumbing; full request/response host routing remains Milestone 4.
+- Completed Milestone 4 of `docs/windows-webview2-shell-crate-plan.md`.
+- Added Promise-based Windows WebView2 IPC with request IDs, native responses, structured errors, listener registration/unregistration, and native event dispatch back into the shared bridge.
+- Added a Windows host contract JSON fixture at `crates/stremio-lightning-windows/tests/fixtures/host_contract.json`.
 
 Current status:
 
 - The Windows crate is structurally present.
-- Milestone 1, Milestone 2, and Milestone 3 are complete.
+- Milestone 1, Milestone 2, Milestone 3, and Milestone 4 are complete.
 - Shared bridge ownership is no longer under `src-tauri`.
 - The direct shell can now create and own a native Win32 window on Windows, attach WebView2 to it, and navigate to the configured web UI.
-- The direct shell cannot yet route full host-contract request/response messages or render MPV video.
+- The direct shell can route the baseline host-contract request/response messages and structured errors.
+- The direct shell cannot yet render MPV video, supervise the local server, or provide full window behavior parity.
 
 ## Missing Work By Area
 
@@ -129,10 +133,11 @@ Implemented baseline:
 - Baseline WebView2 settings and debug-build devtools policy.
 - Document-created injection with the shared bridge.
 - Simple WebView2 message receive/send plumbing.
+- Promise-based request/response host contract routing through WebView2 messages.
+- Native event dispatch back to JavaScript listeners.
 
 Missing:
 
-- Full request/response host contract routing.
 - Runtime devtools CLI toggle beyond debug-build policy.
 - New-window/external-link handling.
 - Fullscreen element handling.
@@ -169,13 +174,19 @@ Acceptance:
 
 ## 3. Host API And Shell RPC Contract
 
+Implemented baseline:
+
+- Windows WebView2 adapter posts `{ id, kind, payload }` requests and resolves/rejects JavaScript Promises from native responses.
+- Native host dispatcher handles `invoke`, `listen`, `unlisten`, baseline window commands, and `webview.setZoom`.
+- Unsupported commands return a single structured error response.
+- Shell transport handshake responses are emitted as `shell-transport-message` events.
+- Contract fixture coverage exists for success and invalid-command responses.
+
 Missing:
 
 - Complete Windows implementation of the shared host API.
-- Typed command request/response routing for every command currently used by the injected bridge and plugins.
-- Compatibility with Stremio Web's shell transport expectations.
-- Native event emission for window state, visibility, media keys, native player status, player events, and app lifecycle.
-- Error response schema for invalid commands and failed native operations.
+- Real mods/settings filesystem behavior in the Windows crate once shared core features are enabled for it.
+- Native event emission for media keys, native player status, player events, and app lifecycle.
 
 Needed:
 

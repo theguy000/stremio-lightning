@@ -1,0 +1,35 @@
+{
+  "invokeInitRequest": {
+    "id": 42,
+    "kind": "invoke",
+    "payload": {
+      "command": "init",
+      "payload": null
+    }
+  },
+  "invokeInitResponse": {
+    "kind": "response",
+    "id": 42,
+    "ok": true,
+    "value": {
+      "platform": "windows",
+      "shell": "webview2"
+    }
+  },
+  "invalidCommandRequest": {
+    "id": 9,
+    "kind": "invoke",
+    "payload": {
+      "command": "missing",
+      "payload": null
+    }
+  },
+  "invalidCommandResponse": {
+    "kind": "response",
+    "id": 9,
+    "ok": false,
+    "value": {
+      "message": "Unsupported Windows host command: missing"
+    }
+  }
+}
