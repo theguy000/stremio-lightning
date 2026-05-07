@@ -11,9 +11,26 @@ pub struct CommandSpec {
 }
 
 pub trait ProcessSpawner: Send + Sync + 'static {
-    type Child: Send + 'static;
+    type Child: ProcessChild;
 
     fn spawn(&self, spec: CommandSpec) -> Result<Self::Child, String>;
+}
+
+pub trait ProcessChild: Send + 'static {
+    fn stop(&mut self) -> Result<(), String>;
+}
+
+impl ProcessChild for Child {
+    fn stop(&mut self) -> Result<(), String> {
+        self.kill()
+            .map_err(|e| format!("Failed to stop streaming server: {e}"))
+    }
+}
+
+impl ProcessChild for u64 {
+    fn stop(&mut self) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 #[derive(Debug, Default, Clone)]
@@ -62,6 +79,19 @@ impl<P: ProcessSpawner> StreamingServer<P> {
         let spawned = self.spawner.spawn(spec)?;
         *child = Some(spawned);
         Ok(())
+    }
+
+    pub fn stop(&self) -> Result<(), String> {
+        let mut child = self.child.lock().map_err(|e| e.to_string())?;
+        if let Some(mut child) = child.take() {
+            child.stop()?;
+        }
+        Ok(())
+    }
+
+    pub fn restart(&self) -> Result<(), String> {
+        self.stop()?;
+        self.start()
     }
 
     pub fn is_running(&self) -> bool {
@@ -167,5 +197,17 @@ mod tests {
         server.start().unwrap();
         assert!(server.is_running());
         assert_eq!(spawner.calls().len(), 1);
+    }
+
+    #[test]
+    fn fake_spawner_stops_and_restarts() {
+        let spawner = FakeProcessSpawner::default();
+        let server = StreamingServer::with_project_root(spawner.clone(), PathBuf::from("/repo"));
+        server.start().unwrap();
+        server.stop().unwrap();
+        assert!(!server.is_running());
+        server.restart().unwrap();
+        assert!(server.is_running());
+        assert_eq!(spawner.calls().len(), 2);
     }
 }
