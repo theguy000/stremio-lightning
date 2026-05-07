@@ -29,6 +29,29 @@ const IPC_HANDLER_NAME: &str = "ipc";
 const STREAMING_SERVER_ADDR: ([u8; 4], u16) = ([127, 0, 0, 1], 11470);
 const STREAMING_SERVER_READY_TIMEOUT: Duration = Duration::from_secs(30);
 const STREAMING_SERVER_POLL_INTERVAL: Duration = Duration::from_millis(250);
+const MPV_FLOAT_PROPERTIES: &[&str] = &[
+    "time-pos",
+    "duration",
+    "volume",
+    "speed",
+    "sub-pos",
+    "sub-scale",
+    "sub-delay",
+    "cache-buffering-state",
+    "demuxer-cache-time",
+    "panscan",
+];
+const MPV_BOOL_PROPERTIES: &[&str] = &[
+    "pause",
+    "buffering",
+    "seeking",
+    "osc",
+    "input-default-bindings",
+    "input-vo-keyboard",
+    "eof-reached",
+    "paused-for-cache",
+    "keepaspect",
+];
 const STREAMING_SERVER_RELOAD_SCRIPT: &str = r#"
 (function () {
     var attempts = 0;
@@ -445,18 +468,9 @@ impl NativeVideoState {
     }
 
     fn observe_property(&self, name: &str) {
-        let format = if matches!(name, "pause" | "mute" | "fullscreen") {
+        let format = if MPV_BOOL_PROPERTIES.contains(&name) {
             Format::Flag
-        } else if matches!(
-            name,
-            "time-pos"
-                | "duration"
-                | "volume"
-                | "speed"
-                | "percent-pos"
-                | "sub-delay"
-                | "audio-delay"
-        ) {
+        } else if MPV_FLOAT_PROPERTIES.contains(&name) {
             Format::Double
         } else {
             Format::String
@@ -706,5 +720,15 @@ mod tests {
         };
 
         assert_eq!(external_url_from_ipc_request(&request), None);
+    }
+
+    #[test]
+    fn mpv_property_type_lists_match_official_loading_properties() {
+        assert!(MPV_BOOL_PROPERTIES.contains(&"buffering"));
+        assert!(MPV_BOOL_PROPERTIES.contains(&"seeking"));
+        assert!(MPV_BOOL_PROPERTIES.contains(&"paused-for-cache"));
+        assert!(MPV_BOOL_PROPERTIES.contains(&"eof-reached"));
+        assert!(MPV_FLOAT_PROPERTIES.contains(&"cache-buffering-state"));
+        assert!(MPV_FLOAT_PROPERTIES.contains(&"demuxer-cache-time"));
     }
 }
