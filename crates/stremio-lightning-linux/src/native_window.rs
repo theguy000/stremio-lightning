@@ -155,8 +155,9 @@ fn build_window(
         .default_height(850)
         .build();
 
+    let fullscreen = Rc::new(Cell::new(false));
     let overlay = gtk::Overlay::new();
-    let webview = build_webview(config, runtime.clone())?;
+    let webview = build_webview(config, runtime.clone(), window.clone(), fullscreen.clone())?;
     let video = build_native_video(player, runtime, webview.clone())?;
     video.set_hexpand(true);
     video.set_vexpand(true);
@@ -171,6 +172,8 @@ fn build_window(
 fn build_webview(
     config: &AppConfig,
     runtime: Rc<LinuxWebviewRuntime<MpvPlayerBackend, RealProcessSpawner>>,
+    window: gtk::ApplicationWindow,
+    fullscreen: Rc<Cell<bool>>,
 ) -> Result<WebKitWebView, String> {
     let user_content = webkit::UserContentManager::new();
     user_content.register_script_message_handler(IPC_HANDLER_NAME, None);
@@ -201,8 +204,36 @@ fn build_webview(
     {
         let webview = webview.clone();
         let runtime = runtime.clone();
+        let window = window.clone();
+        let fullscreen = fullscreen.clone();
         user_content.connect_script_message_received(Some(IPC_HANDLER_NAME), move |_, value| {
-            handle_ipc_message(&webview, &runtime, &value.to_string());
+            handle_ipc_message(
+                &webview,
+                &runtime,
+                &window,
+                &fullscreen,
+                &value.to_string(),
+            );
+        });
+    }
+
+    {
+        let runtime = runtime.clone();
+        let window = window.clone();
+        let fullscreen = fullscreen.clone();
+        webview.connect_enter_fullscreen(move |webview| {
+            set_window_fullscreen(webview, &runtime, &window, &fullscreen, true);
+            true
+        });
+    }
+
+    {
+        let runtime = runtime.clone();
+        let window = window.clone();
+        let fullscreen = fullscreen.clone();
+        webview.connect_leave_fullscreen(move |webview| {
+            set_window_fullscreen(webview, &runtime, &window, &fullscreen, false);
+            true
         });
     }
 
@@ -318,6 +349,8 @@ fn webkit_ipc_adapter() -> String {
 fn handle_ipc_message(
     webview: &WebKitWebView,
     runtime: &LinuxWebviewRuntime<MpvPlayerBackend, RealProcessSpawner>,
+    window: &gtk::ApplicationWindow,
+    fullscreen: &Rc<Cell<bool>>,
     raw: &str,
 ) {
     let response = serde_json::from_str::<WebkitIpcRequest>(raw)
@@ -326,7 +359,13 @@ fn handle_ipc_message(
             let external_url = external_url_from_ipc_request(&request);
             let id = request.id;
             runtime
-                .dispatch_ipc(&request.kind, request.payload)
+                .dispatch_native_window_ipc(
+                    &request.kind,
+                    request.payload,
+                    window,
+                    fullscreen,
+                    webview,
+                )
                 .and_then(|value| {
                     if let Some(url) = external_url {
                         open_external_uri(&url)?;
@@ -345,6 +384,86 @@ fn handle_ipc_message(
         Err(error) => eprintln!("[StremioLightning] {error}"),
     }
 
+    drain_host_events(webview, runtime);
+}
+
+trait NativeWindowIpc {
+    fn dispatch_native_window_ipc(
+        &self,
+        kind: &str,
+        payload: Option<Value>,
+        window: &gtk::ApplicationWindow,
+        fullscreen: &Rc<Cell<bool>>,
+        webview: &WebKitWebView,
+    ) -> Result<Value, String>;
+}
+
+impl NativeWindowIpc for LinuxWebviewRuntime<MpvPlayerBackend, RealProcessSpawner> {
+    fn dispatch_native_window_ipc(
+        &self,
+        kind: &str,
+        payload: Option<Value>,
+        window: &gtk::ApplicationWindow,
+        fullscreen: &Rc<Cell<bool>>,
+        webview: &WebKitWebView,
+    ) -> Result<Value, String> {
+        match kind {
+            "window.isFullscreen" => Ok(json!(fullscreen.get())),
+            "window.setFullscreen" => {
+                let fullscreen_value = payload
+                    .as_ref()
+                    .and_then(|value| value.get("fullscreen"))
+                    .and_then(Value::as_bool)
+                    .ok_or_else(|| "Invalid window.setFullscreen payload".to_string())?;
+                set_window_fullscreen(webview, self, window, fullscreen, fullscreen_value);
+                Ok(Value::Null)
+            }
+            "window.close" => {
+                window.close();
+                Ok(Value::Null)
+            }
+            "window.isMaximized" => Ok(json!(window.is_maximized())),
+            "window.toggleMaximize" => {
+                if window.is_maximized() {
+                    window.unmaximize();
+                } else {
+                    window.maximize();
+                }
+                Ok(Value::Null)
+            }
+            _ => LinuxWebviewRuntime::dispatch_ipc(self, kind, payload),
+        }
+    }
+}
+
+fn set_window_fullscreen(
+    webview: &WebKitWebView,
+    runtime: &LinuxWebviewRuntime<MpvPlayerBackend, RealProcessSpawner>,
+    window: &gtk::ApplicationWindow,
+    fullscreen: &Rc<Cell<bool>>,
+    fullscreen_value: bool,
+) {
+    if fullscreen_value {
+        window.fullscreen();
+    } else {
+        window.unfullscreen();
+    }
+
+    if fullscreen.replace(fullscreen_value) != fullscreen_value {
+        if let Err(error) = runtime.dispatch_ipc(
+            "window.setFullscreen",
+            Some(json!({ "fullscreen": fullscreen_value })),
+        ) {
+            eprintln!("[StremioLightning] Failed to emit fullscreen state: {error}");
+        }
+        drain_host_events(webview, runtime);
+    }
+}
+
+fn drain_host_events(
+    webview: &WebKitWebView,
+    runtime: &LinuxWebviewRuntime<MpvPlayerBackend, RealProcessSpawner>,
+) {
     match runtime.drain_event_dispatch_scripts() {
         Ok(scripts) => {
             for script in scripts {
