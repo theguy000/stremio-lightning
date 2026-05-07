@@ -280,23 +280,29 @@ Acceptance:
 
 ## 6. Stremio Server And Runtime Process
 
-Missing:
+Implemented baseline:
 
 - Windows direct-shell lifecycle for the local Stremio server/runtime.
 - Child process startup from Windows shell resources.
-- stdout/stderr logging and readiness detection.
-- Crash detection and user-visible error reporting.
-- Shutdown cleanup.
+- Explicit `NO_CORS`, `FFMPEG_BIN`, and `FFPROBE_BIN` environment setup for the bundled server.
+- stdout/stderr log file capture.
+- Host commands for start, stop, restart, and running-state checks.
+- `server-started` and `server-stopped` event emission through the existing host event channel.
+- Shutdown cleanup through the server supervisor drop path.
 - Windows job object handling so child processes die with the shell.
+
+Missing:
+
+- Readiness detection from stdout or HTTP health check.
+- Crash detection and user-visible error reporting.
 
 Needed:
 
 - Decide which pieces belong in shared core and which stay Windows-specific. Process creation flags, job objects, and resource paths are Windows-specific; lifecycle commands and status schemas can be shared.
 - Reuse the current Stremio Lightning streaming server abstraction where possible.
-- Add a Windows process supervisor that starts bundled `stremio-service` or runtime resources downloaded by `setup:windows-shell`.
-- Attach the child process to a job object with kill-on-close semantics.
+- Harden the Windows process supervisor that starts bundled runtime resources downloaded by `setup:windows-shell`.
 - Parse readiness from stdout or replace readiness detection with a local HTTP health check.
-- Surface server status through the host API.
+- Surface richer server status/address details if the web app requires more than the current Linux-compatible boolean status and start/stop events.
 
 Reference behavior to copy conceptually:
 

@@ -13,7 +13,14 @@
     "ok": true,
     "value": {
       "platform": "windows",
-      "shell": "webview2"
+      "shell": "webview2",
+      "shellVersion": "0.1.0",
+      "nativePlayer": {
+        "enabled": false,
+        "initialized": false,
+        "backend": "webview2-libmpv"
+      },
+      "streamingServerRunning": false
     }
   },
   "invalidCommandRequest": {

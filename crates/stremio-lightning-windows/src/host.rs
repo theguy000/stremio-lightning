@@ -1,4 +1,6 @@
 use crate::player::WindowsPlayer;
+use crate::resources::WindowsResourceLayout;
+use crate::server::{RealProcessSpawner, WindowsStreamingServer};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -60,6 +62,7 @@ pub enum WindowsIpcOutbound {
 
 pub struct WindowsHost {
     player: Mutex<WindowsPlayer>,
+    streaming_server: WindowsStreamingServer<RealProcessSpawner>,
     listeners: Mutex<ListenerRegistry>,
     package_version: &'static str,
 }
@@ -72,11 +75,27 @@ impl Default for WindowsHost {
 
 impl WindowsHost {
     pub fn new(package_version: &'static str) -> Self {
+        Self::with_streaming_server_disabled(package_version, false)
+    }
+
+    pub fn with_streaming_server_disabled(package_version: &'static str, disabled: bool) -> Self {
         Self {
             player: Mutex::default(),
+            streaming_server: WindowsStreamingServer::from_resources(
+                &WindowsResourceLayout::from_manifest_dir(),
+                disabled,
+            ),
             listeners: Mutex::default(),
             package_version,
         }
+    }
+
+    pub fn start_streaming_server(&self) -> Result<(), String> {
+        self.streaming_server.start()?;
+        if !self.streaming_server.disabled() {
+            self.emit_server_started()?;
+        }
+        Ok(())
     }
 
     pub fn dispatch_ipc_message(&self, raw: &str) -> Vec<WindowsIpcOutbound> {
@@ -169,7 +188,16 @@ impl WindowsHost {
 
     pub fn invoke(&self, command: &str, payload: Option<Value>) -> Result<Value, String> {
         match command {
-            "init" => Ok(json!({ "platform": "windows", "shell": "webview2" })),
+            "init" => Ok(json!({
+                "platform": "windows",
+                "shell": "webview2",
+                "shellVersion": env!("CARGO_PKG_VERSION"),
+                "nativePlayer": self.player
+                    .lock()
+                    .map_err(|_| "Windows player lock poisoned".to_string())?
+                    .status(),
+                "streamingServerRunning": self.streaming_server.is_running(),
+            })),
             "get_native_player_status" => Ok(serde_json::to_value(
                 self.player
                     .lock()
@@ -196,8 +224,27 @@ impl WindowsHost {
                 validate_external_url(url)?;
                 Ok(Value::Null)
             }
-            "get_streaming_server_status" => Ok(json!(false)),
-            "start_streaming_server" | "stop_streaming_server" | "restart_streaming_server" => {
+            "get_streaming_server_status" => Ok(json!(self.streaming_server.is_running())),
+            "start_streaming_server" => {
+                self.start_streaming_server()?;
+                Ok(Value::Null)
+            }
+            "stop_streaming_server" => {
+                self.streaming_server.stop()?;
+                if !self.streaming_server.disabled() {
+                    self.emit_server_stopped()?;
+                }
+                Ok(Value::Null)
+            }
+            "restart_streaming_server" => {
+                let was_running = self.streaming_server.is_running();
+                self.streaming_server.restart()?;
+                if !self.streaming_server.disabled() && was_running {
+                    self.emit_server_stopped()?;
+                }
+                if !self.streaming_server.disabled() {
+                    self.emit_server_started()?;
+                }
                 Ok(Value::Null)
             }
             "get_plugins" | "get_themes" => Ok(json!([])),
@@ -289,6 +336,14 @@ impl WindowsHost {
         self.emit_host_event(HostEvent::WindowFullscreenChanged, json!(fullscreen))
     }
 
+    fn emit_server_started(&self) -> Result<(), String> {
+        self.emit_host_event(HostEvent::ServerStarted, Value::Null)
+    }
+
+    fn emit_server_stopped(&self) -> Result<(), String> {
+        self.emit_host_event(HostEvent::ServerStopped, Value::Null)
+    }
+
     fn emit_host_event(&self, event: HostEvent, payload: Value) -> Result<(), String> {
         let event = serde_json::to_value(event)
             .map_err(|e| format!("Failed to serialize host event: {e}"))?
@@ -371,11 +426,21 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    fn expected_init_contract() -> Value {
+        json!({
+            "platform": "windows",
+            "shell": "webview2",
+            "shellVersion": env!("CARGO_PKG_VERSION"),
+            "nativePlayer": { "enabled": cfg!(windows), "initialized": false, "backend": "webview2-libmpv" },
+            "streamingServerRunning": false,
+        })
+    }
+
     #[test]
     fn exposes_webview2_init_contract() {
         assert_eq!(
             WindowsHost::default().invoke("init", None).unwrap(),
-            json!({ "platform": "windows", "shell": "webview2" })
+            expected_init_contract()
         );
     }
 
@@ -411,7 +476,7 @@ mod tests {
             WindowsIpcOutbound::Response {
                 id: 42,
                 ok: true,
-                value: json!({ "platform": "windows", "shell": "webview2" }),
+                value: expected_init_contract(),
             }
         );
     }

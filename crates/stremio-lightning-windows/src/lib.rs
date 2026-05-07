@@ -17,7 +17,7 @@ pub fn run() -> Result<(), String> {
 mod platform {
     pub fn run() -> Result<(), String> {
         let settings = crate::settings::WindowsShellSettings::default();
-        crate::webview::WindowsWebView2Shell::new(settings.webui_url)?.run()
+        crate::webview::WindowsWebView2Shell::new(settings)?.run()
     }
 }
 

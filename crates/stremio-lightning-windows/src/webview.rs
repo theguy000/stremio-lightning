@@ -1,4 +1,5 @@
 use crate::host::WindowsHost;
+use crate::settings::WindowsShellSettings;
 use std::sync::Arc;
 
 pub const WINDOWS_HOST_ADAPTER_NAME: &str = "windows-host-adapter";
@@ -49,8 +50,8 @@ pub struct WindowsWebView2Shell {
 }
 
 impl WindowsWebView2Shell {
-    pub fn new(url: impl Into<String>) -> Result<Self, String> {
-        let url = url.into();
+    pub fn new(settings: WindowsShellSettings) -> Result<Self, String> {
+        let url = settings.webui_url;
         if !(url.starts_with("https://") || url.starts_with("http://127.0.0.1:")) {
             return Err(format!("Unsupported WebView2 load URL: {url}"));
         }
@@ -58,7 +59,10 @@ impl WindowsWebView2Shell {
         Ok(Self {
             url,
             injection: InjectionBundle::load(),
-            host: Arc::new(WindowsHost::default()),
+            host: Arc::new(WindowsHost::with_streaming_server_disabled(
+                env!("CARGO_PKG_VERSION"),
+                settings.streaming_server_disabled,
+            )),
         })
     }
 
@@ -152,6 +156,7 @@ mod platform {
         fn on_created(&mut self, hwnd: HWND) -> Result<(), String> {
             self.host
                 .initialize_native_player(hwnd, UiThreadNotifier { hwnd })?;
+            self.host.start_streaming_server()?;
 
             let environment = create_environment()?;
             let controller = create_controller(&environment, hwnd)?;
@@ -499,7 +504,8 @@ mod tests {
 
     #[test]
     fn injects_windows_adapter_before_shared_bridge() {
-        let shell = WindowsWebView2Shell::new("https://web.stremio.com/").unwrap();
+        let shell =
+            WindowsWebView2Shell::new(WindowsShellSettings::from_args([] as [&str; 0])).unwrap();
 
         assert_eq!(
             shell.document_start_script_names(),

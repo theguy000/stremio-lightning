@@ -207,14 +207,23 @@ Acceptance:
 
 ## Milestone 6: Server Runtime Baseline
 
-- [ ] Define resource paths for Windows runtime assets owned by the Windows shell crate.
-- [ ] Start bundled `stremio-runtime.exe server.js` or the selected equivalent.
-- [ ] Attach server process to a Windows Job Object with kill-on-close behavior.
-- [ ] Pipe stdout/stderr.
+- [x] Define resource paths for Windows runtime assets owned by the Windows shell crate.
+- [x] Start bundled `stremio-runtime.exe server.cjs`.
+- [x] Attach server process to a Windows Job Object with kill-on-close behavior.
+- [x] Pipe stdout/stderr to Windows shell log files.
 - [ ] Detect readiness from stdout or HTTP health check.
-- [ ] Emit server address/status events to the web app.
-- [ ] Stop server on app exit.
-- [ ] Add `--streaming-server-disabled` if needed for development.
+- [x] Emit server status events to the web app.
+- [x] Stop server on app exit.
+- [x] Add `--streaming-server-disabled` for development.
+
+Implementation notes:
+
+- `crates/stremio-lightning-windows/src/server.rs` now owns the Windows streaming server supervisor with `start`, `stop`, `restart`, and running-state checks.
+- The server command launches `resources/stremio-runtime.exe resources/server.cjs` and explicitly passes `NO_CORS=1`, `FFMPEG_BIN`, and `FFPROBE_BIN` to match the existing Tauri/Linux launcher behavior while keeping the shell-ng-compatible flat resource layout.
+- On Windows, the spawned server process is assigned to a Job Object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` so it is terminated with the shell process.
+- `src/host.rs` wires `get_streaming_server_status`, `start_streaming_server`, `stop_streaming_server`, and `restart_streaming_server`, and emits `server-started` / `server-stopped` through the existing host event channel.
+- The WebView2 shell starts the server during native window initialization unless `--streaming-server-disabled` is passed.
+- Readiness detection remains a follow-up hardening item because the current app contract mirrors Linux/Tauri boolean status and start/stop events.
 
 Acceptance:
 
