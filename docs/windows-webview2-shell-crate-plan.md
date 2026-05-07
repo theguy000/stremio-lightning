@@ -112,15 +112,15 @@ Validation completed:
 
 ## Milestone 3: WebView2 Host
 
-- [ ] Create WebView2 environment.
-- [ ] Create WebView2 controller attached to the native `HWND`.
-- [ ] Resize WebView2 to the client rect on `WM_SIZE`.
-- [ ] Navigate to configured web UI URL.
-- [ ] Add `--webui-url=<url>` command-line support.
-- [ ] Configure basic settings: autoplay, status bar off, zoom policy, devtools policy.
-- [ ] Add WebView2 initialization error reporting.
-- [ ] Add native-to-web message posting.
-- [ ] Add web-to-native message receiving.
+- [x] Create WebView2 environment.
+- [x] Create WebView2 controller attached to the native `HWND`.
+- [x] Resize WebView2 to the client rect on `WM_SIZE`.
+- [x] Navigate to configured web UI URL.
+- [x] Add `--webui-url=<url>` command-line support.
+- [x] Configure basic settings: autoplay, status bar off, zoom policy, devtools policy.
+- [x] Add WebView2 initialization error reporting.
+- [x] Add native-to-web message posting.
+- [x] Add web-to-native message receiving.
 
 Acceptance:
 
@@ -128,6 +128,20 @@ Acceptance:
 - Native can receive a simple test message from JS.
 - Native can post a simple test message to JS.
 - WebView2 resizes with the native window.
+
+Implementation notes:
+
+- The Windows shell now uses `webview2-com` and initializes COM/WebView2 from the UI thread.
+- `src/window.rs` exposes a small native-window handler hook so `src/webview.rs` can attach a WebView2 controller after the parent `HWND` exists and resize it from `WM_SIZE`.
+- The WebView2 environment uses browser arguments for autoplay and baseline WebView2 UI suppression.
+- The hosted WebView2 injects the existing Windows adapter, native-player flag, and shared bridge through document-created scripts.
+- The first native-to-web smoke message is posted as `native-ready`; incoming WebView2 messages are received and logged until Milestone 4 wires the full host contract.
+
+Validation completed:
+
+- `cargo fmt --all`
+- `cargo test -p stremio-lightning-windows`
+- `cargo check -p stremio-lightning-windows --target x86_64-pc-windows-msvc`
 
 ## Milestone 4: Bridge Injection And Host Contract
 

@@ -26,19 +26,22 @@ pub fn run_native_window(config: WindowConfig) -> Result<(), String> {
 }
 
 #[cfg(windows)]
+pub use platform::{run_native_window_with_handler, NativeWindowHandler};
+
+#[cfg(windows)]
 mod platform {
     use super::WindowConfig;
     use std::ffi::c_void;
     use windows::core::{w, PCWSTR};
-    use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+    use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
     use windows::Win32::Graphics::Gdi::HBRUSH;
     use windows::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows::Win32::UI::HiDpi::{
         SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW,
-        GetWindowLongPtrW, LoadCursorW, PostMessageW, PostQuitMessage, RegisterClassW,
+        CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetClientRect,
+        GetMessageW, GetWindowLongPtrW, LoadCursorW, PostMessageW, PostQuitMessage, RegisterClassW,
         SetWindowLongPtrW, ShowWindow, TranslateMessage, CREATESTRUCTW, CS_HREDRAW, CS_VREDRAW,
         CW_USEDEFAULT, GWLP_USERDATA, IDC_ARROW, MINMAXINFO, MSG, SHOW_WINDOW_CMD, SW_SHOWDEFAULT,
         WINDOW_EX_STYLE, WM_ACTIVATE, WM_APP, WM_CLOSE, WM_DESTROY, WM_DPICHANGED,
@@ -48,9 +51,20 @@ mod platform {
 
     pub const UI_THREAD_WAKE_MESSAGE: u32 = WM_APP + 1;
 
-    #[derive(Debug)]
     struct WindowState {
         config: WindowConfig,
+        handler: Option<Box<dyn NativeWindowHandler>>,
+    }
+
+    pub trait NativeWindowHandler {
+        fn on_created(&mut self, hwnd: HWND) -> Result<(), String>;
+        fn on_resized(&mut self, _hwnd: HWND, _client_rect: RECT) -> Result<(), String> {
+            Ok(())
+        }
+        fn on_ui_thread_wake(&mut self, _hwnd: HWND) -> Result<(), String> {
+            Ok(())
+        }
+        fn on_destroying(&mut self, _hwnd: HWND) {}
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -73,11 +87,18 @@ mod platform {
     }
 
     pub fn run_native_window(config: WindowConfig) -> Result<(), String> {
+        run_native_window_with_handler(config, NoopWindowHandler)
+    }
+
+    pub fn run_native_window_with_handler(
+        config: WindowConfig,
+        handler: impl NativeWindowHandler + 'static,
+    ) -> Result<(), String> {
         unsafe {
             let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         }
 
-        let hwnd = create_main_window(config)?;
+        let hwnd = create_main_window(config, Box::new(handler))?;
         unsafe {
             let notifier = UiThreadNotifier { hwnd };
             notifier.notify()?;
@@ -86,7 +107,18 @@ mod platform {
         }
     }
 
-    fn create_main_window(config: WindowConfig) -> Result<HWND, String> {
+    struct NoopWindowHandler;
+
+    impl NativeWindowHandler for NoopWindowHandler {
+        fn on_created(&mut self, _hwnd: HWND) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    fn create_main_window(
+        config: WindowConfig,
+        handler: Box<dyn NativeWindowHandler>,
+    ) -> Result<HWND, String> {
         let instance = unsafe { GetModuleHandleW(None) }
             .map_err(|error| format!("Failed to get module handle: {error}"))?;
         let class_name = w!("StremioLightningWindow");
@@ -110,7 +142,10 @@ mod platform {
         }
 
         let title = to_wide_null(config.title);
-        let state = Box::new(WindowState { config });
+        let state = Box::new(WindowState {
+            config,
+            handler: Some(handler),
+        });
         let state_ptr = Box::into_raw(state);
 
         let hwnd = unsafe {
@@ -131,7 +166,15 @@ mod platform {
         };
 
         match hwnd {
-            Ok(hwnd) => Ok(hwnd),
+            Ok(hwnd) => {
+                let state = unsafe { window_state(hwnd) };
+                if !state.is_null() {
+                    if let Some(handler) = unsafe { (*state).handler.as_mut() } {
+                        handler.on_created(hwnd)?;
+                    }
+                }
+                Ok(hwnd)
+            }
             Err(error) => {
                 unsafe {
                     drop(Box::from_raw(state_ptr));
@@ -179,6 +222,26 @@ mod platform {
                     }
                     LRESULT(0)
                 }
+                WM_SIZE => {
+                    let state = window_state(hwnd);
+                    if !state.is_null() {
+                        let mut rect = RECT::default();
+                        let _ = GetClientRect(hwnd, &mut rect);
+                        if let Some(handler) = (*state).handler.as_mut() {
+                            let _ = handler.on_resized(hwnd, rect);
+                        }
+                    }
+                    LRESULT(0)
+                }
+                UI_THREAD_WAKE_MESSAGE => {
+                    let state = window_state(hwnd);
+                    if !state.is_null() {
+                        if let Some(handler) = (*state).handler.as_mut() {
+                            let _ = handler.on_ui_thread_wake(hwnd);
+                        }
+                    }
+                    LRESULT(0)
+                }
                 WM_CLOSE => {
                     let _ = DestroyWindow(hwnd);
                     LRESULT(0)
@@ -190,12 +253,15 @@ mod platform {
                 WM_NCDESTROY => {
                     let state = window_state(hwnd);
                     if !state.is_null() {
+                        if let Some(handler) = (*state).handler.as_mut() {
+                            handler.on_destroying(hwnd);
+                        }
                         SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
                         drop(Box::from_raw(state));
                     }
                     DefWindowProcW(hwnd, message, wparam, lparam)
                 }
-                WM_SIZE | WM_ACTIVATE | WM_DPICHANGED | UI_THREAD_WAKE_MESSAGE => LRESULT(0),
+                WM_ACTIVATE | WM_DPICHANGED => LRESULT(0),
                 _ => DefWindowProcW(hwnd, message, wparam, lparam),
             }
         }

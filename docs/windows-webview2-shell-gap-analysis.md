@@ -73,14 +73,19 @@ Completed so far:
 - Verified the workspace after the scaffold with `cargo fmt --all`, `cargo test -p stremio-lightning-windows`, and `cargo test --workspace`.
 - Verified Milestone 1 with `cargo fmt --all`, `cargo test -p stremio-lightning-windows`, `cargo check -p stremio-lightning-windows --target x86_64-pc-windows-msvc`, and `cargo test --workspace`.
 - Verified Milestone 2 with `cargo fmt --all`, `cargo test -p stremio-lightning-windows`, and `cargo check -p stremio-lightning-windows --target x86_64-pc-windows-msvc`.
+- Completed Milestone 3 of `docs/windows-webview2-shell-crate-plan.md`.
+- Added WebView2 environment/controller creation against the native parent `HWND`, client-rect resizing on `WM_SIZE`, navigation to the configured web UI URL, and `--webui-url=<url>` override support.
+- Added baseline WebView2 settings and browser flags for autoplay, status bar suppression, zoom control suppression, host-object disablement, script-dialog suppression, and debug-build devtools policy.
+- Added document-created injection of the Windows adapter, native-player flag, and shared bridge script.
+- Added simple WebView2 native-to-web and web-to-native smoke plumbing; full request/response host routing remains Milestone 4.
 
 Current status:
 
 - The Windows crate is structurally present.
-- Milestone 1 and Milestone 2 are complete.
+- Milestone 1, Milestone 2, and Milestone 3 are complete.
 - Shared bridge ownership is no longer under `src-tauri`.
-- The direct shell can now create and own a native blank Win32 window on Windows.
-- The direct shell cannot yet create WebView2, run the web UI, route real WebView2 messages, or render MPV video.
+- The direct shell can now create and own a native Win32 window on Windows, attach WebView2 to it, and navigate to the configured web UI.
+- The direct shell cannot yet route full host-contract request/response messages or render MPV video.
 
 ## Missing Work By Area
 
@@ -115,16 +120,20 @@ Acceptance:
 
 ## 2. WebView2 Runtime Integration
 
-Missing:
+Implemented baseline:
 
-- Actual WebView2 environment creation.
+- WebView2 environment creation.
 - WebView2 controller creation against the native parent `HWND`.
 - Bounds resizing when the window resizes.
 - Navigation to the target Stremio web URL.
-- WebView2 settings parity.
-- Devtools toggle.
-- Document-start or content-loading injection with the shared bridge.
-- WebView2 message receive/send plumbing.
+- Baseline WebView2 settings and debug-build devtools policy.
+- Document-created injection with the shared bridge.
+- Simple WebView2 message receive/send plumbing.
+
+Missing:
+
+- Full request/response host contract routing.
+- Runtime devtools CLI toggle beyond debug-build policy.
 - New-window/external-link handling.
 - Fullscreen element handling.
 - Focus handling.

@@ -78,10 +78,274 @@ impl WindowsWebView2Shell {
 #[cfg(windows)]
 mod platform {
     use super::InjectionBundle;
-    use crate::window::{run_native_window, WindowConfig};
+    use crate::window::{run_native_window_with_handler, NativeWindowHandler, WindowConfig};
+    use std::ptr;
+    use webview2_com::{
+        AddScriptToExecuteOnDocumentCreatedCompletedHandler, CoTaskMemPWSTR,
+        CoreWebView2EnvironmentOptions, CreateCoreWebView2ControllerCompletedHandler,
+        CreateCoreWebView2EnvironmentCompletedHandler, Microsoft::Web::WebView2::Win32::*,
+        NavigationCompletedEventHandler, WebMessageReceivedEventHandler,
+    };
+    use windows::core::{PCWSTR, PWSTR};
+    use windows::Win32::Foundation::{E_POINTER, HWND, RECT};
+    use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
 
-    pub fn run_webview2_shell(_url: &str, _injection: &InjectionBundle) -> Result<(), String> {
-        run_native_window(WindowConfig::default())
+    pub fn run_webview2_shell(url: &str, injection: &InjectionBundle) -> Result<(), String> {
+        unsafe {
+            CoInitializeEx(None, COINIT_APARTMENTTHREADED)
+                .ok()
+                .map_err(|error| format!("Failed to initialize COM for WebView2: {error}"))?;
+        }
+
+        run_native_window_with_handler(
+            WindowConfig::default(),
+            WebView2WindowHost::new(url.to_string(), injection.clone()),
+        )
+    }
+
+    struct WebView2WindowHost {
+        url: String,
+        injection: InjectionBundle,
+        controller: Option<ICoreWebView2Controller>,
+        webview: Option<ICoreWebView2>,
+        navigation_completed_token: Option<i64>,
+    }
+
+    impl WebView2WindowHost {
+        fn new(url: String, injection: InjectionBundle) -> Self {
+            Self {
+                url,
+                injection,
+                controller: None,
+                webview: None,
+                navigation_completed_token: None,
+            }
+        }
+
+        fn resize_to_client_rect(&self, hwnd: HWND) -> Result<(), String> {
+            let Some(controller) = self.controller.as_ref() else {
+                return Ok(());
+            };
+
+            let mut rect = RECT::default();
+            unsafe {
+                windows::Win32::UI::WindowsAndMessaging::GetClientRect(hwnd, &mut rect)
+                    .map_err(|error| format!("Failed to read WebView2 host bounds: {error}"))?;
+                controller
+                    .SetBounds(rect)
+                    .map_err(|error| format!("Failed to resize WebView2 controller: {error}"))?;
+            }
+            Ok(())
+        }
+    }
+
+    impl NativeWindowHandler for WebView2WindowHost {
+        fn on_created(&mut self, hwnd: HWND) -> Result<(), String> {
+            let environment = create_environment()?;
+            let controller = create_controller(&environment, hwnd)?;
+
+            self.controller = Some(controller.clone());
+            self.resize_to_client_rect(hwnd)?;
+
+            unsafe {
+                controller
+                    .SetIsVisible(true)
+                    .map_err(|error| format!("Failed to show WebView2 controller: {error}"))?;
+            }
+
+            let webview = unsafe {
+                controller
+                    .CoreWebView2()
+                    .map_err(|error| format!("Failed to get WebView2 instance: {error}"))?
+            };
+
+            configure_webview(&webview)?;
+            add_injection_scripts(&webview, &self.injection)?;
+            add_message_handler(&webview)?;
+            self.navigation_completed_token = Some(add_navigation_completed_handler(&webview)?);
+            navigate(&webview, &self.url)?;
+
+            self.webview = Some(webview);
+            Ok(())
+        }
+
+        fn on_resized(&mut self, hwnd: HWND, _client_rect: RECT) -> Result<(), String> {
+            self.resize_to_client_rect(hwnd)
+        }
+
+        fn on_destroying(&mut self, _hwnd: HWND) {
+            if let (Some(webview), Some(token)) = (
+                self.webview.as_ref(),
+                self.navigation_completed_token.take(),
+            ) {
+                let _ = unsafe { webview.remove_NavigationCompleted(token) };
+            }
+            if let Some(controller) = self.controller.take() {
+                let _ = unsafe { controller.Close() };
+            }
+            self.webview = None;
+        }
+    }
+
+    fn create_environment() -> Result<ICoreWebView2Environment, String> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let options = CoreWebView2EnvironmentOptions::default();
+        unsafe {
+            options.set_additional_browser_arguments(
+                "--autoplay-policy=no-user-gesture-required --disable-features=msWebOOUI,msPdfOOUI"
+                    .to_string(),
+            );
+        }
+        let options: ICoreWebView2EnvironmentOptions = options.into();
+        CreateCoreWebView2EnvironmentCompletedHandler::wait_for_async_operation(
+            Box::new(move |handler| unsafe {
+                CreateCoreWebView2EnvironmentWithOptions(
+                    PCWSTR::null(),
+                    PCWSTR::null(),
+                    &options,
+                    &handler,
+                )
+                .map_err(webview2_com::Error::WindowsError)
+            }),
+            Box::new(move |error_code, environment| {
+                error_code?;
+                tx.send(environment.ok_or_else(|| windows::core::Error::from(E_POINTER)))
+                    .expect("send WebView2 environment");
+                Ok(())
+            }),
+        )
+        .map_err(|error| format!("Failed to create WebView2 environment: {error:?}"))?;
+
+        rx.recv()
+            .map_err(|_| "WebView2 environment callback did not return".to_string())?
+            .map_err(|error| format!("WebView2 environment creation failed: {error}"))
+    }
+
+    fn create_controller(
+        environment: &ICoreWebView2Environment,
+        hwnd: HWND,
+    ) -> Result<ICoreWebView2Controller, String> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let environment = environment.clone();
+        CreateCoreWebView2ControllerCompletedHandler::wait_for_async_operation(
+            Box::new(move |handler| unsafe {
+                environment
+                    .CreateCoreWebView2Controller(hwnd, &handler)
+                    .map_err(webview2_com::Error::WindowsError)
+            }),
+            Box::new(move |error_code, controller| {
+                error_code?;
+                tx.send(controller.ok_or_else(|| windows::core::Error::from(E_POINTER)))
+                    .expect("send WebView2 controller");
+                Ok(())
+            }),
+        )
+        .map_err(|error| format!("Failed to create WebView2 controller: {error:?}"))?;
+
+        rx.recv()
+            .map_err(|_| "WebView2 controller callback did not return".to_string())?
+            .map_err(|error| format!("WebView2 controller creation failed: {error}"))
+    }
+
+    fn configure_webview(webview: &ICoreWebView2) -> Result<(), String> {
+        let settings = unsafe {
+            webview
+                .Settings()
+                .map_err(|error| format!("Failed to get WebView2 settings: {error}"))?
+        };
+        unsafe {
+            settings.SetIsStatusBarEnabled(false).ok();
+            settings.SetAreDevToolsEnabled(cfg!(debug_assertions)).ok();
+            settings.SetIsZoomControlEnabled(false).ok();
+            settings.SetAreHostObjectsAllowed(false).ok();
+            settings.SetAreDefaultScriptDialogsEnabled(false).ok();
+        }
+        Ok(())
+    }
+
+    fn add_injection_scripts(
+        webview: &ICoreWebView2,
+        injection: &InjectionBundle,
+    ) -> Result<(), String> {
+        for script in injection.scripts() {
+            let source = script.source.clone();
+            let webview = webview.clone();
+            AddScriptToExecuteOnDocumentCreatedCompletedHandler::wait_for_async_operation(
+                Box::new(move |handler| unsafe {
+                    let source = CoTaskMemPWSTR::from(source.as_str());
+                    webview
+                        .AddScriptToExecuteOnDocumentCreated(*source.as_ref().as_pcwstr(), &handler)
+                        .map_err(webview2_com::Error::WindowsError)
+                }),
+                Box::new(|error_code, _id| error_code),
+            )
+            .map_err(|error| {
+                format!(
+                    "Failed to inject WebView2 script '{}': {error:?}",
+                    script.name
+                )
+            })?;
+        }
+        Ok(())
+    }
+
+    fn add_message_handler(webview: &ICoreWebView2) -> Result<(), String> {
+        let mut token = 0;
+        unsafe {
+            webview
+                .add_WebMessageReceived(
+                    &WebMessageReceivedEventHandler::create(Box::new(move |_webview, args| {
+                        if let Some(args) = args {
+                            let mut message = PWSTR(ptr::null_mut());
+                            if args.WebMessageAsJson(&mut message).is_ok() {
+                                let message = CoTaskMemPWSTR::from(message);
+                                eprintln!("WebView2 message received: {}", message.to_string());
+                            }
+                        }
+                        Ok(())
+                    })),
+                    &mut token,
+                )
+                .map_err(|error| format!("Failed to attach WebView2 message handler: {error}"))?;
+        }
+        Ok(())
+    }
+
+    fn add_navigation_completed_handler(webview: &ICoreWebView2) -> Result<i64, String> {
+        let mut token = 0;
+        unsafe {
+            webview
+                .add_NavigationCompleted(
+                    &NavigationCompletedEventHandler::create(Box::new(move |webview, _args| {
+                        if let Some(webview) = webview {
+                            let message = CoTaskMemPWSTR::from(
+                                serde_json::json!({
+                                    "kind": "native-ready",
+                                    "payload": { "shell": "webview2" }
+                                })
+                                .to_string()
+                                .as_str(),
+                            );
+                            webview.PostWebMessageAsString(*message.as_ref().as_pcwstr())?;
+                        }
+                        Ok(())
+                    })),
+                    &mut token,
+                )
+                .map_err(|error| {
+                    format!("Failed to attach WebView2 navigation completed handler: {error}")
+                })?;
+        }
+        Ok(token)
+    }
+
+    fn navigate(webview: &ICoreWebView2, url: &str) -> Result<(), String> {
+        let url = CoTaskMemPWSTR::from(url);
+        unsafe {
+            webview
+                .Navigate(*url.as_ref().as_pcwstr())
+                .map_err(|error| format!("Failed to navigate WebView2: {error}"))
+        }
     }
 }
 
