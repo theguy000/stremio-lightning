@@ -20,8 +20,8 @@ use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 use webkit::prelude::*;
 use webkit::{
-    LoadEvent, UserContentInjectedFrames, UserScript, UserScriptInjectionTime,
-    WebView as WebKitWebView,
+    LoadEvent, NavigationPolicyDecision, PolicyDecisionType, UserContentInjectedFrames, UserScript,
+    UserScriptInjectionTime, WebView as WebKitWebView,
 };
 
 const IPC_HANDLER_NAME: &str = "ipc";
@@ -200,6 +200,25 @@ fn build_webview(
         });
     }
 
+    webview.connect_decide_policy(move |_, decision, decision_type| {
+        if decision_type == PolicyDecisionType::NewWindowAction {
+            if let Some(uri) = decision
+                .downcast_ref::<NavigationPolicyDecision>()
+                .and_then(|decision| decision.navigation_action())
+                .and_then(|action| action.request())
+                .and_then(|request| request.uri())
+            {
+                if let Err(error) = open_external_uri(uri.as_str()) {
+                    eprintln!("[StremioLightning] Failed to open external URL {uri}: {error}");
+                }
+            }
+            decision.ignore();
+            return true;
+        }
+
+        false
+    });
+
     webview.load_uri(&config.url);
     Ok(webview)
 }
@@ -280,9 +299,16 @@ fn handle_ipc_message(
     let response = serde_json::from_str::<WebkitIpcRequest>(raw)
         .map_err(|error| format!("Invalid Linux WebKit IPC message: {error}"))
         .and_then(|request| {
+            let external_url = external_url_from_ipc_request(&request);
             let id = request.id;
             runtime
                 .dispatch_ipc(&request.kind, request.payload)
+                .and_then(|value| {
+                    if let Some(url) = external_url {
+                        open_external_uri(&url)?;
+                    }
+                    Ok(value)
+                })
                 .map(|value| (id, Ok(value)))
                 .or_else(|error| Ok((id, Err(error))))
         });
@@ -303,6 +329,28 @@ fn handle_ipc_message(
         }
         Err(error) => eprintln!("[StremioLightning] Failed to drain host events: {error}"),
     }
+}
+
+fn external_url_from_ipc_request(request: &WebkitIpcRequest) -> Option<String> {
+    if request.kind != "invoke" {
+        return None;
+    }
+
+    let payload = request.payload.as_ref()?;
+    if payload.get("command").and_then(Value::as_str) != Some("open_external_url") {
+        return None;
+    }
+
+    payload
+        .get("payload")
+        .and_then(|payload| payload.get("url"))
+        .and_then(Value::as_str)
+        .map(str::to_string)
+}
+
+fn open_external_uri(uri: &str) -> Result<(), String> {
+    gtk::gio::AppInfo::launch_default_for_uri(uri, None::<&gtk::gio::AppLaunchContext>)
+        .map_err(|error| error.to_string())
 }
 
 fn resolve_ipc_script(id: u64, ok: bool, value: Value) -> String {
@@ -545,5 +593,36 @@ mod tests {
             resolve_ipc_script(7, true, json!({"ok": true})),
             r#"window.__STREMIO_LIGHTNING_LINUX_IPC_RESOLVE__(7, true, {"ok":true});"#
         );
+    }
+
+    #[test]
+    fn extracts_open_external_url_ipc_request() {
+        let request = WebkitIpcRequest {
+            id: 1,
+            kind: "invoke".to_string(),
+            payload: Some(json!({
+                "command": "open_external_url",
+                "payload": { "url": "https://www.strem.io/login-fb" }
+            })),
+        };
+
+        assert_eq!(
+            external_url_from_ipc_request(&request),
+            Some("https://www.strem.io/login-fb".to_string())
+        );
+    }
+
+    #[test]
+    fn ignores_non_external_url_ipc_request() {
+        let request = WebkitIpcRequest {
+            id: 1,
+            kind: "invoke".to_string(),
+            payload: Some(json!({
+                "command": "get_streaming_server_status",
+                "payload": null
+            })),
+        };
+
+        assert_eq!(external_url_from_ipc_request(&request), None);
     }
 }
