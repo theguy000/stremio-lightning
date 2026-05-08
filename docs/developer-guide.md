@@ -142,6 +142,8 @@ Build the portable Windows artifact:
 cargo xtask package-windows
 ```
 
+On Windows, this uses the MSVC toolchain and requires Visual Studio Build Tools with the Visual C++ workload. On Linux/macOS, this uses `cargo-xwin` for MSVC cross-compilation; install it with `cargo install cargo-xwin`.
+
 The Windows portable output is expected at:
 
 ```text
