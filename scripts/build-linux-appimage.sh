@@ -74,8 +74,7 @@ fi
 
 echo "==> Packaging AppImage..."
 rm -f "$DIST_DIR/Stremio_Lightning_Linux-x86_64.AppImage"
-(cd "$DIST_DIR" && ARCH=x86_64 "$APPIMAGE_TOOL" --appimage-extract-and-run --appdir="../$APPDIR")
-mv "$DIST_DIR"/*.AppImage "$DIST_DIR/Stremio_Lightning_Linux-x86_64.AppImage"
+ARCH=x86_64 "$APPIMAGE_TOOL" "$APPDIR" "$DIST_DIR/Stremio_Lightning_Linux-x86_64.AppImage"
 chmod +x "$DIST_DIR/Stremio_Lightning_Linux-x86_64.AppImage"
 
 echo "==> AppImage ready: $DIST_DIR/Stremio_Lightning_Linux-x86_64.AppImage"
