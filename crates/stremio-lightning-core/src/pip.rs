@@ -84,6 +84,41 @@ impl PipState {
         log_snapshot_restored(snapshot.as_ref());
         Ok(snapshot)
     }
+
+    pub fn exit_window_pip(
+        &self,
+        controller: &mut impl PipWindowController,
+    ) -> Result<bool, String> {
+        let snapshot = {
+            let inner = self.inner.lock().map_err(|e| e.to_string())?;
+            if !inner.enabled && inner.restore_snapshot.is_none() {
+                return Ok(false);
+            }
+            inner.restore_snapshot.clone().unwrap_or_default()
+        };
+
+        controller.exit_pip(snapshot.clone())?;
+        log_snapshot_restored(Some(&snapshot));
+
+        let mut inner = self.inner.lock().map_err(|e| e.to_string())?;
+        inner.enabled = false;
+        inner.restore_snapshot = None;
+        Ok(true)
+    }
+
+    pub fn toggle_window_pip(
+        &self,
+        controller: &mut impl PipWindowController,
+    ) -> Result<bool, String> {
+        if self.is_enabled()? {
+            self.exit_window_pip(controller)?;
+            Ok(false)
+        } else {
+            let snapshot = controller.enter_pip()?;
+            self.set_mode(true, Some(snapshot))?;
+            Ok(true)
+        }
+    }
 }
 
 fn log_snapshot_saved(snapshot: &PipRestoreSnapshot) {
@@ -139,6 +174,46 @@ mod tests {
         assert_eq!(state.take_snapshot().unwrap(), None);
 
         assert_eq!(state.toggle().unwrap(), false);
+    }
+
+    #[derive(Default)]
+    struct TestPipController {
+        entered: usize,
+        exited: Vec<PipRestoreSnapshot>,
+    }
+
+    impl PipWindowController for TestPipController {
+        fn enter_pip(&mut self) -> Result<PipRestoreSnapshot, String> {
+            self.entered += 1;
+            Ok(PipRestoreSnapshot {
+                was_fullscreen: false,
+                saved_size: Some((1280, 720)),
+            })
+        }
+
+        fn exit_pip(&mut self, snapshot: PipRestoreSnapshot) -> Result<(), String> {
+            self.exited.push(snapshot);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn pip_state_toggles_window_controller() {
+        let state = PipState::new();
+        let mut controller = TestPipController::default();
+
+        assert_eq!(state.toggle_window_pip(&mut controller).unwrap(), true);
+        assert_eq!(state.toggle_window_pip(&mut controller).unwrap(), false);
+        assert_eq!(controller.entered, 1);
+        assert_eq!(
+            controller.exited,
+            vec![PipRestoreSnapshot {
+                was_fullscreen: false,
+                saved_size: Some((1280, 720)),
+            }]
+        );
+        assert_eq!(state.is_enabled().unwrap(), false);
+        assert_eq!(state.exit_window_pip(&mut controller).unwrap(), false);
     }
 
     #[test]

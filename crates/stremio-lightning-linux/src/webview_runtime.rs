@@ -3,7 +3,7 @@ use crate::player::PlayerBackend;
 use crate::streaming_server::ProcessSpawner;
 use serde_json::Value;
 use std::sync::Arc;
-use stremio_lightning_core::pip::PipRestoreSnapshot;
+use stremio_lightning_core::pip::PipWindowController;
 
 pub const LINUX_HOST_ADAPTER_NAME: &str = "linux-host-adapter";
 pub const BRIDGE_UTILS_NAME: &str = "bridge/utils.js";
@@ -200,16 +200,18 @@ where
         self.host.emit_native_player_ended(reason)
     }
 
-    pub fn pip_snapshot(&self) -> Result<Option<PipRestoreSnapshot>, String> {
-        self.host.pip_snapshot()
+    pub fn toggle_picture_in_picture(
+        &self,
+        controller: &mut impl PipWindowController,
+    ) -> Result<bool, String> {
+        self.host.toggle_picture_in_picture(controller)
     }
 
-    pub fn set_picture_in_picture(
+    pub fn exit_picture_in_picture(
         &self,
-        enabled: bool,
-        snapshot: Option<PipRestoreSnapshot>,
-    ) -> Result<(), String> {
-        self.host.set_picture_in_picture(enabled, snapshot)
+        controller: &mut impl PipWindowController,
+    ) -> Result<bool, String> {
+        self.host.exit_picture_in_picture(controller)
     }
 }
 

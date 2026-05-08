@@ -8,7 +8,9 @@ use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use stremio_lightning_core::host_api::{self, HostEvent, ParsedRequest};
-use stremio_lightning_core::pip::{serialize_picture_in_picture, PipRestoreSnapshot, PipState};
+use stremio_lightning_core::pip::{
+    serialize_picture_in_picture, PipRestoreSnapshot, PipState, PipWindowController,
+};
 use stremio_lightning_core::{mods, settings};
 
 pub const SHELL_TRANSPORT_EVENT: &str = "shell-transport-message";
@@ -385,10 +387,6 @@ where
         self.emit_transport_event(serialize_ended(reason))
     }
 
-    pub fn pip_snapshot(&self) -> Result<Option<PipRestoreSnapshot>, String> {
-        self.pip_state.snapshot()
-    }
-
     pub fn set_picture_in_picture(
         &self,
         enabled: bool,
@@ -396,6 +394,26 @@ where
     ) -> Result<(), String> {
         self.pip_state.set_mode(enabled, snapshot)?;
         self.emit_transport_event(serialize_picture_in_picture(enabled))
+    }
+
+    pub fn toggle_picture_in_picture(
+        &self,
+        controller: &mut impl PipWindowController,
+    ) -> Result<bool, String> {
+        let enabled = self.pip_state.toggle_window_pip(controller)?;
+        self.emit_transport_event(serialize_picture_in_picture(enabled))?;
+        Ok(enabled)
+    }
+
+    pub fn exit_picture_in_picture(
+        &self,
+        controller: &mut impl PipWindowController,
+    ) -> Result<bool, String> {
+        let changed = self.pip_state.exit_window_pip(controller)?;
+        if changed {
+            self.emit_transport_event(serialize_picture_in_picture(false))?;
+        }
+        Ok(changed)
     }
 
     pub fn emit_window_maximized_changed(&self, maximized: bool) -> Result<(), String> {

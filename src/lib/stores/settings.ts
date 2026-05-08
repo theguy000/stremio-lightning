@@ -189,10 +189,3 @@ export async function togglePipActivation(): Promise<void> {
     pipModeActive.set(false);
   }
 }
-
-// Listen for PiP events dispatched by bridge.js (from shell transport or keyboard shortcut)
-// so the runtime store stays in sync regardless of how PiP was toggled.
-if (typeof document !== 'undefined') {
-  document.addEventListener('sl-pip-enabled', () => pipModeActive.set(true));
-  document.addEventListener('sl-pip-disabled', () => pipModeActive.set(false));
-}

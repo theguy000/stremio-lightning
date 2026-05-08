@@ -7,10 +7,7 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Mutex;
 use stremio_lightning_core::host_api::{self, HostEvent, ParsedRequest};
-use stremio_lightning_core::pip::{serialize_picture_in_picture, PipRestoreSnapshot, PipState};
-
-#[cfg(windows)]
-use stremio_lightning_core::pip::PipWindowController;
+use stremio_lightning_core::pip::{serialize_picture_in_picture, PipState};
 
 #[cfg(windows)]
 use crate::window::NativeWindowController;
@@ -375,12 +372,8 @@ impl WindowsHost {
             "set_auto_pause" | "set_pip_disables_auto_pause" => Ok(Value::Null),
             "get_auto_pause" | "get_pip_disables_auto_pause" => Ok(json!(false)),
             "toggle_pip" => {
-                let enabled = !self.pip_state.is_enabled()?;
-                let snapshot = self.apply_picture_in_picture_window(enabled)?;
-                self.pip_state.set_mode(enabled, snapshot)?;
-                self.emit_transport_message(host_api::response_message(
-                    serialize_picture_in_picture(enabled),
-                ))?;
+                let enabled = self.toggle_picture_in_picture_window()?;
+                self.emit_picture_in_picture(enabled)?;
                 Ok(json!(enabled))
             }
             "get_pip_mode" => Ok(json!(self.pip_state.is_enabled()?)),
@@ -461,11 +454,14 @@ impl WindowsHost {
         self.emit_event(SHELL_TRANSPORT_EVENT, json!(message))
     }
 
+    fn emit_picture_in_picture(&self, enabled: bool) -> Result<(), String> {
+        self.emit_transport_message(host_api::response_message(serialize_picture_in_picture(
+            enabled,
+        )))
+    }
+
     #[cfg(windows)]
-    fn apply_picture_in_picture_window(
-        &self,
-        enabled: bool,
-    ) -> Result<Option<PipRestoreSnapshot>, String> {
+    fn toggle_picture_in_picture_window(&self) -> Result<bool, String> {
         let mut controller = self
             .window_controller
             .lock()
@@ -473,21 +469,31 @@ impl WindowsHost {
         let controller = controller
             .as_mut()
             .ok_or_else(|| "Windows window controller is not initialized".to_string())?;
-        if enabled {
-            controller.enter_pip().map(Some)
-        } else {
-            let snapshot = self.pip_state.snapshot()?.unwrap_or_default();
-            controller.exit_pip(snapshot)?;
-            Ok(None)
-        }
+        self.pip_state.toggle_window_pip(controller)
     }
 
     #[cfg(not(windows))]
-    fn apply_picture_in_picture_window(
-        &self,
-        _enabled: bool,
-    ) -> Result<Option<PipRestoreSnapshot>, String> {
-        Ok(None)
+    fn toggle_picture_in_picture_window(&self) -> Result<bool, String> {
+        let enabled = !self.pip_state.is_enabled()?;
+        self.pip_state.set_mode(enabled, None)?;
+        Ok(enabled)
+    }
+
+    #[cfg(windows)]
+    fn exit_picture_in_picture_window(&self) -> Result<(), String> {
+        let mut controller = self
+            .window_controller
+            .lock()
+            .map_err(|_| "Windows window controller lock poisoned".to_string())?;
+        if let Some(controller) = controller.as_mut() {
+            self.pip_state.exit_window_pip(controller)?;
+        }
+        Ok(())
+    }
+
+    #[cfg(not(windows))]
+    fn exit_picture_in_picture_window(&self) -> Result<(), String> {
+        self.pip_state.set_mode(false, None)
     }
 
     pub fn emit_media_key(&self, action: &str) -> Result<(), String> {
@@ -579,6 +585,8 @@ impl WindowsHost {
     }
 
     fn close_window(&self) -> Result<(), String> {
+        self.exit_picture_in_picture_window()?;
+
         #[cfg(windows)]
         if let Some(controller) = self
             .window_controller

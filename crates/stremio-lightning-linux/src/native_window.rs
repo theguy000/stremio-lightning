@@ -403,28 +403,13 @@ impl NativeWindowIpc for LinuxWebviewRuntime<MpvPlayerBackend, RealProcessSpawne
                 }
 
                 if invoke_command(payload.as_ref()) == Some("toggle_pip") {
-                    let pip_mode = LinuxWebviewRuntime::dispatch_ipc(
-                        self,
-                        "invoke",
-                        Some(json!({ "command": "get_pip_mode" })),
-                    )?
-                    .as_bool()
-                    .ok_or_else(|| "Invalid get_pip_mode response".to_string())?;
                     let mut controller = LinuxPipController {
                         webview,
                         runtime: self,
                         window,
                         fullscreen,
                     };
-                    let enabled = !pip_mode;
-                    if enabled {
-                        let snapshot = controller.enter_pip()?;
-                        self.set_picture_in_picture(true, Some(snapshot))?;
-                    } else {
-                        let snapshot = self.pip_snapshot()?.unwrap_or_default();
-                        controller.exit_pip(snapshot)?;
-                        self.set_picture_in_picture(false, None)?;
-                    }
+                    let _enabled = self.toggle_picture_in_picture(&mut controller)?;
                     return Ok(Value::Null);
                 }
 
@@ -441,6 +426,13 @@ impl NativeWindowIpc for LinuxWebviewRuntime<MpvPlayerBackend, RealProcessSpawne
                 Ok(Value::Null)
             }
             "window.close" => {
+                let mut controller = LinuxPipController {
+                    webview,
+                    runtime: self,
+                    window,
+                    fullscreen,
+                };
+                self.exit_picture_in_picture(&mut controller)?;
                 window.close();
                 Ok(Value::Null)
             }
@@ -582,6 +574,7 @@ impl PipWindowController for LinuxPipController<'_> {
             );
         } else if let Some((width, height)) = snapshot.saved_size {
             self.window.set_resizable(false);
+            self.window.set_size_request(-1, -1);
             self.window.set_size_request(width, height);
             self.window.set_default_size(width, height);
             let window = self.window.clone();
