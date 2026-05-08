@@ -1,6 +1,5 @@
 [workspace]
 members = [
-    "src-tauri",
     "crates/stremio-lightning-core",
     "crates/stremio-lightning-linux",
     "crates/stremio-lightning-windows",

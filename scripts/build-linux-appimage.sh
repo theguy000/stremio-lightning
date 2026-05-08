@@ -10,7 +10,7 @@ LINUX_DIR="crates/stremio-lightning-linux"
 ICON_PATH="assets/icons/128x128.png"
 APPDIR="target/appimage/${APP_ID}.AppDir"
 DIST_DIR="dist"
-APPIMAGE_TOOL="${APPIMAGE_TOOL:-$HOME/.cache/tauri/linuxdeploy-plugin-appimage.AppImage}"
+APPIMAGE_TOOL="${APPIMAGE_TOOL:-$HOME/.cache/appimage/appimagetool-x86_64.AppImage}"
 
 required_file() {
     if [[ ! -s "$1" ]]; then
@@ -68,7 +68,7 @@ chmod +x "$APPDIR/AppRun"
 
 if [[ ! -x "$APPIMAGE_TOOL" ]]; then
     echo "ERROR: AppImage tool not found or not executable: $APPIMAGE_TOOL" >&2
-    echo "       Set APPIMAGE_TOOL=/path/to/appimagetool or run a Tauri AppImage build once to populate the cache." >&2
+    echo "       Set APPIMAGE_TOOL=/path/to/appimagetool or download appimagetool to the default cache path." >&2
     exit 1
 fi
 

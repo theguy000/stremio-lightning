@@ -6,26 +6,12 @@ import type { StremioLightningHost } from './host-api';
 
 const testDir = dirname(fileURLToPath(import.meta.url));
 const bridgeSource = readFileSync(
-  resolve(testDir, '../../../src-tauri/scripts/bridge.js'),
+  resolve(testDir, '../../../web/bridge/bridge.js'),
   'utf8',
 );
 
-type TauriMock = {
-  core: { invoke: ReturnType<typeof vi.fn> };
-  event: { listen: ReturnType<typeof vi.fn> };
-  window: { getCurrentWindow: ReturnType<typeof vi.fn> };
-  webview: { getCurrentWebview: ReturnType<typeof vi.fn> };
-};
-
-declare global {
-  interface Window {
-    __TAURI__?: TauriMock;
-  }
-}
-
 let appWindow: StremioLightningHost['window'];
 let webview: StremioLightningHost['webview'];
-let tauri: TauriMock;
 
 beforeEach(() => {
   document.body.innerHTML = '';
@@ -43,34 +29,25 @@ beforeEach(() => {
   webview = {
     setZoom: vi.fn().mockResolvedValue(undefined),
   };
-  tauri = {
-    core: {
-      invoke: vi.fn().mockResolvedValue(undefined),
-    },
-    event: {
-      listen: vi.fn().mockResolvedValue(() => {}),
-    },
-    window: {
-      getCurrentWindow: vi.fn(() => appWindow),
-    },
-    webview: {
-      getCurrentWebview: vi.fn(() => webview),
-    },
-  };
 });
 
 afterEach(() => {
-  delete window.__TAURI__;
   delete window.StremioLightningHost;
 });
 
 describe('bridge host bootstrap', () => {
-  it('creates StremioLightningHost from the Tauri global', async () => {
-    window.__TAURI__ = tauri;
+  it('uses the host provided by the native shell', async () => {
+    const nativeShellHost = {
+      invoke: vi.fn().mockResolvedValue(undefined),
+      listen: vi.fn().mockResolvedValue(() => {}),
+      window: appWindow,
+      webview,
+    };
+    window.StremioLightningHost = nativeShellHost as unknown as StremioLightningHost;
 
     window.eval(bridgeSource);
 
-    expect(window.StremioLightningHost).toBeTruthy();
+    expect(window.StremioLightningHost).toBe(nativeShellHost);
     await window.StremioLightningHost!.invoke('toggle_devtools');
     await window.StremioLightningHost!.invoke('open_external_url', {
       url: 'https://example.test',
@@ -85,11 +62,11 @@ describe('bridge host bootstrap', () => {
     await window.StremioLightningHost!.window.startDragging();
     await window.StremioLightningHost!.webview.setZoom(1.25);
 
-    expect(tauri.core.invoke).toHaveBeenCalledWith('toggle_devtools');
-    expect(tauri.core.invoke).toHaveBeenCalledWith('open_external_url', {
+    expect(nativeShellHost.invoke).toHaveBeenCalledWith('toggle_devtools');
+    expect(nativeShellHost.invoke).toHaveBeenCalledWith('open_external_url', {
       url: 'https://example.test',
     });
-    expect(tauri.event.listen).toHaveBeenCalledWith('server-started', expect.any(Function));
+    expect(nativeShellHost.listen).toHaveBeenCalledWith('server-started', expect.any(Function));
     expect(appWindow.minimize).toHaveBeenCalled();
     expect(appWindow.toggleMaximize).toHaveBeenCalled();
     expect(appWindow.close).toHaveBeenCalled();
@@ -98,23 +75,6 @@ describe('bridge host bootstrap', () => {
     expect(appWindow.setFullscreen).toHaveBeenCalledWith(true);
     expect(appWindow.startDragging).toHaveBeenCalled();
     expect(webview.setZoom).toHaveBeenCalledWith(1.25);
-  });
-
-  it('reuses an existing host instead of reading the Tauri global', () => {
-    const existingHost = {
-      invoke: vi.fn().mockResolvedValue(undefined),
-      listen: vi.fn().mockResolvedValue(() => {}),
-      window: appWindow,
-      webview,
-    };
-    window.StremioLightningHost = existingHost as unknown as StremioLightningHost;
-    window.__TAURI__ = tauri;
-
-    window.eval(bridgeSource);
-
-    expect(window.StremioLightningHost).toBe(existingHost);
-    expect(tauri.window.getCurrentWindow).not.toHaveBeenCalled();
-    expect(tauri.webview.getCurrentWebview).not.toHaveBeenCalled();
   });
 
   it('logs once and exits when no host adapter is available', () => {

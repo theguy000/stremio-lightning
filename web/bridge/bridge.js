@@ -1,55 +1,9 @@
 // Stremio Lightning - Frontend Bridge & Keyboard Shortcuts
-// Injected via Tauri initialization_script - runs on every page load
+// Injected by the native Rust shell crates on every page load.
 (function () {
   "use strict";
 
   var host = window.StremioLightningHost || null;
-
-  if (!host && window.__TAURI__) {
-    var tauriWindow = window.__TAURI__.window.getCurrentWindow();
-    var tauriWebview = window.__TAURI__.webview.getCurrentWebview();
-
-    host = {
-      invoke: function (command, payload) {
-        if (arguments.length > 1) {
-          return window.__TAURI__.core.invoke(command, payload);
-        }
-        return window.__TAURI__.core.invoke(command);
-      },
-      listen: function (event, callback) {
-        return window.__TAURI__.event.listen(event, callback);
-      },
-      window: {
-        minimize: function () {
-          return tauriWindow.minimize();
-        },
-        toggleMaximize: function () {
-          return tauriWindow.toggleMaximize();
-        },
-        close: function () {
-          return tauriWindow.close();
-        },
-        isMaximized: function () {
-          return tauriWindow.isMaximized();
-        },
-        isFullscreen: function () {
-          return tauriWindow.isFullscreen();
-        },
-        setFullscreen: function (fullscreen) {
-          return tauriWindow.setFullscreen(fullscreen);
-        },
-        startDragging: function () {
-          return tauriWindow.startDragging();
-        },
-      },
-      webview: {
-        setZoom: function (level) {
-          return tauriWebview.setZoom(level);
-        },
-      },
-    };
-    window.StremioLightningHost = host;
-  }
 
   if (!host) {
     console.error(

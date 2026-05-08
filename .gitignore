@@ -5,11 +5,6 @@
 
 # Rust
 target/
-src-tauri/target/
-
-# Tauri generated
-src-tauri/gen/
-src-tauri/tauri.conf.json
 
 # Node
 node_modules/
@@ -20,20 +15,6 @@ src/dist/
 # OS
 Thumbs.db
 .DS_Store
-
-# Streaming server binaries (downloaded at build time)
-src-tauri/binaries/
-src-tauri/resources/*.exe
-src-tauri/resources/ffmpeg
-src-tauri/resources/ffprobe
-src-tauri/resources/server.js
-src-tauri/resources/server.cjs
-
-# MPV libraries (downloaded at build time)
-src-tauri/mpv-dev/
-src-tauri/resources/libmpv-2.dll
-src-tauri/resources/libmpv.2.dylib
-src-tauri/resources/libmpv.so.2
 
 # Windows native shell resources (downloaded at build time)
 crates/stremio-lightning-windows/mpv-dev/

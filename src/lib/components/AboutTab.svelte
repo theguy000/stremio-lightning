@@ -11,7 +11,7 @@
 
 <div class="sl-about">
   <h2>Stremio Lightning</h2>
-  <p>A lightweight Stremio desktop client built with Tauri.<br>
+  <p>A lightweight Stremio desktop client built with Rust-native shell crates.<br>
   Supports plugins and themes from the Stremio Enhanced ecosystem.</p>
   <a class="sl-btn sl-btn-ghost" href="https://github.com/theguy000/stremio-lightning" target="_blank" rel="noreferrer" onclick={handleLink}>
     {@html ICONS.github} GitHub Repository

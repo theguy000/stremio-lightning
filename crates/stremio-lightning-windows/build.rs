@@ -3,7 +3,7 @@ fn main() {
     println!("cargo:rerun-if-changed=resources/libmpv-2.dll");
     println!("cargo:rerun-if-changed=windows-shell.rc");
     println!("cargo:rerun-if-changed=windows-shell.exe.manifest");
-    println!("cargo:rerun-if-changed=../../src-tauri/icons/icon.ico");
+    println!("cargo:rerun-if-changed=../../src/favicon.ico");
 
     if is_windows_target() {
         configure_windows_build();

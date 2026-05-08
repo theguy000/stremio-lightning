@@ -3,4 +3,4 @@
 #define APP_ICON 101
 
 APP_MANIFEST RT_MANIFEST "windows-shell.exe.manifest"
-APP_ICON ICON "../../src-tauri/icons/icon.ico"
+APP_ICON ICON "../../src/favicon.ico"

@@ -1,6 +1,6 @@
 # ⚡ Stremio Lightning
 
-A powerful desktop wrapper for [Stremio](https://www.stremio.com/) built with [Tauri](https://tauri.app/) and [Svelte](https://svelte.dev/), adding support for plugins, themes, Discord Rich Presence, and more.
+A powerful desktop wrapper for [Stremio](https://www.stremio.com/) built with Rust-native shell crates and [Svelte](https://svelte.dev/), adding support for plugins, themes, Discord Rich Presence, and more.
 
 ---
 
@@ -21,9 +21,9 @@ A powerful desktop wrapper for [Stremio](https://www.stremio.com/) built with [T
 | Layer     | Technology                        |
 |-----------|-----------------------------------|
 | Frontend  | Svelte 5, TypeScript, Vite        |
-| Backend   | Rust, Tauri 2                     |
+| Backend   | Rust native shell crates          |
 | Player    | libmpv2 (Windows)                 |
-| Packaging | Tauri bundler (NSIS, DMG, AppImage, deb, rpm) |
+| Packaging | Native crate packaging scripts    |
 
 ---
 
@@ -33,7 +33,8 @@ A powerful desktop wrapper for [Stremio](https://www.stremio.com/) built with [T
 
 - [Node.js](https://nodejs.org/) (LTS recommended)
 - [Rust](https://www.rust-lang.org/tools/install) (stable toolchain)
-- [Tauri prerequisites](https://tauri.app/start/prerequisites/) for your OS
+- Linux: WebKitGTK 4.1 development/runtime packages for the native shell
+- Windows: WebView2 Runtime and MSVC Rust target/toolchain
 
 ### Installation
 
@@ -55,14 +56,14 @@ A powerful desktop wrapper for [Stremio](https://www.stremio.com/) built with [T
 
 ### Development
 
-```
-npm run tauri dev
-```
+Use `npm run dev:ui` for the injected UI bundle and run the native shell crate with Cargo.
 
 ### Build
 
-```
-npm run tauri build
+```bash
+npm run build:ui
+npm run build:linux-appimage
+cargo build -p stremio-lightning-windows --release
 ```
 
 ---
