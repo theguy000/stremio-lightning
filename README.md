@@ -1,5 +1,5 @@
 <h1 align="center">
-  <img src="assets/icons/128x128.png" alt="Stremio Lightning logo" width="32" height="32" align="absmiddle">&nbsp;&nbsp;
+  <img src="assets/icons/128x128.png" alt="Stremio Lightning logo" width="40" height="40" align="absmiddle">&nbsp;
   Stremio Lightning
 </h1>
 
