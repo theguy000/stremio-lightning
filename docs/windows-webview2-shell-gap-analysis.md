@@ -37,7 +37,7 @@ Important reference files in `stremio-shell-ng`:
 
 ## Current Stremio Lightning Progress
 
-The migration has started but is still scaffolding-heavy on Windows.
+The direct Windows WebView2 shell crate has completed the implementation milestones for the baseline runtime path. Linux-side static verification is complete, and the remaining exit work is Windows-only runtime smoke validation plus manual portable layout validation.
 
 Completed so far:
 
@@ -81,15 +81,23 @@ Completed so far:
 - Completed Milestone 4 of `docs/windows-webview2-shell-crate-plan.md`.
 - Added Promise-based Windows WebView2 IPC with request IDs, native responses, structured errors, listener registration/unregistration, and native event dispatch back into the shared bridge.
 - Added a Windows host contract JSON fixture at `crates/stremio-lightning-windows/tests/fixtures/host_contract.json`.
+- Completed Milestone 5: native MPV baseline with direct `HWND`/`wid` rendering, MPV command/property transport, event forwarding, and clean MPV shutdown.
+- Completed Milestone 6 except readiness hardening: Windows streaming server supervisor, runtime/FFmpeg/FFprobe command setup, lifecycle host commands/events, log capture, and Job Object cleanup.
+- Completed Milestone 7: Windows single-instance gate, named-pipe secondary launch handoff, launch intent normalization, focus/restore behavior, and queued shell transport `open-media` delivery.
+- Completed Milestone 8: native window controls, fullscreen restore, window state/focus/visibility events, media-key forwarding, safe external URL policy, and WebView2 navigation blocking.
+- Completed Milestone 9: Windows dependency setup hardening, development and portable resource resolution, `libmpv-2.dll` dev-copy handling, and icon/manifest resource embedding.
+- Completed the Linux-side Milestone 10 verification commands: `cargo fmt --all`, `cargo test -p stremio-lightning-windows`, `cargo check -p stremio-lightning-windows --target x86_64-pc-windows-msvc`, and `cargo test --workspace`.
 
 Current status:
 
-- The Windows crate is structurally present.
-- Milestone 1, Milestone 2, Milestone 3, and Milestone 4 are complete.
+- The Windows crate is structurally present and owns the direct shell runtime path.
+- Milestones 1 through 9 are implemented.
+- Milestone 10 static verification is complete from Linux.
 - Shared bridge ownership is no longer under `src-tauri`.
 - The direct shell can now create and own a native Win32 window on Windows, attach WebView2 to it, and navigate to the configured web UI.
 - The direct shell can route the baseline host-contract request/response messages and structured errors.
-- The direct shell cannot yet render MPV video, supervise the local server, or provide full window behavior parity.
+- The direct shell now has baseline implementations for native MPV playback, local server supervision, single-instance/open-media handoff, native window controls, media keys, external URL policy, navigation blocking, and dev/portable resource lookup.
+- Remaining Phase 6 exit work requires Windows runtime validation: launch, WebView2 UI load, mods panel, server lifecycle, native MPV playback, fullscreen restore, media keys, second-instance open-media handoff, shutdown cleanup, and portable folder launch.
 
 ## Missing Work By Area
 
@@ -222,10 +230,14 @@ Implemented baseline:
 
 Still needs runtime verification / later hardening:
 
-- Runtime loading/copying of `libmpv-2.dll` beside the executable or in a known DLL search path.
 - Actual Windows playback smoke testing with `mpv-command loadfile`.
 - Overlay/UI behavior verification when WebView2 and MPV share the native parent window.
 - More complete event/error parity with the old Tauri Windows player path.
+
+Packaging/resource status:
+
+- The build copies `resources/libmpv-2.dll` beside the Cargo-built executable for Windows development runs.
+- Portable layout validation remains manual: `libmpv-2.dll` must be beside `stremio-lightning-windows.exe`.
 
 Needed:
 
@@ -253,12 +265,16 @@ Acceptance:
 
 ## 5. Web UI, Bridge, And Injection Parity
 
-Missing:
+Implemented baseline:
 
-- A Windows WebView2-specific adapter that exposes the same shell-agnostic API as other shells.
-- Verification that the shared `web/bridge/bridge.js` works with WebView2 native messaging.
-- A reliable initialization order between WebView2, host adapter, bridge, and Stremio web app route logic.
-- Compatibility behavior for Stremio Web's existing Qt shell assumptions if they are still present in hosted code.
+- Windows WebView2-specific adapter that exposes the shell-agnostic host API through WebView2 post messages.
+- Document-created injection order that installs the Windows adapter before the shared `web/bridge/bridge.js`.
+- Qt-compatible shell transport handshake routing through `shell-transport-message` events where the hosted app needs it.
+
+Missing / Windows-only validation:
+
+- Runtime verification that the shared `web/bridge/bridge.js` works with WebView2 native messaging in the hosted app.
+- Manual smoke coverage proving the mods button appears, plugin APIs work, and player handoff reaches native MPV.
 
 Needed:
 
@@ -343,14 +359,19 @@ Acceptance:
 
 ## 8. Tray, Window Commands, Fullscreen, And Media Keys
 
-Missing:
+Implemented baseline:
+
+- Fullscreen toggle with previous placement restore.
+- Focus, minimize, maximize/restore, close, and drag commands.
+- Window state, focus, and visibility event emission.
+- Hardware media key forwarding through `WM_APPCOMMAND`.
+- Safe external URL open policy and WebView2 navigation blocking.
+
+Missing / future hardening:
 
 - System tray menu.
 - Show/hide behavior.
 - Topmost toggle.
-- Fullscreen toggle and restoration.
-- Minimize/maximize/focus state notifications.
-- Hardware media key forwarding.
 - Web fullscreen element synchronization.
 
 Needed:
@@ -374,10 +395,15 @@ Acceptance:
 
 ## 9. External URL And Security Policy
 
-Missing:
+Implemented baseline:
 
 - Windows direct-shell external link policy.
-- URL allowlist or warning behavior.
+- Protocol allowlist for external URL opening.
+- Rejection of unsafe/local/custom schemes.
+- Top-level WebView2 navigation blocking outside the configured web UI origin.
+
+Missing / future hardening:
+
 - Guardrails for native command exposure.
 - WebView2 hardening settings review.
 
@@ -402,13 +428,20 @@ Acceptance:
 
 ## 10. Packaging, Resources, And Dependency Setup
 
-Missing:
+Implemented baseline:
 
-- Complete Windows resource layout for the direct shell.
-- Runtime copy/layout for `libmpv-2.dll`, ffmpeg/ffprobe, stremio-service/runtime, icons, and any web assets needed by the shell.
+- Windows resource layout for direct-shell development resources.
+- Portable resource layout resolution with `resources/` beside the executable.
+- Runtime/build handling for `libmpv-2.dll` beside the executable.
+- Dependency setup script that downloads and validates `stremio-runtime.exe`, `server.cjs`, `ffmpeg.exe`, `ffprobe.exe`, `libmpv-2.dll`, and `mpv.lib`.
+- Windows icon and manifest embedding.
+- Fresh Windows checkout setup documentation.
+
+Missing / future packaging work:
+
 - Installer/update packaging for the direct Windows shell.
 - Architecture-specific x64/arm64 handling.
-- Windows manifest and icon embedding.
+- Automated portable archive creation after manual runtime validation.
 
 Needed:
 
@@ -432,14 +465,20 @@ Acceptance:
 
 ## 11. Tests And Verification
 
-Missing:
+Completed static verification:
+
+- `cargo fmt --all`.
+- `cargo test -p stremio-lightning-windows`.
+- `cargo check -p stremio-lightning-windows --target x86_64-pc-windows-msvc`.
+- `cargo test --workspace`.
+
+Missing / Windows-only verification:
 
 - Windows-only runtime tests or smoke checks.
 - WebView2 IPC integration tests.
 - MPV backend tests beyond command mapping.
 - Server process lifecycle tests.
-- Contract fixtures shared across Tauri/Linux/Windows adapters.
-- Manual Windows acceptance checklist.
+- Manual Windows acceptance execution.
 
 Needed:
 

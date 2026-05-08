@@ -330,15 +330,24 @@ Validation completed:
 
 ## Milestone 10: Verification And Exit
 
-- [ ] Run `cargo fmt --all`.
-- [ ] Run `cargo test -p stremio-lightning-windows`.
-- [ ] Run `cargo test --workspace` when changes affect shared code.
-- [ ] Run Windows build/check command.
+- [x] Run `cargo fmt --all`.
+- [x] Run `cargo test -p stremio-lightning-windows`.
+- [x] Run `cargo test --workspace` when changes affect shared code.
+- [x] Run Windows build/check command.
 - [ ] Run manual Windows smoke checklist: launch, web UI, mods panel, server, playback, fullscreen, media keys, open-media, shutdown.
 - [ ] Manually assemble and launch the portable folder layout: executable, `libmpv-2.dll`, and `resources/` beside the executable.
 - [ ] Confirm the portable layout resolves runtime, server, ffmpeg/ffprobe, and MPV DLL paths without relying on crate-local development resources.
-- [ ] Update `docs/windows-webview2-shell-gap-analysis.md` with completed work.
+- [x] Update `docs/windows-webview2-shell-gap-analysis.md` with completed work.
 - [ ] Only then begin `docs/stremio-community-feature-parity-todo.md` P1/P2 feature expansion.
+
+Validation completed from this Linux workspace:
+
+- `cargo fmt --all`
+- `cargo test -p stremio-lightning-windows` passed: 29 tests.
+- `cargo check -p stremio-lightning-windows --target x86_64-pc-windows-msvc`
+- `cargo test --workspace`
+
+Windows-only manual validation still remains because this workspace is Linux-only. Do not start `docs/stremio-community-feature-parity-todo.md` until the manual Windows smoke checklist and portable layout launch are completed on Windows.
 
 Packaging boundary:
 

@@ -4,19 +4,18 @@
 
 - Branch: `master`
 - Remote: `origin` (`https://github.com/theguy000/stremio-lightning.git`)
-- Last pushed commit before this progress update: `22cddd2 Add Windows window behavior baseline`
+- Last pushed commit before this progress update: `d3ce251 Add Windows resource packaging baseline`
 - Active track: Phase 6 direct Windows WebView2 shell migration
 - Active plan: `docs/windows-webview2-shell-crate-plan.md`
 - Official Windows reference checkout: `/tmp/stremio-shell-ng-reference`
 
 ## Completed In This Change
 
-- Completed Milestone 9: Resource Setup And Packaging Baseline.
-- Hardened `scripts/download-windows-shell-deps.sh` so a fresh Windows checkout produces and validates the direct-shell `resources/` and `mpv-dev/` development layout.
-- Added runtime resource resolution for both crate-local development resources and a portable packaged layout with `resources/` beside the executable.
-- Added Windows build handling that copies `resources/libmpv-2.dll` beside the Cargo-built executable so MPV delay-loading can find it during development runs.
-- Added direct-shell Windows executable resources: reused Stremio icon, common controls v6 manifest, per-monitor DPI awareness, long path awareness, and `asInvoker` execution level.
-- Documented the fresh Windows setup sequence and minimal portable archive layout in the active Windows shell plan.
+- Executed the Linux-side portion of Milestone 10: Verification And Exit.
+- Re-ran the full available static verification set from this Linux workspace.
+- Updated `docs/windows-webview2-shell-crate-plan.md` to mark completed Milestone 10 verification commands and keep Windows-only smoke/portable validation open.
+- Updated `docs/windows-webview2-shell-gap-analysis.md` so it reflects Milestones 5 through 9 completion and the current Milestone 10 boundary.
+- Confirmed `docs/stremio-community-feature-parity-todo.md` remains blocked until Windows runtime smoke validation is complete.
 
 ## Completed Previously On Windows Track
 
@@ -49,6 +48,7 @@ Runtime testing still requires Windows:
 
 Immediate next milestone:
 
-1. Runtime validate Milestones 7, 8, and 9 on Windows by testing setup, launch, packaged resource lookup, second-instance launch handoff, fullscreen restore, window controls, media keys, and external links.
-2. Finish Milestone 6 hardening by adding stdout/HTTP readiness detection if Windows runtime validation shows the web app needs it.
-3. Continue with Milestone 10: Verification And Exit from `docs/windows-webview2-shell-crate-plan.md`.
+1. Run the Windows-only Milestone 10 smoke checklist on Windows: setup, launch, WebView2 UI, mods panel, server lifecycle, native MPV playback, fullscreen restore, window controls, media keys, open-media/second-instance handoff, external links, and shutdown cleanup.
+2. Manually assemble and launch the portable layout on Windows, then confirm runtime/server/ffmpeg/ffprobe resources resolve from `resources/` beside the executable and `libmpv-2.dll` resolves beside the executable.
+3. Finish Milestone 6 readiness hardening only if Windows runtime validation shows the web app needs stdout/HTTP readiness detection.
+4. Do not start `docs/stremio-community-feature-parity-todo.md` until Windows runtime smoke and portable layout validation are complete.
