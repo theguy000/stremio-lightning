@@ -106,6 +106,13 @@ impl PipState {
         Ok(true)
     }
 
+    pub fn exit_window_pip_for_player_end(
+        &self,
+        controller: &mut impl PipWindowController,
+    ) -> Result<bool, String> {
+        self.exit_window_pip(controller)
+    }
+
     pub fn toggle_window_pip(
         &self,
         controller: &mut impl PipWindowController,
@@ -213,6 +220,19 @@ mod tests {
             }]
         );
         assert_eq!(state.is_enabled().unwrap(), false);
+        assert_eq!(state.exit_window_pip(&mut controller).unwrap(), false);
+    }
+
+    #[test]
+    fn player_end_exits_window_pip() {
+        let state = PipState::new();
+        let mut controller = TestPipController::default();
+
+        assert_eq!(state.toggle_window_pip(&mut controller).unwrap(), true);
+        assert_eq!(state.exit_window_pip(&mut controller).unwrap(), true);
+        assert_eq!(state.is_enabled().unwrap(), false);
+        assert_eq!(controller.entered, 1);
+        assert_eq!(controller.exited.len(), 1);
         assert_eq!(state.exit_window_pip(&mut controller).unwrap(), false);
     }
 

@@ -174,7 +174,13 @@ fn build_window(
     let fullscreen = Rc::new(Cell::new(false));
     let overlay = gtk::Overlay::new();
     let webview = build_webview(config, runtime.clone(), window.clone(), fullscreen.clone())?;
-    let video = build_native_video(player, runtime, webview.clone())?;
+    let video = build_native_video(
+        player,
+        runtime,
+        webview.clone(),
+        window.clone(),
+        fullscreen.clone(),
+    )?;
     video.set_hexpand(true);
     video.set_vexpand(true);
     overlay.set_child(Some(&video));
@@ -881,6 +887,8 @@ fn build_native_video(
     player: MpvPlayerBackend,
     runtime: Rc<LinuxWebviewRuntime<MpvPlayerBackend, RealProcessSpawner>>,
     webview: WebKitWebView,
+    window: gtk::ApplicationWindow,
+    fullscreen: Rc<Cell<bool>>,
 ) -> Result<gtk::GLArea, String> {
     let area = gtk::GLArea::new();
     let state = Rc::new(NativeVideoState::new()?);
@@ -888,7 +896,7 @@ fn build_native_video(
     player.attach(command_sender)?;
 
     install_mpv_command_drain(&state, command_receiver);
-    install_mpv_event_drain(&state, runtime, webview);
+    install_mpv_event_drain(&state, runtime, webview, window, fullscreen);
 
     {
         let state = state.clone();
@@ -964,6 +972,8 @@ fn install_mpv_event_drain(
     state: &Rc<NativeVideoState>,
     runtime: Rc<LinuxWebviewRuntime<MpvPlayerBackend, RealProcessSpawner>>,
     webview: WebKitWebView,
+    window: gtk::ApplicationWindow,
+    fullscreen: Rc<Cell<bool>>,
 ) {
     let state = state.clone();
     glib::idle_add_local(move || {
@@ -976,6 +986,16 @@ fn install_mpv_event_drain(
                 }
             }
             Event::EndFile(_) => {
+                let mut controller = LinuxPipController {
+                    webview: &webview,
+                    runtime: &runtime,
+                    window: &window,
+                    fullscreen: &fullscreen,
+                };
+                if let Err(error) = runtime.exit_picture_in_picture_for_player_end(&mut controller)
+                {
+                    eprintln!("[StremioLightning] Failed to exit PiP after MPV ended: {error}");
+                }
                 if let Err(error) = runtime.emit_native_player_ended("eof") {
                     eprintln!("[StremioLightning] Failed to emit MPV ended event: {error}");
                 }

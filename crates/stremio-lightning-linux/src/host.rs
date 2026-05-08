@@ -410,6 +410,17 @@ where
         controller: &mut impl PipWindowController,
     ) -> Result<bool, String> {
         let changed = self.pip_state.exit_window_pip(controller)?;
+        self.emit_picture_in_picture_exit(changed)
+    }
+
+    pub fn exit_picture_in_picture_for_player_end(
+        &self,
+        controller: &mut impl PipWindowController,
+    ) -> Result<bool, String> {
+        self.exit_picture_in_picture(controller)
+    }
+
+    fn emit_picture_in_picture_exit(&self, changed: bool) -> Result<bool, String> {
         if changed {
             self.emit_transport_event(serialize_picture_in_picture(false))?;
         }

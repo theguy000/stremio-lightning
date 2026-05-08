@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use stremio_lightning_core::host_api::{self, HostEvent, ParsedRequest};
 use stremio_lightning_core::pip::{serialize_picture_in_picture, PipState};
+use stremio_lightning_core::player_api::PlayerEvent;
 
 #[cfg(windows)]
 use crate::window::NativeWindowController;
@@ -445,6 +446,11 @@ impl WindowsHost {
             .drain_events();
 
         for event in events {
+            if matches!(event, PlayerEvent::Ended(_)) {
+                if self.exit_picture_in_picture_window_for_player_end()? {
+                    self.emit_picture_in_picture(false)?;
+                }
+            }
             self.emit_transport_message(host_api::response_message(event.transport_args()))?;
         }
         Ok(())
@@ -480,20 +486,40 @@ impl WindowsHost {
     }
 
     #[cfg(windows)]
-    fn exit_picture_in_picture_window(&self) -> Result<(), String> {
+    fn exit_picture_in_picture_window(&self) -> Result<bool, String> {
+        self.exit_picture_in_picture_window_with(PipState::exit_window_pip)
+    }
+
+    #[cfg(windows)]
+    fn exit_picture_in_picture_window_for_player_end(&self) -> Result<bool, String> {
+        self.exit_picture_in_picture_window_with(PipState::exit_window_pip_for_player_end)
+    }
+
+    #[cfg(windows)]
+    fn exit_picture_in_picture_window_with(
+        &self,
+        exit: impl FnOnce(&PipState, &mut NativeWindowController) -> Result<bool, String>,
+    ) -> Result<bool, String> {
         let mut controller = self
             .window_controller
             .lock()
             .map_err(|_| "Windows window controller lock poisoned".to_string())?;
         if let Some(controller) = controller.as_mut() {
-            self.pip_state.exit_window_pip(controller)?;
+            return exit(&self.pip_state, controller);
         }
-        Ok(())
+        Ok(false)
     }
 
     #[cfg(not(windows))]
-    fn exit_picture_in_picture_window(&self) -> Result<(), String> {
-        self.pip_state.set_mode(false, None)
+    fn exit_picture_in_picture_window(&self) -> Result<bool, String> {
+        let changed = self.pip_state.is_enabled()?;
+        self.pip_state.set_mode(false, None)?;
+        Ok(changed)
+    }
+
+    #[cfg(not(windows))]
+    fn exit_picture_in_picture_window_for_player_end(&self) -> Result<bool, String> {
+        self.exit_picture_in_picture_window()
     }
 
     pub fn emit_media_key(&self, action: &str) -> Result<(), String> {
@@ -1014,6 +1040,34 @@ mod tests {
             panic!("expected shell transport event");
         };
         assert!(payload.as_str().unwrap().contains("hidePictureInPicture"));
+    }
+
+    #[test]
+    fn exits_pip_when_native_player_ends() {
+        let host = WindowsHost::default();
+        host.dispatch_windows_ipc(
+            "listen",
+            Some(json!({ "id": 8, "event": "shell-transport-message" })),
+        )
+        .unwrap();
+
+        host.invoke("toggle_pip", None).unwrap();
+        assert_eq!(host.invoke("get_pip_mode", None).unwrap(), json!(true));
+        host.drain_ipc_events();
+
+        host.player.lock().unwrap().emit_ended("eof");
+
+        let events = host.drain_ipc_events();
+        assert_eq!(host.invoke("get_pip_mode", None).unwrap(), json!(false));
+        assert_eq!(events.len(), 2);
+        let WindowsIpcOutbound::Event { payload, .. } = &events[0] else {
+            panic!("expected shell transport event");
+        };
+        assert!(payload.as_str().unwrap().contains("hidePictureInPicture"));
+        let WindowsIpcOutbound::Event { payload, .. } = &events[1] else {
+            panic!("expected shell transport event");
+        };
+        assert!(payload.as_str().unwrap().contains("ended"));
     }
 
     #[test]

@@ -213,6 +213,13 @@ where
     ) -> Result<bool, String> {
         self.host.exit_picture_in_picture(controller)
     }
+
+    pub fn exit_picture_in_picture_for_player_end(
+        &self,
+        controller: &mut impl PipWindowController,
+    ) -> Result<bool, String> {
+        self.exit_picture_in_picture(controller)
+    }
 }
 
 pub fn linux_host_adapter() -> String {
