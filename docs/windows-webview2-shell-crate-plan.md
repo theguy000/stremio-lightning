@@ -257,13 +257,19 @@ Acceptance:
 
 ## Milestone 8: Window Behavior Baseline
 
-- [ ] Implement fullscreen toggle and restore prior placement.
-- [ ] Implement focus command.
-- [ ] Implement minimize/maximize/restore commands if used by the bridge.
-- [ ] Emit window state/visibility events.
-- [ ] Handle media keys through `WM_APPCOMMAND` or registered hotkeys.
-- [ ] Implement safe external URL open policy.
-- [ ] Implement navigation blocking for untrusted destinations.
+- [x] Implement fullscreen toggle and restore prior placement.
+- [x] Implement focus command.
+- [x] Implement minimize/maximize/restore commands if used by the bridge.
+- [x] Emit window state/visibility events.
+- [x] Handle media keys through `WM_APPCOMMAND` or registered hotkeys.
+- [x] Implement safe external URL open policy.
+- [x] Implement navigation blocking for untrusted destinations.
+
+Notes:
+
+- `src/window.rs` now owns a native window controller for minimize, maximize/restore, close, drag, and fullscreen placement restore.
+- `src/webview.rs` binds the native window to the host, forwards window state/focus/media-key messages, and blocks top-level navigation outside the configured WebView2 web UI origin.
+- `src/host.rs` emits window state events, routes media keys through shell transport as `["media-key", action]`, validates external URLs, and opens allowed external links through the OS browser on Windows.
 
 Acceptance:
 

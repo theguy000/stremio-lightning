@@ -27,7 +27,8 @@ pub fn run_native_window(config: WindowConfig) -> Result<(), String> {
 
 #[cfg(windows)]
 pub use platform::{
-    focus_window, run_native_window_with_handler, NativeWindowHandler, UiThreadNotifier,
+    focus_window, run_native_window_with_handler, MediaKeyAction, NativeWindowController,
+    NativeWindowHandler, UiThreadNotifier, WindowVisualState,
 };
 
 #[cfg(windows)]
@@ -36,19 +37,26 @@ mod platform {
     use std::ffi::c_void;
     use windows::core::{w, PCWSTR};
     use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
-    use windows::Win32::Graphics::Gdi::HBRUSH;
+    use windows::Win32::Graphics::Gdi::{
+        GetMonitorInfoW, MonitorFromWindow, HBRUSH, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    };
     use windows::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows::Win32::UI::HiDpi::{
         SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
     };
+    use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
     use windows::Win32::UI::WindowsAndMessaging::{
         CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetClientRect,
-        GetMessageW, GetWindowLongPtrW, IsIconic, LoadCursorW, PostMessageW, PostQuitMessage,
-        RegisterClassW, SetForegroundWindow, SetWindowLongPtrW, ShowWindow, TranslateMessage,
-        CREATESTRUCTW, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, GWLP_USERDATA, IDC_ARROW, MINMAXINFO,
-        MSG, SHOW_WINDOW_CMD, SW_RESTORE, SW_SHOWDEFAULT, WINDOW_EX_STYLE, WM_ACTIVATE, WM_APP,
-        WM_CLOSE, WM_DESTROY, WM_DPICHANGED, WM_GETMINMAXINFO, WM_NCCREATE, WM_NCDESTROY, WM_SIZE,
-        WNDCLASSW, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+        GetMessageW, GetWindowLongPtrW, GetWindowPlacement, IsIconic, IsZoomed, LoadCursorW,
+        PostMessageW, PostQuitMessage, RegisterClassW, SendMessageW, SetForegroundWindow,
+        SetWindowLongPtrW, SetWindowPlacement, SetWindowPos, ShowWindow, TranslateMessage,
+        CREATESTRUCTW, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, GWLP_USERDATA, GWL_EXSTYLE,
+        GWL_STYLE, HTCAPTION, IDC_ARROW, MINMAXINFO, MSG, SHOW_WINDOW_CMD, SIZE_MAXIMIZED,
+        SIZE_MINIMIZED, SIZE_RESTORED, SWP_FRAMECHANGED, SWP_NOOWNERZORDER, SW_MAXIMIZE,
+        SW_MINIMIZE, SW_RESTORE, SW_SHOWDEFAULT, WINDOWPLACEMENT, WINDOW_EX_STYLE, WM_ACTIVATE,
+        WM_APP, WM_APPCOMMAND, WM_CLOSE, WM_DESTROY, WM_DPICHANGED, WM_GETMINMAXINFO, WM_KILLFOCUS,
+        WM_NCCREATE, WM_NCDESTROY, WM_NCLBUTTONDOWN, WM_SETFOCUS, WM_SIZE, WNDCLASSW,
+        WS_OVERLAPPEDWINDOW, WS_POPUP, WS_VISIBLE,
     };
 
     pub const UI_THREAD_WAKE_MESSAGE: u32 = WM_APP + 1;
@@ -58,9 +66,36 @@ mod platform {
         handler: Option<Box<dyn NativeWindowHandler>>,
     }
 
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum WindowVisualState {
+        Minimized,
+        Maximized,
+        Restored,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum MediaKeyAction {
+        PlayPause,
+        NextTrack,
+        PreviousTrack,
+    }
+
     pub trait NativeWindowHandler {
         fn on_created(&mut self, hwnd: HWND) -> Result<(), String>;
         fn on_resized(&mut self, _hwnd: HWND, _client_rect: RECT) -> Result<(), String> {
+            Ok(())
+        }
+        fn on_window_state_changed(
+            &mut self,
+            _hwnd: HWND,
+            _state: WindowVisualState,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+        fn on_focus_changed(&mut self, _hwnd: HWND, _focused: bool) -> Result<(), String> {
+            Ok(())
+        }
+        fn on_media_key(&mut self, _hwnd: HWND, _action: MediaKeyAction) -> Result<(), String> {
             Ok(())
         }
         fn on_ui_thread_wake(&mut self, _hwnd: HWND) -> Result<(), String> {
@@ -102,6 +137,162 @@ mod platform {
             }
             let _ = SetForegroundWindow(hwnd);
         }
+    }
+
+    #[derive(Debug)]
+    pub struct NativeWindowController {
+        hwnd: HWND,
+        fullscreen: Option<FullscreenSnapshot>,
+    }
+
+    unsafe impl Send for NativeWindowController {}
+
+    impl NativeWindowController {
+        pub fn new(hwnd: HWND) -> Self {
+            Self {
+                hwnd,
+                fullscreen: None,
+            }
+        }
+
+        pub fn minimize(&self) {
+            unsafe {
+                let _ = ShowWindow(self.hwnd, SHOW_WINDOW_CMD(SW_MINIMIZE.0));
+            }
+        }
+
+        pub fn focus(&self) {
+            focus_window(self.hwnd);
+        }
+
+        pub fn toggle_maximize(&self) -> bool {
+            unsafe {
+                if IsZoomed(self.hwnd).as_bool() {
+                    let _ = ShowWindow(self.hwnd, SHOW_WINDOW_CMD(SW_RESTORE.0));
+                    false
+                } else {
+                    let _ = ShowWindow(self.hwnd, SHOW_WINDOW_CMD(SW_MAXIMIZE.0));
+                    true
+                }
+            }
+        }
+
+        pub fn close(&self) {
+            unsafe {
+                let _ = PostMessageW(Some(self.hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+            }
+        }
+
+        pub fn start_dragging(&self) {
+            unsafe {
+                let _ = ReleaseCapture();
+                let _ = SendMessageW(
+                    self.hwnd,
+                    WM_NCLBUTTONDOWN,
+                    Some(WPARAM(HTCAPTION as usize)),
+                    Some(LPARAM(0)),
+                );
+            }
+        }
+
+        pub fn is_maximized(&self) -> bool {
+            unsafe { IsZoomed(self.hwnd).as_bool() }
+        }
+
+        pub fn is_fullscreen(&self) -> bool {
+            self.fullscreen.is_some()
+        }
+
+        pub fn set_fullscreen(&mut self, fullscreen: bool) -> Result<bool, String> {
+            if fullscreen == self.is_fullscreen() {
+                return Ok(false);
+            }
+
+            if fullscreen {
+                self.enter_fullscreen()?;
+            } else {
+                self.exit_fullscreen()?;
+            }
+            Ok(true)
+        }
+
+        fn enter_fullscreen(&mut self) -> Result<(), String> {
+            let mut placement = WINDOWPLACEMENT {
+                length: std::mem::size_of::<WINDOWPLACEMENT>() as u32,
+                ..Default::default()
+            };
+            unsafe {
+                GetWindowPlacement(self.hwnd, &mut placement)
+                    .map_err(|error| format!("Failed to read window placement: {error}"))?;
+            }
+
+            let style = unsafe { GetWindowLongPtrW(self.hwnd, GWL_STYLE) };
+            let ex_style = unsafe { GetWindowLongPtrW(self.hwnd, GWL_EXSTYLE) };
+            let monitor = unsafe { MonitorFromWindow(self.hwnd, MONITOR_DEFAULTTONEAREST) };
+            let mut monitor_info = MONITORINFO {
+                cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+                ..Default::default()
+            };
+            unsafe {
+                if !GetMonitorInfoW(monitor, &mut monitor_info).as_bool() {
+                    return Err("Failed to read fullscreen monitor bounds".to_string());
+                }
+            }
+
+            self.fullscreen = Some(FullscreenSnapshot {
+                style,
+                ex_style,
+                placement,
+            });
+
+            let fullscreen_style = (style as u32 & !WS_OVERLAPPEDWINDOW.0) | WS_POPUP.0;
+            let rect = monitor_info.rcMonitor;
+            unsafe {
+                SetWindowLongPtrW(self.hwnd, GWL_STYLE, fullscreen_style as isize);
+                SetWindowLongPtrW(self.hwnd, GWL_EXSTYLE, ex_style);
+                SetWindowPos(
+                    self.hwnd,
+                    None,
+                    rect.left,
+                    rect.top,
+                    rect.right - rect.left,
+                    rect.bottom - rect.top,
+                    SWP_NOOWNERZORDER | SWP_FRAMECHANGED,
+                )
+                .map_err(|error| format!("Failed to enter fullscreen: {error}"))?;
+            }
+            Ok(())
+        }
+
+        fn exit_fullscreen(&mut self) -> Result<(), String> {
+            let Some(snapshot) = self.fullscreen.take() else {
+                return Ok(());
+            };
+            unsafe {
+                SetWindowLongPtrW(self.hwnd, GWL_STYLE, snapshot.style);
+                SetWindowLongPtrW(self.hwnd, GWL_EXSTYLE, snapshot.ex_style);
+                SetWindowPlacement(self.hwnd, &snapshot.placement)
+                    .map_err(|error| format!("Failed to restore window placement: {error}"))?;
+                SetWindowPos(
+                    self.hwnd,
+                    None,
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOOWNERZORDER | SWP_FRAMECHANGED,
+                )
+                .map_err(|error| format!("Failed to exit fullscreen: {error}"))?;
+            }
+            Ok(())
+        }
+    }
+
+    #[derive(Debug)]
+    struct FullscreenSnapshot {
+        style: isize,
+        ex_style: isize,
+        placement: WINDOWPLACEMENT,
     }
 
     pub fn run_native_window_with_handler(
@@ -239,13 +430,50 @@ mod platform {
                 WM_SIZE => {
                     let state = window_state(hwnd);
                     if !state.is_null() {
+                        let visual_state = match wparam.0 as u32 {
+                            SIZE_MINIMIZED => Some(WindowVisualState::Minimized),
+                            SIZE_MAXIMIZED => Some(WindowVisualState::Maximized),
+                            SIZE_RESTORED => Some(WindowVisualState::Restored),
+                            _ => None,
+                        };
                         let mut rect = RECT::default();
                         let _ = GetClientRect(hwnd, &mut rect);
                         if let Some(handler) = (*state).handler.as_mut() {
                             let _ = handler.on_resized(hwnd, rect);
+                            if let Some(visual_state) = visual_state {
+                                let _ = handler.on_window_state_changed(hwnd, visual_state);
+                            }
                         }
                     }
                     LRESULT(0)
+                }
+                WM_SETFOCUS | WM_KILLFOCUS => {
+                    let state = window_state(hwnd);
+                    if !state.is_null() {
+                        if let Some(handler) = (*state).handler.as_mut() {
+                            let _ = handler.on_focus_changed(hwnd, message == WM_SETFOCUS);
+                        }
+                    }
+                    DefWindowProcW(hwnd, message, wparam, lparam)
+                }
+                WM_APPCOMMAND => {
+                    let command = ((lparam.0 >> 16) & 0x0fff) as u32;
+                    let action = match command {
+                        11 => Some(MediaKeyAction::NextTrack),
+                        12 => Some(MediaKeyAction::PreviousTrack),
+                        14 | 46 | 47 => Some(MediaKeyAction::PlayPause),
+                        _ => None,
+                    };
+                    if let Some(action) = action {
+                        let state = window_state(hwnd);
+                        if !state.is_null() {
+                            if let Some(handler) = (*state).handler.as_mut() {
+                                let _ = handler.on_media_key(hwnd, action);
+                            }
+                        }
+                        return LRESULT(1);
+                    }
+                    DefWindowProcW(hwnd, message, wparam, lparam)
                 }
                 UI_THREAD_WAKE_MESSAGE => {
                     let state = window_state(hwnd);

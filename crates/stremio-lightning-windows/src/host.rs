@@ -8,6 +8,9 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use stremio_lightning_core::host_api::{self, HostEvent, ParsedRequest};
 
+#[cfg(windows)]
+use crate::window::NativeWindowController;
+
 pub const SHELL_TRANSPORT_EVENT: &str = "shell-transport-message";
 
 #[derive(Debug, Clone, PartialEq)]
@@ -22,7 +25,7 @@ struct ListenerRegistry {
     listeners: HashMap<u64, String>,
     emitted: Vec<HostEventRecord>,
     shell_transport_ready: bool,
-    pending_open_media: Vec<String>,
+    pending_shell_transport_messages: Vec<String>,
 }
 
 impl ListenerRegistry {
@@ -53,7 +56,21 @@ impl ListenerRegistry {
     }
 
     fn queue_open_media(&mut self, value: String) {
-        self.pending_open_media.push(value);
+        self.queue_shell_transport_message(host_api::response_message(json!([
+            "open-media",
+            value
+        ])));
+    }
+
+    fn queue_media_key(&mut self, action: &str) {
+        self.queue_shell_transport_message(host_api::response_message(json!([
+            "media-key",
+            action
+        ])));
+    }
+
+    fn queue_shell_transport_message(&mut self, message: String) {
+        self.pending_shell_transport_messages.push(message);
         self.flush_pending_open_media();
     }
 
@@ -67,10 +84,10 @@ impl ListenerRegistry {
             return;
         }
 
-        for value in std::mem::take(&mut self.pending_open_media) {
+        for message in std::mem::take(&mut self.pending_shell_transport_messages) {
             self.emitted.push(HostEventRecord {
                 event: SHELL_TRANSPORT_EVENT.to_string(),
-                payload: json!(host_api::response_message(json!(["open-media", value]))),
+                payload: json!(message),
             });
         }
     }
@@ -100,7 +117,18 @@ pub struct WindowsHost {
     player: Mutex<WindowsPlayer>,
     streaming_server: WindowsStreamingServer<RealProcessSpawner>,
     listeners: Mutex<ListenerRegistry>,
+    window_state: Mutex<WindowRuntimeState>,
+    #[cfg(windows)]
+    window_controller: Mutex<Option<NativeWindowController>>,
     package_version: &'static str,
+}
+
+#[derive(Debug, Default)]
+struct WindowRuntimeState {
+    fullscreen: bool,
+    maximized: bool,
+    focused: bool,
+    visible: bool,
 }
 
 impl Default for WindowsHost {
@@ -122,6 +150,9 @@ impl WindowsHost {
                 disabled,
             ),
             listeners: Mutex::default(),
+            window_state: Mutex::default(),
+            #[cfg(windows)]
+            window_controller: Mutex::default(),
             package_version,
         }
     }
@@ -142,6 +173,16 @@ impl WindowsHost {
             .lock()
             .map_err(|e| e.to_string())?
             .queue_open_media(value);
+        Ok(())
+    }
+
+    #[cfg(windows)]
+    pub fn bind_native_window(&self, hwnd: windows::Win32::Foundation::HWND) -> Result<(), String> {
+        *self
+            .window_controller
+            .lock()
+            .map_err(|_| "Windows window controller lock poisoned".to_string())? =
+            Some(NativeWindowController::new(hwnd));
         Ok(())
     }
 
@@ -212,14 +253,32 @@ impl WindowsHost {
                 self.unlisten(payload.id)?;
                 Ok(Value::Null)
             }
-            "window.minimize"
-            | "window.toggleMaximize"
-            | "window.close"
-            | "window.startDragging" => Ok(Value::Null),
-            "window.isMaximized" | "window.isFullscreen" => Ok(json!(false)),
+            "window.minimize" => {
+                self.minimize_window()?;
+                Ok(Value::Null)
+            }
+            "window.focus" => {
+                self.focus_window()?;
+                Ok(Value::Null)
+            }
+            "window.toggleMaximize" => {
+                let maximized = self.toggle_window_maximize()?;
+                self.set_window_maximized(maximized)?;
+                Ok(Value::Null)
+            }
+            "window.close" => {
+                self.close_window()?;
+                Ok(Value::Null)
+            }
+            "window.startDragging" => {
+                self.start_window_dragging()?;
+                Ok(Value::Null)
+            }
+            "window.isMaximized" => Ok(json!(self.is_window_maximized()?)),
+            "window.isFullscreen" => Ok(json!(self.is_window_fullscreen()?)),
             "window.setFullscreen" => {
                 let payload: FullscreenIpcPayload = parse_payload(kind, payload)?;
-                self.emit_window_fullscreen_changed(payload.fullscreen)?;
+                self.set_window_fullscreen(payload.fullscreen)?;
                 Ok(Value::Null)
             }
             "webview.setZoom" => {
@@ -269,6 +328,7 @@ impl WindowsHost {
                     .and_then(Value::as_str)
                     .ok_or_else(|| "Missing open_external_url url".to_string())?;
                 validate_external_url(url)?;
+                open_external_url(url)?;
                 Ok(Value::Null)
             }
             "get_streaming_server_status" => Ok(json!(self.streaming_server.is_running())),
@@ -387,6 +447,216 @@ impl WindowsHost {
         self.emit_event(SHELL_TRANSPORT_EVENT, json!(message))
     }
 
+    pub fn emit_media_key(&self, action: &str) -> Result<(), String> {
+        self.listeners
+            .lock()
+            .map_err(|e| e.to_string())?
+            .queue_media_key(action);
+        Ok(())
+    }
+
+    pub fn update_window_maximized(&self, maximized: bool) -> Result<(), String> {
+        self.set_window_maximized(maximized)
+    }
+
+    pub fn update_window_focus(&self, focused: bool) -> Result<(), String> {
+        let changed = {
+            let mut state = self
+                .window_state
+                .lock()
+                .map_err(|_| "Windows window state lock poisoned".to_string())?;
+            let changed = state.focused != focused;
+            state.focused = focused;
+            changed
+        };
+        if changed {
+            self.emit_event("window-focus-changed", json!(focused))?;
+        }
+        Ok(())
+    }
+
+    pub fn update_window_visible(&self, visible: bool) -> Result<(), String> {
+        let changed = {
+            let mut state = self
+                .window_state
+                .lock()
+                .map_err(|_| "Windows window state lock poisoned".to_string())?;
+            let changed = state.visible != visible;
+            state.visible = visible;
+            changed
+        };
+        if changed {
+            self.emit_event("window-visible-changed", json!(visible))?;
+        }
+        Ok(())
+    }
+
+    fn minimize_window(&self) -> Result<(), String> {
+        #[cfg(windows)]
+        if let Some(controller) = self
+            .window_controller
+            .lock()
+            .map_err(|_| "Windows window controller lock poisoned".to_string())?
+            .as_ref()
+        {
+            controller.minimize();
+        }
+        self.update_window_visible(false)
+    }
+
+    fn focus_window(&self) -> Result<(), String> {
+        #[cfg(windows)]
+        if let Some(controller) = self
+            .window_controller
+            .lock()
+            .map_err(|_| "Windows window controller lock poisoned".to_string())?
+            .as_ref()
+        {
+            controller.focus();
+        }
+        self.update_window_focus(true)
+    }
+
+    fn toggle_window_maximize(&self) -> Result<bool, String> {
+        #[cfg(windows)]
+        if let Some(controller) = self
+            .window_controller
+            .lock()
+            .map_err(|_| "Windows window controller lock poisoned".to_string())?
+            .as_ref()
+        {
+            return Ok(controller.toggle_maximize());
+        }
+
+        let state = self
+            .window_state
+            .lock()
+            .map_err(|_| "Windows window state lock poisoned".to_string())?;
+        Ok(!state.maximized)
+    }
+
+    fn close_window(&self) -> Result<(), String> {
+        #[cfg(windows)]
+        if let Some(controller) = self
+            .window_controller
+            .lock()
+            .map_err(|_| "Windows window controller lock poisoned".to_string())?
+            .as_ref()
+        {
+            controller.close();
+        }
+        Ok(())
+    }
+
+    fn start_window_dragging(&self) -> Result<(), String> {
+        #[cfg(windows)]
+        if let Some(controller) = self
+            .window_controller
+            .lock()
+            .map_err(|_| "Windows window controller lock poisoned".to_string())?
+            .as_ref()
+        {
+            controller.start_dragging();
+        }
+        Ok(())
+    }
+
+    fn is_window_maximized(&self) -> Result<bool, String> {
+        #[cfg(windows)]
+        if let Some(controller) = self
+            .window_controller
+            .lock()
+            .map_err(|_| "Windows window controller lock poisoned".to_string())?
+            .as_ref()
+        {
+            return Ok(controller.is_maximized());
+        }
+
+        Ok(self
+            .window_state
+            .lock()
+            .map_err(|_| "Windows window state lock poisoned".to_string())?
+            .maximized)
+    }
+
+    fn is_window_fullscreen(&self) -> Result<bool, String> {
+        #[cfg(windows)]
+        if let Some(controller) = self
+            .window_controller
+            .lock()
+            .map_err(|_| "Windows window controller lock poisoned".to_string())?
+            .as_ref()
+        {
+            return Ok(controller.is_fullscreen());
+        }
+
+        Ok(self
+            .window_state
+            .lock()
+            .map_err(|_| "Windows window state lock poisoned".to_string())?
+            .fullscreen)
+    }
+
+    fn set_window_maximized(&self, maximized: bool) -> Result<(), String> {
+        let changed = {
+            let mut state = self
+                .window_state
+                .lock()
+                .map_err(|_| "Windows window state lock poisoned".to_string())?;
+            let changed = state.maximized != maximized;
+            state.maximized = maximized;
+            state.visible = true;
+            changed
+        };
+        if changed {
+            self.emit_window_maximized_changed(maximized)?;
+        }
+        Ok(())
+    }
+
+    fn set_window_fullscreen(&self, fullscreen: bool) -> Result<(), String> {
+        let changed = {
+            #[cfg(windows)]
+            {
+                if let Some(controller) = self
+                    .window_controller
+                    .lock()
+                    .map_err(|_| "Windows window controller lock poisoned".to_string())?
+                    .as_mut()
+                {
+                    controller.set_fullscreen(fullscreen)?
+                } else {
+                    false
+                }
+            }
+
+            #[cfg(not(windows))]
+            {
+                false
+            }
+        };
+
+        let state_changed = {
+            let mut state = self
+                .window_state
+                .lock()
+                .map_err(|_| "Windows window state lock poisoned".to_string())?;
+            let state_changed = state.fullscreen != fullscreen;
+            state.fullscreen = fullscreen;
+            state.visible = true;
+            state_changed
+        };
+
+        if changed || state_changed {
+            self.emit_window_fullscreen_changed(fullscreen)?;
+        }
+        Ok(())
+    }
+
+    fn emit_window_maximized_changed(&self, maximized: bool) -> Result<(), String> {
+        self.emit_host_event(HostEvent::WindowMaximizedChanged, json!(maximized))
+    }
+
     fn emit_window_fullscreen_changed(&self, fullscreen: bool) -> Result<(), String> {
         self.emit_host_event(HostEvent::WindowFullscreenChanged, json!(fullscreen))
     }
@@ -462,18 +732,52 @@ where
 }
 
 fn validate_external_url(url: &str) -> Result<(), String> {
-    let lower = url.to_lowercase();
-    let allowed = [
-        "http://", "https://", "rtp://", "rtsp://", "ftp://", "ipfs://",
-    ]
-    .iter()
-    .any(|prefix| lower.starts_with(prefix));
+    let trimmed = url.trim();
+    if trimmed.is_empty() || trimmed.contains(|c: char| c.is_control()) {
+        return Err("Rejected non-whitelisted open_external_url URL".to_string());
+    }
+
+    let lower = trimmed.to_ascii_lowercase();
+    let allowed = ["http://", "https://", "mailto:"]
+        .iter()
+        .any(|prefix| lower.starts_with(prefix));
 
     if allowed {
         Ok(())
     } else {
         Err("Rejected non-whitelisted open_external_url URL".to_string())
     }
+}
+
+#[cfg(windows)]
+fn open_external_url(url: &str) -> Result<(), String> {
+    use webview2_com::CoTaskMemPWSTR;
+    use windows::core::w;
+    use windows::Win32::UI::Shell::ShellExecuteW;
+    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+
+    let url = CoTaskMemPWSTR::from(url.trim());
+    let result = unsafe {
+        ShellExecuteW(
+            None,
+            w!("open"),
+            *url.as_ref().as_pcwstr(),
+            None,
+            None,
+            SW_SHOWNORMAL,
+        )
+    };
+
+    if result.0 as isize > 32 {
+        Ok(())
+    } else {
+        Err("Failed to open external URL".to_string())
+    }
+}
+
+#[cfg(not(windows))]
+fn open_external_url(_url: &str) -> Result<(), String> {
+    Ok(())
 }
 
 #[cfg(test)]
@@ -607,6 +911,80 @@ mod tests {
             transport["args"],
             json!(["open-media", "magnet:?xt=urn:btih:test"])
         );
+    }
+
+    #[test]
+    fn queues_media_keys_through_shell_transport() {
+        let host = WindowsHost::default();
+        host.dispatch_windows_ipc(
+            "listen",
+            Some(json!({ "id": 8, "event": "shell-transport-message" })),
+        )
+        .unwrap();
+        host.invoke(
+            "shell_transport_send",
+            Some(json!({ "message": r#"{"id":1,"type":6,"args":["app-ready"]}"# })),
+        )
+        .unwrap();
+
+        host.emit_media_key("play-pause").unwrap();
+
+        let events = host.drain_ipc_events();
+        let WindowsIpcOutbound::Event { event, payload } = &events[0] else {
+            panic!("expected shell transport event");
+        };
+        assert_eq!(event, "shell-transport-message");
+        let transport: Value = serde_json::from_str(payload.as_str().unwrap()).unwrap();
+        assert_eq!(transport["args"], json!(["media-key", "play-pause"]));
+    }
+
+    #[test]
+    fn tracks_window_maximized_state() {
+        let host = WindowsHost::default();
+        host.dispatch_windows_ipc(
+            "listen",
+            Some(json!({ "id": 2, "event": "window-maximized-changed" })),
+        )
+        .unwrap();
+
+        assert_eq!(
+            host.dispatch_windows_ipc("window.isMaximized", None)
+                .unwrap(),
+            json!(false)
+        );
+        let outbound =
+            host.dispatch_ipc_message(r#"{"id":3,"kind":"window.toggleMaximize","payload":null}"#);
+        assert_eq!(
+            outbound[0],
+            WindowsIpcOutbound::Response {
+                id: 3,
+                ok: true,
+                value: Value::Null
+            }
+        );
+        assert_eq!(
+            outbound[1],
+            WindowsIpcOutbound::Event {
+                event: "window-maximized-changed".to_string(),
+                payload: json!(true)
+            }
+        );
+        assert_eq!(
+            host.dispatch_windows_ipc("window.isMaximized", None)
+                .unwrap(),
+            json!(true)
+        );
+    }
+
+    #[test]
+    fn external_url_policy_rejects_unsafe_schemes() {
+        assert!(validate_external_url("https://web.stremio.com/").is_ok());
+        assert!(validate_external_url("http://127.0.0.1:11470/").is_ok());
+        assert!(validate_external_url("mailto:support@example.com").is_ok());
+        assert!(validate_external_url("file:///C:/Windows/notepad.exe").is_err());
+        assert!(validate_external_url("javascript:alert(1)").is_err());
+        assert!(validate_external_url("ms-settings:privacy").is_err());
+        assert!(validate_external_url("https://example.com/\ncalc").is_err());
     }
 
     #[test]

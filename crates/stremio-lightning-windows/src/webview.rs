@@ -142,15 +142,16 @@ mod platform {
     use super::{mpsc, Arc, InjectionBundle, LaunchIntent, Mutex, WindowsHost};
     use crate::host::WindowsIpcOutbound;
     use crate::window::{
-        focus_window, run_native_window_with_handler, NativeWindowHandler, UiThreadNotifier,
-        WindowConfig,
+        focus_window, run_native_window_with_handler, MediaKeyAction, NativeWindowHandler,
+        UiThreadNotifier, WindowConfig, WindowVisualState,
     };
     use std::ptr;
     use webview2_com::{
         AddScriptToExecuteOnDocumentCreatedCompletedHandler, CoTaskMemPWSTR,
         CoreWebView2EnvironmentOptions, CreateCoreWebView2ControllerCompletedHandler,
         CreateCoreWebView2EnvironmentCompletedHandler, Microsoft::Web::WebView2::Win32::*,
-        NavigationCompletedEventHandler, WebMessageReceivedEventHandler,
+        NavigationCompletedEventHandler, NavigationStartingEventHandler,
+        WebMessageReceivedEventHandler,
     };
     use windows::core::{PCWSTR, PWSTR};
     use windows::Win32::Foundation::{E_POINTER, HWND, RECT};
@@ -187,6 +188,7 @@ mod platform {
         host: Arc<WindowsHost>,
         controller: Option<ICoreWebView2Controller>,
         webview: Option<ICoreWebView2>,
+        navigation_starting_token: Option<i64>,
         navigation_completed_token: Option<i64>,
         launch_intents: mpsc::Receiver<LaunchIntent>,
         ui_notifier: Arc<Mutex<Option<UiThreadNotifier>>>,
@@ -206,6 +208,7 @@ mod platform {
                 host,
                 controller: None,
                 webview: None,
+                navigation_starting_token: None,
                 navigation_completed_token: None,
                 launch_intents,
                 ui_notifier,
@@ -227,12 +230,20 @@ mod platform {
             }
             Ok(())
         }
+
+        fn post_host_events(&self) -> Result<(), String> {
+            let Some(webview) = self.webview.as_ref() else {
+                return Ok(());
+            };
+            post_outbound_messages(webview, self.host.drain_ipc_events())
+        }
     }
 
     impl NativeWindowHandler for WebView2WindowHost {
         fn on_created(&mut self, hwnd: HWND) -> Result<(), String> {
             let notifier = UiThreadNotifier { hwnd };
             *self.ui_notifier.lock().map_err(|e| e.to_string())? = Some(notifier);
+            self.host.bind_native_window(hwnd)?;
             self.host.initialize_native_player(hwnd, notifier)?;
             self.host.start_streaming_server()?;
 
@@ -257,6 +268,11 @@ mod platform {
             configure_webview(&webview)?;
             add_injection_scripts(&webview, &self.injection)?;
             add_message_handler(&webview, self.host.clone())?;
+            self.navigation_starting_token = Some(add_navigation_starting_handler(
+                &webview,
+                self.host.clone(),
+                self.url.clone(),
+            )?);
             self.navigation_completed_token = Some(add_navigation_completed_handler(&webview)?);
             navigate(&webview, &self.url)?;
 
@@ -266,6 +282,40 @@ mod platform {
 
         fn on_resized(&mut self, hwnd: HWND, _client_rect: RECT) -> Result<(), String> {
             self.resize_to_client_rect(hwnd)
+        }
+
+        fn on_window_state_changed(
+            &mut self,
+            _hwnd: HWND,
+            state: WindowVisualState,
+        ) -> Result<(), String> {
+            match state {
+                WindowVisualState::Minimized => self.host.update_window_visible(false)?,
+                WindowVisualState::Maximized => {
+                    self.host.update_window_visible(true)?;
+                    self.host.update_window_maximized(true)?;
+                }
+                WindowVisualState::Restored => {
+                    self.host.update_window_visible(true)?;
+                    self.host.update_window_maximized(false)?;
+                }
+            }
+            self.post_host_events()
+        }
+
+        fn on_focus_changed(&mut self, _hwnd: HWND, focused: bool) -> Result<(), String> {
+            self.host.update_window_focus(focused)?;
+            self.post_host_events()
+        }
+
+        fn on_media_key(&mut self, _hwnd: HWND, action: MediaKeyAction) -> Result<(), String> {
+            let action = match action {
+                MediaKeyAction::PlayPause => "play-pause",
+                MediaKeyAction::NextTrack => "next-track",
+                MediaKeyAction::PreviousTrack => "previous-track",
+            };
+            self.host.emit_media_key(action)?;
+            self.post_host_events()
         }
 
         fn on_ui_thread_wake(&mut self, hwnd: HWND) -> Result<(), String> {
@@ -283,6 +333,11 @@ mod platform {
         fn on_destroying(&mut self, _hwnd: HWND) {
             if let Ok(mut notifier) = self.ui_notifier.lock() {
                 *notifier = None;
+            }
+            if let (Some(webview), Some(token)) =
+                (self.webview.as_ref(), self.navigation_starting_token.take())
+            {
+                let _ = unsafe { webview.remove_NavigationStarting(token) };
             }
             if let (Some(webview), Some(token)) = (
                 self.webview.as_ref(),
@@ -428,6 +483,42 @@ mod platform {
         Ok(())
     }
 
+    fn add_navigation_starting_handler(
+        webview: &ICoreWebView2,
+        host: Arc<WindowsHost>,
+        app_url: String,
+    ) -> Result<i64, String> {
+        let mut token = 0;
+        unsafe {
+            webview
+                .add_NavigationStarting(
+                    &NavigationStartingEventHandler::create(Box::new(move |_webview, args| {
+                        let Some(args) = args else {
+                            return Ok(());
+                        };
+
+                        let mut uri = PWSTR(ptr::null_mut());
+                        args.Uri(&mut uri)?;
+                        let uri = CoTaskMemPWSTR::from(uri);
+                        let uri = uri.to_string();
+                        if !super::is_allowed_webview_navigation(&app_url, &uri) {
+                            args.SetCancel(true)?;
+                            let _ = host.invoke(
+                                "open_external_url",
+                                Some(serde_json::json!({ "url": uri })),
+                            );
+                        }
+                        Ok(())
+                    })),
+                    &mut token,
+                )
+                .map_err(|error| {
+                    format!("Failed to attach WebView2 navigation handler: {error}")
+                })?;
+        }
+        Ok(token)
+    }
+
     fn post_outbound_messages(
         webview: &ICoreWebView2,
         messages: Vec<WindowsIpcOutbound>,
@@ -495,6 +586,39 @@ mod platform {
     ) -> Result<(), String> {
         Err("WebView2 shell can only run on Windows".to_string())
     }
+}
+
+#[cfg(any(windows, test))]
+fn is_allowed_webview_navigation(app_url: &str, target_url: &str) -> bool {
+    let target = target_url.trim();
+    if target.eq_ignore_ascii_case("about:blank") {
+        return true;
+    }
+
+    match (url_origin(app_url), url_origin(target)) {
+        (Some(app_origin), Some(target_origin)) => app_origin == target_origin,
+        _ => false,
+    }
+}
+
+#[cfg(any(windows, test))]
+fn url_origin(url: &str) -> Option<String> {
+    let scheme_end = url.find("://")?;
+    let scheme = url[..scheme_end].to_ascii_lowercase();
+    if scheme != "http" && scheme != "https" {
+        return None;
+    }
+
+    let authority_start = scheme_end + 3;
+    let authority = url[authority_start..]
+        .split(['/', '?', '#'])
+        .next()?
+        .to_ascii_lowercase();
+    if authority.is_empty() || authority.contains('@') {
+        return None;
+    }
+
+    Some(format!("{scheme}://{authority}"))
 }
 
 fn windows_host_adapter() -> String {
@@ -570,6 +694,7 @@ fn windows_host_adapter() -> String {
     },
     window: {
       minimize: function () { return post("window.minimize"); },
+      focus: function () { return post("window.focus"); },
       toggleMaximize: function () { return post("window.toggleMaximize"); },
       close: function () { return post("window.close"); },
       isMaximized: function () { return post("window.isMaximized"); },
@@ -622,5 +747,42 @@ mod tests {
         assert!(bridge
             .source
             .contains("Stremio Lightning - Frontend Bridge"));
+    }
+
+    #[test]
+    fn webview_navigation_is_limited_to_configured_origin() {
+        let app_url = "https://web.stremio.com/#/";
+
+        assert!(is_allowed_webview_navigation(
+            app_url,
+            "https://web.stremio.com/#/player"
+        ));
+        assert!(is_allowed_webview_navigation(app_url, "about:blank"));
+        assert!(!is_allowed_webview_navigation(
+            app_url,
+            "https://example.com/"
+        ));
+        assert!(!is_allowed_webview_navigation(
+            app_url,
+            "file:///C:/test.html"
+        ));
+        assert!(!is_allowed_webview_navigation(
+            app_url,
+            "javascript:alert(1)"
+        ));
+    }
+
+    #[test]
+    fn localhost_webview_origin_includes_port() {
+        let app_url = "http://127.0.0.1:5173/";
+
+        assert!(is_allowed_webview_navigation(
+            app_url,
+            "http://127.0.0.1:5173/player"
+        ));
+        assert!(!is_allowed_webview_navigation(
+            app_url,
+            "http://127.0.0.1:11470/"
+        ));
     }
 }
