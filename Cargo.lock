@@ -4133,6 +4133,7 @@ dependencies = [
 name = "stremio-lightning-windows"
 version = "0.1.0"
 dependencies = [
+ "embed-resource",
  "libmpv2",
  "libmpv2-sys",
  "serde",

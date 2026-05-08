@@ -1,0 +1,6 @@
+#define APP_MANIFEST 1
+#define RT_MANIFEST 24
+#define APP_ICON 101
+
+APP_MANIFEST RT_MANIFEST "windows-shell.exe.manifest"
+APP_ICON ICON "../../src-tauri/icons/icon.ico"

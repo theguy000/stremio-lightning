@@ -52,7 +52,27 @@ From a fresh checkout on Windows:
 4. Run `npm run setup:windows-shell` from the repository root to populate `crates/stremio-lightning-windows/resources` and `crates/stremio-lightning-windows/mpv-dev`.
 5. Validate the Windows crate with `cargo test -p stremio-lightning-windows`.
 6. Validate the Windows target with `cargo check -p stremio-lightning-windows --target x86_64-pc-windows-msvc`.
-7. Launch the direct shell with `cargo run -p stremio-lightning-windows` once Milestone 2 and Milestone 3 are implemented.
+7. Launch the direct shell with `cargo run -p stremio-lightning-windows`.
+
+Development resource layout:
+
+- `crates/stremio-lightning-windows/resources/stremio-runtime.exe`
+- `crates/stremio-lightning-windows/resources/server.cjs`
+- `crates/stremio-lightning-windows/resources/ffmpeg.exe`
+- `crates/stremio-lightning-windows/resources/ffprobe.exe`
+- `crates/stremio-lightning-windows/resources/libmpv-2.dll`
+- `crates/stremio-lightning-windows/mpv-dev/mpv.lib`
+
+Packaged portable layout:
+
+- `stremio-lightning-windows.exe`
+- `libmpv-2.dll`
+- `resources/stremio-runtime.exe`
+- `resources/server.cjs`
+- `resources/ffmpeg.exe`
+- `resources/ffprobe.exe`
+
+At runtime, the shell first uses `resources/` beside the executable when present. Otherwise it falls back to the crate-local development layout.
 
 Linux/non-Windows development remains limited to platform-neutral checks such as `cargo test -p stremio-lightning-windows`; runtime launch is Windows-only.
 
@@ -280,18 +300,33 @@ Acceptance:
 
 ## Milestone 9: Resource Setup And Packaging Baseline
 
-- [ ] Finish `scripts/download-windows-shell-deps.sh` to produce the exact dev resource layout.
-- [ ] Ensure `libmpv-2.dll` is found in dev and packaged layouts.
-- [ ] Ensure ffmpeg/ffprobe and runtime assets are available where needed.
-- [ ] Add Windows icon and manifest resources.
-- [ ] Document fresh Windows checkout setup.
-- [ ] Add minimal installer or portable archive notes after the runtime works.
+- [x] Finish `scripts/download-windows-shell-deps.sh` to produce the exact dev resource layout.
+- [x] Ensure `libmpv-2.dll` is found in dev and packaged layouts.
+- [x] Ensure ffmpeg/ffprobe and runtime assets are available where needed.
+- [x] Add Windows icon and manifest resources.
+- [x] Document fresh Windows checkout setup.
+- [x] Add minimal installer or portable archive notes after the runtime works.
+
+Implementation notes:
+
+- `scripts/download-windows-shell-deps.sh` now verifies required helper tools, clears stale direct-shell resource outputs, downloads the Stremio service, FFmpeg/FFprobe, and libmpv assets, and validates the final crate-local development layout.
+- `src/resources.rs` now supports two documented layouts: crate-local development resources and a portable packaged layout with `resources/` beside the executable.
+- `build.rs` copies `resources/libmpv-2.dll` beside the Cargo-built executable on Windows so MPV delay-loading can find the DLL during development runs.
+- `windows-shell.rc` and `windows-shell.exe.manifest` embed the reused Stremio icon, common controls v6, per-monitor DPI awareness, long path awareness, and `asInvoker` execution level.
+- The minimal packaging baseline is a portable archive layout; a full installer remains out of scope until Windows runtime smoke testing is complete.
 
 Acceptance:
 
 - A clean Windows checkout can run setup, build, and launch the direct shell.
 - Runtime dependencies are not loaded from `src-tauri`.
 - Packaged/dev layouts use the same documented resource resolution rules.
+
+Validation completed:
+
+- `cargo fmt --all`
+- `cargo test -p stremio-lightning-windows`
+- `cargo check -p stremio-lightning-windows --target x86_64-pc-windows-msvc`
+- `cargo test --workspace`
 
 ## Milestone 10: Verification And Exit
 
@@ -300,8 +335,16 @@ Acceptance:
 - [ ] Run `cargo test --workspace` when changes affect shared code.
 - [ ] Run Windows build/check command.
 - [ ] Run manual Windows smoke checklist: launch, web UI, mods panel, server, playback, fullscreen, media keys, open-media, shutdown.
+- [ ] Manually assemble and launch the portable folder layout: executable, `libmpv-2.dll`, and `resources/` beside the executable.
+- [ ] Confirm the portable layout resolves runtime, server, ffmpeg/ffprobe, and MPV DLL paths without relying on crate-local development resources.
 - [ ] Update `docs/windows-webview2-shell-gap-analysis.md` with completed work.
 - [ ] Only then begin `docs/stremio-community-feature-parity-todo.md` P1/P2 feature expansion.
+
+Packaging boundary:
+
+- Milestone 10 validates the current portable runtime layout manually.
+- Automated portable archive creation is future packaging work after runtime validation.
+- A full installer, protocol/file associations, signing, and updater integration remain future work after the direct shell is stable.
 
 Exit criteria:
 
@@ -310,4 +353,5 @@ Exit criteria:
 - Native MPV playback works through direct `HWND` ownership.
 - Local server lifecycle works.
 - Single-instance/open-media baseline works.
+- The documented portable folder layout launches successfully on Windows.
 - Tests and manual smoke are documented.

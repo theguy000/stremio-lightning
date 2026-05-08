@@ -146,7 +146,7 @@ impl WindowsHost {
         Self {
             player: Mutex::default(),
             streaming_server: WindowsStreamingServer::from_resources(
-                &WindowsResourceLayout::from_manifest_dir(),
+                &WindowsResourceLayout::from_runtime(),
                 disabled,
             ),
             listeners: Mutex::default(),
