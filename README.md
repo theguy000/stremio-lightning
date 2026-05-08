@@ -1,9 +1,12 @@
-# Stremio Lightning
+<h1>
+  <img src="assets/icons/128x128.png" alt="Stremio Lightning logo" width="32" height="32" align="left">
+  Stremio Lightning
+</h1>
 
 ![Built with Rust](https://img.shields.io/badge/Built_with-Rust-000000?logo=rust&logoColor=white)
 ![Frontend Svelte](https://img.shields.io/badge/Frontend-Svelte-FF3E00?logo=svelte&logoColor=white)
 
-Stremio Lightning is a desktop wrapper for [Stremio](https://www.stremio.com/) built with Rust-native shell crates and [Svelte](https://svelte.dev/). It adds plugin management, theme support, Discord Rich Presence, native playback, and tighter control over the local streaming server.
+Stremio Lightning is a desktop wrapper for [Stremio](https://www.stremio.com/) built with Rust-native shell crates and [Svelte](https://svelte.dev/). It adds plugin management, theme support, Discord Rich Presence, MPV-powered native playback for a better viewing experience, and tighter control over the local streaming server.
 
 ---
 
@@ -26,7 +29,9 @@ Stremio Lightning is a desktop wrapper for [Stremio](https://www.stremio.com/) b
 |-----------|-----------------------------------|
 | Frontend  | Svelte 5, TypeScript, Vite        |
 | Backend   | Rust native shell crates          |
-| Player    | libmpv2 (Windows)                 |
+| Player    | libmpv2 (Windows/Linux)           |
+| Windows   | WebView2                          |
+| Linux     | GTK4, WebKitGTK 6, GTK GLArea     |
 | Packaging | Native crate packaging scripts    |
 
 ---
@@ -44,7 +49,7 @@ Stremio Lightning is a desktop wrapper for [Stremio](https://www.stremio.com/) b
 
 1. **Clone the repository**
    ```
-   git clone https://github.com/your-username/stremio-lightning.git
+   git clone https://github.com/theguy000/stremio-lightning.git
    cd stremio-lightning
    ```
 
