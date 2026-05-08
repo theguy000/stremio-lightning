@@ -35,6 +35,9 @@ pub use platform::{
 mod platform {
     use super::WindowConfig;
     use std::ffi::c_void;
+    use stremio_lightning_core::pip::{
+        PipRestoreSnapshot, PipWindowController, PIP_WINDOW_HEIGHT, PIP_WINDOW_WIDTH,
+    };
     use windows::core::{w, PCWSTR};
     use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, RECT, WPARAM};
     use windows::Win32::Graphics::Gdi::{
@@ -47,15 +50,16 @@ mod platform {
     use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
     use windows::Win32::UI::WindowsAndMessaging::{
         CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetClientRect,
-        GetMessageW, GetWindowLongPtrW, GetWindowPlacement, IsIconic, IsZoomed, LoadCursorW,
-        PostMessageW, PostQuitMessage, RegisterClassW, SendMessageW, SetForegroundWindow,
-        SetWindowLongPtrW, SetWindowPlacement, SetWindowPos, ShowWindow, TranslateMessage,
-        CREATESTRUCTW, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, GWLP_USERDATA, GWL_EXSTYLE,
-        GWL_STYLE, HTCAPTION, IDC_ARROW, MINMAXINFO, MSG, SHOW_WINDOW_CMD, SIZE_MAXIMIZED,
-        SIZE_MINIMIZED, SIZE_RESTORED, SWP_FRAMECHANGED, SWP_NOOWNERZORDER, SW_MAXIMIZE,
-        SW_MINIMIZE, SW_RESTORE, SW_SHOWDEFAULT, WINDOWPLACEMENT, WINDOW_EX_STYLE, WM_ACTIVATE,
-        WM_APP, WM_APPCOMMAND, WM_CLOSE, WM_DESTROY, WM_DPICHANGED, WM_GETMINMAXINFO, WM_KILLFOCUS,
-        WM_NCCREATE, WM_NCDESTROY, WM_NCLBUTTONDOWN, WM_SETFOCUS, WM_SIZE, WNDCLASSW,
+        GetMessageW, GetWindowLongPtrW, GetWindowPlacement, GetWindowRect, IsIconic, IsZoomed,
+        LoadCursorW, PostMessageW, PostQuitMessage, RegisterClassW, SendMessageW,
+        SetForegroundWindow, SetWindowLongPtrW, SetWindowPlacement, SetWindowPos, ShowWindow,
+        TranslateMessage, CREATESTRUCTW, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, GWLP_USERDATA,
+        GWL_EXSTYLE, GWL_STYLE, HTCAPTION, HWND_NOTOPMOST, HWND_TOPMOST, IDC_ARROW, MINMAXINFO,
+        MSG, SHOW_WINDOW_CMD, SIZE_MAXIMIZED, SIZE_MINIMIZED, SIZE_RESTORED, SWP_FRAMECHANGED,
+        SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE,
+        SW_SHOWDEFAULT, WINDOWPLACEMENT, WINDOW_EX_STYLE, WM_ACTIVATE, WM_APP, WM_APPCOMMAND,
+        WM_CLOSE, WM_DESTROY, WM_DPICHANGED, WM_GETMINMAXINFO, WM_KILLFOCUS, WM_NCCREATE,
+        WM_NCDESTROY, WM_NCLBUTTONDOWN, WM_SETFOCUS, WM_SIZE, WNDCLASSW, WS_EX_TOPMOST,
         WS_OVERLAPPEDWINDOW, WS_POPUP, WS_VISIBLE,
     };
 
@@ -143,6 +147,7 @@ mod platform {
     pub struct NativeWindowController {
         hwnd: HWND,
         fullscreen: Option<FullscreenSnapshot>,
+        pip: Option<PipWindowSnapshot>,
     }
 
     unsafe impl Send for NativeWindowController {}
@@ -152,6 +157,7 @@ mod platform {
             Self {
                 hwnd,
                 fullscreen: None,
+                pip: None,
             }
         }
 
@@ -293,6 +299,106 @@ mod platform {
         style: isize,
         ex_style: isize,
         placement: WINDOWPLACEMENT,
+    }
+
+    #[derive(Debug)]
+    struct PipWindowSnapshot {
+        style: isize,
+        ex_style: isize,
+        placement: WINDOWPLACEMENT,
+    }
+
+    impl PipWindowController for NativeWindowController {
+        fn enter_pip(&mut self) -> Result<PipRestoreSnapshot, String> {
+            let was_fullscreen = self.is_fullscreen();
+            if was_fullscreen {
+                self.set_fullscreen(false)?;
+            }
+
+            let mut placement = WINDOWPLACEMENT {
+                length: std::mem::size_of::<WINDOWPLACEMENT>() as u32,
+                ..Default::default()
+            };
+            let mut rect = RECT::default();
+            unsafe {
+                GetWindowPlacement(self.hwnd, &mut placement)
+                    .map_err(|error| format!("Failed to read PiP window placement: {error}"))?;
+                GetWindowRect(self.hwnd, &mut rect)
+                    .map_err(|error| format!("Failed to read PiP window bounds: {error}"))?;
+            }
+            let captured_width = rect.right - rect.left;
+            let captured_height = rect.bottom - rect.top;
+
+            let style = unsafe { GetWindowLongPtrW(self.hwnd, GWL_STYLE) };
+            let ex_style = unsafe { GetWindowLongPtrW(self.hwnd, GWL_EXSTYLE) };
+            self.pip = Some(PipWindowSnapshot {
+                style,
+                ex_style,
+                placement,
+            });
+
+            let pip_style = (style as u32 & !WS_OVERLAPPEDWINDOW.0) | WS_POPUP.0 | WS_VISIBLE.0;
+            unsafe {
+                SetWindowLongPtrW(self.hwnd, GWL_STYLE, pip_style as isize);
+                SetWindowLongPtrW(self.hwnd, GWL_EXSTYLE, ex_style);
+                SetWindowPos(
+                    self.hwnd,
+                    Some(HWND_TOPMOST),
+                    rect.left,
+                    rect.top,
+                    PIP_WINDOW_WIDTH,
+                    PIP_WINDOW_HEIGHT,
+                    SWP_NOOWNERZORDER | SWP_FRAMECHANGED,
+                )
+                .map_err(|error| format!("Failed to enter PiP: {error}"))?;
+            }
+
+            Ok(PipRestoreSnapshot {
+                was_fullscreen,
+                saved_size: (!was_fullscreen).then_some((captured_width, captured_height)),
+            })
+        }
+
+        fn exit_pip(&mut self, snapshot: PipRestoreSnapshot) -> Result<(), String> {
+            let Some(pip) = self.pip.take() else {
+                if snapshot.was_fullscreen {
+                    self.set_fullscreen(true)?;
+                }
+                return Ok(());
+            };
+
+            let topmost = if pip.ex_style as u32 & WS_EX_TOPMOST.0 != 0 {
+                HWND_TOPMOST
+            } else {
+                HWND_NOTOPMOST
+            };
+            let (width, height, size_flags) = if let Some((width, height)) = snapshot.saved_size {
+                (width, height, SWP_NOMOVE)
+            } else {
+                (0, 0, SWP_NOMOVE | SWP_NOSIZE)
+            };
+            unsafe {
+                SetWindowLongPtrW(self.hwnd, GWL_STYLE, pip.style);
+                SetWindowLongPtrW(self.hwnd, GWL_EXSTYLE, pip.ex_style);
+                SetWindowPlacement(self.hwnd, &pip.placement)
+                    .map_err(|error| format!("Failed to restore PiP placement: {error}"))?;
+                SetWindowPos(
+                    self.hwnd,
+                    Some(topmost),
+                    0,
+                    0,
+                    width,
+                    height,
+                    size_flags | SWP_NOOWNERZORDER | SWP_FRAMECHANGED,
+                )
+                .map_err(|error| format!("Failed to exit PiP: {error}"))?;
+            }
+
+            if snapshot.was_fullscreen {
+                self.set_fullscreen(true)?;
+            }
+            Ok(())
+        }
     }
 
     pub fn run_native_window_with_handler(

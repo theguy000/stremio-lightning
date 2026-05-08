@@ -301,10 +301,7 @@ mod tests {
             spec.program,
             PathBuf::from("/repo/binaries/stremio-runtime-x86_64-unknown-linux-gnu")
         );
-        assert_eq!(
-            spec.args,
-            vec![PathBuf::from("/repo/resources/server.cjs")]
-        );
+        assert_eq!(spec.args, vec![PathBuf::from("/repo/resources/server.cjs")]);
         assert_eq!(spec.env.get("NO_CORS").unwrap(), "1");
         assert_eq!(
             spec.env.get("FFMPEG_BIN").unwrap(),

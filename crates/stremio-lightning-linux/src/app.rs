@@ -118,7 +118,11 @@ mod tests {
 
     #[test]
     fn normalizes_direct_stremio_web_url_to_local_proxy() {
-        let config = parse_args(["stremio-lightning-linux", "--url", "https://web.stremio.com/"]);
+        let config = parse_args([
+            "stremio-lightning-linux",
+            "--url",
+            "https://web.stremio.com/",
+        ]);
         assert_eq!(config.url, DEFAULT_URL);
     }
 }

@@ -8,6 +8,7 @@ use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use stremio_lightning_core::host_api::{self, HostEvent, ParsedRequest};
+use stremio_lightning_core::pip::{serialize_picture_in_picture, PipRestoreSnapshot, PipState};
 use stremio_lightning_core::{mods, settings};
 
 pub const SHELL_TRANSPORT_EVENT: &str = "shell-transport-message";
@@ -82,6 +83,7 @@ where
     settings: settings::SettingsState,
     listeners: Mutex<ListenerRegistry>,
     transport: Mutex<TransportQueue>,
+    pip_state: PipState,
 }
 
 impl<B, P> LinuxHost<B, P>
@@ -105,6 +107,7 @@ where
             settings: settings::SettingsState::default(),
             listeners: Mutex::default(),
             transport: Mutex::default(),
+            pip_state: PipState::new(),
         }
     }
 
@@ -311,6 +314,12 @@ where
                     &payload.plugin_name,
                 )
             }
+            "toggle_pip" => {
+                let enabled = !self.pip_state.is_enabled()?;
+                self.set_picture_in_picture(enabled, None)?;
+                Ok(json!(enabled))
+            }
+            "get_pip_mode" => Ok(json!(self.pip_state.is_enabled()?)),
             other => Err(format!("Unsupported Linux host command: {other}")),
         }
     }
@@ -374,6 +383,19 @@ where
 
     pub fn emit_native_player_ended(&self, reason: impl Into<String>) -> Result<(), String> {
         self.emit_transport_event(serialize_ended(reason))
+    }
+
+    pub fn pip_snapshot(&self) -> Result<Option<PipRestoreSnapshot>, String> {
+        self.pip_state.snapshot()
+    }
+
+    pub fn set_picture_in_picture(
+        &self,
+        enabled: bool,
+        snapshot: Option<PipRestoreSnapshot>,
+    ) -> Result<(), String> {
+        self.pip_state.set_mode(enabled, snapshot)?;
+        self.emit_transport_event(serialize_picture_in_picture(enabled))
     }
 
     pub fn emit_window_maximized_changed(&self, maximized: bool) -> Result<(), String> {
@@ -960,6 +982,35 @@ console.log("sample");"#,
                 args: vec!["file:///tmp/a.mp4".to_string(), "replace".to_string()],
             }]
         );
+    }
+
+    #[test]
+    fn toggle_pip_emits_picture_in_picture_events() {
+        let (host, _player, _spawner) = host();
+        host.listen(SHELL_TRANSPORT_EVENT).unwrap();
+        host.invoke("shell_bridge_ready", None).unwrap();
+        host.invoke(
+            "shell_transport_send",
+            Some(json!({"message": r#"{"id":1,"type":6,"args":["app-ready"]}"#})),
+        )
+        .unwrap();
+
+        host.invoke("toggle_pip", None).unwrap();
+        assert_eq!(host.invoke("get_pip_mode", None).unwrap(), json!(true));
+        host.invoke("toggle_pip", None).unwrap();
+        assert_eq!(host.invoke("get_pip_mode", None).unwrap(), json!(false));
+
+        let events = host.emitted_events().unwrap();
+        assert!(events[0]
+            .payload
+            .as_str()
+            .unwrap()
+            .contains("showPictureInPicture"));
+        assert!(events[1]
+            .payload
+            .as_str()
+            .unwrap()
+            .contains("hidePictureInPicture"));
     }
 
     #[test]

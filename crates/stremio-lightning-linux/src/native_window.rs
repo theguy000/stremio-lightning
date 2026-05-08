@@ -5,7 +5,7 @@ use crate::webview_runtime::LinuxWebviewRuntime;
 use gtk::gdk::{GLContext, RGBA};
 use gtk::glib::{self, Propagation};
 use gtk::prelude::*;
-use libc::{setlocale, LC_NUMERIC};
+use libc::{c_char, c_int, c_long, c_ulong, setlocale, LC_NUMERIC};
 use libmpv2::events::{Event, PropertyData};
 use libmpv2::render::{OpenGLInitParams, RenderContext, RenderParam, RenderParamApiType};
 use libmpv2::{Format, Mpv};
@@ -17,6 +17,10 @@ use std::ptr;
 use std::rc::Rc;
 use std::sync::mpsc::{self, Receiver};
 use std::sync::OnceLock;
+use std::time::Duration;
+use stremio_lightning_core::pip::{
+    PipRestoreSnapshot, PipWindowController, PIP_WINDOW_HEIGHT, PIP_WINDOW_WIDTH,
+};
 use webkit::prelude::*;
 use webkit::{
     LoadEvent, NavigationPolicyDecision, PolicyDecisionType, UserContentInjectedFrames, UserScript,
@@ -24,6 +28,13 @@ use webkit::{
 };
 
 const IPC_HANDLER_NAME: &str = "ipc";
+const DEFAULT_WINDOW_WIDTH: i32 = 1500;
+const DEFAULT_WINDOW_HEIGHT: i32 = 850;
+const X11_CLIENT_MESSAGE: c_int = 33;
+const X11_PROP_MODE_REMOVE: c_long = 0;
+const X11_PROP_MODE_ADD: c_long = 1;
+const X11_SUBSTRUCTURE_NOTIFY_MASK: c_long = 1 << 19;
+const X11_SUBSTRUCTURE_REDIRECT_MASK: c_long = 1 << 20;
 const MPV_FLOAT_PROPERTIES: &[&str] = &[
     "time-pos",
     "duration",
@@ -59,6 +70,48 @@ struct ShellTransportMessage {
     #[serde(rename = "type")]
     message_type: u8,
     args: Option<Value>,
+}
+
+#[repr(C)]
+union XClientMessageData {
+    b: [c_char; 20],
+    s: [i16; 10],
+    l: [c_long; 5],
+}
+
+#[repr(C)]
+struct XClientMessageEvent {
+    type_: c_int,
+    serial: c_ulong,
+    send_event: c_int,
+    display: *mut c_void,
+    window: c_ulong,
+    message_type: c_ulong,
+    format: c_int,
+    data: XClientMessageData,
+}
+
+unsafe extern "C" {
+    fn gdk_x11_display_get_xdisplay(display: *mut c_void) -> *mut c_void;
+    fn gdk_x11_surface_get_xid(surface: *mut c_void) -> c_ulong;
+}
+
+#[link(name = "X11")]
+unsafe extern "C" {
+    fn XDefaultRootWindow(display: *mut c_void) -> c_ulong;
+    fn XFlush(display: *mut c_void) -> c_int;
+    fn XInternAtom(
+        display: *mut c_void,
+        atom_name: *const c_char,
+        only_if_exists: c_int,
+    ) -> c_ulong;
+    fn XSendEvent(
+        display: *mut c_void,
+        window: c_ulong,
+        propagate: c_int,
+        event_mask: c_long,
+        event_send: *mut XClientMessageEvent,
+    ) -> c_int;
 }
 
 pub fn run_native_window(
@@ -114,8 +167,8 @@ fn build_window(
     let window = gtk::ApplicationWindow::builder()
         .application(app)
         .title("Stremio Lightning Linux")
-        .default_width(1500)
-        .default_height(850)
+        .default_width(DEFAULT_WINDOW_WIDTH)
+        .default_height(DEFAULT_WINDOW_HEIGHT)
         .build();
 
     let fullscreen = Rc::new(Cell::new(false));
@@ -349,6 +402,32 @@ impl NativeWindowIpc for LinuxWebviewRuntime<MpvPlayerBackend, RealProcessSpawne
                     return Ok(Value::Null);
                 }
 
+                if invoke_command(payload.as_ref()) == Some("toggle_pip") {
+                    let pip_mode = LinuxWebviewRuntime::dispatch_ipc(
+                        self,
+                        "invoke",
+                        Some(json!({ "command": "get_pip_mode" })),
+                    )?
+                    .as_bool()
+                    .ok_or_else(|| "Invalid get_pip_mode response".to_string())?;
+                    let mut controller = LinuxPipController {
+                        webview,
+                        runtime: self,
+                        window,
+                        fullscreen,
+                    };
+                    let enabled = !pip_mode;
+                    if enabled {
+                        let snapshot = controller.enter_pip()?;
+                        self.set_picture_in_picture(true, Some(snapshot))?;
+                    } else {
+                        let snapshot = self.pip_snapshot()?.unwrap_or_default();
+                        controller.exit_pip(snapshot)?;
+                        self.set_picture_in_picture(false, None)?;
+                    }
+                    return Ok(Value::Null);
+                }
+
                 LinuxWebviewRuntime::dispatch_ipc(self, kind, payload)
             }
             "window.isFullscreen" => Ok(json!(fullscreen.get())),
@@ -374,9 +453,37 @@ impl NativeWindowIpc for LinuxWebviewRuntime<MpvPlayerBackend, RealProcessSpawne
                 }
                 Ok(Value::Null)
             }
+            "window.startDragging" => {
+                start_window_dragging(window)?;
+                Ok(Value::Null)
+            }
             _ => LinuxWebviewRuntime::dispatch_ipc(self, kind, payload),
         }
     }
+}
+
+fn start_window_dragging(window: &gtk::ApplicationWindow) -> Result<(), String> {
+    let surface = window
+        .surface()
+        .ok_or_else(|| "Cannot drag window before it has a surface".to_string())?;
+    let toplevel = surface
+        .clone()
+        .downcast::<gtk::gdk::Toplevel>()
+        .map_err(|_| "Window surface is not a draggable toplevel".to_string())?;
+    let pointer = surface
+        .display()
+        .default_seat()
+        .and_then(|seat| seat.pointer())
+        .ok_or_else(|| "No pointer device available for window dragging".to_string())?;
+
+    toplevel.begin_move(&pointer, 1, 0.0, 0.0, 0);
+    Ok(())
+}
+
+fn invoke_command(payload: Option<&Value>) -> Option<&str> {
+    payload
+        .and_then(|value| value.get("command"))
+        .and_then(Value::as_str)
 }
 
 fn shell_transport_fullscreen_request(payload: Option<&Value>) -> Result<Option<bool>, String> {
@@ -413,6 +520,163 @@ fn shell_transport_fullscreen_request(payload: Option<&Value>) -> Result<Option<
         .and_then(Value::as_bool)
         .ok_or_else(|| "Invalid win-set-visibility payload".to_string())?;
     Ok(Some(fullscreen))
+}
+
+struct LinuxPipController<'a> {
+    webview: &'a WebKitWebView,
+    runtime: &'a LinuxWebviewRuntime<MpvPlayerBackend, RealProcessSpawner>,
+    window: &'a gtk::ApplicationWindow,
+    fullscreen: &'a Rc<Cell<bool>>,
+}
+
+impl PipWindowController for LinuxPipController<'_> {
+    fn enter_pip(&mut self) -> Result<PipRestoreSnapshot, String> {
+        let was_fullscreen = self.fullscreen.get();
+        let saved_size = if was_fullscreen {
+            None
+        } else {
+            let width = self.window.width();
+            let height = self.window.height();
+            (width > 0 && height > 0).then_some((width, height))
+        };
+
+        if was_fullscreen {
+            set_window_fullscreen(
+                self.webview,
+                self.runtime,
+                self.window,
+                self.fullscreen,
+                false,
+            );
+        }
+        self.window.unmaximize();
+        self.window.set_modal(true);
+        self.window.set_resizable(false);
+        self.window
+            .set_size_request(PIP_WINDOW_WIDTH, PIP_WINDOW_HEIGHT);
+        self.window.set_decorated(false);
+        request_window_above(self.window, true)?;
+        self.window
+            .set_default_size(PIP_WINDOW_WIDTH, PIP_WINDOW_HEIGHT);
+        self.window.present();
+
+        Ok(PipRestoreSnapshot {
+            was_fullscreen,
+            saved_size,
+        })
+    }
+
+    fn exit_pip(&mut self, snapshot: PipRestoreSnapshot) -> Result<(), String> {
+        request_window_above(self.window, false)?;
+        self.window.set_decorated(true);
+        self.window.set_modal(false);
+        if snapshot.was_fullscreen {
+            self.window.set_size_request(-1, -1);
+            self.window.set_resizable(true);
+            set_window_fullscreen(
+                self.webview,
+                self.runtime,
+                self.window,
+                self.fullscreen,
+                true,
+            );
+        } else if let Some((width, height)) = snapshot.saved_size {
+            self.window.set_resizable(false);
+            self.window.set_size_request(width, height);
+            self.window.set_default_size(width, height);
+            let window = self.window.clone();
+            glib::timeout_add_local_once(Duration::from_millis(250), move || {
+                window.set_size_request(-1, -1);
+                window.set_resizable(true);
+            });
+        } else {
+            self.window.set_size_request(-1, -1);
+            self.window.set_resizable(true);
+        }
+
+        self.window.present();
+        Ok(())
+    }
+}
+
+fn request_window_above(window: &gtk::ApplicationWindow, above: bool) -> Result<(), String> {
+    let surface = window
+        .surface()
+        .ok_or_else(|| "Cannot update PiP window stacking before it has a surface".to_string())?;
+
+    if !is_x11_surface(&surface) {
+        if above {
+            eprintln!(
+                "[StremioLightning] PiP always-on-top is only available on Linux X11 sessions"
+            );
+        }
+        return Ok(());
+    }
+
+    send_x11_window_state_above(&surface, above)
+}
+
+fn is_x11_surface(surface: &gtk::gdk::Surface) -> bool {
+    surface.type_().name().contains("X11")
+}
+
+fn send_x11_window_state_above(surface: &gtk::gdk::Surface, above: bool) -> Result<(), String> {
+    const NET_WM_STATE: &[u8] = b"_NET_WM_STATE\0";
+    const NET_WM_STATE_ABOVE: &[u8] = b"_NET_WM_STATE_ABOVE\0";
+
+    let display = surface.display();
+    let xdisplay = unsafe { gdk_x11_display_get_xdisplay(display.as_ptr() as *mut c_void) };
+    if xdisplay.is_null() {
+        return Err("Failed to read X11 display for PiP window".to_string());
+    }
+
+    let xid = unsafe { gdk_x11_surface_get_xid(surface.as_ptr() as *mut c_void) };
+    if xid == 0 {
+        return Err("Failed to read X11 window id for PiP window".to_string());
+    }
+
+    let state_atom = unsafe { XInternAtom(xdisplay, NET_WM_STATE.as_ptr().cast(), 0) };
+    let above_atom = unsafe { XInternAtom(xdisplay, NET_WM_STATE_ABOVE.as_ptr().cast(), 0) };
+    if state_atom == 0 || above_atom == 0 {
+        return Err("Failed to resolve X11 PiP always-on-top atoms".to_string());
+    }
+
+    let action = if above {
+        X11_PROP_MODE_ADD
+    } else {
+        X11_PROP_MODE_REMOVE
+    };
+    let mut event = XClientMessageEvent {
+        type_: X11_CLIENT_MESSAGE,
+        serial: 0,
+        send_event: 1,
+        display: xdisplay,
+        window: xid,
+        message_type: state_atom,
+        format: 32,
+        data: XClientMessageData {
+            l: [action, above_atom as c_long, 0, 1, 0],
+        },
+    };
+
+    let root = unsafe { XDefaultRootWindow(xdisplay) };
+    let sent = unsafe {
+        XSendEvent(
+            xdisplay,
+            root,
+            0,
+            X11_SUBSTRUCTURE_REDIRECT_MASK | X11_SUBSTRUCTURE_NOTIFY_MASK,
+            &mut event,
+        )
+    };
+    if sent == 0 {
+        return Err("Failed to send X11 PiP always-on-top request".to_string());
+    }
+    unsafe {
+        XFlush(xdisplay);
+    }
+
+    Ok(())
 }
 
 fn set_window_fullscreen(
@@ -818,6 +1082,13 @@ mod tests {
         };
 
         assert_eq!(external_url_from_ipc_request(&request), None);
+    }
+
+    #[test]
+    fn extracts_invoke_command() {
+        let payload = json!({"command": "toggle_pip", "payload": null});
+        assert_eq!(invoke_command(Some(&payload)), Some("toggle_pip"));
+        assert_eq!(invoke_command(None), None);
     }
 
     #[test]

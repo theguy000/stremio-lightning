@@ -212,17 +212,7 @@ fn package_windows() -> Result<()> {
     )?;
 
     println!("==> Building native Windows shell crate...");
-    run_program(
-        "cargo",
-        [
-            "build",
-            "-p",
-            WINDOWS_BIN,
-            "--release",
-            "--target",
-            WINDOWS_TARGET,
-        ],
-    )?;
+    build_windows_shell()?;
 
     remove_dir_if_exists(&portable_dir)?;
     fs::create_dir_all(&portable_dir)?;
@@ -233,11 +223,27 @@ fn package_windows() -> Result<()> {
         portable_dir.join(format!("{WINDOWS_BIN}.exe")),
     )?;
 
-    for entry in fs::read_dir(windows_dir.join("resources"))? {
-        let entry = entry?;
-        if entry.file_type()?.is_file() {
-            copy_file(entry.path(), portable_dir.join(entry.file_name()))?;
-        }
+    // libmpv-2.dll goes flat beside the exe (Packaged layout expects base_dir/libmpv-2.dll)
+    copy_file(
+        windows_dir.join("resources/libmpv-2.dll"),
+        portable_dir.join("libmpv-2.dll"),
+    )?;
+
+    // Server/runtime files go into a resources/ subdirectory
+    // (Packaged layout expects base_dir/resources/stremio-runtime.exe etc.)
+    let portable_resources = portable_dir.join("resources");
+    fs::create_dir_all(&portable_resources)?;
+
+    for name in [
+        "stremio-runtime.exe",
+        "server.cjs",
+        "ffmpeg.exe",
+        "ffprobe.exe",
+    ] {
+        copy_file(
+            windows_dir.join(format!("resources/{name}")),
+            portable_resources.join(name),
+        )?;
     }
 
     remove_file_if_exists(&zip_path)?;
@@ -254,13 +260,14 @@ fn package_windows() -> Result<()> {
                 ),
             ],
         )?;
-        println!("==> Windows portable zip ready: {}", zip_path.display());
     } else {
-        println!(
-            "==> Windows portable directory ready: {}\n==> Zip creation is skipped off Windows.",
-            portable_dir.display()
-        );
+        run_program_in(
+            &portable_dir,
+            "zip",
+            ["-r", &zip_path.to_string_lossy(), "."],
+        )?;
     }
+    println!("==> Windows portable zip ready: {}", zip_path.display());
 
     Ok(())
 }
@@ -271,6 +278,42 @@ fn root() -> PathBuf {
         .nth(2)
         .expect("xtask must live under crates/xtask")
         .to_path_buf()
+}
+
+fn build_windows_shell() -> Result<()> {
+    if env::consts::OS == "windows" {
+        run_program(
+            "cargo",
+            [
+                "build",
+                "-p",
+                WINDOWS_BIN,
+                "--release",
+                "--target",
+                WINDOWS_TARGET,
+            ],
+        )
+    } else {
+        if !program_exists("cargo-xwin") {
+            return Err(
+                "cargo xtask package-windows cross-builds the MSVC target with cargo-xwin off Windows.\n       Install it with: cargo install cargo-xwin"
+                    .into(),
+            );
+        }
+
+        run_program(
+            "cargo",
+            [
+                "xwin",
+                "build",
+                "-p",
+                WINDOWS_BIN,
+                "--release",
+                "--target",
+                WINDOWS_TARGET,
+            ],
+        )
+    }
 }
 
 fn appimage_tool_path() -> Result<PathBuf> {
@@ -347,14 +390,26 @@ where
     I: IntoIterator<Item = S>,
     S: Into<OsString>,
 {
+    run_program_in(root(), program, args)
+}
+
+fn run_program_in<I, S>(cwd: impl AsRef<Path>, program: impl AsRef<OsStr>, args: I) -> Result<()>
+where
+    I: IntoIterator<Item = S>,
+    S: Into<OsString>,
+{
     let mut command = Command::new(program);
     command.args(args.into_iter().map(Into::into));
-    run_command(&mut command)
+    run_command_in(&mut command, cwd)
 }
 
 fn run_command(command: &mut Command) -> Result<()> {
+    run_command_in(command, root())
+}
+
+fn run_command_in(command: &mut Command, cwd: impl AsRef<Path>) -> Result<()> {
     command
-        .current_dir(root())
+        .current_dir(cwd)
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit());
@@ -363,6 +418,17 @@ fn run_command(command: &mut Command) -> Result<()> {
         return Err(format!("command failed with status {status:?}: {command:?}").into());
     }
     Ok(())
+}
+
+fn program_exists(program: &str) -> bool {
+    Command::new(program)
+        .arg("--version")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
 }
 
 fn is_executable_file(path: &Path) -> bool {

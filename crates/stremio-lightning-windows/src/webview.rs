@@ -48,9 +48,7 @@ impl InjectionBundle {
             },
         ]);
 
-        Self {
-            scripts,
-        }
+        Self { scripts }
     }
 
     pub fn scripts(&self) -> &[InjectionScript] {
@@ -575,7 +573,13 @@ mod platform {
                 (value.get("kind").and_then(serde_json::Value::as_str) == Some("invoke"))
                     .then_some(value)
             })
-            .and_then(|value| value.get("payload")?.get("command")?.as_str().map(str::to_string))
+            .and_then(|value| {
+                value
+                    .get("payload")?
+                    .get("command")?
+                    .as_str()
+                    .map(str::to_string)
+            })
             .as_deref()
             == Some("toggle_devtools")
     }

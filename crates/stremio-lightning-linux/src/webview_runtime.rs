@@ -3,6 +3,7 @@ use crate::player::PlayerBackend;
 use crate::streaming_server::ProcessSpawner;
 use serde_json::Value;
 use std::sync::Arc;
+use stremio_lightning_core::pip::PipRestoreSnapshot;
 
 pub const LINUX_HOST_ADAPTER_NAME: &str = "linux-host-adapter";
 pub const BRIDGE_UTILS_NAME: &str = "bridge/utils.js";
@@ -47,9 +48,7 @@ impl InjectionBundle {
             },
         ]);
 
-        Ok(Self {
-            scripts,
-        })
+        Ok(Self { scripts })
     }
 
     pub fn scripts(&self) -> &[InjectionScript] {
@@ -199,6 +198,18 @@ where
 
     pub fn emit_native_player_ended(&self, reason: impl Into<String>) -> Result<(), String> {
         self.host.emit_native_player_ended(reason)
+    }
+
+    pub fn pip_snapshot(&self) -> Result<Option<PipRestoreSnapshot>, String> {
+        self.host.pip_snapshot()
+    }
+
+    pub fn set_picture_in_picture(
+        &self,
+        enabled: bool,
+        snapshot: Option<PipRestoreSnapshot>,
+    ) -> Result<(), String> {
+        self.host.set_picture_in_picture(enabled, snapshot)
     }
 }
 

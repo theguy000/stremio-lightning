@@ -7,6 +7,10 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Mutex;
 use stremio_lightning_core::host_api::{self, HostEvent, ParsedRequest};
+use stremio_lightning_core::pip::{serialize_picture_in_picture, PipRestoreSnapshot, PipState};
+
+#[cfg(windows)]
+use stremio_lightning_core::pip::PipWindowController;
 
 #[cfg(windows)]
 use crate::window::NativeWindowController;
@@ -118,6 +122,7 @@ pub struct WindowsHost {
     streaming_server: WindowsStreamingServer<RealProcessSpawner>,
     listeners: Mutex<ListenerRegistry>,
     window_state: Mutex<WindowRuntimeState>,
+    pip_state: PipState,
     #[cfg(windows)]
     window_controller: Mutex<Option<NativeWindowController>>,
     package_version: &'static str,
@@ -151,6 +156,7 @@ impl WindowsHost {
             ),
             listeners: Mutex::default(),
             window_state: Mutex::default(),
+            pip_state: PipState::new(),
             #[cfg(windows)]
             window_controller: Mutex::default(),
             package_version,
@@ -368,8 +374,16 @@ impl WindowsHost {
             "check_app_update" => Ok(Value::Null),
             "set_auto_pause" | "set_pip_disables_auto_pause" => Ok(Value::Null),
             "get_auto_pause" | "get_pip_disables_auto_pause" => Ok(json!(false)),
-            "toggle_pip" => Ok(Value::Null),
-            "get_pip_mode" => Ok(json!(false)),
+            "toggle_pip" => {
+                let enabled = !self.pip_state.is_enabled()?;
+                let snapshot = self.apply_picture_in_picture_window(enabled)?;
+                self.pip_state.set_mode(enabled, snapshot)?;
+                self.emit_transport_message(host_api::response_message(
+                    serialize_picture_in_picture(enabled),
+                ))?;
+                Ok(json!(enabled))
+            }
+            "get_pip_mode" => Ok(json!(self.pip_state.is_enabled()?)),
             other => Err(format!("Unsupported Windows host command: {other}")),
         }
     }
@@ -445,6 +459,35 @@ impl WindowsHost {
 
     fn emit_transport_message(&self, message: String) -> Result<(), String> {
         self.emit_event(SHELL_TRANSPORT_EVENT, json!(message))
+    }
+
+    #[cfg(windows)]
+    fn apply_picture_in_picture_window(
+        &self,
+        enabled: bool,
+    ) -> Result<Option<PipRestoreSnapshot>, String> {
+        let mut controller = self
+            .window_controller
+            .lock()
+            .map_err(|_| "Windows window controller lock poisoned".to_string())?;
+        let controller = controller
+            .as_mut()
+            .ok_or_else(|| "Windows window controller is not initialized".to_string())?;
+        if enabled {
+            controller.enter_pip().map(Some)
+        } else {
+            let snapshot = self.pip_state.snapshot()?.unwrap_or_default();
+            controller.exit_pip(snapshot)?;
+            Ok(None)
+        }
+    }
+
+    #[cfg(not(windows))]
+    fn apply_picture_in_picture_window(
+        &self,
+        _enabled: bool,
+    ) -> Result<Option<PipRestoreSnapshot>, String> {
+        Ok(None)
     }
 
     pub fn emit_media_key(&self, action: &str) -> Result<(), String> {
@@ -936,6 +979,33 @@ mod tests {
         assert_eq!(event, "shell-transport-message");
         let transport: Value = serde_json::from_str(payload.as_str().unwrap()).unwrap();
         assert_eq!(transport["args"], json!(["media-key", "play-pause"]));
+    }
+
+    #[test]
+    fn handles_pip_toggle_state() {
+        let host = WindowsHost::default();
+        host.dispatch_windows_ipc(
+            "listen",
+            Some(json!({ "id": 8, "event": "shell-transport-message" })),
+        )
+        .unwrap();
+
+        assert_eq!(host.invoke("get_pip_mode", None).unwrap(), json!(false));
+        host.invoke("toggle_pip", None).unwrap();
+        assert_eq!(host.invoke("get_pip_mode", None).unwrap(), json!(true));
+        host.invoke("toggle_pip", None).unwrap();
+        assert_eq!(host.invoke("get_pip_mode", None).unwrap(), json!(false));
+
+        let events = host.drain_ipc_events();
+        assert_eq!(events.len(), 2);
+        let WindowsIpcOutbound::Event { payload, .. } = &events[0] else {
+            panic!("expected shell transport event");
+        };
+        assert!(payload.as_str().unwrap().contains("showPictureInPicture"));
+        let WindowsIpcOutbound::Event { payload, .. } = &events[1] else {
+            panic!("expected shell transport event");
+        };
+        assert!(payload.as_str().unwrap().contains("hidePictureInPicture"));
     }
 
     #[test]
