@@ -60,16 +60,15 @@ This document freezes the current Tauri baseline before the platform shell migra
 
 ### Native player command flow
 
-1. The setup script exposes `window.__STREMIO_LIGHTNING_ENABLE_NATIVE_PLAYER__`.
-2. Native MPV is enabled by default only on Windows.
-3. Non-Windows builds keep web playback/external fallback behavior and drop MPV transport commands without failing the shell transport.
-4. Windows initializes libmpv against the main window handle and starts a background event loop.
-5. Transport methods map as follows:
+1. Native MPV transport is part of the Linux and Windows native shell bridge flow.
+2. Shell injection loads bridge modules before the small `web/bridge/bridge.js` entrypoint.
+3. Windows initializes libmpv against the main window handle and starts a background event loop.
+4. Transport methods map as follows:
    - `mpv-observe-prop` observes MPV properties.
    - `mpv-set-prop` sends property updates.
    - `mpv-command` sends commands such as `loadfile` and `stop`.
-6. MPV property and end-file events are emitted back to the web bridge through `shell-transport-message`.
+5. MPV property and end-file events are emitted back to the web bridge through `shell-transport-message`.
 
 ## Platform Gate
 
-The current Tauri native player path is Windows-only. Linux and macOS builds report native player backend `disabled`, so Linux can continue using web playback or external fallback while the new native Linux shell is developed.
+The current native shell work targets Linux and Windows. macOS is not covered by the native shell/runtime path yet.

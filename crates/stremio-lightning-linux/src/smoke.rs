@@ -1,7 +1,7 @@
 use crate::host::{LinuxHost, SHELL_TRANSPORT_EVENT};
 use crate::player::FakePlayerBackend;
 use crate::streaming_server::{FakeProcessSpawner, StreamingServer};
-use crate::webview_runtime::{linux_host_adapter, native_flags, InjectionBundle, MOD_UI_NAME};
+use crate::webview_runtime::{linux_host_adapter, InjectionBundle, MOD_UI_NAME};
 use serde_json::json;
 use std::path::PathBuf;
 
@@ -9,9 +9,6 @@ pub fn run_local_smoke() -> Result<(), String> {
     let adapter = linux_host_adapter();
     if !adapter.contains("window.StremioLightningHost") {
         return Err("Linux host adapter did not expose StremioLightningHost".to_string());
-    }
-    if !native_flags().contains("__STREMIO_LIGHTNING_ENABLE_NATIVE_PLAYER__ = true") {
-        return Err("Native player flag was not enabled".to_string());
     }
     let bundle = InjectionBundle::load()?;
     if !bundle.script_names().contains(&MOD_UI_NAME) {

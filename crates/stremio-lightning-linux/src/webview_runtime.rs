@@ -5,7 +5,16 @@ use serde_json::Value;
 use std::sync::Arc;
 
 pub const LINUX_HOST_ADAPTER_NAME: &str = "linux-host-adapter";
-pub const NATIVE_FLAGS_NAME: &str = "native-flags";
+pub const BRIDGE_UTILS_NAME: &str = "bridge/utils.js";
+pub const BRIDGE_CAST_FALLBACK_NAME: &str = "bridge/cast-fallback.js";
+pub const BRIDGE_SHELL_TRANSPORT_NAME: &str = "bridge/shell-transport.js";
+pub const BRIDGE_EXTERNAL_LINKS_NAME: &str = "bridge/external-links.js";
+pub const BRIDGE_SHELL_DETECTION_NAME: &str = "bridge/shell-detection.js";
+pub const BRIDGE_BACK_BUTTON_NAME: &str = "bridge/back-button.js";
+pub const BRIDGE_SHORTCUTS_NAME: &str = "bridge/shortcuts.js";
+pub const BRIDGE_PIP_NAME: &str = "bridge/pip.js";
+pub const BRIDGE_DISCORD_RPC_NAME: &str = "bridge/discord-rpc.js";
+pub const BRIDGE_UPDATE_BANNER_NAME: &str = "bridge/update-banner.js";
 pub const BRIDGE_NAME: &str = "bridge.js";
 pub const MOD_UI_NAME: &str = "mod-ui-svelte.iife.js";
 
@@ -22,25 +31,24 @@ pub struct InjectionBundle {
 
 impl InjectionBundle {
     pub fn load() -> Result<Self, String> {
+        let mut scripts = vec![InjectionScript {
+            name: LINUX_HOST_ADAPTER_NAME,
+            source: linux_host_adapter(),
+        }];
+        scripts.extend(bridge_module_scripts());
+        scripts.extend([
+            InjectionScript {
+                name: BRIDGE_NAME,
+                source: include_str!("../../../web/bridge/bridge.js").to_string(),
+            },
+            InjectionScript {
+                name: MOD_UI_NAME,
+                source: include_str!("../../../src/dist/mod-ui-svelte.iife.js").to_string(),
+            },
+        ]);
+
         Ok(Self {
-            scripts: vec![
-                InjectionScript {
-                    name: LINUX_HOST_ADAPTER_NAME,
-                    source: linux_host_adapter(),
-                },
-                InjectionScript {
-                    name: NATIVE_FLAGS_NAME,
-                    source: native_flags(),
-                },
-                InjectionScript {
-                    name: BRIDGE_NAME,
-                    source: include_str!("../../../web/bridge/bridge.js").to_string(),
-                },
-                InjectionScript {
-                    name: MOD_UI_NAME,
-                    source: include_str!("../../../src/dist/mod-ui-svelte.iife.js").to_string(),
-                },
-            ],
+            scripts,
         })
     }
 
@@ -51,6 +59,51 @@ impl InjectionBundle {
     pub fn script_names(&self) -> Vec<&'static str> {
         self.scripts.iter().map(|script| script.name).collect()
     }
+}
+
+fn bridge_module_scripts() -> Vec<InjectionScript> {
+    vec![
+        InjectionScript {
+            name: BRIDGE_UTILS_NAME,
+            source: include_str!("../../../web/bridge/src/utils.js").to_string(),
+        },
+        InjectionScript {
+            name: BRIDGE_CAST_FALLBACK_NAME,
+            source: include_str!("../../../web/bridge/src/cast-fallback.js").to_string(),
+        },
+        InjectionScript {
+            name: BRIDGE_SHELL_TRANSPORT_NAME,
+            source: include_str!("../../../web/bridge/src/shell-transport.js").to_string(),
+        },
+        InjectionScript {
+            name: BRIDGE_EXTERNAL_LINKS_NAME,
+            source: include_str!("../../../web/bridge/src/external-links.js").to_string(),
+        },
+        InjectionScript {
+            name: BRIDGE_SHELL_DETECTION_NAME,
+            source: include_str!("../../../web/bridge/src/shell-detection.js").to_string(),
+        },
+        InjectionScript {
+            name: BRIDGE_BACK_BUTTON_NAME,
+            source: include_str!("../../../web/bridge/src/back-button.js").to_string(),
+        },
+        InjectionScript {
+            name: BRIDGE_SHORTCUTS_NAME,
+            source: include_str!("../../../web/bridge/src/shortcuts.js").to_string(),
+        },
+        InjectionScript {
+            name: BRIDGE_PIP_NAME,
+            source: include_str!("../../../web/bridge/src/pip.js").to_string(),
+        },
+        InjectionScript {
+            name: BRIDGE_DISCORD_RPC_NAME,
+            source: include_str!("../../../web/bridge/src/discord-rpc.js").to_string(),
+        },
+        InjectionScript {
+            name: BRIDGE_UPDATE_BANNER_NAME,
+            source: include_str!("../../../web/bridge/src/update-banner.js").to_string(),
+        },
+    ]
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -202,10 +255,6 @@ pub fn linux_host_adapter() -> String {
         .to_string()
 }
 
-pub fn native_flags() -> String {
-    "window.__STREMIO_LIGHTNING_ENABLE_NATIVE_PLAYER__ = true;".to_string()
-}
-
 fn validate_load_url(url: &str) -> Result<(), String> {
     let lower = url.to_lowercase();
     if lower.starts_with("https://") || lower.starts_with("http://") || lower.starts_with("file://")
@@ -213,31 +262,6 @@ fn validate_load_url(url: &str) -> Result<(), String> {
         Ok(())
     } else {
         Err("Linux webview URL must use http, https, or file".to_string())
-    }
-}
-
-#[derive(Debug, Default)]
-pub struct CefOsrSurface {
-    pub width: u32,
-    pub height: u32,
-    pub texture_dirty: bool,
-}
-
-impl CefOsrSurface {
-    pub fn resize(&mut self, width: u32, height: u32) {
-        self.width = width;
-        self.height = height;
-        self.texture_dirty = true;
-    }
-
-    pub fn mark_painted(&mut self) {
-        self.texture_dirty = true;
-    }
-
-    pub fn take_dirty(&mut self) -> bool {
-        let dirty = self.texture_dirty;
-        self.texture_dirty = false;
-        dirty
     }
 }
 
@@ -257,7 +281,16 @@ mod tests {
             bundle.script_names(),
             vec![
                 LINUX_HOST_ADAPTER_NAME,
-                NATIVE_FLAGS_NAME,
+                BRIDGE_UTILS_NAME,
+                BRIDGE_CAST_FALLBACK_NAME,
+                BRIDGE_SHELL_TRANSPORT_NAME,
+                BRIDGE_EXTERNAL_LINKS_NAME,
+                BRIDGE_SHELL_DETECTION_NAME,
+                BRIDGE_BACK_BUTTON_NAME,
+                BRIDGE_SHORTCUTS_NAME,
+                BRIDGE_PIP_NAME,
+                BRIDGE_DISCORD_RPC_NAME,
+                BRIDGE_UPDATE_BANNER_NAME,
                 BRIDGE_NAME,
                 MOD_UI_NAME
             ]
@@ -265,13 +298,6 @@ mod tests {
         assert!(bundle.scripts()[0]
             .source
             .contains("window.StremioLightningHost"));
-    }
-
-    #[test]
-    fn native_flags_enable_linux_native_player_only() {
-        let flags = native_flags();
-        assert!(flags.contains("__STREMIO_LIGHTNING_ENABLE_NATIVE_PLAYER__ = true"));
-        assert!(!flags.contains("__STREMIO_LIGHTNING_ENABLE_WEBKITGTK_WORKAROUNDS__"));
     }
 
     #[test]
@@ -298,7 +324,16 @@ mod tests {
             state.document_start_scripts,
             vec![
                 LINUX_HOST_ADAPTER_NAME,
-                NATIVE_FLAGS_NAME,
+                BRIDGE_UTILS_NAME,
+                BRIDGE_CAST_FALLBACK_NAME,
+                BRIDGE_SHELL_TRANSPORT_NAME,
+                BRIDGE_EXTERNAL_LINKS_NAME,
+                BRIDGE_SHELL_DETECTION_NAME,
+                BRIDGE_BACK_BUTTON_NAME,
+                BRIDGE_SHORTCUTS_NAME,
+                BRIDGE_PIP_NAME,
+                BRIDGE_DISCORD_RPC_NAME,
+                BRIDGE_UPDATE_BANNER_NAME,
                 BRIDGE_NAME,
                 MOD_UI_NAME
             ]

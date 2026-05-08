@@ -4,9 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build:bridge": "node scripts/build-bridge.mjs",
     "build:ui": "vite build",
     "dev:ui": "vite build --watch",
-    "test:ui": "vitest run"
+    "test:ui": "npm run build:bridge && vitest run"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.0.0",
