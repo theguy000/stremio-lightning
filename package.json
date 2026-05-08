@@ -6,7 +6,9 @@
   "scripts": {
     "tauri": "node scripts/generate-tauri-config.js && tauri",
     "setup": "node scripts/setup.js",
+    "setup:linux-shell": "bash scripts/download-linux-shell-deps.sh",
     "setup:windows-shell": "bash scripts/download-windows-shell-deps.sh",
+    "build:linux-appimage": "bash scripts/build-linux-appimage.sh",
     "generate-config": "node scripts/generate-tauri-config.js",
     "check-deps": "node scripts/check-deps.js",
     "build:ui": "node scripts/check-deps.js && vite build",

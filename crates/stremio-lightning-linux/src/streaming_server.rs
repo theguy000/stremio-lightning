@@ -170,13 +170,12 @@ impl<P: ProcessSpawner> Drop for StreamingServer<P> {
 }
 
 pub fn command_spec(project_root: &Path, log_dir: &Path) -> CommandSpec {
-    let tauri_dir = project_root.join("src-tauri");
-    let runtime = tauri_dir
+    let runtime = project_root
         .join("binaries")
         .join("stremio-runtime-x86_64-unknown-linux-gnu");
-    let server = tauri_dir.join("resources").join("server.cjs");
-    let ffmpeg = tauri_dir.join("resources").join("ffmpeg");
-    let ffprobe = tauri_dir.join("resources").join("ffprobe");
+    let server = project_root.join("resources").join("server.cjs");
+    let ffmpeg = project_root.join("resources").join("ffmpeg");
+    let ffprobe = project_root.join("resources").join("ffprobe");
 
     let mut env = BTreeMap::new();
     env.insert("NO_CORS".to_string(), "1".to_string());
@@ -199,11 +198,11 @@ pub fn command_spec(project_root: &Path, log_dir: &Path) -> CommandSpec {
 }
 
 fn default_project_root() -> PathBuf {
+    if let Some(path) = std::env::var_os("STREMIO_LIGHTNING_BUNDLE_DIR") {
+        return PathBuf::from(path);
+    }
+
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .and_then(Path::parent)
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| PathBuf::from("."))
 }
 
 fn default_log_dir() -> PathBuf {
@@ -300,20 +299,20 @@ mod tests {
         let spec = command_spec(&root, &log_dir);
         assert_eq!(
             spec.program,
-            PathBuf::from("/repo/src-tauri/binaries/stremio-runtime-x86_64-unknown-linux-gnu")
+            PathBuf::from("/repo/binaries/stremio-runtime-x86_64-unknown-linux-gnu")
         );
         assert_eq!(
             spec.args,
-            vec![PathBuf::from("/repo/src-tauri/resources/server.cjs")]
+            vec![PathBuf::from("/repo/resources/server.cjs")]
         );
         assert_eq!(spec.env.get("NO_CORS").unwrap(), "1");
         assert_eq!(
             spec.env.get("FFMPEG_BIN").unwrap(),
-            "/repo/src-tauri/resources/ffmpeg"
+            "/repo/resources/ffmpeg"
         );
         assert_eq!(
             spec.env.get("FFPROBE_BIN").unwrap(),
-            "/repo/src-tauri/resources/ffprobe"
+            "/repo/resources/ffprobe"
         );
         assert_eq!(
             spec.stdout_log,

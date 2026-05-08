@@ -36,9 +36,9 @@ mod platform {
     use super::WindowConfig;
     use std::ffi::c_void;
     use windows::core::{w, PCWSTR};
-    use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
+    use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, RECT, WPARAM};
     use windows::Win32::Graphics::Gdi::{
-        GetMonitorInfoW, MonitorFromWindow, HBRUSH, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+        CreateSolidBrush, GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
     };
     use windows::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows::Win32::UI::HiDpi::{
@@ -336,7 +336,8 @@ mod platform {
             lpfnWndProc: Some(window_proc),
             hInstance: instance.into(),
             hCursor: cursor,
-            hbrBackground: HBRUSH::default(),
+            // shell-ng keeps a dark splash/background behind transparent WebView2 while MPV loads.
+            hbrBackground: unsafe { CreateSolidBrush(COLORREF(0x0026111b)) },
             lpszClassName: class_name,
             ..Default::default()
         };

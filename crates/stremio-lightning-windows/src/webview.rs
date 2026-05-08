@@ -8,6 +8,7 @@ use std::sync::{mpsc, Arc};
 pub const WINDOWS_HOST_ADAPTER_NAME: &str = "windows-host-adapter";
 pub const NATIVE_FLAGS_NAME: &str = "native-flags";
 pub const BRIDGE_NAME: &str = "bridge.js";
+pub const MOD_UI_NAME: &str = "mod-ui-svelte.iife.js";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InjectionScript {
@@ -35,6 +36,10 @@ impl InjectionBundle {
                 InjectionScript {
                     name: BRIDGE_NAME,
                     source: include_str!("../../../web/bridge/bridge.js").to_string(),
+                },
+                InjectionScript {
+                    name: MOD_UI_NAME,
+                    source: include_str!("../../../src/dist/mod-ui-svelte.iife.js").to_string(),
                 },
             ],
         }
@@ -153,7 +158,7 @@ mod platform {
         NavigationCompletedEventHandler, NavigationStartingEventHandler,
         WebMessageReceivedEventHandler,
     };
-    use windows::core::{PCWSTR, PWSTR};
+    use windows::core::{Interface, PCWSTR, PWSTR};
     use windows::Win32::Foundation::{E_POINTER, HWND, RECT};
     use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
 
@@ -249,6 +254,7 @@ mod platform {
 
             let environment = create_environment()?;
             let controller = create_controller(&environment, hwnd)?;
+            configure_controller(&controller)?;
 
             self.controller = Some(controller.clone());
             self.resize_to_client_rect(hwnd)?;
@@ -357,7 +363,7 @@ mod platform {
         let options = CoreWebView2EnvironmentOptions::default();
         unsafe {
             options.set_additional_browser_arguments(
-                "--autoplay-policy=no-user-gesture-required --disable-features=msWebOOUI,msPdfOOUI"
+                "--autoplay-policy=no-user-gesture-required --disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection"
                     .to_string(),
             );
         }
@@ -412,6 +418,27 @@ mod platform {
             .map_err(|error| format!("WebView2 controller creation failed: {error}"))
     }
 
+    fn configure_controller(controller: &ICoreWebView2Controller) -> Result<(), String> {
+        // Stremio renders video through MPV using the native parent HWND. WebView2 must be
+        // transparent so its HTML controls overlay MPV instead of painting an opaque white layer.
+        let controller2 = controller
+            .cast::<ICoreWebView2Controller2>()
+            .map_err(|error| format!("Failed to get WebView2 controller2: {error}"))?;
+        unsafe {
+            controller2
+                .SetDefaultBackgroundColor(COREWEBVIEW2_COLOR {
+                    A: 0,
+                    R: 255,
+                    G: 255,
+                    B: 255,
+                })
+                .map_err(|error| {
+                    format!("Failed to set transparent WebView2 background: {error}")
+                })?;
+        }
+        Ok(())
+    }
+
     fn configure_webview(webview: &ICoreWebView2) -> Result<(), String> {
         let settings = unsafe {
             webview
@@ -420,8 +447,9 @@ mod platform {
         };
         unsafe {
             settings.SetIsStatusBarEnabled(false).ok();
-            settings.SetAreDevToolsEnabled(cfg!(debug_assertions)).ok();
+            settings.SetAreDevToolsEnabled(true).ok();
             settings.SetIsZoomControlEnabled(false).ok();
+            settings.SetIsBuiltInErrorPageEnabled(false).ok();
             settings.SetAreHostObjectsAllowed(false).ok();
             settings.SetAreDefaultScriptDialogsEnabled(false).ok();
         }
@@ -464,9 +492,13 @@ mod platform {
                             let mut message = PWSTR(ptr::null_mut());
                             if args.WebMessageAsJson(&mut message).is_ok() {
                                 let message = CoTaskMemPWSTR::from(message);
+                                let message = message.to_string();
+                                if is_toggle_devtools_message(&message) {
+                                    webview.OpenDevToolsWindow().ok();
+                                }
                                 if let Err(error) = post_outbound_messages(
                                     &webview,
-                                    host.dispatch_ipc_message(&message.to_string()),
+                                    host.dispatch_ipc_message(&message),
                                 ) {
                                     eprintln!(
                                         "[StremioLightning] Failed to post WebView2 IPC response: {error}"
@@ -481,6 +513,18 @@ mod platform {
                 .map_err(|error| format!("Failed to attach WebView2 message handler: {error}"))?;
         }
         Ok(())
+    }
+
+    fn is_toggle_devtools_message(message: &str) -> bool {
+        serde_json::from_str::<serde_json::Value>(message)
+            .ok()
+            .and_then(|value| {
+                (value.get("kind").and_then(serde_json::Value::as_str) == Some("invoke"))
+                    .then_some(value)
+            })
+            .and_then(|value| value.get("payload")?.get("command")?.as_str().map(str::to_string))
+            .as_deref()
+            == Some("toggle_devtools")
     }
 
     fn add_navigation_starting_handler(
@@ -529,7 +573,7 @@ mod platform {
             let serialized = CoTaskMemPWSTR::from(serialized.as_str());
             unsafe {
                 webview
-                    .PostWebMessageAsJson(*serialized.as_ref().as_pcwstr())
+                    .PostWebMessageAsString(*serialized.as_ref().as_pcwstr())
                     .map_err(|error| format!("Failed to post WebView2 IPC response: {error}"))?;
             }
         }
@@ -731,7 +775,12 @@ mod tests {
 
         assert_eq!(
             shell.document_start_script_names(),
-            vec![WINDOWS_HOST_ADAPTER_NAME, NATIVE_FLAGS_NAME, BRIDGE_NAME]
+            vec![
+                WINDOWS_HOST_ADAPTER_NAME,
+                NATIVE_FLAGS_NAME,
+                BRIDGE_NAME,
+                MOD_UI_NAME
+            ]
         );
     }
 
@@ -747,6 +796,18 @@ mod tests {
         assert!(bridge
             .source
             .contains("Stremio Lightning - Frontend Bridge"));
+    }
+
+    #[test]
+    fn windows_bundle_injects_svelte_mod_ui() {
+        let bundle = InjectionBundle::load();
+        let mod_ui = bundle
+            .scripts()
+            .iter()
+            .find(|script| script.name == MOD_UI_NAME)
+            .unwrap();
+
+        assert!(mod_ui.source.contains("[SL-Svelte]"));
     }
 
     #[test]

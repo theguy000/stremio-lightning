@@ -39,6 +39,12 @@ src-tauri/resources/libmpv.so.2
 crates/stremio-lightning-windows/mpv-dev/
 crates/stremio-lightning-windows/resources/
 
+# Linux native shell resources and artifacts (downloaded/generated at build time)
+crates/stremio-lightning-linux/binaries/
+crates/stremio-lightning-linux/resources/
+dist/
+*.AppImage
+
 
 nul
 

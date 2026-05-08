@@ -5,24 +5,23 @@ fn main() {
     println!("cargo:rerun-if-changed=windows-shell.exe.manifest");
     println!("cargo:rerun-if-changed=../../src-tauri/icons/icon.ico");
 
-    #[cfg(windows)]
-    configure_windows_build();
+    if is_windows_target() {
+        configure_windows_build();
+    }
 }
 
-#[cfg(windows)]
 fn configure_windows_build() {
-    println!("cargo:rustc-link-search=native=mpv-dev");
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("missing CARGO_MANIFEST_DIR");
+    let mpv_dev_dir = std::path::Path::new(&manifest_dir).join("mpv-dev");
+    println!("cargo:rustc-link-search=native={}", mpv_dev_dir.display());
     println!("cargo:rustc-link-lib=dylib=mpv");
     println!("cargo:rustc-link-lib=dylib=delayimp");
     println!("cargo:rustc-link-arg=/DELAYLOAD:libmpv-2.dll");
 
     copy_libmpv_to_profile_dir();
-    embed_resource::compile("windows-shell.rc", embed_resource::NONE)
-        .manifest_required()
-        .expect("failed to embed Windows shell resources");
+    embed_windows_resources();
 }
 
-#[cfg(windows)]
 fn copy_libmpv_to_profile_dir() {
     let source = std::path::Path::new("resources/libmpv-2.dll");
     if !source.exists() {
@@ -42,13 +41,27 @@ fn copy_libmpv_to_profile_dir() {
     }
 }
 
-#[cfg(windows)]
 fn target_profile_dir() -> Option<std::path::PathBuf> {
     let out_dir = std::env::var_os("OUT_DIR")?;
     profile_dir_from_out_dir(std::path::Path::new(&out_dir))
 }
 
-#[cfg(windows)]
 fn profile_dir_from_out_dir(out_dir: &std::path::Path) -> Option<std::path::PathBuf> {
     out_dir.ancestors().nth(3).map(std::path::Path::to_path_buf)
+}
+
+fn is_windows_target() -> bool {
+    std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows")
+}
+
+#[cfg(windows)]
+fn embed_windows_resources() {
+    embed_resource::compile("windows-shell.rc", embed_resource::NONE)
+        .manifest_required()
+        .expect("failed to embed Windows shell resources");
+}
+
+#[cfg(not(windows))]
+fn embed_windows_resources() {
+    println!("cargo:warning=Skipping Windows resource embedding during cross-compilation");
 }

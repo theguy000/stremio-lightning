@@ -12,13 +12,11 @@ use libmpv2::{Format, Mpv};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::cell::{Cell, RefCell};
-use std::net::{SocketAddr, TcpStream};
 use std::os::raw::c_void;
 use std::ptr;
 use std::rc::Rc;
 use std::sync::mpsc::{self, Receiver};
 use std::sync::OnceLock;
-use std::time::{Duration, Instant};
 use webkit::prelude::*;
 use webkit::{
     LoadEvent, NavigationPolicyDecision, PolicyDecisionType, UserContentInjectedFrames, UserScript,
@@ -26,9 +24,6 @@ use webkit::{
 };
 
 const IPC_HANDLER_NAME: &str = "ipc";
-const STREAMING_SERVER_ADDR: ([u8; 4], u16) = ([127, 0, 0, 1], 11470);
-const STREAMING_SERVER_READY_TIMEOUT: Duration = Duration::from_secs(30);
-const STREAMING_SERVER_POLL_INTERVAL: Duration = Duration::from_millis(250);
 const MPV_FLOAT_PROPERTIES: &[&str] = &[
     "time-pos",
     "duration",
@@ -52,45 +47,6 @@ const MPV_BOOL_PROPERTIES: &[&str] = &[
     "paused-for-cache",
     "keepaspect",
 ];
-const STREAMING_SERVER_RELOAD_SCRIPT: &str = r#"
-(function () {
-    var attempts = 0;
-    var maxAttempts = 120;
-    var delayMs = 250;
-
-    function getCoreTransport() {
-        var coreService = (typeof core !== 'undefined' && core) ||
-            (window.services && window.services.core) ||
-            (window.app && window.app.core);
-        return coreService && coreService.transport ? coreService.transport : null;
-    }
-
-    function dispatchReload() {
-        attempts += 1;
-
-        try {
-            var transport = getCoreTransport();
-            if (transport && typeof transport.dispatch === 'function') {
-                transport.dispatch({ action: 'StreamingServer', args: { action: 'Reload' } });
-                console.log('[StremioLightning] StreamingServer Reload dispatched');
-                return;
-            }
-        } catch (error) {
-            console.error('[StremioLightning] Reload error:', error);
-            return;
-        }
-
-        if (attempts < maxAttempts) {
-            setTimeout(dispatchReload, delayMs);
-        } else {
-            console.warn('[StremioLightning] core.transport not available for Reload after retrying');
-        }
-    }
-
-    dispatchReload();
-})();
-"#;
-
 #[derive(Debug, Deserialize)]
 struct WebkitIpcRequest {
     id: u64,
@@ -239,7 +195,6 @@ fn build_webview(
     }
 
     {
-        let reload_scheduled = Rc::new(Cell::new(false));
         let inspector_shown = Rc::new(Cell::new(false));
         let devtools = config.devtools;
         webview.connect_load_changed(move |webview, event| {
@@ -248,9 +203,6 @@ fn build_webview(
                     if let Some(inspector) = webview.inspector() {
                         inspector.show();
                     }
-                }
-                if !reload_scheduled.replace(true) {
-                    schedule_streaming_server_reload(webview);
                 }
             }
         });
@@ -277,31 +229,6 @@ fn build_webview(
 
     webview.load_uri(&config.url);
     Ok(webview)
-}
-
-fn schedule_streaming_server_reload(webview: &WebKitWebView) {
-    let webview = webview.clone();
-    let started_at = Instant::now();
-
-    glib::timeout_add_local(STREAMING_SERVER_POLL_INTERVAL, move || {
-        if is_streaming_server_ready() {
-            eprintln!("[StreamingServer] Server HTTP ready, dispatching Reload");
-            evaluate_javascript(&webview, STREAMING_SERVER_RELOAD_SCRIPT);
-            return glib::ControlFlow::Break;
-        }
-
-        if started_at.elapsed() >= STREAMING_SERVER_READY_TIMEOUT {
-            eprintln!("[StreamingServer] Server never became ready, skipping Reload");
-            return glib::ControlFlow::Break;
-        }
-
-        glib::ControlFlow::Continue
-    });
-}
-
-fn is_streaming_server_ready() -> bool {
-    let addr = SocketAddr::from(STREAMING_SERVER_ADDR);
-    TcpStream::connect_timeout(&addr, Duration::from_millis(100)).is_ok()
 }
 
 fn document_start_script(source: impl Into<String>) -> UserScript {

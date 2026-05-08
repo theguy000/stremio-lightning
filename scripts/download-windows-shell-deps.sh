@@ -86,6 +86,7 @@ extract_7z "$TEMP_DIR/mpv-dev.7z" "$TEMP_DIR/mpv-dev"
 LIBMPV_DLL=$(first_match "$TEMP_DIR/mpv-dev" "libmpv-2.dll")
 MPV_LIB=$(first_match "$TEMP_DIR/mpv-dev" "mpv.lib")
 MPV_DEF=$(first_match "$TEMP_DIR/mpv-dev" "mpv.def")
+MPV_GNU_LIB=$(first_match "$TEMP_DIR/mpv-dev" "libmpv.dll.a")
 
 if [[ -z "$LIBMPV_DLL" ]]; then
     echo "ERROR: Could not find libmpv-2.dll in downloaded MPV archive" >&2
@@ -105,8 +106,13 @@ if [[ -z "$MPV_LIB" && -n "$MPV_DEF" ]]; then
 fi
 
 if [[ -z "$MPV_LIB" || ! -f "$MPV_LIB" ]]; then
-    echo "ERROR: Could not find or generate mpv.lib for MSVC linking" >&2
-    exit 1
+    if [[ -n "$MPV_GNU_LIB" && -f "$MPV_GNU_LIB" ]]; then
+        echo "==> mpv.lib not found; using libmpv.dll.a as the import library..."
+        MPV_LIB="$MPV_GNU_LIB"
+    else
+        echo "ERROR: Could not find or generate mpv.lib for MSVC linking" >&2
+        exit 1
+    fi
 fi
 
 cp "$STREMIO_RUNTIME_EXE" "$WINDOWS_DIR/resources/stremio-runtime.exe"
