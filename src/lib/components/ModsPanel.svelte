@@ -100,7 +100,7 @@
   </div>
   <div class="sl-content">
     <div class="sl-tab-content" class:sl-visible={activeTab === 'plugins'}>
-      {#if activeTab === 'plugins' || activeTab === 'plugins'}
+      {#if activeTab === 'plugins'}
         <PluginsTab />
       {/if}
     </div>

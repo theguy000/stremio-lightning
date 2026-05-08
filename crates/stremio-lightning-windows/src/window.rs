@@ -555,12 +555,9 @@ mod platform {
                     LRESULT(0)
                 }
                 WM_SETFOCUS | WM_KILLFOCUS => {
-                    let state = window_state(hwnd);
-                    if !state.is_null() {
-                        if let Some(handler) = (*state).handler.as_mut() {
-                            let _ = handler.on_focus_changed(hwnd, message == WM_SETFOCUS);
-                        }
-                    }
+                    with_handler(hwnd, |handler| {
+                        let _ = handler.on_focus_changed(hwnd, message == WM_SETFOCUS);
+                    });
                     DefWindowProcW(hwnd, message, wparam, lparam)
                 }
                 WM_APPCOMMAND => {
@@ -572,23 +569,17 @@ mod platform {
                         _ => None,
                     };
                     if let Some(action) = action {
-                        let state = window_state(hwnd);
-                        if !state.is_null() {
-                            if let Some(handler) = (*state).handler.as_mut() {
-                                let _ = handler.on_media_key(hwnd, action);
-                            }
-                        }
+                        with_handler(hwnd, |handler| {
+                            let _ = handler.on_media_key(hwnd, action);
+                        });
                         return LRESULT(1);
                     }
                     DefWindowProcW(hwnd, message, wparam, lparam)
                 }
                 UI_THREAD_WAKE_MESSAGE => {
-                    let state = window_state(hwnd);
-                    if !state.is_null() {
-                        if let Some(handler) = (*state).handler.as_mut() {
-                            let _ = handler.on_ui_thread_wake(hwnd);
-                        }
-                    }
+                    with_handler(hwnd, |handler| {
+                        let _ = handler.on_ui_thread_wake(hwnd);
+                    });
                     LRESULT(0)
                 }
                 WM_CLOSE => {
@@ -618,6 +609,17 @@ mod platform {
 
     unsafe fn window_state(hwnd: HWND) -> *mut WindowState {
         GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut WindowState
+    }
+
+    unsafe fn with_handler(hwnd: HWND, f: impl FnOnce(&mut dyn NativeWindowHandler)) -> bool {
+        let state = window_state(hwnd);
+        if !state.is_null() {
+            if let Some(handler) = (*state).handler.as_mut() {
+                f(handler.as_mut());
+                return true;
+            }
+        }
+        false
     }
 
     fn to_wide_null(value: &str) -> Vec<u16> {

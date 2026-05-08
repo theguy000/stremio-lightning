@@ -111,10 +111,6 @@ impl FromStr for ModType {
     }
 }
 
-pub fn parse_mod_type(value: &str) -> Result<ModType, String> {
-    value.parse()
-}
-
 pub fn mods_dir(app_data_dir: &Path, mod_type: ModType) -> PathBuf {
     app_data_dir
         .join("stremio-lightning")
@@ -122,10 +118,10 @@ pub fn mods_dir(app_data_dir: &Path, mod_type: ModType) -> PathBuf {
 }
 
 pub fn ensure_dirs(app_data_dir: &Path) -> Result<(), String> {
-    std::fs::create_dir_all(mods_dir(app_data_dir, ModType::Plugin))
-        .map_err(|e| format!("Failed to create plugins dir: {}", e))?;
-    std::fs::create_dir_all(mods_dir(app_data_dir, ModType::Theme))
-        .map_err(|e| format!("Failed to create themes dir: {}", e))?;
+    for mod_type in [ModType::Plugin, ModType::Theme] {
+        std::fs::create_dir_all(mods_dir(app_data_dir, mod_type))
+            .map_err(|e| format!("Failed to create {} dir: {}", mod_type.directory_name(), e))?;
+    }
     Ok(())
 }
 
@@ -380,10 +376,6 @@ pub async fn check_mod_updates(
 
 pub use crate::validation::validate_filename;
 
-pub fn mod_file_extension(mod_type: ModType) -> &'static str {
-    mod_type.file_extension()
-}
-
 pub fn validate_mod_filename(filename: &str, mod_type: ModType) -> Result<(), String> {
     validate_filename(filename)?;
     if !filename.ends_with(mod_type.file_extension()) {
@@ -429,11 +421,11 @@ mod tests {
 
     #[test]
     fn validates_mod_types_and_extensions() {
-        assert_eq!(parse_mod_type("plugin").unwrap(), ModType::Plugin);
-        assert_eq!(parse_mod_type("theme").unwrap(), ModType::Theme);
-        assert!(parse_mod_type("script").is_err());
-        assert_eq!(mod_file_extension(ModType::Plugin), ".plugin.js");
-        assert_eq!(mod_file_extension(ModType::Theme), ".theme.css");
+        assert_eq!("plugin".parse::<ModType>().unwrap(), ModType::Plugin);
+        assert_eq!("theme".parse::<ModType>().unwrap(), ModType::Theme);
+        assert!("script".parse::<ModType>().is_err());
+        assert_eq!(ModType::Plugin.file_extension(), ".plugin.js");
+        assert_eq!(ModType::Theme.file_extension(), ".theme.css");
         assert!(validate_mod_filename("example.plugin.js", ModType::Plugin).is_ok());
         assert!(validate_mod_filename("example.theme.css", ModType::Theme).is_ok());
         assert!(validate_mod_filename("example.theme.css", ModType::Plugin).is_err());

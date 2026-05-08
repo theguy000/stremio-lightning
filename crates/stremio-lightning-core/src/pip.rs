@@ -54,7 +54,7 @@ impl PipState {
 
         let mut inner = self.inner.lock().map_err(|e| e.to_string())?;
         inner.enabled = enabled;
-        inner.restore_snapshot = enabled.then_some(snapshot).flatten();
+        inner.restore_snapshot = if enabled { snapshot } else { None };
         Ok(())
     }
 

@@ -175,7 +175,7 @@ where
         match command {
             "download_mod" => {
                 let payload: DownloadModPayload = parse_payload(command, payload)?;
-                let mod_type = mods::parse_mod_type(&payload.mod_type)?;
+                let mod_type = payload.mod_type.parse()?;
                 let filename =
                     mods::download_mod(&self.app_data_dir, &payload.url, mod_type).await?;
                 Ok(json!(filename))
@@ -184,7 +184,7 @@ where
                 .map_err(|e| format!("Failed to serialize registry: {e}"))?),
             "check_mod_updates" => {
                 let payload: ModFilePayload = parse_payload(command, payload)?;
-                let mod_type = mods::parse_mod_type(&payload.mod_type)?;
+                let mod_type = payload.mod_type.parse()?;
                 Ok(serde_json::to_value(
                     mods::check_mod_updates(&self.app_data_dir, &payload.filename, mod_type)
                         .await?,
@@ -258,13 +258,13 @@ where
             .map_err(|e| format!("Failed to serialize themes: {e}"))?),
             "delete_mod" => {
                 let payload: ModFilePayload = parse_payload(command, payload)?;
-                let mod_type = mods::parse_mod_type(&payload.mod_type)?;
+                let mod_type = payload.mod_type.parse()?;
                 mods::delete_mod(&self.app_data_dir, &payload.filename, mod_type)?;
                 Ok(Value::Null)
             }
             "get_mod_content" => {
                 let payload: ModFilePayload = parse_payload(command, payload)?;
-                let mod_type = mods::parse_mod_type(&payload.mod_type)?;
+                let mod_type = payload.mod_type.parse()?;
                 Ok(json!(mods::read_mod_content(
                     &self.app_data_dir,
                     &payload.filename,
@@ -580,26 +580,22 @@ where
 }
 
 fn default_app_data_dir() -> PathBuf {
-    if let Some(path) = std::env::var_os("XDG_DATA_HOME") {
-        return PathBuf::from(path);
-    }
-
-    if let Some(home) = std::env::var_os("HOME") {
-        return Path::new(&home).join(".local").join("share");
-    }
-
-    std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+    std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("HOME").map(|home| Path::new(&home).join(".local").join("share"))
+        })
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
 }
 
 fn validate_external_url(url: &str) -> Result<(), String> {
     let lower = url.to_lowercase();
-    let allowed = [
+    if [
         "http://", "https://", "rtp://", "rtsp://", "ftp://", "ipfs://",
     ]
     .iter()
-    .any(|prefix| lower.starts_with(prefix));
-
-    if allowed {
+    .any(|prefix| lower.starts_with(prefix))
+    {
         Ok(())
     } else {
         Err("Rejected non-whitelisted open_external_url URL".to_string())

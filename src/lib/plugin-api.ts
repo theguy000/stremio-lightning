@@ -6,6 +6,10 @@ type SettingsCallback = (values: Record<string, unknown>) => void;
 
 const _settingsCallbacks: Record<string, SettingsCallback> = {};
 
+function registerSettingsCallback(pluginName: string, cb: SettingsCallback): void {
+  _settingsCallbacks[pluginName] = cb;
+}
+
 export function initPluginAPI(): void {
   const host = getHost();
   const appWindow = host.window;
@@ -74,12 +78,8 @@ export function initPluginAPI(): void {
 
     // ── Plugin settings callbacks ──
     _settingsCallbacks: _settingsCallbacks,
-    onSettingsSaved: (pluginName: string, cb: SettingsCallback) => {
-      _settingsCallbacks[pluginName] = cb;
-    },
-    _registerSettingsCallback: (pluginName: string, cb: SettingsCallback) => {
-      _settingsCallbacks[pluginName] = cb;
-    },
+    onSettingsSaved: registerSettingsCallback,
+    _registerSettingsCallback: registerSettingsCallback,
     _notifySettingsSaved: (pluginName: string, values: Record<string, unknown>) => {
       _settingsCallbacks[pluginName]?.(values);
     },

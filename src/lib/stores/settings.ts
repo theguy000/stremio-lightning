@@ -1,4 +1,4 @@
-import { writable, get } from 'svelte/store';
+import { writable, get, type Writable } from 'svelte/store';
 import { startDiscordRpc, stopDiscordRpc, setAutoPause, getAutoPause, setPipDisablesAutoPause, getPipDisablesAutoPause, togglePip, getPipMode } from '../ipc';
 
 // Discord RPC
@@ -26,8 +26,31 @@ export async function toggleDiscordRpc(enabled: boolean): Promise<void> {
 
 // Blur settings
 export const blurEnabled = writable(localStorage.getItem('sl-blur-enabled') !== 'false');
-const _blurIntRaw = parseInt(localStorage.getItem('sl-blur-intensity') || '100', 10);
-export const blurIntensity = writable(isNaN(_blurIntRaw) ? 100 : _blurIntRaw);
+export const blurIntensity = writable(parseBlurIntensity(localStorage.getItem('sl-blur-intensity')));
+
+function parseBlurIntensity(raw: string | null): number {
+  const parsed = parseInt(raw || '100', 10);
+  return isNaN(parsed) ? 100 : parsed;
+}
+
+function syncBooleanStoreFromStorage(
+  storageKey: string,
+  store: Writable<boolean>,
+  getFromBackend: () => Promise<boolean>,
+  syncToBackend: (enabled: boolean) => Promise<void>,
+): void {
+  const stored = localStorage.getItem(storageKey);
+  if (stored !== null) {
+    const enabled = stored === 'true';
+    store.set(enabled);
+    syncToBackend(enabled).catch(() => {});
+    return;
+  }
+
+  getFromBackend().then((enabled) => {
+    store.set(enabled);
+  }).catch(() => {});
+}
 
 function adjustAlpha(color: string, alpha: number): string {
   const match = color.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
@@ -107,41 +130,18 @@ export async function togglePipDisablesAutoPause(enabled: boolean): Promise<void
 
 export function loadSettingsFromStorage(): void {
   const blurEn = localStorage.getItem('sl-blur-enabled') !== 'false';
-  const blurIntRaw = parseInt(localStorage.getItem('sl-blur-intensity') || '100', 10);
-  const blurInt = isNaN(blurIntRaw) ? 100 : blurIntRaw;
+  const blurInt = parseBlurIntensity(localStorage.getItem('sl-blur-intensity'));
   blurEnabled.set(blurEn);
   blurIntensity.set(blurInt);
   applyBlurIntensity(blurInt, blurEn);
 
-  // ── Auto-pause on unfocus ──
-  // Two-source reconciliation: localStorage is the primary source (survives
-  // restarts), but on first launch (no localStorage key) we fall back to the
-  // Rust backend's default (which is `true`). In both cases we sync the
-  // Rust-side AtomicBool so the window event callback is up to date.
-  const stored = localStorage.getItem('sl-auto-pause');
-  if (stored !== null) {
-    // We have a persisted preference — apply it to both the store and the Rust backend
-    const enabled = stored === 'true';
-    autoPauseEnabled.set(enabled);
-    setAutoPause(enabled).catch(() => {});
-  } else {
-    // First launch — ask the Rust backend for its default and sync the store
-    getAutoPause().then((enabled) => {
-      autoPauseEnabled.set(enabled);
-    }).catch(() => {});
-  }
-
-  // ── PiP disables auto-pause ──
-  const pipPauseStored = localStorage.getItem('sl-pip-disables-auto-pause');
-  if (pipPauseStored !== null) {
-    const enabled = pipPauseStored === 'true';
-    pipDisablesAutoPause.set(enabled);
-    setPipDisablesAutoPause(enabled).catch(() => {});
-  } else {
-    getPipDisablesAutoPause().then((enabled) => {
-      pipDisablesAutoPause.set(enabled);
-    }).catch(() => {});
-  }
+  syncBooleanStoreFromStorage('sl-auto-pause', autoPauseEnabled, getAutoPause, setAutoPause);
+  syncBooleanStoreFromStorage(
+    'sl-pip-disables-auto-pause',
+    pipDisablesAutoPause,
+    getPipDisablesAutoPause,
+    setPipDisablesAutoPause,
+  );
 
   // ── Picture-in-Picture ──
   // PiP feature preference: persisted to localStorage, controls whether
@@ -196,4 +196,3 @@ if (typeof document !== 'undefined') {
   document.addEventListener('sl-pip-enabled', () => pipModeActive.set(true));
   document.addEventListener('sl-pip-disabled', () => pipModeActive.set(false));
 }
-
