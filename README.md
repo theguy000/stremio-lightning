@@ -1,22 +1,26 @@
-# ⚡ Stremio Lightning
+# Stremio Lightning
 
-A powerful desktop wrapper for [Stremio](https://www.stremio.com/) built with Rust-native shell crates and [Svelte](https://svelte.dev/), adding support for plugins, themes, Discord Rich Presence, and more.
+![Built with Rust](https://img.shields.io/badge/Built_with-Rust-000000?logo=rust&logoColor=white)
+![Frontend Svelte](https://img.shields.io/badge/Frontend-Svelte-FF3E00?logo=svelte&logoColor=white)
 
----
-
-## ✨ Features
-
-- 🧩 **Plugin System** — Install and manage community-made plugins via a built-in marketplace
-- 🎨 **Theme Support** — Customize the look of Stremio with downloadable themes
-- 🎮 **Discord Rich Presence** — Show what you're watching on Discord
-- 🖥️ **Native Player** — Integrated MPV-based native media player (Windows)
-- 📡 **Streaming Server Control** — Start, stop, and restart the Stremio streaming server from within the app
-- 🔗 **Deep Link Support** — Handle `stremio://` protocol links natively
-- 🔄 **Auto-update Checking** — Built-in app update notifications
+Stremio Lightning is a desktop wrapper for [Stremio](https://www.stremio.com/) built with Rust-native shell crates and [Svelte](https://svelte.dev/). It adds plugin management, theme support, Discord Rich Presence, native playback, and tighter control over the local streaming server.
 
 ---
 
-## 🛠️ Tech Stack
+## Features
+
+| Feature | Description |
+|---------|-------------|
+| Plugin system | Install and manage community-made plugins through a built-in marketplace. |
+| Theme support | Customize Stremio with downloadable themes. |
+| Discord Rich Presence | Show what you are watching directly on Discord. |
+| Native player | Use an integrated MPV-based media player on Windows. |
+| Streaming server control | Start, stop, and restart the Stremio streaming server from inside the app. |
+| Auto-update checking | Receive built-in notifications when app updates are available. |
+
+---
+
+## Tech Stack
 
 | Layer     | Technology                        |
 |-----------|-----------------------------------|
@@ -27,7 +31,7 @@ A powerful desktop wrapper for [Stremio](https://www.stremio.com/) built with Ru
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Prerequisites
 
@@ -70,20 +74,20 @@ cargo xtask package-windows
 
 ---
 
-## 🧩 Plugin API
+## Plugin API
 
 Plugins have access to the global `window.StremioEnhancedAPI` object, which exposes:
 
-- **Window management** — minimize, maximize, close, drag
-- **Streaming server** — start, stop, restart, get status
-- **Mod management** — list, download, delete, and update plugins & themes
-- **Settings** — get, save, and register plugin-specific settings
-- **Events** — subscribe to fullscreen, maximize, and server state changes
-- **Logging** — `info`, `warn`, `error` helpers
+- **Window management** - minimize, maximize, close, drag
+- **Streaming server** - start, stop, restart, get status
+- **Mod management** - list, download, delete, and update plugins & themes
+- **Settings** - get, save, and register plugin-specific settings
+- **Events** - subscribe to fullscreen, maximize, and server state changes
+- **Logging** - `info`, `warn`, `error` helpers
 
 ---
 
-## 📦 Platform Support
+## Platform Support
 
 | Platform | Notes                                    |
 |----------|------------------------------------------|
@@ -93,6 +97,6 @@ Plugins have access to the global `window.StremioEnhancedAPI` object, which expo
 
 ---
 
-## 📄 License
+## License
 
 This project is licensed under the [MIT License](LICENSE).
