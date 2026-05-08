@@ -36,10 +36,10 @@ jobs:
         run: npm ci
 
       - name: Build frontend
-        run: npm run build:ui
+        run: cargo xtask build-ui
 
       - name: Download Linux shell dependencies
-        run: npm run setup:linux-shell
+        run: cargo xtask setup-linux
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -50,7 +50,7 @@ jobs:
           chmod +x "$HOME/.cache/appimage/appimagetool-x86_64.AppImage"
 
       - name: Build Linux AppImage
-        run: npm run build:linux-appimage
+        run: cargo xtask build-linux-appimage
 
       - name: Upload Linux artifact
         uses: actions/upload-artifact@v4
@@ -96,22 +96,13 @@ jobs:
         run: npm ci
 
       - name: Build frontend
-        run: npm run build:ui
+        run: cargo xtask build-ui
 
       - name: Download Windows shell dependencies
-        shell: bash
-        run: npm run setup:windows-shell
-
-      - name: Build Windows shell
-        run: cargo build -p stremio-lightning-windows --release --target x86_64-pc-windows-msvc
+        run: cargo xtask setup-windows
 
       - name: Package Windows portable artifact
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force dist/stremio-lightning-windows-portable | Out-Null
-          Copy-Item target/x86_64-pc-windows-msvc/release/stremio-lightning-windows.exe dist/stremio-lightning-windows-portable/
-          Copy-Item crates/stremio-lightning-windows/resources/* dist/stremio-lightning-windows-portable/
-          Compress-Archive -Path dist/stremio-lightning-windows-portable/* -DestinationPath dist/stremio-lightning-windows-portable.zip -Force
+        run: cargo xtask package-windows
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4

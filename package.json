@@ -4,10 +4,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "setup": "node scripts/setup.js",
-    "setup:linux-shell": "bash scripts/download-linux-shell-deps.sh",
-    "setup:windows-shell": "bash scripts/download-windows-shell-deps.sh",
-    "build:linux-appimage": "bash scripts/build-linux-appimage.sh",
     "build:ui": "vite build",
     "dev:ui": "vite build --watch",
     "test:ui": "vitest run"

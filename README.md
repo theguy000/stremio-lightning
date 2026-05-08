@@ -49,21 +49,23 @@ A powerful desktop wrapper for [Stremio](https://www.stremio.com/) built with Ru
    npm install
    ```
 
-3. **Run setup script**
+3. **Download native shell dependencies**
    ```
-   npm run setup
+   cargo xtask setup
    ```
 
 ### Development
 
 Use `npm run dev:ui` for the injected UI bundle and run the native shell crate with Cargo.
 
+Developer workflow details are documented in [`docs/developer-guide.md`](docs/developer-guide.md).
+
 ### Build
 
 ```bash
-npm run build:ui
-npm run build:linux-appimage
-cargo build -p stremio-lightning-windows --release
+cargo xtask build-ui
+cargo xtask build-linux-appimage
+cargo xtask package-windows
 ```
 
 ---

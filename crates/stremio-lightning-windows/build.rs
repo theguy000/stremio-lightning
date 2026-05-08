@@ -25,9 +25,7 @@ fn configure_windows_build() {
 fn copy_libmpv_to_profile_dir() {
     let source = std::path::Path::new("resources/libmpv-2.dll");
     if !source.exists() {
-        println!(
-            "cargo:warning=resources/libmpv-2.dll is missing; run npm run setup:windows-shell"
-        );
+        println!("cargo:warning=resources/libmpv-2.dll is missing; run cargo xtask setup-windows");
         return;
     }
 
