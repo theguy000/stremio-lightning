@@ -1,11 +1,12 @@
-use crate::host::WindowsHost;
-use crate::settings::WindowsShellSettings;
+use crate::host::Host;
+use crate::settings::ShellSettings;
 use crate::single_instance::LaunchIntent;
 #[cfg(windows)]
 use std::sync::Mutex;
 use std::sync::{mpsc, Arc};
 
 pub const WINDOWS_HOST_ADAPTER_NAME: &str = "windows-host-adapter";
+pub const HOST_ADAPTER_NAME: &str = WINDOWS_HOST_ADAPTER_NAME;
 pub const BRIDGE_UTILS_NAME: &str = "bridge/utils.js";
 pub const BRIDGE_CAST_FALLBACK_NAME: &str = "bridge/cast-fallback.js";
 pub const BRIDGE_SHELL_TRANSPORT_NAME: &str = "bridge/shell-transport.js";
@@ -33,8 +34,8 @@ pub struct InjectionBundle {
 impl InjectionBundle {
     pub fn load() -> Self {
         let mut scripts = vec![InjectionScript {
-            name: WINDOWS_HOST_ADAPTER_NAME,
-            source: windows_host_adapter(),
+            name: HOST_ADAPTER_NAME,
+            source: host_adapter(),
         }];
         scripts.extend(bridge_module_scripts());
         scripts.extend([
@@ -105,7 +106,7 @@ pub struct WindowsWebView2Shell {
     url: String,
     injection: InjectionBundle,
     #[allow(dead_code)]
-    host: Arc<WindowsHost>,
+    host: Arc<Host>,
     launch_intents: mpsc::Receiver<LaunchIntent>,
     #[cfg(windows)]
     ui_notifier: Arc<Mutex<Option<crate::window::UiThreadNotifier>>>,
@@ -114,7 +115,7 @@ pub struct WindowsWebView2Shell {
 impl WindowsWebView2Shell {
     #[cfg(windows)]
     pub fn new(
-        settings: WindowsShellSettings,
+        settings: ShellSettings,
         launch_intents: mpsc::Receiver<LaunchIntent>,
         ui_notifier: Arc<Mutex<Option<crate::window::UiThreadNotifier>>>,
     ) -> Result<Self, String> {
@@ -123,7 +124,7 @@ impl WindowsWebView2Shell {
 
     #[cfg(not(windows))]
     pub fn new(
-        settings: WindowsShellSettings,
+        settings: ShellSettings,
         launch_intents: mpsc::Receiver<LaunchIntent>,
     ) -> Result<Self, String> {
         Self::build(settings, launch_intents)
@@ -131,7 +132,7 @@ impl WindowsWebView2Shell {
 
     #[cfg(windows)]
     fn build(
-        settings: WindowsShellSettings,
+        settings: ShellSettings,
         launch_intents: mpsc::Receiver<LaunchIntent>,
         ui_notifier: Arc<Mutex<Option<crate::window::UiThreadNotifier>>>,
     ) -> Result<Self, String> {
@@ -143,7 +144,7 @@ impl WindowsWebView2Shell {
         Ok(Self {
             url,
             injection: InjectionBundle::load(),
-            host: Arc::new(WindowsHost::with_streaming_server_disabled(
+            host: Arc::new(Host::with_streaming_server_disabled(
                 env!("CARGO_PKG_VERSION"),
                 settings.streaming_server_disabled,
             )),
@@ -154,7 +155,7 @@ impl WindowsWebView2Shell {
 
     #[cfg(not(windows))]
     fn build(
-        settings: WindowsShellSettings,
+        settings: ShellSettings,
         launch_intents: mpsc::Receiver<LaunchIntent>,
     ) -> Result<Self, String> {
         let url = settings.webui_url;
@@ -165,7 +166,7 @@ impl WindowsWebView2Shell {
         Ok(Self {
             url,
             injection: InjectionBundle::load(),
-            host: Arc::new(WindowsHost::with_streaming_server_disabled(
+            host: Arc::new(Host::with_streaming_server_disabled(
                 env!("CARGO_PKG_VERSION"),
                 settings.streaming_server_disabled,
             )),
@@ -195,7 +196,7 @@ impl WindowsWebView2Shell {
 
 #[cfg(windows)]
 mod platform {
-    use super::{mpsc, Arc, InjectionBundle, LaunchIntent, Mutex, WindowsHost};
+    use super::{mpsc, Arc, Host, InjectionBundle, LaunchIntent, Mutex};
     use crate::host::WindowsIpcOutbound;
     use crate::window::{
         focus_window, run_native_window_with_handler, MediaKeyAction, NativeWindowHandler,
@@ -216,7 +217,7 @@ mod platform {
     pub fn run_webview2_shell(
         url: &str,
         injection: &InjectionBundle,
-        host: Arc<WindowsHost>,
+        host: Arc<Host>,
         launch_intents: mpsc::Receiver<LaunchIntent>,
         ui_notifier: Arc<Mutex<Option<UiThreadNotifier>>>,
     ) -> Result<(), String> {
@@ -241,7 +242,7 @@ mod platform {
     struct WebView2WindowHost {
         url: String,
         injection: InjectionBundle,
-        host: Arc<WindowsHost>,
+        host: Arc<Host>,
         controller: Option<ICoreWebView2Controller>,
         webview: Option<ICoreWebView2>,
         navigation_starting_token: Option<i64>,
@@ -254,7 +255,7 @@ mod platform {
         fn new(
             url: String,
             injection: InjectionBundle,
-            host: Arc<WindowsHost>,
+            host: Arc<Host>,
             launch_intents: mpsc::Receiver<LaunchIntent>,
             ui_notifier: Arc<Mutex<Option<UiThreadNotifier>>>,
         ) -> Self {
@@ -533,7 +534,7 @@ mod platform {
         Ok(())
     }
 
-    fn add_message_handler(webview: &ICoreWebView2, host: Arc<WindowsHost>) -> Result<(), String> {
+    fn add_message_handler(webview: &ICoreWebView2, host: Arc<Host>) -> Result<(), String> {
         let mut token = 0;
         unsafe {
             webview
@@ -586,7 +587,7 @@ mod platform {
 
     fn add_navigation_starting_handler(
         webview: &ICoreWebView2,
-        host: Arc<WindowsHost>,
+        host: Arc<Host>,
         app_url: String,
     ) -> Result<i64, String> {
         let mut token = 0;
@@ -677,12 +678,12 @@ mod platform {
 
 #[cfg(not(windows))]
 mod platform {
-    use super::{mpsc, Arc, InjectionBundle, LaunchIntent, WindowsHost};
+    use super::{mpsc, Arc, Host, InjectionBundle, LaunchIntent};
 
     pub fn run_webview2_shell(
         _url: &str,
         _injection: &InjectionBundle,
-        _host: Arc<WindowsHost>,
+        _host: Arc<Host>,
         _launch_intents: mpsc::Receiver<LaunchIntent>,
     ) -> Result<(), String> {
         Err("WebView2 shell can only run on Windows".to_string())
@@ -722,7 +723,11 @@ fn url_origin(url: &str) -> Option<String> {
     Some(format!("{scheme}://{authority}"))
 }
 
-fn windows_host_adapter() -> String {
+pub fn windows_host_adapter() -> String {
+    host_adapter()
+}
+
+pub fn host_adapter() -> String {
     r#"(function () {
   "use strict";
 
@@ -819,15 +824,15 @@ mod tests {
         let (_tx, rx) = mpsc::channel();
         #[cfg(windows)]
         let shell = WindowsWebView2Shell::new(
-            WindowsShellSettings::from_args([] as [&str; 0]),
+            ShellSettings::from_args([] as [&str; 0]),
             rx,
             Arc::new(Mutex::new(None)),
         )
         .unwrap();
 
         #[cfg(not(windows))]
-        let shell = WindowsWebView2Shell::new(WindowsShellSettings::from_args([] as [&str; 0]), rx)
-            .unwrap();
+        let shell =
+            WindowsWebView2Shell::new(ShellSettings::from_args([] as [&str; 0]), rx).unwrap();
 
         assert_eq!(
             shell.document_start_script_names(),

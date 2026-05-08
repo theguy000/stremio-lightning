@@ -1,9 +1,9 @@
-use crate::host::LinuxHost;
+use crate::host::Host;
 use crate::native_window::run_native_window;
 use crate::player::MpvPlayerBackend;
 use crate::render::RenderLoopPlan;
 use crate::streaming_server::{RealProcessSpawner, StreamingServer};
-use crate::webview_runtime::{InjectionBundle, LinuxWebviewRuntime};
+use crate::webview_runtime::{InjectionBundle, WebviewRuntime};
 use std::sync::Arc;
 
 pub const DEFAULT_URL: &str = "http://127.0.0.1:11470/proxy/d=https%3A%2F%2Fweb.stremio.com/";
@@ -15,6 +15,8 @@ pub struct AppConfig {
     pub devtools: bool,
     pub headless_bootstrap: bool,
 }
+
+pub type ShellSettings = AppConfig;
 
 impl Default for AppConfig {
     fn default() -> Self {
@@ -64,7 +66,7 @@ fn normalize_startup_url(url: &str) -> String {
 
 pub fn run(config: AppConfig) -> Result<(), String> {
     let player = MpvPlayerBackend::default();
-    let host = Arc::new(LinuxHost::new(
+    let host = Arc::new(Host::new(
         player.clone(),
         StreamingServer::new(RealProcessSpawner::default()),
     ));
@@ -94,8 +96,7 @@ pub fn run(config: AppConfig) -> Result<(), String> {
     if config.headless_bootstrap {
         Ok(())
     } else {
-        let webview =
-            LinuxWebviewRuntime::new(config.url.clone(), config.devtools, injection, host);
+        let webview = WebviewRuntime::new(config.url.clone(), config.devtools, injection, host);
         run_native_window(config, webview, player)
     }
 }

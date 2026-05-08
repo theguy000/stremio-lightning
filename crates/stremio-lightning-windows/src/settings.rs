@@ -6,6 +6,8 @@ pub struct WindowsShellSettings {
     pub streaming_server_disabled: bool,
 }
 
+pub type ShellSettings = WindowsShellSettings;
+
 impl Default for WindowsShellSettings {
     fn default() -> Self {
         let mut settings = Self {

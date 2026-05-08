@@ -59,11 +59,13 @@ const MPV_BOOL_PROPERTIES: &[&str] = &[
     "keepaspect",
 ];
 #[derive(Debug, Deserialize)]
-struct WebkitIpcRequest {
+struct IpcRequest {
     id: u64,
     kind: String,
     payload: Option<Value>,
 }
+
+type WebkitIpcRequest = IpcRequest;
 
 #[derive(Debug, Deserialize)]
 struct ShellTransportMessage {
@@ -409,7 +411,7 @@ impl NativeWindowIpc for LinuxWebviewRuntime<MpvPlayerBackend, RealProcessSpawne
                 }
 
                 if invoke_command(payload.as_ref()) == Some("toggle_pip") {
-                    let mut controller = LinuxPipController {
+                    let mut controller = NativeWindowController {
                         webview,
                         runtime: self,
                         window,
@@ -432,7 +434,7 @@ impl NativeWindowIpc for LinuxWebviewRuntime<MpvPlayerBackend, RealProcessSpawne
                 Ok(Value::Null)
             }
             "window.close" => {
-                let mut controller = LinuxPipController {
+                let mut controller = NativeWindowController {
                     webview,
                     runtime: self,
                     window,
@@ -520,14 +522,14 @@ fn shell_transport_fullscreen_request(payload: Option<&Value>) -> Result<Option<
     Ok(Some(fullscreen))
 }
 
-struct LinuxPipController<'a> {
+struct NativeWindowController<'a> {
     webview: &'a WebKitWebView,
     runtime: &'a LinuxWebviewRuntime<MpvPlayerBackend, RealProcessSpawner>,
     window: &'a gtk::ApplicationWindow,
     fullscreen: &'a Rc<Cell<bool>>,
 }
 
-impl PipWindowController for LinuxPipController<'_> {
+impl PipWindowController for NativeWindowController<'_> {
     fn enter_pip(&mut self) -> Result<PipRestoreSnapshot, String> {
         let was_fullscreen = self.fullscreen.get();
         let saved_size = if was_fullscreen {
@@ -986,7 +988,7 @@ fn install_mpv_event_drain(
                 }
             }
             Event::EndFile(_) => {
-                let mut controller = LinuxPipController {
+                let mut controller = NativeWindowController {
                     webview: &webview,
                     runtime: &runtime,
                     window: &window,

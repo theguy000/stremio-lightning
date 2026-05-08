@@ -88,6 +88,8 @@ where
     pip_state: PipState,
 }
 
+pub type Host<B, P> = LinuxHost<B, P>;
+
 impl<B, P> LinuxHost<B, P>
 where
     B: PlayerBackend,
@@ -132,7 +134,7 @@ where
         Ok(())
     }
 
-    pub fn dispatch_linux_ipc(&self, kind: &str, payload: Option<Value>) -> Result<Value, String> {
+    pub fn dispatch_ipc(&self, kind: &str, payload: Option<Value>) -> Result<Value, String> {
         match kind {
             "invoke" => {
                 let payload: InvokeIpcPayload = parse_payload(kind, payload)?;
@@ -167,6 +169,10 @@ where
             }
             other => Err(format!("Unsupported Linux IPC kind: {other}")),
         }
+    }
+
+    pub fn dispatch_linux_ipc(&self, kind: &str, payload: Option<Value>) -> Result<Value, String> {
+        self.dispatch_ipc(kind, payload)
     }
 
     pub async fn invoke_async(
@@ -372,7 +378,7 @@ where
     }
 
     pub fn emit_transport_event(&self, args: Value) -> Result<(), String> {
-        self.emit_or_queue_transport_message(host_api::response_message(args))
+        self.queue_transport_message(host_api::response_message(args))
     }
 
     pub fn emit_native_player_property_changed(
@@ -481,11 +487,11 @@ where
         Ok(())
     }
 
-    fn emit_or_queue_transport_message(&self, message: String) -> Result<(), String> {
+    fn queue_transport_message(&self, message: String) -> Result<(), String> {
         let mut transport = self.transport.lock().map_err(|e| e.to_string())?;
         if transport.bridge_ready && transport.transport_ready {
             drop(transport);
-            self.emit_transport_message_now(message)
+            self.emit_transport_message(message)
         } else {
             if transport.pending.len() >= MAX_PENDING_MESSAGES {
                 transport.pending.pop_front();
@@ -504,12 +510,16 @@ where
         drop(transport);
 
         for message in messages {
-            self.emit_transport_message_now(message)?;
+            self.emit_transport_message(message)?;
         }
         Ok(())
     }
 
     fn emit_transport_message_now(&self, message: String) -> Result<(), String> {
+        self.emit_transport_message(message)
+    }
+
+    fn emit_transport_message(&self, message: String) -> Result<(), String> {
         self.emit_event(SHELL_TRANSPORT_EVENT, json!(message))
     }
 

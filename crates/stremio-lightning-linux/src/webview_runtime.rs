@@ -1,4 +1,4 @@
-use crate::host::LinuxHost;
+use crate::host::Host;
 use crate::player::PlayerBackend;
 use crate::streaming_server::ProcessSpawner;
 use serde_json::Value;
@@ -6,6 +6,7 @@ use std::sync::Arc;
 use stremio_lightning_core::pip::PipWindowController;
 
 pub const LINUX_HOST_ADAPTER_NAME: &str = "linux-host-adapter";
+pub const HOST_ADAPTER_NAME: &str = LINUX_HOST_ADAPTER_NAME;
 pub const BRIDGE_UTILS_NAME: &str = "bridge/utils.js";
 pub const BRIDGE_CAST_FALLBACK_NAME: &str = "bridge/cast-fallback.js";
 pub const BRIDGE_SHELL_TRANSPORT_NAME: &str = "bridge/shell-transport.js";
@@ -33,8 +34,8 @@ pub struct InjectionBundle {
 impl InjectionBundle {
     pub fn load() -> Result<Self, String> {
         let mut scripts = vec![InjectionScript {
-            name: LINUX_HOST_ADAPTER_NAME,
-            source: linux_host_adapter(),
+            name: HOST_ADAPTER_NAME,
+            source: host_adapter(),
         }];
         scripts.extend(bridge_module_scripts());
         scripts.extend([
@@ -121,7 +122,7 @@ where
     url: String,
     devtools: bool,
     injection: InjectionBundle,
-    host: Arc<LinuxHost<B, P>>,
+    host: Arc<Host<B, P>>,
     loaded: bool,
 }
 
@@ -134,7 +135,7 @@ where
         url: impl Into<String>,
         devtools: bool,
         injection: InjectionBundle,
-        host: Arc<LinuxHost<B, P>>,
+        host: Arc<Host<B, P>>,
     ) -> Self {
         Self {
             url: url.into(),
@@ -161,7 +162,7 @@ where
     }
 
     pub fn dispatch_ipc(&self, kind: &str, payload: Option<Value>) -> Result<Value, String> {
-        self.host.dispatch_linux_ipc(kind, payload)
+        self.host.dispatch_ipc(kind, payload)
     }
 
     pub fn script_source(&self, name: &str) -> Option<String> {
@@ -223,6 +224,10 @@ where
 }
 
 pub fn linux_host_adapter() -> String {
+    host_adapter()
+}
+
+pub fn host_adapter() -> String {
     r#"(function () {
   "use strict";
   if (window.StremioLightningHost) return;
@@ -275,6 +280,8 @@ pub fn linux_host_adapter() -> String {
         .to_string()
 }
 
+pub type WebviewRuntime<B, P> = LinuxWebviewRuntime<B, P>;
+
 fn validate_load_url(url: &str) -> Result<(), String> {
     let lower = url.to_lowercase();
     if lower.starts_with("https://") || lower.starts_with("http://") || lower.starts_with("file://")
@@ -322,7 +329,7 @@ mod tests {
 
     #[test]
     fn webview_runtime_loads_with_document_start_injection() {
-        let host = Arc::new(LinuxHost::with_app_data_dir(
+        let host = Arc::new(Host::with_app_data_dir(
             FakePlayerBackend::initialized(),
             StreamingServer::with_project_root(
                 FakeProcessSpawner::default(),
@@ -330,7 +337,7 @@ mod tests {
             ),
             std::env::temp_dir(),
         ));
-        let mut runtime = LinuxWebviewRuntime::new(
+        let mut runtime = WebviewRuntime::new(
             "file:///tmp/stremio-lightning-smoke.html",
             true,
             InjectionBundle::load().unwrap(),
@@ -363,7 +370,7 @@ mod tests {
 
     #[test]
     fn webview_runtime_dispatches_js_ipc_and_drains_events() {
-        let host = Arc::new(LinuxHost::with_app_data_dir(
+        let host = Arc::new(Host::with_app_data_dir(
             FakePlayerBackend::initialized(),
             StreamingServer::with_project_root(
                 FakeProcessSpawner::default(),
@@ -371,7 +378,7 @@ mod tests {
             ),
             std::env::temp_dir(),
         ));
-        let runtime = LinuxWebviewRuntime::new(
+        let runtime = WebviewRuntime::new(
             "https://web.stremio.com/",
             false,
             InjectionBundle::load().unwrap(),

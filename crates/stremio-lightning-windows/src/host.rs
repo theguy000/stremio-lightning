@@ -26,6 +26,7 @@ struct ListenerRegistry {
     next_id: u64,
     listeners: HashMap<u64, String>,
     emitted: Vec<HostEventRecord>,
+    bridge_ready: bool,
     shell_transport_ready: bool,
     pending_shell_transport_messages: Vec<String>,
 }
@@ -52,32 +53,36 @@ impl ListenerRegistry {
         }
     }
 
-    fn mark_shell_transport_ready(&mut self) {
+    fn mark_bridge_ready(&mut self) {
+        self.bridge_ready = true;
+        self.flush_pending_transport_messages();
+    }
+
+    fn mark_transport_ready(&mut self) {
         self.shell_transport_ready = true;
-        self.flush_pending_open_media();
+        self.flush_pending_transport_messages();
     }
 
     fn queue_open_media(&mut self, value: String) {
-        self.queue_shell_transport_message(host_api::response_message(json!([
-            "open-media",
-            value
-        ])));
+        self.queue_transport_message(host_api::response_message(json!(["open-media", value])));
     }
 
     fn queue_media_key(&mut self, action: &str) {
-        self.queue_shell_transport_message(host_api::response_message(json!([
-            "media-key",
-            action
-        ])));
+        self.queue_transport_message(host_api::response_message(json!(["media-key", action])));
     }
 
-    fn queue_shell_transport_message(&mut self, message: String) {
+    fn queue_transport_message(&mut self, message: String) {
         self.pending_shell_transport_messages.push(message);
-        self.flush_pending_open_media();
+        self.flush_pending_transport_messages();
     }
 
     fn flush_pending_open_media(&mut self) {
-        if !self.shell_transport_ready
+        self.flush_pending_transport_messages();
+    }
+
+    fn flush_pending_transport_messages(&mut self) {
+        if !self.bridge_ready
+            || !self.shell_transport_ready
             || !self
                 .listeners
                 .values()
@@ -106,6 +111,8 @@ pub struct WindowsIpcRequest {
     pub payload: Option<Value>,
 }
 
+pub type IpcRequest = WindowsIpcRequest;
+
 #[derive(Debug, Serialize, PartialEq)]
 #[serde(tag = "kind")]
 pub enum WindowsIpcOutbound {
@@ -125,6 +132,8 @@ pub struct WindowsHost {
     window_controller: Mutex<Option<NativeWindowController>>,
     package_version: &'static str,
 }
+
+pub type Host = WindowsHost;
 
 #[derive(Debug, Default)]
 struct WindowRuntimeState {
@@ -195,7 +204,7 @@ impl WindowsHost {
             .map_err(|error| format!("Invalid Windows WebView2 IPC message: {error}"))
             .and_then(|request| {
                 let id = request.id;
-                self.dispatch_windows_ipc(&request.kind, request.payload)
+                self.dispatch_ipc(&request.kind, request.payload)
                     .map(|value| (id, true, value))
                     .or_else(|error| Ok((id, false, json!({ "message": error }))))
             });
@@ -237,11 +246,7 @@ impl WindowsHost {
             .collect()
     }
 
-    pub fn dispatch_windows_ipc(
-        &self,
-        kind: &str,
-        payload: Option<Value>,
-    ) -> Result<Value, String> {
+    pub fn dispatch_ipc(&self, kind: &str, payload: Option<Value>) -> Result<Value, String> {
         match kind {
             "invoke" => {
                 let payload: InvokeIpcPayload = parse_payload(kind, payload)?;
@@ -296,6 +301,14 @@ impl WindowsHost {
         }
     }
 
+    pub fn dispatch_windows_ipc(
+        &self,
+        kind: &str,
+        payload: Option<Value>,
+    ) -> Result<Value, String> {
+        self.dispatch_ipc(kind, payload)
+    }
+
     pub fn invoke(&self, command: &str, payload: Option<Value>) -> Result<Value, String> {
         match command {
             "init" => Ok(json!({
@@ -324,7 +337,10 @@ impl WindowsHost {
                 self.handle_shell_transport_message(message)?;
                 Ok(Value::Null)
             }
-            "shell_bridge_ready" => Ok(Value::Null),
+            "shell_bridge_ready" => {
+                self.mark_bridge_ready()?;
+                Ok(Value::Null)
+            }
             "open_external_url" => {
                 let url = payload
                     .as_ref()
@@ -388,7 +404,7 @@ impl WindowsHost {
                 self.emit_transport_message(host_api::handshake_response(self.package_version))
             }
             ParsedRequest::Command { method, data } => match method.as_str() {
-                "app-ready" | "app-error" => self.mark_shell_transport_ready(),
+                "app-ready" | "app-error" => self.mark_transport_ready(),
                 "mpv-observe-prop" | "mpv-set-prop" | "mpv-command" | "native-player-stop" => {
                     self.player
                         .lock()
@@ -417,11 +433,19 @@ impl WindowsHost {
         Ok(())
     }
 
-    fn mark_shell_transport_ready(&self) -> Result<(), String> {
+    fn mark_bridge_ready(&self) -> Result<(), String> {
         self.listeners
             .lock()
             .map_err(|e| e.to_string())?
-            .mark_shell_transport_ready();
+            .mark_bridge_ready();
+        Ok(())
+    }
+
+    fn mark_transport_ready(&self) -> Result<(), String> {
+        self.listeners
+            .lock()
+            .map_err(|e| e.to_string())?
+            .mark_transport_ready();
         Ok(())
     }
 
@@ -971,6 +995,10 @@ mod tests {
         .unwrap();
         assert!(host.drain_ipc_events().is_empty());
 
+        host.dispatch_windows_ipc("invoke", Some(json!({"command": "shell_bridge_ready"})))
+            .unwrap();
+        assert!(host.drain_ipc_events().is_empty());
+
         host.invoke(
             "shell_transport_send",
             Some(json!({ "message": r#"{"id":1,"type":6,"args":["app-ready"]}"# })),
@@ -998,6 +1026,8 @@ mod tests {
             Some(json!({ "id": 8, "event": "shell-transport-message" })),
         )
         .unwrap();
+        host.dispatch_windows_ipc("invoke", Some(json!({"command": "shell_bridge_ready"})))
+            .unwrap();
         host.invoke(
             "shell_transport_send",
             Some(json!({ "message": r#"{"id":1,"type":6,"args":["app-ready"]}"# })),

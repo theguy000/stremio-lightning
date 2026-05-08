@@ -26,7 +26,7 @@ mod platform {
 
         let ui_notifier = std::sync::Arc::new(std::sync::Mutex::new(None));
         let launch_intents = instance.start_listener(ui_notifier.clone(), intent);
-        let settings = crate::settings::WindowsShellSettings::from_args(&args);
+        let settings = crate::settings::ShellSettings::from_args(&args);
         crate::webview::WindowsWebView2Shell::new(settings, launch_intents, ui_notifier)?.run()
     }
 }
