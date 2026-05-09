@@ -14,7 +14,9 @@ pub fn run_native_window(
     _player: MpvPlayerBackend,
 ) -> Result<(), String> {
     let _state = runtime.load()?;
-    eprintln!("native macOS AppKit/WKWebView window is not implemented yet; runtime bootstrap completed");
+    eprintln!(
+        "native macOS AppKit/WKWebView window is not implemented yet; runtime bootstrap completed"
+    );
     Ok(())
 }
 

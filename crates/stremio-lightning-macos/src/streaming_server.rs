@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandSpec {
@@ -59,6 +59,45 @@ impl ProcessSpawner for RealProcessSpawner {
                     spec.program.display()
                 )
             })
+    }
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct FakeProcessSpawner {
+    spawned: Arc<Mutex<Vec<CommandSpec>>>,
+}
+
+impl FakeProcessSpawner {
+    pub fn spawned(&self) -> Vec<CommandSpec> {
+        self.spawned
+            .lock()
+            .expect("fake process spawner poisoned")
+            .clone()
+    }
+}
+
+impl ProcessSpawner for FakeProcessSpawner {
+    type Child = FakeProcessChild;
+
+    fn spawn(&self, spec: CommandSpec) -> Result<Self::Child, String> {
+        self.spawned.lock().map_err(|e| e.to_string())?.push(spec);
+        Ok(FakeProcessChild::default())
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct FakeProcessChild {
+    stopped: bool,
+}
+
+impl ProcessChild for FakeProcessChild {
+    fn stop(&mut self) -> Result<(), String> {
+        self.stopped = true;
+        Ok(())
+    }
+
+    fn has_exited(&mut self) -> Result<bool, String> {
+        Ok(self.stopped)
     }
 }
 

@@ -1,6 +1,7 @@
 use crate::host::Host;
 use crate::player::PlayerBackend;
 use crate::streaming_server::ProcessSpawner;
+use serde_json::Value;
 use std::sync::Arc;
 
 pub const MACOS_HOST_ADAPTER_NAME: &str = "macos-host-adapter";
@@ -123,6 +124,42 @@ where
     pub fn invoke_host_init(&self) -> Result<serde_json::Value, String> {
         self.host.invoke("init", None)
     }
+
+    pub fn dispatch_ipc(&self, kind: &str, payload: Option<Value>) -> Result<Value, String> {
+        self.host.dispatch_ipc(kind, payload)
+    }
+
+    pub fn shutdown(&self) -> Result<(), String> {
+        self.host.shutdown()
+    }
+
+    pub fn script_source(&self, name: &str) -> Option<String> {
+        self.injection
+            .scripts()
+            .iter()
+            .find(|script| script.name == name)
+            .map(|script| script.source.clone())
+    }
+
+    pub fn drain_event_dispatch_scripts(&self) -> Result<Vec<String>, String> {
+        self.host
+            .drain_emitted_events()?
+            .into_iter()
+            .map(|event| {
+                let event_name = serde_json::to_string(&event.event)
+                    .map_err(|e| format!("Failed to serialize macOS host event name: {e}"))?;
+                let payload = serde_json::to_string(&event.payload)
+                    .map_err(|e| format!("Failed to serialize macOS host event payload: {e}"))?;
+                Ok(format!(
+                    "window.__STREMIO_LIGHTNING_MACOS_DISPATCH__({event_name}, {payload});"
+                ))
+            })
+            .collect()
+    }
+}
+
+pub fn macos_host_adapter() -> String {
+    host_adapter()
 }
 
 fn bridge_module_scripts() -> Vec<InjectionScript> {
@@ -176,7 +213,9 @@ fn host_adapter() -> String {
   if (window.StremioLightningHost) return;
 
   var nextRequestId = 1;
+  var nextListenerId = 1;
   var pending = new Map();
+  var listeners = new Map();
 
   window.__STREMIO_LIGHTNING_MACOS_RESOLVE__ = function (id, result, error) {
     var entry = pending.get(id);
@@ -189,7 +228,13 @@ fn host_adapter() -> String {
     }
   };
 
-  window.__STREMIO_LIGHTNING_MACOS_DISPATCH__ = function (kind, payload) {
+  window.__STREMIO_LIGHTNING_MACOS_DISPATCH__ = function (event, payload) {
+    listeners.forEach(function (entry) {
+      if (entry.event === event) entry.callback({ event: event, payload: payload });
+    });
+  };
+
+  function post(kind, payload) {
     if (!window.webkit || !window.webkit.messageHandlers || !window.webkit.messageHandlers.ipc) {
       return Promise.reject(new Error("macOS IPC handler is not available"));
     }
@@ -204,20 +249,43 @@ fn host_adapter() -> String {
         reject(error);
       }
     });
-  };
+  }
 
   window.StremioLightningHost = {
     platform: "macos",
     invoke: function (command, payload) {
-      return window.__STREMIO_LIGHTNING_MACOS_DISPATCH__("invoke", {
+      return post("invoke", {
         command: command,
         payload: payload
       });
+    },
+    listen: function (event, callback) {
+      var id = nextListenerId++;
+      listeners.set(id, { event: event, callback: callback });
+      post("listen", { id: id, event: event }).catch(function () {});
+      return Promise.resolve(function () {
+        listeners.delete(id);
+        return post("unlisten", { id: id }).catch(function () {});
+      });
+    },
+    window: {
+      minimize: function () { return post("window.minimize"); },
+      toggleMaximize: function () { return post("window.toggleMaximize"); },
+      close: function () { return post("window.close"); },
+      isMaximized: function () { return post("window.isMaximized"); },
+      isFullscreen: function () { return post("window.isFullscreen"); },
+      setFullscreen: function (fullscreen) {
+        return post("window.setFullscreen", { fullscreen: fullscreen });
+      },
+      startDragging: function () { return post("window.startDragging"); }
+    },
+    webview: {
+      setZoom: function (level) { return post("webview.setZoom", { level: level }); }
     }
   };
   window.StremioEnhancedAPI = window.StremioEnhancedAPI || {};
 })();"#
-    .to_string()
+        .to_string()
 }
 
 fn validate_load_url(url: &str) -> Result<(), String> {
@@ -231,32 +299,55 @@ fn validate_load_url(url: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::player::MpvPlayerBackend;
-    use crate::streaming_server::{RealProcessSpawner, StreamingServer};
+    use crate::host::SHELL_TRANSPORT_EVENT;
+    use crate::player::FakePlayerBackend;
+    use crate::streaming_server::{FakeProcessSpawner, StreamingServer};
+    use serde_json::json;
 
     #[test]
-    fn loads_expected_injection_order() {
+    fn injection_order_puts_macos_adapter_before_bridge() {
         let bundle = InjectionBundle::load().expect("injection bundle");
-        let names = bundle.script_names();
-        assert_eq!(names.first(), Some(&MACOS_HOST_ADAPTER_NAME));
-        assert_eq!(names.last(), Some(&MOD_UI_NAME));
-        assert!(names.contains(&BRIDGE_NAME));
+        assert_eq!(
+            bundle.script_names(),
+            vec![
+                MACOS_HOST_ADAPTER_NAME,
+                BRIDGE_UTILS_NAME,
+                BRIDGE_CAST_FALLBACK_NAME,
+                BRIDGE_SHELL_TRANSPORT_NAME,
+                BRIDGE_EXTERNAL_LINKS_NAME,
+                BRIDGE_SHELL_DETECTION_NAME,
+                BRIDGE_BACK_BUTTON_NAME,
+                BRIDGE_SHORTCUTS_NAME,
+                BRIDGE_PIP_NAME,
+                BRIDGE_DISCORD_RPC_NAME,
+                BRIDGE_UPDATE_BANNER_NAME,
+                BRIDGE_NAME,
+                MOD_UI_NAME
+            ]
+        );
         assert!(bundle.scripts()[0]
             .source
             .contains("__STREMIO_LIGHTNING_MACOS_RESOLVE__"));
+        assert!(bundle.scripts()[0]
+            .source
+            .contains("window.StremioLightningHost"));
+        assert!(bundle.scripts()[0].source.contains("listen: function"));
+    }
+
+    fn test_host() -> Arc<Host<FakePlayerBackend, FakeProcessSpawner>> {
+        Arc::new(Host::new(
+            FakePlayerBackend::initialized(),
+            StreamingServer::new(FakeProcessSpawner::default()),
+        ))
     }
 
     #[test]
     fn headless_load_marks_runtime_loaded() {
-        let host = Arc::new(Host::new(
-            MpvPlayerBackend::default(),
-            StreamingServer::new(RealProcessSpawner::default()),
-        ));
         let runtime = MacosWebviewRuntime::new(
             "file:///tmp/smoke.html",
             true,
             InjectionBundle::load().expect("injection bundle"),
-            host,
+            test_host(),
         );
         let state = runtime.bootstrap_headless().expect("headless load");
         assert!(state.loaded);
@@ -270,5 +361,58 @@ mod tests {
             validate_load_url("stremio://detail/movie").unwrap_err(),
             "Unsupported macOS webview URL: stremio://detail/movie"
         );
+    }
+
+    #[test]
+    fn dispatches_js_ipc_and_drains_events() {
+        let host = test_host();
+        let runtime = MacosWebviewRuntime::new(
+            "https://web.stremio.com/",
+            false,
+            InjectionBundle::load().expect("injection bundle"),
+            host.clone(),
+        );
+
+        let init = runtime
+            .dispatch_ipc("invoke", Some(json!({"command": "init"})))
+            .unwrap();
+        assert_eq!(init["platform"], "macos");
+
+        runtime
+            .dispatch_ipc(
+                "listen",
+                Some(json!({"id": 10, "event": SHELL_TRANSPORT_EVENT})),
+            )
+            .unwrap();
+        host.emit_native_player_property_changed("pause", json!(true))
+            .unwrap();
+
+        let scripts = runtime.drain_event_dispatch_scripts().unwrap();
+        assert_eq!(scripts.len(), 1);
+        assert!(scripts[0].contains("__STREMIO_LIGHTNING_MACOS_DISPATCH__"));
+        assert!(scripts[0].contains("mpv-prop-change"));
+        assert!(scripts[0].contains("pause"));
+
+        runtime
+            .dispatch_ipc("unlisten", Some(json!({"id": 10})))
+            .unwrap();
+        host.emit_native_player_property_changed("pause", json!(false))
+            .unwrap();
+        assert!(runtime.drain_event_dispatch_scripts().unwrap().is_empty());
+    }
+
+    #[test]
+    fn exposes_host_adapter_source_for_native_injection() {
+        let runtime = MacosWebviewRuntime::new(
+            "file:///tmp/smoke.html",
+            false,
+            InjectionBundle::load().expect("injection bundle"),
+            test_host(),
+        );
+        let source = runtime
+            .script_source(MACOS_HOST_ADAPTER_NAME)
+            .expect("host adapter source");
+        assert!(source.contains("__STREMIO_LIGHTNING_MACOS_DISPATCH__"));
+        assert!(source.contains("window.webkit.messageHandlers.ipc.postMessage"));
     }
 }
