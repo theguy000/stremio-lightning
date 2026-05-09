@@ -65,7 +65,7 @@ jobs:
           chmod +x "$HOME/.cache/appimage/appimagetool-x86_64.AppImage"
 
       - name: Build Linux AppImage
-        run: cargo xtask build-linux-appimage
+        run: cargo xtask package-linux-appimage
 
       - name: Build Linux installer package
         run: cargo xtask package-linux-deb
@@ -125,7 +125,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Package Windows portable artifact
-        run: cargo xtask package-windows
+        run: cargo xtask package-windows-portable
 
       - name: Package Windows installer artifact
         run: cargo xtask package-windows-installer

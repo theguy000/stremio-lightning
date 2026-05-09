@@ -44,10 +44,10 @@ fn run() -> Result<()> {
         "setup-windows" | "setup:windows" | "setup-windows-shell" => setup_windows()?,
         "build-ui" => run_npm(&["run", "build:ui"])?,
         "test-ui" => run_npm(&["run", "test:ui"])?,
-        "build-linux-appimage" => build_linux_appimage()?,
+        "package-linux-appimage" => build_linux_appimage()?,
         "package-linux-deb" => package_linux_deb()?,
         "package-macos" => package_macos()?,
-        "package-windows" => package_windows()?,
+        "package-windows-portable" => package_windows()?,
         "package-windows-installer" => package_windows_installer()?,
         other => {
             return Err(format!(
@@ -64,16 +64,16 @@ fn print_help() {
     println!(
         "Stremio Lightning xtask\n\n\
 Usage:\n\
-  cargo xtask setup                  Download native shell dependencies for this OS\n\
-  cargo xtask setup-linux            Download Linux shell dependencies\n\
-  cargo xtask setup-windows          Download Windows shell dependencies\n\
-  cargo xtask build-ui               Build the Svelte/Vite UI bundle\n\
-  cargo xtask test-ui                Run frontend tests\n\
-  cargo xtask build-linux-appimage   Build dist/{LINUX_APPIMAGE}\n\
-  cargo xtask package-linux-deb      Build dist/{LINUX_DEB}\n\
-  cargo xtask package-macos          Build dist/{MACOS_APP_BUNDLE}\n\
-  cargo xtask package-windows        Build and zip the Windows portable artifact\n\
-  cargo xtask package-windows-installer Build dist/{WINDOWS_INSTALLER}\n"
+  cargo xtask setup                       Download native shell dependencies for this OS\n\
+  cargo xtask setup-linux                 Download Linux shell dependencies\n\
+  cargo xtask setup-windows               Download Windows shell dependencies\n\
+  cargo xtask build-ui                    Build the Svelte/Vite UI bundle\n\
+  cargo xtask test-ui                     Run frontend tests\n\
+  cargo xtask package-linux-appimage      Build dist/{LINUX_APPIMAGE}\n\
+  cargo xtask package-linux-deb           Build dist/{LINUX_DEB}\n\
+  cargo xtask package-macos               Build dist/{MACOS_APP_BUNDLE}\n\
+  cargo xtask package-windows-portable    Build dist/{WINDOWS_ZIP}\n\
+  cargo xtask package-windows-installer   Build dist/{WINDOWS_INSTALLER}\n"
     );
 }
 
@@ -544,11 +544,11 @@ fn package_windows_installer() -> Result<()> {
     )?;
     required_file(
         &portable_dir.join(format!("{WINDOWS_BIN}.exe")),
-        "cargo xtask package-windows",
+        "cargo xtask package-windows-portable",
     )?;
     required_file(
         &portable_dir.join("libmpv-2.dll"),
-        "cargo xtask package-windows",
+        "cargo xtask package-windows-portable",
     )?;
     for name in [
         "stremio-runtime.exe",
@@ -558,7 +558,7 @@ fn package_windows_installer() -> Result<()> {
     ] {
         required_file(
             &portable_dir.join(format!("resources/{name}")),
-            "cargo xtask package-windows",
+            "cargo xtask package-windows-portable",
         )?;
     }
 
@@ -684,7 +684,7 @@ fn build_windows_shell() -> Result<()> {
     } else {
         if !program_exists("cargo-xwin") {
             return Err(
-                "cargo xtask package-windows cross-builds the MSVC target with cargo-xwin off Windows.\n       Install it with: cargo install cargo-xwin"
+                "cargo xtask package-windows-portable cross-builds the MSVC target with cargo-xwin off Windows.\n       Install it with: cargo install cargo-xwin"
                     .into(),
             );
         }

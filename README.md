@@ -73,8 +73,8 @@ Developer workflow details are documented in [`docs/developer-guide.md`](docs/de
 
 ```bash
 cargo xtask build-ui
-cargo xtask build-linux-appimage
-cargo xtask package-windows
+cargo xtask package-linux-appimage
+cargo xtask package-windows-portable
 ```
 
 ---
