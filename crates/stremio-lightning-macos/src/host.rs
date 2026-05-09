@@ -1,3 +1,4 @@
+use crate::app_integration::{lifecycle_event_payload, AppLifecycleEvent, LaunchIntent};
 use crate::player::{self, NativePlayerStatus, PlayerBackend};
 use crate::streaming_server::{ProcessSpawner, StreamingServer};
 use serde::Deserialize;
@@ -5,7 +6,10 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use stremio_lightning_core::{mods, settings};
+use stremio_lightning_core::{
+    host_api::{self, ParsedRequest},
+    mods, settings,
+};
 
 pub const SHELL_TRANSPORT_EVENT: &str = "shell-transport-message";
 
@@ -20,6 +24,9 @@ struct ListenerRegistry {
     next_id: u64,
     listeners: HashMap<u64, String>,
     emitted: Vec<HostEventRecord>,
+    bridge_ready: bool,
+    transport_ready: bool,
+    pending_open_media: Vec<String>,
 }
 
 impl ListenerRegistry {
@@ -32,6 +39,7 @@ impl ListenerRegistry {
     fn listen_with_id(&mut self, id: u64, event: impl Into<String>) {
         self.next_id = self.next_id.max(id);
         self.listeners.insert(id, event.into());
+        self.flush_queued_open_media();
     }
 
     fn unlisten(&mut self, id: u64) {
@@ -48,6 +56,51 @@ impl ListenerRegistry {
     fn drain_emitted(&mut self) -> Vec<HostEventRecord> {
         std::mem::take(&mut self.emitted)
     }
+
+    fn mark_bridge_ready(&mut self) {
+        self.bridge_ready = true;
+        self.flush_queued_open_media();
+    }
+
+    fn mark_transport_ready(&mut self) {
+        self.transport_ready = true;
+        self.flush_queued_open_media();
+    }
+
+    fn queue_open_media(&mut self, value: String) {
+        self.pending_open_media.push(value);
+        self.flush_queued_open_media();
+    }
+
+    fn flush_queued_open_media(&mut self) {
+        if !(self.bridge_ready && self.transport_ready) {
+            return;
+        }
+        if !self
+            .listeners
+            .values()
+            .any(|listener| listener == SHELL_TRANSPORT_EVENT)
+        {
+            return;
+        }
+
+        let pending = std::mem::take(&mut self.pending_open_media);
+        for value in pending {
+            self.emitted.push(HostEventRecord {
+                event: SHELL_TRANSPORT_EVENT.to_string(),
+                payload: json!(host_api::response_message(json!(["open-media", value]))),
+            });
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct WindowRuntimeState {
+    pub fullscreen: bool,
+    pub maximized: bool,
+    pub focused: bool,
+    pub visible: bool,
+    pub close_to_hide: bool,
 }
 
 pub struct MacosHost<B, P>
@@ -60,6 +113,7 @@ where
     app_data_dir: PathBuf,
     settings: settings::SettingsState,
     listeners: Mutex<ListenerRegistry>,
+    window_state: Mutex<WindowRuntimeState>,
 }
 
 pub type Host<B, P> = MacosHost<B, P>;
@@ -84,6 +138,11 @@ where
             app_data_dir: app_data_dir.into(),
             settings: settings::SettingsState::default(),
             listeners: Mutex::default(),
+            window_state: Mutex::new(WindowRuntimeState {
+                visible: true,
+                close_to_hide: true,
+                ..WindowRuntimeState::default()
+            }),
         }
     }
 
@@ -109,8 +168,21 @@ where
     }
 
     pub fn shutdown(&self) -> Result<(), String> {
+        self.emit_lifecycle_event(AppLifecycleEvent::Shutdown).ok();
         self.player.stop().ok();
         self.streaming_server.stop()
+    }
+
+    pub fn emit_launch_intent(&self, intent: LaunchIntent) -> Result<(), String> {
+        self.focus_window()?;
+        let Some(value) = intent.open_media_value() else {
+            return Ok(());
+        };
+        self.listeners
+            .lock()
+            .map_err(|e| e.to_string())?
+            .queue_open_media(value);
+        Ok(())
     }
 
     pub fn native_player_status(&self) -> NativePlayerStatus {
@@ -200,6 +272,15 @@ where
                 self.emit_drained_player_events()?;
                 Ok(Value::Null)
             }
+            "shell_transport_send" => {
+                let message = payload
+                    .as_ref()
+                    .and_then(|value| value.get("message"))
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| "Missing shell_transport_send message".to_string())?;
+                self.handle_shell_transport_message(message)?;
+                Ok(Value::Null)
+            }
             "get_plugins" => Ok(serde_json::to_value(mods::list_mods(
                 &self.app_data_dir,
                 mods::ModType::Plugin,
@@ -268,8 +349,26 @@ where
                     &payload.plugin_name,
                 )
             }
-            "shell_bridge_ready" => Ok(Value::Null),
+            "shell_bridge_ready" => {
+                self.mark_bridge_ready()?;
+                Ok(Value::Null)
+            }
             other => Err(format!("Unsupported macOS host command: {other}")),
+        }
+    }
+
+    fn handle_shell_transport_message(&self, message: &str) -> Result<(), String> {
+        match host_api::parse_request(message)? {
+            ParsedRequest::Handshake => self
+                .emit_transport_response(host_api::handshake_response(env!("CARGO_PKG_VERSION"))),
+            ParsedRequest::Command { method, data } => match method.as_str() {
+                "app-ready" | "app-error" => self.mark_transport_ready(),
+                "mpv-observe-prop" | "mpv-set-prop" | "mpv-command" | "native-player-stop" => {
+                    player::handle_transport(&self.player, &method, data)?;
+                    self.emit_drained_player_events()
+                }
+                other => Err(format!("Unsupported macOS shell transport method: {other}")),
+            },
         }
     }
 
@@ -289,14 +388,24 @@ where
                 self.unlisten(payload.id)?;
                 Ok(Value::Null)
             }
-            "window.minimize"
-            | "window.toggleMaximize"
-            | "window.close"
-            | "window.startDragging" => Ok(Value::Null),
-            "window.isMaximized" | "window.isFullscreen" => Ok(json!(false)),
+            "window.minimize" => {
+                self.minimize_window()?;
+                Ok(Value::Null)
+            }
+            "window.toggleMaximize" => {
+                self.toggle_window_maximize()?;
+                Ok(Value::Null)
+            }
+            "window.close" => {
+                self.close_window()?;
+                Ok(Value::Null)
+            }
+            "window.startDragging" => Ok(Value::Null),
+            "window.isMaximized" => Ok(json!(self.window_state()?.maximized)),
+            "window.isFullscreen" => Ok(json!(self.window_state()?.fullscreen)),
             "window.setFullscreen" => {
                 let payload: FullscreenIpcPayload = parse_payload(kind, payload)?;
-                self.emit_window_fullscreen_changed(payload.fullscreen)?;
+                self.set_window_fullscreen(payload.fullscreen)?;
                 Ok(Value::Null)
             }
             "webview.setZoom" => {
@@ -339,6 +448,25 @@ where
             "window-fullscreen-changed",
             json!({ "fullscreen": fullscreen }),
         )
+    }
+
+    pub fn emit_window_maximized_changed(&self, maximized: bool) -> Result<(), String> {
+        self.emit_event(
+            "window-maximized-changed",
+            json!({ "maximized": maximized }),
+        )
+    }
+
+    pub fn emit_lifecycle_event(&self, event: AppLifecycleEvent) -> Result<(), String> {
+        let (name, payload) = lifecycle_event_payload(event);
+        match event {
+            AppLifecycleEvent::BecameActive => self.update_window_focus(true)?,
+            AppLifecycleEvent::ResignedActive => self.update_window_focus(false)?,
+            AppLifecycleEvent::WindowFocused(focused) => self.set_window_focus(focused)?,
+            AppLifecycleEvent::WindowVisible(visible) => self.set_window_visible(visible)?,
+            AppLifecycleEvent::Shutdown => {}
+        }
+        self.emit_event(name, payload)
     }
 
     pub fn emit_server_started(&self) -> Result<(), String> {
@@ -386,6 +514,86 @@ where
                 "payload": payload,
             }),
         )
+    }
+
+    pub fn window_state(&self) -> Result<WindowRuntimeState, String> {
+        Ok(self.window_state.lock().map_err(|e| e.to_string())?.clone())
+    }
+
+    fn mark_bridge_ready(&self) -> Result<(), String> {
+        self.listeners
+            .lock()
+            .map_err(|e| e.to_string())?
+            .mark_bridge_ready();
+        Ok(())
+    }
+
+    fn mark_transport_ready(&self) -> Result<(), String> {
+        self.listeners
+            .lock()
+            .map_err(|e| e.to_string())?
+            .mark_transport_ready();
+        Ok(())
+    }
+
+    fn emit_transport_response(&self, message: String) -> Result<(), String> {
+        self.emit_event(SHELL_TRANSPORT_EVENT, json!(message))
+    }
+
+    fn minimize_window(&self) -> Result<(), String> {
+        self.set_window_visible(false)
+    }
+
+    fn toggle_window_maximize(&self) -> Result<(), String> {
+        let maximized = {
+            let mut state = self.window_state.lock().map_err(|e| e.to_string())?;
+            state.maximized = !state.maximized;
+            state.visible = true;
+            state.maximized
+        };
+        self.emit_window_maximized_changed(maximized)
+    }
+
+    fn close_window(&self) -> Result<(), String> {
+        let close_to_hide = self.window_state()?.close_to_hide;
+        if close_to_hide {
+            self.set_window_visible(false)
+        } else {
+            self.emit_lifecycle_event(AppLifecycleEvent::Shutdown)
+        }
+    }
+
+    fn focus_window(&self) -> Result<(), String> {
+        self.set_window_focus(true)?;
+        self.set_window_visible(true)
+    }
+
+    fn update_window_focus(&self, focused: bool) -> Result<(), String> {
+        self.set_window_focus(focused)
+    }
+
+    fn set_window_focus(&self, focused: bool) -> Result<(), String> {
+        self.window_state.lock().map_err(|e| e.to_string())?.focused = focused;
+        Ok(())
+    }
+
+    fn set_window_visible(&self, visible: bool) -> Result<(), String> {
+        self.window_state.lock().map_err(|e| e.to_string())?.visible = visible;
+        Ok(())
+    }
+
+    fn set_window_fullscreen(&self, fullscreen: bool) -> Result<(), String> {
+        let changed = {
+            let mut state = self.window_state.lock().map_err(|e| e.to_string())?;
+            let changed = state.fullscreen != fullscreen;
+            state.fullscreen = fullscreen;
+            state.visible = true;
+            changed
+        };
+        if changed {
+            self.emit_window_fullscreen_changed(fullscreen)?;
+        }
+        Ok(())
     }
 
     pub fn emit_drained_player_events(&self) -> Result<(), String> {
@@ -757,6 +965,151 @@ mod tests {
         assert_eq!(events[0].event, SHELL_TRANSPORT_EVENT);
         assert_eq!(events[0].payload["type"], "mpv-event-ended");
         assert_eq!(events[0].payload["payload"]["reason"], "eof");
+    }
+
+    #[test]
+    fn shell_transport_send_routes_player_commands() {
+        let player = FakePlayerBackend::initialized();
+        let host = Host::new(
+            player.clone(),
+            StreamingServer::new(FakeProcessSpawner::default()),
+        );
+
+        host.invoke(
+            "shell_transport_send",
+            Some(json!({ "message": r#"{"id":9,"type":6,"args":["mpv-command",["loadfile","file:///tmp/sample.mp4","replace"]]}"# })),
+        )
+        .unwrap();
+
+        assert_eq!(
+            player.actions(),
+            vec![crate::player::PlayerAction::Command {
+                name: "loadfile".to_string(),
+                args: vec!["file:///tmp/sample.mp4".to_string(), "replace".to_string()],
+            }]
+        );
+    }
+
+    #[test]
+    fn shell_transport_handshake_emits_response() {
+        let host = test_host();
+        host.dispatch_ipc(
+            "listen",
+            Some(json!({"id": 11, "event": SHELL_TRANSPORT_EVENT})),
+        )
+        .unwrap();
+
+        host.invoke(
+            "shell_transport_send",
+            Some(json!({ "message": r#"{"id":0,"type":3}"# })),
+        )
+        .unwrap();
+
+        let events = host.drain_emitted_events().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event, SHELL_TRANSPORT_EVENT);
+        let transport: Value = serde_json::from_str(events[0].payload.as_str().unwrap()).unwrap();
+        assert_eq!(transport["type"], 3);
+        assert_eq!(transport["object"], "transport");
+    }
+
+    #[test]
+    fn launch_intents_queue_until_bridge_and_transport_ready() {
+        let host = test_host();
+        host.emit_launch_intent(LaunchIntent::Magnet("magnet:?xt=urn:btih:test".to_string()))
+            .unwrap();
+        assert!(host.window_state().unwrap().focused);
+        assert!(host.drain_emitted_events().unwrap().is_empty());
+
+        host.dispatch_ipc(
+            "listen",
+            Some(json!({"id": 12, "event": SHELL_TRANSPORT_EVENT})),
+        )
+        .unwrap();
+        host.invoke("shell_bridge_ready", None).unwrap();
+        assert!(host.drain_emitted_events().unwrap().is_empty());
+
+        host.invoke(
+            "shell_transport_send",
+            Some(json!({ "message": r#"{"id":1,"type":6,"args":["app-ready"]}"# })),
+        )
+        .unwrap();
+
+        let events = host.drain_emitted_events().unwrap();
+        assert_eq!(events.len(), 1);
+        let transport: Value = serde_json::from_str(events[0].payload.as_str().unwrap()).unwrap();
+        assert_eq!(
+            transport["args"],
+            json!(["open-media", "magnet:?xt=urn:btih:test"])
+        );
+    }
+
+    #[test]
+    fn window_commands_update_mockable_state_and_emit_events() {
+        let host = test_host();
+        host.dispatch_ipc(
+            "listen",
+            Some(json!({"id": 13, "event": "window-fullscreen-changed"})),
+        )
+        .unwrap();
+        host.dispatch_ipc(
+            "listen",
+            Some(json!({"id": 14, "event": "window-maximized-changed"})),
+        )
+        .unwrap();
+
+        host.dispatch_ipc("window.toggleMaximize", None).unwrap();
+        assert_eq!(
+            host.dispatch_ipc("window.isMaximized", None).unwrap(),
+            json!(true)
+        );
+        host.dispatch_ipc("window.setFullscreen", Some(json!({"fullscreen": true})))
+            .unwrap();
+        assert_eq!(
+            host.dispatch_ipc("window.isFullscreen", None).unwrap(),
+            json!(true)
+        );
+        host.dispatch_ipc("window.minimize", None).unwrap();
+        assert!(!host.window_state().unwrap().visible);
+        host.dispatch_ipc("window.close", None).unwrap();
+        assert!(!host.window_state().unwrap().visible);
+
+        let events = host.drain_emitted_events().unwrap();
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].event, "window-maximized-changed");
+        assert_eq!(events[0].payload, json!({"maximized": true}));
+        assert_eq!(events[1].event, "window-fullscreen-changed");
+        assert_eq!(events[1].payload, json!({"fullscreen": true}));
+    }
+
+    #[test]
+    fn lifecycle_events_are_serialized_and_update_state() {
+        let host = test_host();
+        host.dispatch_ipc(
+            "listen",
+            Some(json!({"id": 15, "event": "app-became-active"})),
+        )
+        .unwrap();
+        host.dispatch_ipc(
+            "listen",
+            Some(json!({"id": 16, "event": "window-visible-changed"})),
+        )
+        .unwrap();
+
+        host.emit_lifecycle_event(AppLifecycleEvent::BecameActive)
+            .unwrap();
+        host.emit_lifecycle_event(AppLifecycleEvent::WindowVisible(false))
+            .unwrap();
+
+        let state = host.window_state().unwrap();
+        assert!(state.focused);
+        assert!(!state.visible);
+        let events = host.drain_emitted_events().unwrap();
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].event, "app-became-active");
+        assert_eq!(events[0].payload, json!({"active": true}));
+        assert_eq!(events[1].event, "window-visible-changed");
+        assert_eq!(events[1].payload, json!({"visible": false}));
     }
 
     #[test]
