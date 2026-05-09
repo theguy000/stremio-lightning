@@ -77,6 +77,23 @@ where
         self.streaming_server.start()
     }
 
+    pub fn stop_streaming_server(&self) -> Result<(), String> {
+        self.streaming_server.stop()?;
+        self.emit_server_stopped()
+    }
+
+    pub fn restart_streaming_server(&self) -> Result<(), String> {
+        let was_running = self.streaming_server.is_running();
+        self.streaming_server.restart()?;
+        if was_running {
+            self.emit_server_stopped()?;
+        }
+        if self.streaming_server.is_running() {
+            self.emit_server_started()?;
+        }
+        Ok(())
+    }
+
     pub fn shutdown(&self) -> Result<(), String> {
         self.player.stop().ok();
         self.streaming_server.stop()
@@ -93,7 +110,25 @@ where
                 "shellVersion": env!("CARGO_PKG_VERSION"),
                 "nativePlayer": self.native_player_status(),
                 "streamingServerRunning": self.streaming_server.is_running(),
+                "streamingServer": self.streaming_server.status(),
             })),
+            "start_streaming_server" => {
+                self.start_streaming_server()?;
+                self.emit_server_started()?;
+                Ok(Value::Null)
+            }
+            "stop_streaming_server" => {
+                self.stop_streaming_server()?;
+                Ok(Value::Null)
+            }
+            "restart_streaming_server" => {
+                self.restart_streaming_server()?;
+                Ok(Value::Null)
+            }
+            "get_streaming_server_status" => Ok(serde_json::to_value(
+                self.streaming_server.status(),
+            )
+            .map_err(|e| format!("Failed to serialize macOS streaming server status: {e}"))?),
             "shell_bridge_ready" => Ok(Value::Null),
             other => Err(format!("Unsupported macOS host command: {other}")),
         }
@@ -164,6 +199,20 @@ where
         self.emit_event(
             "window-fullscreen-changed",
             json!({ "fullscreen": fullscreen }),
+        )
+    }
+
+    pub fn emit_server_started(&self) -> Result<(), String> {
+        self.emit_event(
+            "server-started",
+            json!({ "url": self.streaming_server.url() }),
+        )
+    }
+
+    pub fn emit_server_stopped(&self) -> Result<(), String> {
+        self.emit_event(
+            "server-stopped",
+            json!({ "url": self.streaming_server.url() }),
         )
     }
 

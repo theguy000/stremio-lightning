@@ -13,6 +13,7 @@ pub struct AppConfig {
     pub url: String,
     pub devtools: bool,
     pub headless_bootstrap: bool,
+    pub disable_streaming_server: bool,
 }
 
 pub type ShellSettings = AppConfig;
@@ -26,6 +27,10 @@ impl Default for AppConfig {
                 .as_deref()
                 == Some("1"),
             headless_bootstrap: false,
+            disable_streaming_server: std::env::var("STREMIO_LIGHTNING_MACOS_NO_SERVER")
+                .ok()
+                .as_deref()
+                == Some("1"),
         }
     }
 }
@@ -49,6 +54,8 @@ where
             config.devtools = true;
         } else if arg == "--headless-bootstrap" {
             config.headless_bootstrap = true;
+        } else if arg == "--no-streaming-server" {
+            config.disable_streaming_server = true;
         }
     }
 
@@ -65,13 +72,16 @@ pub fn normalize_startup_url(url: &str) -> String {
 
 pub fn run(config: AppConfig) -> Result<(), String> {
     let player = MpvPlayerBackend::default();
-    let host = Arc::new(Host::new(
-        player.clone(),
-        StreamingServer::new(RealProcessSpawner::default()),
-    ));
-    if uses_streaming_server_proxy(&config.url) {
-        host.start_streaming_server()?;
-        println!("[StreamingServer] macOS sidecar spawned");
+    let streaming_server = StreamingServer::new(RealProcessSpawner::default())
+        .with_disabled(config.disable_streaming_server);
+    let host = Arc::new(Host::new(player.clone(), streaming_server));
+    if config.disable_streaming_server {
+        println!("[StreamingServer] macOS sidecar disabled");
+    } else {
+        match host.start_streaming_server() {
+            Ok(()) => println!("[StreamingServer] macOS sidecar spawned"),
+            Err(error) => eprintln!("[StreamingServer] Failed to start macOS sidecar: {error}"),
+        }
     }
     let injection = InjectionBundle::load()?;
 
@@ -94,7 +104,7 @@ pub fn run(config: AppConfig) -> Result<(), String> {
     }
 }
 
-fn uses_streaming_server_proxy(url: &str) -> bool {
+pub fn uses_streaming_server_proxy(url: &str) -> bool {
     url.starts_with("http://127.0.0.1:11470/")
 }
 
@@ -148,5 +158,11 @@ mod tests {
         assert!(uses_streaming_server_proxy(DEFAULT_URL));
         assert!(!uses_streaming_server_proxy("https://web.stremio.com/"));
         assert!(!uses_streaming_server_proxy("http://localhost:11470/"));
+    }
+
+    #[test]
+    fn accepts_no_streaming_server() {
+        let config = parse_args(["stremio-lightning-macos", "--no-streaming-server"]);
+        assert!(config.disable_streaming_server);
     }
 }
