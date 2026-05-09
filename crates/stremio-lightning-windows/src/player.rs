@@ -108,6 +108,10 @@ impl WindowsPlayer {
         events.extend(self.backend.drain_events());
         events
     }
+
+    pub fn shutdown(&mut self) {
+        self.backend.shutdown();
+    }
 }
 
 #[cfg(any(windows, test))]
@@ -205,10 +209,8 @@ mod platform {
             };
             receiver.try_iter().collect()
         }
-    }
 
-    impl Drop for PlayerBackend {
-        fn drop(&mut self) {
+        pub fn shutdown(&mut self) {
             if let Some(sender) = self.sender.as_ref() {
                 let _ = sender.send(BackendCommand::Shutdown);
             }
@@ -216,6 +218,13 @@ mod platform {
             if let Some(thread) = self.thread.take() {
                 let _ = thread.join();
             }
+            self.initialized = false;
+        }
+    }
+
+    impl Drop for PlayerBackend {
+        fn drop(&mut self) {
+            self.shutdown();
         }
     }
 
@@ -442,6 +451,8 @@ mod platform {
         pub fn drain_events(&mut self) -> Vec<PlayerEvent> {
             Vec::new()
         }
+
+        pub fn shutdown(&mut self) {}
     }
 }
 

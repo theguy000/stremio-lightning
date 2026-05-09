@@ -134,6 +134,11 @@ where
         Ok(())
     }
 
+    pub fn shutdown(&self) -> Result<(), String> {
+        self.player.stop().ok();
+        self.streaming_server.stop()
+    }
+
     pub fn dispatch_ipc(&self, kind: &str, payload: Option<Value>) -> Result<Value, String> {
         match kind {
             "invoke" => {

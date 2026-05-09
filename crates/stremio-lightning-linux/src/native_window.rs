@@ -176,9 +176,9 @@ fn build_window(
     let fullscreen = Rc::new(Cell::new(false));
     let overlay = gtk::Overlay::new();
     let webview = build_webview(config, runtime.clone(), window.clone(), fullscreen.clone())?;
-    let video = build_native_video(
+    let (video, video_state) = build_native_video(
         player,
-        runtime,
+        runtime.clone(),
         webview.clone(),
         window.clone(),
         fullscreen.clone(),
@@ -189,6 +189,21 @@ fn build_window(
 
     overlay.add_overlay(&webview);
     window.set_child(Some(&overlay));
+
+    {
+        let app = app.clone();
+        let runtime = runtime.clone();
+        let video_state = video_state.clone();
+        window.connect_close_request(move |_| {
+            video_state.shutdown();
+            if let Err(error) = runtime.shutdown() {
+                eprintln!("[StremioLightning] Failed to shut down Linux runtime: {error}");
+            }
+            app.quit();
+            Propagation::Proceed
+        });
+    }
+
     window.present();
     Ok(())
 }
@@ -783,6 +798,7 @@ struct NativeVideoState {
     mpv: RefCell<Mpv>,
     render_context: RefCell<Option<RenderContext>>,
     fbo: Cell<u32>,
+    shutting_down: Cell<bool>,
 }
 
 impl NativeVideoState {
@@ -805,7 +821,18 @@ impl NativeVideoState {
             mpv: RefCell::new(mpv),
             render_context: RefCell::default(),
             fbo: Cell::default(),
+            shutting_down: Cell::default(),
         })
+    }
+
+    fn shutdown(&self) {
+        if self.shutting_down.replace(true) {
+            return;
+        }
+
+        self.render_context.borrow_mut().take();
+        self.command("stop", &[]);
+        self.command("quit", &[]);
     }
 
     fn current_fbo(&self) -> i32 {
@@ -891,7 +918,7 @@ fn build_native_video(
     webview: WebKitWebView,
     window: gtk::ApplicationWindow,
     fullscreen: Rc<Cell<bool>>,
-) -> Result<gtk::GLArea, String> {
+) -> Result<(gtk::GLArea, Rc<NativeVideoState>), String> {
     let area = gtk::GLArea::new();
     let state = Rc::new(NativeVideoState::new()?);
     let (command_sender, command_receiver) = mpsc::channel::<MpvBackendCommand>();
@@ -926,7 +953,12 @@ fn build_native_video(
 
                 let (sender, receiver) = mpsc::channel::<()>();
                 let area_for_idle = area.clone();
+                let state_for_idle = state.clone();
                 glib::idle_add_local(move || {
+                    if state_for_idle.shutting_down.get() {
+                        return glib::ControlFlow::Break;
+                    }
+
                     if receiver.try_recv().is_ok() {
                         area_for_idle.queue_render();
                     }
@@ -952,6 +984,10 @@ fn build_native_video(
     {
         let state = state.clone();
         area.connect_render(move |area, _context| {
+            if state.shutting_down.get() {
+                return Propagation::Stop;
+            }
+
             if let Some(ref render_context) = *state.render_context.borrow() {
                 let scale = area.scale_factor();
                 render_context
@@ -967,7 +1003,7 @@ fn build_native_video(
         });
     }
 
-    Ok(area)
+    Ok((area, state))
 }
 
 fn install_mpv_event_drain(
@@ -979,6 +1015,10 @@ fn install_mpv_event_drain(
 ) {
     let state = state.clone();
     glib::idle_add_local(move || {
+        if state.shutting_down.get() {
+            return glib::ControlFlow::Break;
+        }
+
         while state.poll_event(|event| match event {
             Event::PropertyChange { name, change, .. } => {
                 if let Some(value) = property_data_to_json(change) {
@@ -1041,6 +1081,10 @@ fn install_mpv_command_drain(
 ) {
     let state = state.clone();
     glib::idle_add_local(move || {
+        if state.shutting_down.get() {
+            return glib::ControlFlow::Break;
+        }
+
         while let Ok(command) = command_receiver.try_recv() {
             state.handle_command(command);
         }

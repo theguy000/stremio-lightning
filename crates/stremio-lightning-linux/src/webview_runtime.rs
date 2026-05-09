@@ -165,6 +165,10 @@ where
         self.host.dispatch_ipc(kind, payload)
     }
 
+    pub fn shutdown(&self) -> Result<(), String> {
+        self.host.shutdown()
+    }
+
     pub fn script_source(&self, name: &str) -> Option<String> {
         self.injection
             .scripts()

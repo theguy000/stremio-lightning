@@ -392,6 +392,9 @@ mod platform {
             if let Ok(mut notifier) = self.ui_notifier.lock() {
                 *notifier = None;
             }
+            if let Err(error) = self.host.shutdown() {
+                eprintln!("[StremioLightning] Failed to shut down Windows runtime: {error}");
+            }
             if let (Some(webview), Some(token)) =
                 (self.webview.as_ref(), self.navigation_starting_token.take())
             {

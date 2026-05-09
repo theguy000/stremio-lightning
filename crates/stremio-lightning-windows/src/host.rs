@@ -178,6 +178,14 @@ impl WindowsHost {
         Ok(())
     }
 
+    pub fn shutdown(&self) -> Result<(), String> {
+        self.player
+            .lock()
+            .map_err(|_| "Windows player lock poisoned during shutdown".to_string())?
+            .shutdown();
+        self.streaming_server.stop()
+    }
+
     pub fn emit_launch_intent(&self, intent: LaunchIntent) -> Result<(), String> {
         let Some(value) = intent.open_media_value() else {
             return Ok(());
