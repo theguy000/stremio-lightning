@@ -68,6 +68,14 @@ pub struct WebviewLoadState {
     pub loaded: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WebUiSmokeReport {
+    pub host_available: bool,
+    pub enhanced_api_available: bool,
+    pub mod_ui_injected: bool,
+    pub document_start_scripts: Vec<&'static str>,
+}
+
 pub struct MacosWebviewRuntime<B, P>
 where
     B: PlayerBackend,
@@ -155,6 +163,19 @@ where
                 ))
             })
             .collect()
+    }
+
+    pub fn web_ui_smoke_report(&self) -> WebUiSmokeReport {
+        let host_adapter = self.script_source(HOST_ADAPTER_NAME).unwrap_or_default();
+        WebUiSmokeReport {
+            host_available: host_adapter.contains("window.StremioLightningHost"),
+            enhanced_api_available: host_adapter.contains("window.StremioEnhancedAPI"),
+            mod_ui_injected: self
+                .script_source(MOD_UI_NAME)
+                .map(|source| !source.trim().is_empty())
+                .unwrap_or(false),
+            document_start_scripts: self.injection.script_names(),
+        }
     }
 }
 
@@ -414,5 +435,23 @@ mod tests {
             .expect("host adapter source");
         assert!(source.contains("__STREMIO_LIGHTNING_MACOS_DISPATCH__"));
         assert!(source.contains("window.webkit.messageHandlers.ipc.postMessage"));
+    }
+
+    #[test]
+    fn web_ui_smoke_report_confirms_host_api_and_mod_ui_injection() {
+        let runtime = MacosWebviewRuntime::new(
+            "https://web.stremio.com/",
+            false,
+            InjectionBundle::load().expect("injection bundle"),
+            test_host(),
+        );
+        let report = runtime.web_ui_smoke_report();
+        assert!(report.host_available);
+        assert!(report.enhanced_api_available);
+        assert!(report.mod_ui_injected);
+        assert!(report
+            .document_start_scripts
+            .contains(&MACOS_HOST_ADAPTER_NAME));
+        assert!(report.document_start_scripts.contains(&MOD_UI_NAME));
     }
 }
