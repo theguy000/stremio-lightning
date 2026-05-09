@@ -45,6 +45,25 @@ pub struct MpvOption {
     pub value: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MpvVideoLayerHandle {
+    raw_view: usize,
+}
+
+impl MpvVideoLayerHandle {
+    pub fn new(raw_view: usize) -> Result<Self, String> {
+        if raw_view == 0 {
+            Err("macOS MPV video layer handle cannot be null".to_string())
+        } else {
+            Ok(Self { raw_view })
+        }
+    }
+
+    pub fn raw_view(self) -> usize {
+        self.raw_view
+    }
+}
+
 pub fn default_mpv_options(app_name: &str, debug: bool) -> Vec<MpvOption> {
     vec![
         MpvOption {
@@ -193,6 +212,23 @@ impl MpvPlayerBackend {
         Ok(())
     }
 
+    #[cfg(target_os = "macos")]
+    pub fn attach_to_video_layer(
+        &self,
+        handle: MpvVideoLayerHandle,
+        app_name: &str,
+    ) -> Result<MacosMpvRenderer, String> {
+        let (command_sender, command_receiver) = std::sync::mpsc::channel();
+        let renderer = macos_mpv::spawn_renderer(
+            handle,
+            app_name.to_string(),
+            command_receiver,
+            self.events.clone(),
+        )?;
+        self.attach(command_sender)?;
+        Ok(renderer)
+    }
+
     fn send(&self, command: MpvBackendCommand) -> Result<(), String> {
         let sender = self
             .sender
@@ -205,6 +241,265 @@ impl MpvPlayerBackend {
         sender
             .send(command)
             .map_err(|e| format!("Failed to send command to macOS MPV backend: {e}"))
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub struct MacosMpvRenderer {
+    sender: Sender<MpvBackendCommand>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+#[cfg(target_os = "macos")]
+impl Drop for MacosMpvRenderer {
+    fn drop(&mut self) {
+        let _ = self.sender.send(MpvBackendCommand::Shutdown);
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+mod macos_mpv {
+    use super::*;
+    use libmpv2::{
+        events::{Event, PropertyData},
+        mpv_end_file_reason, Format, Mpv, SetData,
+    };
+    use std::sync::mpsc::{Receiver, TryRecvError};
+
+    pub fn spawn_renderer(
+        handle: MpvVideoLayerHandle,
+        app_name: String,
+        command_receiver: Receiver<MpvBackendCommand>,
+        events: Arc<Mutex<Vec<PlayerEvent>>>,
+    ) -> Result<MacosMpvRenderer, String> {
+        let mpv = create_mpv(handle, &app_name)?;
+        let (shutdown_sender, shutdown_receiver) = std::sync::mpsc::channel();
+        let thread = std::thread::spawn(move || {
+            run_renderer_loop(mpv, command_receiver, shutdown_receiver, events);
+        });
+
+        Ok(MacosMpvRenderer {
+            sender: shutdown_sender,
+            thread: Some(thread),
+        })
+    }
+
+    fn create_mpv(handle: MpvVideoLayerHandle, app_name: &str) -> Result<Mpv, String> {
+        Mpv::with_initializer(|initializer| {
+            initializer.set_property("wid", handle.raw_view() as i64)?;
+            for option in default_mpv_options(app_name, cfg!(debug_assertions)) {
+                initializer.set_property(option.name, option.value.as_str())?;
+            }
+            Ok(())
+        })
+        .map_err(|error| format!("Failed to initialize macOS MPV backend: {error}"))
+    }
+
+    fn run_renderer_loop(
+        mut mpv: Mpv,
+        command_receiver: Receiver<MpvBackendCommand>,
+        shutdown_receiver: Receiver<MpvBackendCommand>,
+        events: Arc<Mutex<Vec<PlayerEvent>>>,
+    ) {
+        let _ = mpv.disable_deprecated_events();
+
+        loop {
+            if should_shutdown(&mpv, &command_receiver, &shutdown_receiver) {
+                return;
+            }
+
+            if let Some(event) = mpv.wait_event(0.05) {
+                let event = match event {
+                    Ok(event) => event,
+                    Err(error) => {
+                        push_event(
+                            &events,
+                            PlayerEvent::Ended(PlayerEnded {
+                                reason: "error".to_string(),
+                                error: Some(PlayerEndedError {
+                                    message: format!("macOS MPV event error: {error:?}"),
+                                    critical: true,
+                                }),
+                            }),
+                        );
+                        continue;
+                    }
+                };
+
+                match player_event_from_mpv_event(event) {
+                    MpvEventAction::Emit(event) => push_event(&events, event),
+                    MpvEventAction::Continue => {}
+                    MpvEventAction::Shutdown => return,
+                }
+            }
+        }
+    }
+
+    fn should_shutdown(
+        mpv: &Mpv,
+        command_receiver: &Receiver<MpvBackendCommand>,
+        shutdown_receiver: &Receiver<MpvBackendCommand>,
+    ) -> bool {
+        drain_commands(mpv, shutdown_receiver) || drain_commands(mpv, command_receiver)
+    }
+
+    fn drain_commands(mpv: &Mpv, receiver: &Receiver<MpvBackendCommand>) -> bool {
+        loop {
+            match receiver.try_recv() {
+                Ok(MpvBackendCommand::Shutdown) => {
+                    let _ = mpv.command("quit", &[]);
+                    return true;
+                }
+                Ok(command) => {
+                    if let Err(error) = handle_mpv_command(mpv, command) {
+                        eprintln!("[StremioLightning] macOS MPV command failed: {error}");
+                    }
+                }
+                Err(TryRecvError::Empty) => return false,
+                Err(TryRecvError::Disconnected) => return true,
+            }
+        }
+    }
+
+    enum MpvEventAction {
+        Emit(PlayerEvent),
+        Continue,
+        Shutdown,
+    }
+
+    fn player_event_from_mpv_event(event: Event<'_>) -> MpvEventAction {
+        match event {
+            Event::PropertyChange { name, change, .. } => {
+                MpvEventAction::Emit(PlayerEvent::PropertyChange(PlayerPropertyChange {
+                    name: name.to_string(),
+                    data: property_data_to_json(name, change),
+                }))
+            }
+            Event::EndFile(reason) => {
+                MpvEventAction::Emit(PlayerEvent::Ended(end_file_reason(reason)))
+            }
+            Event::Shutdown => MpvEventAction::Shutdown,
+            _ => MpvEventAction::Continue,
+        }
+    }
+
+    fn handle_mpv_command(mpv: &Mpv, command: MpvBackendCommand) -> Result<(), String> {
+        match command {
+            MpvBackendCommand::ObserveProperty(name) => {
+                let format = observe_format(&name);
+                mpv.observe_property(&name, format, 0).map_err(|error| {
+                    format!("Failed to observe macOS MPV property '{name}': {error}")
+                })?;
+                mpv.wake_up();
+                Ok(())
+            }
+            MpvBackendCommand::SetProperty { name, value } => set_property(mpv, &name, value),
+            MpvBackendCommand::Command { name, args } => {
+                let refs = args.iter().map(String::as_str).collect::<Vec<_>>();
+                mpv.command(&name, &refs).map_err(|error| {
+                    format!("Failed to execute macOS MPV command '{name}': {error}")
+                })
+            }
+            MpvBackendCommand::Stop => mpv
+                .command("stop", &[])
+                .map_err(|error| format!("Failed to stop macOS MPV playback: {error}")),
+            MpvBackendCommand::Shutdown => mpv
+                .command("quit", &[])
+                .map_err(|error| format!("Failed to shut down macOS MPV backend: {error}")),
+        }
+    }
+
+    fn set_property(mpv: &Mpv, name: &str, value: Value) -> Result<(), String> {
+        match value {
+            Value::Bool(value) => set_property_value(mpv, name, value),
+            Value::Number(value) => {
+                if let Some(value) = value.as_i64() {
+                    set_property_value(mpv, name, value)
+                } else if let Some(value) = value.as_f64() {
+                    set_property_value(mpv, name, value)
+                } else {
+                    Err(format!(
+                        "Invalid numeric macOS MPV property value for '{name}'"
+                    ))
+                }
+            }
+            Value::String(value) => set_property_value(mpv, name, value),
+            other => set_property_value(mpv, name, other.to_string()),
+        }
+    }
+
+    fn set_property_value<T: SetData>(mpv: &Mpv, name: &str, value: T) -> Result<(), String> {
+        mpv.set_property(name, value)
+            .map_err(|error| format!("Failed to set macOS MPV property '{name}': {error}"))
+    }
+
+    fn observe_format(name: &str) -> Format {
+        match name {
+            "pause" | "paused-for-cache" | "seeking" | "eof-reached" | "keepaspect" => Format::Flag,
+            "aid" | "vid" | "sid" => Format::Int64,
+            "time-pos"
+            | "mute"
+            | "volume"
+            | "duration"
+            | "sub-delay"
+            | "sub-scale"
+            | "cache-buffering-state"
+            | "demuxer-cache-time"
+            | "sub-pos"
+            | "speed"
+            | "panscan" => Format::Double,
+            _ => Format::String,
+        }
+    }
+
+    fn property_data_to_json(name: &str, data: PropertyData) -> Value {
+        match data {
+            PropertyData::Flag(value) => Value::Bool(value),
+            PropertyData::Int64(value) => json!(value),
+            PropertyData::Double(value) => json!(value),
+            PropertyData::OsdStr(value) | PropertyData::Str(value) => {
+                if matches!(name, "track-list" | "video-params" | "metadata") {
+                    serde_json::from_str(value).unwrap_or_else(|_| Value::String(value.to_string()))
+                } else {
+                    Value::String(value.to_string())
+                }
+            }
+        }
+    }
+
+    fn end_file_reason(reason: libmpv2::EndFileReason) -> PlayerEnded {
+        let is_error = reason == mpv_end_file_reason::Error;
+        PlayerEnded {
+            reason: match reason {
+                mpv_end_file_reason::Error => "error",
+                mpv_end_file_reason::Quit => "quit",
+                _ => "other",
+            }
+            .to_string(),
+            error: is_error.then(|| PlayerEndedError {
+                message: "macOS MPV playback error".to_string(),
+                critical: true,
+            }),
+        }
+    }
+
+    fn push_event(events: &Arc<Mutex<Vec<PlayerEvent>>>, event: PlayerEvent) {
+        if let Ok(mut events) = events.lock() {
+            events.push(event);
+        }
+    }
+
+    trait MpvWakeUp {
+        fn wake_up(&self);
+    }
+
+    impl MpvWakeUp for Mpv {
+        fn wake_up(&self) {
+            unsafe { libmpv2_sys::mpv_wakeup(self.ctx.as_ptr()) }
+        }
     }
 }
 
@@ -523,5 +818,14 @@ mod tests {
             name: "msg-level",
             value: "all=no,cplayer=debug".to_string(),
         }));
+    }
+
+    #[test]
+    fn mpv_video_layer_handle_rejects_null_views() {
+        assert_eq!(
+            MpvVideoLayerHandle::new(0).unwrap_err(),
+            "macOS MPV video layer handle cannot be null"
+        );
+        assert_eq!(MpvVideoLayerHandle::new(42).unwrap().raw_view(), 42);
     }
 }

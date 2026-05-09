@@ -1882,6 +1882,7 @@ version = "0.1.0"
 dependencies = [
  "block2",
  "libmpv2",
+ "libmpv2-sys",
  "objc2",
  "objc2-app-kit",
  "objc2-foundation",
