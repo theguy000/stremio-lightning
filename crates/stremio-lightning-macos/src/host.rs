@@ -1,4 +1,5 @@
 use crate::app_integration::{lifecycle_event_payload, AppLifecycleEvent, LaunchIntent};
+use crate::diagnostics::{self, MacosDiagnosticsSnapshot};
 use crate::player::{self, NativePlayerStatus, PlayerBackend};
 use crate::streaming_server::{ProcessSpawner, StreamingServer};
 use serde::Deserialize;
@@ -8,7 +9,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use stremio_lightning_core::{
     host_api::{self, ParsedRequest},
-    mods, settings,
+    mods,
+    pip::{serialize_picture_in_picture, PipState},
+    settings,
 };
 
 pub const SHELL_TRANSPORT_EVENT: &str = "shell-transport-message";
@@ -114,9 +117,17 @@ where
     settings: settings::SettingsState,
     listeners: Mutex<ListenerRegistry>,
     window_state: Mutex<WindowRuntimeState>,
+    shell_preferences: Mutex<ShellPreferenceState>,
+    pip_state: PipState,
 }
 
 pub type Host<B, P> = MacosHost<B, P>;
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+struct ShellPreferenceState {
+    auto_pause: bool,
+    pip_disables_auto_pause: bool,
+}
 
 impl<B, P> MacosHost<B, P>
 where
@@ -143,6 +154,8 @@ where
                 close_to_hide: true,
                 ..WindowRuntimeState::default()
             }),
+            shell_preferences: Mutex::default(),
+            pip_state: PipState::new(),
         }
     }
 
@@ -187,6 +200,25 @@ where
 
     pub fn native_player_status(&self) -> NativePlayerStatus {
         self.player.status()
+    }
+
+    pub fn diagnostics_snapshot(
+        &self,
+        load_state: &crate::webview_runtime::WebviewLoadState,
+        ipc_errors: Vec<String>,
+        first_frame_timing: Option<std::time::Duration>,
+    ) -> MacosDiagnosticsSnapshot {
+        let server = self.streaming_server.diagnostics();
+        diagnostics::diagnostics_snapshot(
+            load_state,
+            ipc_errors,
+            self.native_player_status(),
+            &player::default_mpv_options(crate::APP_NAME, cfg!(debug_assertions)),
+            first_frame_timing,
+            server.status,
+            server.stdout_log,
+            server.stderr_log,
+        )
     }
 
     pub fn invoke(&self, command: &str, payload: Option<Value>) -> Result<Value, String> {
@@ -349,6 +381,45 @@ where
                     &payload.plugin_name,
                 )
             }
+            "toggle_devtools"
+            | "start_discord_rpc"
+            | "stop_discord_rpc"
+            | "update_discord_activity" => Ok(Value::Null),
+            "check_app_update" => Ok(Value::Null),
+            "set_auto_pause" => {
+                let enabled = parse_optional_bool(payload).unwrap_or(true);
+                self.shell_preferences
+                    .lock()
+                    .map_err(|e| e.to_string())?
+                    .auto_pause = enabled;
+                Ok(Value::Null)
+            }
+            "get_auto_pause" => Ok(json!(
+                self.shell_preferences
+                    .lock()
+                    .map_err(|e| e.to_string())?
+                    .auto_pause
+            )),
+            "set_pip_disables_auto_pause" => {
+                let enabled = parse_optional_bool(payload).unwrap_or(true);
+                self.shell_preferences
+                    .lock()
+                    .map_err(|e| e.to_string())?
+                    .pip_disables_auto_pause = enabled;
+                Ok(Value::Null)
+            }
+            "get_pip_disables_auto_pause" => Ok(json!(
+                self.shell_preferences
+                    .lock()
+                    .map_err(|e| e.to_string())?
+                    .pip_disables_auto_pause
+            )),
+            "toggle_pip" => {
+                let enabled = self.pip_state.toggle()?;
+                self.emit_native_player_transport_args(serialize_picture_in_picture(enabled))?;
+                Ok(json!(enabled))
+            }
+            "get_pip_mode" => Ok(json!(self.pip_state.is_enabled()?)),
             "shell_bridge_ready" => {
                 self.mark_bridge_ready()?;
                 Ok(Value::Null)
@@ -698,6 +769,14 @@ where
         .map_err(|e| format!("Invalid macOS IPC payload for {label}: {e}"))
 }
 
+fn parse_optional_bool(payload: Option<Value>) -> Option<bool> {
+    let value = payload?;
+    value
+        .as_bool()
+        .or_else(|| value.get("enabled").and_then(Value::as_bool))
+        .or_else(|| value.get("value").and_then(Value::as_bool))
+}
+
 fn default_app_data_dir() -> PathBuf {
     std::env::var_os("HOME")
         .map(|home| Path::new(&home).join("Library").join("Application Support"))
@@ -886,6 +965,87 @@ mod tests {
     }
 
     #[test]
+    fn shared_host_command_fixture_covers_macos_supported_commands() {
+        let host = test_host();
+        for command in [
+            "init",
+            "get_native_player_status",
+            "get_streaming_server_status",
+            "toggle_devtools",
+            "start_discord_rpc",
+            "stop_discord_rpc",
+            "update_discord_activity",
+            "check_app_update",
+        ] {
+            host.invoke(command, None)
+                .unwrap_or_else(|error| panic!("{command} failed shared fixture: {error}"));
+        }
+
+        host.invoke("set_auto_pause", Some(json!({"enabled": true})))
+            .unwrap();
+        assert_eq!(host.invoke("get_auto_pause", None).unwrap(), json!(true));
+        host.invoke("set_pip_disables_auto_pause", Some(json!(false)))
+            .unwrap();
+        assert_eq!(
+            host.invoke("get_pip_disables_auto_pause", None).unwrap(),
+            json!(false)
+        );
+    }
+
+    #[test]
+    fn shared_plugin_api_fixture_covers_plugins_themes_and_settings() {
+        let app_data_dir = temp_app_data_dir("shared-plugin-fixture");
+        let plugins_dir = mods::mods_dir(&app_data_dir, mods::ModType::Plugin);
+        let themes_dir = mods::mods_dir(&app_data_dir, mods::ModType::Theme);
+        fs::create_dir_all(&plugins_dir).unwrap();
+        fs::create_dir_all(&themes_dir).unwrap();
+        fs::write(
+            plugins_dir.join("cinema.plugin.js"),
+            "/**\n * @name Cinema\n * @version 1.0.0\n */\nwindow.__cinema = true;",
+        )
+        .unwrap();
+        fs::write(
+            themes_dir.join("night.theme.css"),
+            "/**\n * @name Night\n * @version 1.0.0\n */\nbody { color: white; }",
+        )
+        .unwrap();
+
+        let host = test_host_with_app_data_dir(app_data_dir.clone());
+        assert_eq!(
+            host.invoke("get_plugins", None).unwrap()[0]["filename"],
+            "cinema.plugin.js"
+        );
+        assert_eq!(
+            host.invoke("get_themes", None).unwrap()[0]["filename"],
+            "night.theme.css"
+        );
+        assert!(host
+            .invoke(
+                "get_mod_content",
+                Some(json!({"filename": "night.theme.css", "type": "theme"})),
+            )
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .contains("color: white"));
+        host.invoke(
+            "save_setting",
+            Some(json!({"pluginName": "cinema", "key": "quality", "value": "\"1080p\""})),
+        )
+        .unwrap();
+        assert_eq!(
+            host.invoke(
+                "get_setting",
+                Some(json!({"pluginName": "cinema", "key": "quality"})),
+            )
+            .unwrap(),
+            json!("1080p")
+        );
+
+        let _ = fs::remove_dir_all(app_data_dir);
+    }
+
+    #[test]
     fn open_external_url_rejects_untrusted_schemes() {
         let host = test_host();
         host.invoke(
@@ -901,6 +1061,25 @@ mod tests {
             .unwrap_err(),
             "Rejected non-whitelisted open_external_url URL"
         );
+    }
+
+    #[test]
+    fn pip_commands_track_mode_and_emit_shared_player_event() {
+        let host = test_host();
+        host.dispatch_ipc(
+            "listen",
+            Some(json!({"id": 21, "event": SHELL_TRANSPORT_EVENT})),
+        )
+        .unwrap();
+
+        assert_eq!(host.invoke("get_pip_mode", None).unwrap(), json!(false));
+        assert_eq!(host.invoke("toggle_pip", None).unwrap(), json!(true));
+        assert_eq!(host.invoke("get_pip_mode", None).unwrap(), json!(true));
+
+        let events = host.drain_emitted_events().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event, SHELL_TRANSPORT_EVENT);
+        assert_eq!(events[0].payload["type"], "showPictureInPicture");
     }
 
     #[test]

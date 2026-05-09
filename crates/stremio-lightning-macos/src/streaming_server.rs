@@ -14,6 +14,13 @@ pub struct StreamingServerStatus {
     pub url: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StreamingServerDiagnostics {
+    pub status: StreamingServerStatus,
+    pub stdout_log: PathBuf,
+    pub stderr_log: PathBuf,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StreamingServerConfig {
     pub disabled: bool,
@@ -309,6 +316,15 @@ impl<P: ProcessSpawner> StreamingServer<P> {
     pub fn disabled(&self) -> bool {
         self.config.disabled
     }
+
+    pub fn diagnostics(&self) -> StreamingServerDiagnostics {
+        let spec = command_spec(&self.config);
+        StreamingServerDiagnostics {
+            status: self.status(),
+            stdout_log: spec.stdout_log,
+            stderr_log: spec.stderr_log,
+        }
+    }
 }
 
 impl<P: ProcessSpawner> Drop for StreamingServer<P> {
@@ -494,6 +510,23 @@ mod tests {
         assert_eq!(server.status().disabled, true);
         assert_eq!(server.status().url, DEFAULT_SERVER_URL);
         assert!(spawner.spawned().is_empty());
+    }
+
+    #[test]
+    fn diagnostics_include_server_status_and_log_paths() {
+        let spawner = FakeProcessSpawner::default();
+        let server = StreamingServer::with_config(spawner, test_config());
+        let diagnostics = server.diagnostics();
+        assert_eq!(diagnostics.status.running, false);
+        assert_eq!(diagnostics.status.url, DEFAULT_SERVER_URL);
+        assert_eq!(
+            diagnostics.stdout_log,
+            PathBuf::from("/logs/stremio-server.stdout.log")
+        );
+        assert_eq!(
+            diagnostics.stderr_log,
+            PathBuf::from("/logs/stremio-server.stderr.log")
+        );
     }
 
     #[test]

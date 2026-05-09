@@ -3,6 +3,7 @@ use crate::player::PlayerBackend;
 use crate::streaming_server::ProcessSpawner;
 use serde_json::Value;
 use std::sync::Arc;
+use std::time::Duration;
 
 pub const MACOS_HOST_ADAPTER_NAME: &str = "macos-host-adapter";
 pub const HOST_ADAPTER_NAME: &str = MACOS_HOST_ADAPTER_NAME;
@@ -176,6 +177,15 @@ where
                 .unwrap_or(false),
             document_start_scripts: self.injection.script_names(),
         }
+    }
+
+    pub fn diagnostics_snapshot(
+        &self,
+        ipc_errors: Vec<String>,
+        first_frame_timing: Option<Duration>,
+    ) -> crate::diagnostics::MacosDiagnosticsSnapshot {
+        self.host
+            .diagnostics_snapshot(&self.load_state(), ipc_errors, first_frame_timing)
     }
 }
 
@@ -453,5 +463,42 @@ mod tests {
             .document_start_scripts
             .contains(&MACOS_HOST_ADAPTER_NAME));
         assert!(report.document_start_scripts.contains(&MOD_UI_NAME));
+    }
+
+    #[test]
+    fn diagnostics_include_webview_ipc_player_and_server_state() {
+        let mut runtime = MacosWebviewRuntime::new(
+            "https://web.stremio.com/",
+            true,
+            InjectionBundle::load().expect("injection bundle"),
+            test_host(),
+        );
+        runtime.load().unwrap();
+
+        let diagnostics = runtime.diagnostics_snapshot(
+            vec!["Invalid macOS IPC payload".to_string()],
+            Some(Duration::from_millis(120)),
+        );
+
+        assert_eq!(diagnostics.webview.url, "https://web.stremio.com/");
+        assert!(diagnostics.webview.loaded);
+        assert!(diagnostics
+            .webview
+            .document_start_scripts
+            .contains(&HOST_ADAPTER_NAME.to_string()));
+        assert_eq!(diagnostics.ipc.handler, "ipc");
+        assert_eq!(diagnostics.ipc.recent_errors.len(), 1);
+        assert_eq!(diagnostics.player.backend, "fake");
+        assert_eq!(diagnostics.player.first_frame_ms, Some(120));
+        assert!(diagnostics
+            .player
+            .mpv_options
+            .iter()
+            .any(|(name, value)| name == "hwdec" && value == "auto"));
+        assert_eq!(diagnostics.server.running, false);
+        assert!(diagnostics
+            .server
+            .stdout_log
+            .ends_with("stremio-server.stdout.log"));
     }
 }

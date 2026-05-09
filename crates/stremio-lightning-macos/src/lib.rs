@@ -1,5 +1,6 @@
 pub mod app;
 pub mod app_integration;
+pub mod diagnostics;
 pub mod host;
 pub mod native_window;
 pub mod packaging;

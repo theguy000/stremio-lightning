@@ -62,6 +62,20 @@ Use this checklist before and after migration work that touches shell startup, i
 - On Windows, start playback and confirm MPV receives `loadfile`.
 - On Windows, pause/seek/stop and confirm MPV property changes are reflected in the web UI.
 
+## macOS WKWebView Shell
+
+- Build the local app bundle with `cargo xtask package-macos` on macOS.
+- Launch `dist/Stremio Lightning.app` by double-clicking it.
+- Confirm the web UI loads through the streaming-server proxy URL.
+- Confirm `window.StremioLightningHost`, `window.StremioEnhancedAPI`, and the mods button are available after document-start injection.
+- Confirm `stremio://`, `magnet:`, and `.torrent` opens focus the existing app and dispatch `open-media` through `shell-transport-message`.
+- Confirm server status reports online and `Contents/Resources` sidecar files are used instead of development paths.
+- Start local sample playback and a real Stremio stream; confirm native MPV receives `loadfile`, first frame appears, pause/seek/stop events reach the web UI, and fullscreen enter/exit works.
+- Check diagnostics for webview URL/load state, injection order, IPC errors, MPV backend/options, first-frame timing, and streaming-server stdout/stderr log paths.
+- Test with a fresh user profile and an existing user profile under `~/Library/Application Support`.
+- Compare startup, URL selection, server launch, playback, file/deeplink handling, fullscreen, and shutdown cleanup against Linux/Windows native shells and the official shell behavior.
+- Note WKWebView differences during smoke testing: document-start injection timing, one-way `WKScriptMessageHandler` IPC with evaluated JavaScript responses, HTTPS/local proxy rules, and Web Inspector availability.
+
 ## Shutdown
 
 - Close the app window.
