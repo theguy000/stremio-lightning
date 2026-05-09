@@ -18,8 +18,10 @@ const WINDOWS_BIN: &str = "stremio-lightning-windows";
 const LINUX_TARGET: &str = "x86_64-unknown-linux-gnu";
 const WINDOWS_TARGET: &str = "x86_64-pc-windows-msvc";
 const LINUX_APPIMAGE: &str = "Stremio_Lightning_Linux-x86_64.AppImage";
+const LINUX_DEB: &str = "stremio-lightning-linux-amd64.deb";
 const MACOS_APP_BUNDLE: &str = "Stremio Lightning.app";
 const WINDOWS_ZIP: &str = "stremio-lightning-windows-portable.zip";
+const WINDOWS_INSTALLER: &str = "stremio-lightning-windows-setup.exe";
 
 fn main() {
     if let Err(error) = run() {
@@ -43,8 +45,10 @@ fn run() -> Result<()> {
         "build-ui" => run_npm(&["run", "build:ui"])?,
         "test-ui" => run_npm(&["run", "test:ui"])?,
         "build-linux-appimage" => build_linux_appimage()?,
+        "package-linux-deb" => package_linux_deb()?,
         "package-macos" => package_macos()?,
         "package-windows" => package_windows()?,
+        "package-windows-installer" => package_windows_installer()?,
         other => {
             return Err(format!(
                 "unknown xtask command '{other}'. Run `cargo xtask help` for usage."
@@ -66,8 +70,10 @@ Usage:\n\
   cargo xtask build-ui               Build the Svelte/Vite UI bundle\n\
   cargo xtask test-ui                Run frontend tests\n\
   cargo xtask build-linux-appimage   Build dist/{LINUX_APPIMAGE}\n\
+  cargo xtask package-linux-deb      Build dist/{LINUX_DEB}\n\
   cargo xtask package-macos          Build dist/{MACOS_APP_BUNDLE}\n\
-  cargo xtask package-windows        Build and zip the Windows portable artifact\n"
+  cargo xtask package-windows        Build and zip the Windows portable artifact\n\
+  cargo xtask package-windows-installer Build dist/{WINDOWS_INSTALLER}\n"
     );
 }
 
@@ -95,10 +101,134 @@ fn setup_windows() -> Result<()> {
 
 fn build_linux_appimage() -> Result<()> {
     let root = root();
+    let dist_dir = root.join("dist");
+    let output = dist_dir.join(LINUX_APPIMAGE);
+    let appdir = prepare_linux_appdir()?;
+
+    let appimage_tool = appimage_tool_path()?;
+    if !is_executable_file(&appimage_tool) {
+        return Err(format!(
+            "AppImage tool not found or not executable: {}\n       Set APPIMAGE_TOOL=/path/to/appimagetool or download appimagetool to the default cache path.",
+            appimage_tool.display()
+        )
+        .into());
+    }
+
+    println!("==> Packaging AppImage...");
+    remove_file_if_exists(&output)?;
+    let mut command = Command::new(&appimage_tool);
+    command.env("ARCH", "x86_64").arg(&appdir).arg(&output);
+    run_command(&mut command)?;
+    chmod_executable(&output)?;
+
+    println!(
+        "==> AppImage ready: {}",
+        output.strip_prefix(&root).unwrap_or(&output).display()
+    );
+    Ok(())
+}
+
+fn package_linux_deb() -> Result<()> {
+    if env::consts::OS != "linux" {
+        return Err("cargo xtask package-linux-deb must be run on Linux".into());
+    }
+
+    let root = root();
+    let dist_dir = root.join("dist");
+    let output = dist_dir.join(LINUX_DEB);
+    let appdir = prepare_linux_appdir()?;
+    let deb_root = root.join("target/deb/stremio-lightning");
+    let debian_dir = deb_root.join("DEBIAN");
+    let install_root = deb_root.join(format!("usr/lib/{APP_ID}"));
+    let bundled_lib_dir = install_root.join("lib");
+
+    remove_dir_if_exists(&deb_root)?;
+    fs::create_dir_all(&debian_dir)?;
+    fs::create_dir_all(deb_root.join("usr/bin"))?;
+    fs::create_dir_all(&install_root)?;
+    fs::create_dir_all(&bundled_lib_dir)?;
+    fs::create_dir_all(deb_root.join("usr/share/applications"))?;
+    fs::create_dir_all(deb_root.join("usr/share/icons/hicolor/128x128/apps"))?;
+    fs::create_dir_all(&dist_dir)?;
+
+    copy_file(
+        appdir.join(format!("usr/bin/{LINUX_BIN}")),
+        install_root.join(LINUX_BIN),
+    )?;
+    copy_dir_recursive(
+        appdir.join(format!("usr/lib/{APP_ID}/binaries")),
+        install_root.join("binaries"),
+    )?;
+    copy_dir_recursive(
+        appdir.join(format!("usr/lib/{APP_ID}/resources")),
+        install_root.join("resources"),
+    )?;
+    copy_file(
+        appdir.join(format!("usr/share/icons/hicolor/128x128/apps/{APP_ID}.png")),
+        deb_root.join(format!("usr/share/icons/hicolor/128x128/apps/{APP_ID}.png")),
+    )?;
+
+    for entry in fs::read_dir(appdir.join("usr/lib"))? {
+        let entry = entry?;
+        if entry.file_name() == OsStr::new(APP_ID) {
+            continue;
+        }
+
+        let path = entry.path();
+        let destination = bundled_lib_dir.join(entry.file_name());
+        if path.is_dir() {
+            copy_dir_recursive(path, destination)?;
+        } else if path.is_file() {
+            copy_file(path, destination)?;
+        }
+    }
+
+    write_file(
+        deb_root.join(format!("usr/bin/{APP_ID}")),
+        format!(
+            "#!/bin/sh\nset -eu\nexport LD_LIBRARY_PATH=\"/usr/lib/{APP_ID}/lib${{LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}}\"\nexport STREMIO_LIGHTNING_BUNDLE_DIR=\"/usr/lib/{APP_ID}\"\nexec \"/usr/lib/{APP_ID}/{LINUX_BIN}\" \"$@\"\n"
+        ),
+    )?;
+    chmod_executable(deb_root.join(format!("usr/bin/{APP_ID}")))?;
+    chmod_executable(install_root.join(LINUX_BIN))?;
+    chmod_executable(install_root.join(format!("binaries/stremio-runtime-{LINUX_TARGET}")))?;
+    chmod_executable(install_root.join("resources/ffmpeg"))?;
+    chmod_executable(install_root.join("resources/ffprobe"))?;
+
+    write_file(
+        deb_root.join(format!("usr/share/applications/{APP_ID}.desktop")),
+        format!(
+            "[Desktop Entry]\nType=Application\nName={APP_NAME}\nExec={APP_ID}\nIcon={APP_ID}\nCategories=AudioVideo;Video;Player;\nTerminal=false\n"
+        ),
+    )?;
+    write_file(
+        debian_dir.join("control"),
+        format!(
+            "Package: {APP_ID}\nVersion: {}\nSection: video\nPriority: optional\nArchitecture: amd64\nMaintainer: Stremio Lightning Maintainers <noreply@example.com>\nDescription: Lightweight native Stremio shell\n Stremio Lightning packages a native Linux shell with bundled runtime resources.\n",
+            package_version()?
+        ),
+    )?;
+
+    remove_file_if_exists(&output)?;
+    run_program(
+        "dpkg-deb",
+        [
+            "--root-owner-group",
+            "--build",
+            &deb_root.to_string_lossy(),
+            &output.to_string_lossy(),
+        ],
+    )?;
+    println!("==> Linux deb ready: {}", output.display());
+
+    Ok(())
+}
+
+fn prepare_linux_appdir() -> Result<PathBuf> {
+    let root = root();
     let linux_dir = root.join("crates/stremio-lightning-linux");
     let appdir = root.join(format!("target/appimage/{APP_ID}.AppDir"));
     let dist_dir = root.join("dist");
-    let output = dist_dir.join(LINUX_APPIMAGE);
     let runtime = linux_dir.join(format!("binaries/stremio-runtime-{LINUX_TARGET}"));
     let server = linux_dir.join("resources/server.cjs");
     let ffmpeg = linux_dir.join("resources/ffmpeg");
@@ -186,27 +316,7 @@ fn build_linux_appimage() -> Result<()> {
     required_executable_file(app_resources.join("ffmpeg"), "cargo xtask setup-linux")?;
     required_executable_file(app_resources.join("ffprobe"), "cargo xtask setup-linux")?;
 
-    let appimage_tool = appimage_tool_path()?;
-    if !is_executable_file(&appimage_tool) {
-        return Err(format!(
-            "AppImage tool not found or not executable: {}\n       Set APPIMAGE_TOOL=/path/to/appimagetool or download appimagetool to the default cache path.",
-            appimage_tool.display()
-        )
-        .into());
-    }
-
-    println!("==> Packaging AppImage...");
-    remove_file_if_exists(&output)?;
-    let mut command = Command::new(&appimage_tool);
-    command.env("ARCH", "x86_64").arg(&appdir).arg(&output);
-    run_command(&mut command)?;
-    chmod_executable(&output)?;
-
-    println!(
-        "==> AppImage ready: {}",
-        output.strip_prefix(&root).unwrap_or(&output).display()
-    );
-    Ok(())
+    Ok(appdir)
 }
 
 fn package_macos() -> Result<()> {
@@ -346,6 +456,10 @@ fn package_windows() -> Result<()> {
         &windows_dir.join("resources/libmpv-2.dll"),
         "cargo xtask setup-windows",
     )?;
+    required_file(
+        &root.join("src/favicon.ico"),
+        "restore src/favicon.ico for the Windows executable icon",
+    )?;
 
     println!("==> Building native Windows shell crate...");
     build_windows_shell()?;
@@ -406,6 +520,140 @@ fn package_windows() -> Result<()> {
     println!("==> Windows portable zip ready: {}", zip_path.display());
 
     Ok(())
+}
+
+fn package_windows_installer() -> Result<()> {
+    if env::consts::OS != "windows" {
+        return Err("cargo xtask package-windows-installer must be run on Windows with Inno Setup installed".into());
+    }
+
+    let root = root();
+    let dist_dir = root.join("dist");
+    let portable_dir = dist_dir.join("stremio-lightning-windows-portable");
+    let installer_script = root.join("target/windows-installer/stremio-lightning.iss");
+    let installer_output = dist_dir.join(WINDOWS_INSTALLER);
+    let icon = root.join("src/favicon.ico");
+
+    required_file(
+        &icon,
+        "restore src/favicon.ico for the Windows installer icon",
+    )?;
+    required_file(
+        &portable_dir.join(format!("{WINDOWS_BIN}.exe")),
+        "cargo xtask package-windows",
+    )?;
+    required_file(
+        &portable_dir.join("libmpv-2.dll"),
+        "cargo xtask package-windows",
+    )?;
+    for name in [
+        "stremio-runtime.exe",
+        "server.cjs",
+        "ffmpeg.exe",
+        "ffprobe.exe",
+    ] {
+        required_file(
+            &portable_dir.join(format!("resources/{name}")),
+            "cargo xtask package-windows",
+        )?;
+    }
+
+    remove_file_if_exists(&installer_output)?;
+    write_file(
+        &installer_script,
+        format!(
+            r#"#define MyAppName "{APP_NAME}"
+#define MyAppVersion "{}"
+#define MyAppPublisher "Stremio Lightning"
+#define MyAppExeName "{WINDOWS_BIN}.exe"
+#define MyAppIcon "{}"
+
+[Setup]
+AppId={APP_ID}
+AppName={{#MyAppName}}
+AppVersion={{#MyAppVersion}}
+AppPublisher={{#MyAppPublisher}}
+DefaultDirName={{autopf}}\{APP_NAME}
+DefaultGroupName={{#MyAppName}}
+DisableProgramGroupPage=yes
+OutputDir={}
+OutputBaseFilename={}
+Compression=lzma
+SolidCompression=yes
+WizardStyle=modern
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
+SetupIconFile={{#MyAppIcon}}
+UninstallDisplayIcon={{app}}\{{#MyAppExeName}}
+
+[Languages]
+Name: "english"; MessagesFile: "compiler:Default.isl"
+
+[Tasks]
+Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional icons:"; Flags: unchecked
+
+[Files]
+Source: "{}\*"; DestDir: "{{app}}"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+[Icons]
+Name: "{{group}}\{{#MyAppName}}"; Filename: "{{app}}\{{#MyAppExeName}}"; IconFilename: "{{app}}\{{#MyAppExeName}}"
+Name: "{{autodesktop}}\{{#MyAppName}}"; Filename: "{{app}}\{{#MyAppExeName}}"; IconFilename: "{{app}}\{{#MyAppExeName}}"; Tasks: desktopicon
+
+[Run]
+Filename: "{{app}}\{{#MyAppExeName}}"; Description: "Launch {{#MyAppName}}"; Flags: nowait postinstall skipifsilent
+"#,
+            package_version()?,
+            inno_path(&icon),
+            inno_path(&dist_dir),
+            WINDOWS_INSTALLER.trim_end_matches(".exe"),
+            inno_path(&portable_dir)
+        ),
+    )?;
+
+    run_program("iscc", [&installer_script])?;
+    required_file(&installer_output, "cargo xtask package-windows-installer")?;
+    println!(
+        "==> Windows installer ready: {}",
+        installer_output.display()
+    );
+
+    Ok(())
+}
+
+fn package_version() -> Result<String> {
+    let raw = env::var("STREMIO_LIGHTNING_VERSION")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| {
+            if env::var("GITHUB_REF_TYPE").ok().as_deref() == Some("tag") {
+                env::var("GITHUB_REF_NAME").ok()
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string());
+
+    let version = raw.trim().trim_start_matches('v').to_string();
+    if version.is_empty() {
+        return Err("package version is empty".into());
+    }
+    if !version.chars().all(|character| {
+        character.is_ascii_alphanumeric() || matches!(character, '.' | '+' | '~' | '-' | ':')
+    }) {
+        return Err(format!("package version contains unsupported characters: {raw}").into());
+    }
+    if !version
+        .chars()
+        .next()
+        .is_some_and(|character| character.is_ascii_digit())
+    {
+        return Err(format!(
+            "package version must start with a digit after optional 'v' prefix: {raw}"
+        )
+        .into());
+    }
+
+    Ok(version)
 }
 
 fn root() -> PathBuf {
@@ -634,6 +882,29 @@ fn copy_file(from: impl AsRef<Path>, to: impl AsRef<Path>) -> Result<()> {
         )
     })?;
     Ok(())
+}
+
+fn copy_dir_recursive(from: impl AsRef<Path>, to: impl AsRef<Path>) -> Result<()> {
+    let from = from.as_ref();
+    let to = to.as_ref();
+    fs::create_dir_all(to)?;
+
+    for entry in fs::read_dir(from)? {
+        let entry = entry?;
+        let source = entry.path();
+        let destination = to.join(entry.file_name());
+        if source.is_dir() {
+            copy_dir_recursive(source, destination)?;
+        } else if source.is_file() {
+            copy_file(source, destination)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn inno_path(path: &Path) -> String {
+    path.to_string_lossy().replace('"', "\"\"")
 }
 
 fn write_file(path: impl AsRef<Path>, contents: impl AsRef<[u8]>) -> Result<()> {

@@ -7,24 +7,36 @@ on:
 
 jobs:
   linux:
-    permissions:
-      contents: write
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
+    container:
+      image: ubuntu:resolute
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
-      - uses: actions/checkout@v4
-
       - name: Install system dependencies (Linux)
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          apt-get update
+          apt-get install -y \
+            build-essential \
+            ca-certificates \
+            curl \
+            git \
+            libgtk-4-dev \
+            libmpv-dev \
+            librsvg2-dev \
+            libwebkitgtk-6.0-dev \
+            nodejs \
+            patchelf \
+            pkg-config
+
+      - uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: lts/*
+          cache: npm
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -52,25 +64,27 @@ jobs:
       - name: Build Linux AppImage
         run: cargo xtask build-linux-appimage
 
-      - name: Upload Linux artifact
+      - name: Build Linux installer package
+        run: cargo xtask package-linux-deb
+
+      - name: Verify Linux artifact
+        run: |
+          test -s dist/Stremio_Lightning_Linux-x86_64.AppImage
+          test -s dist/stremio-lightning-linux-amd64.deb
+
+      - name: Upload Linux portable artifact
         uses: actions/upload-artifact@v4
         with:
           name: Stremio_Lightning_Linux-x86_64.AppImage
           path: dist/Stremio_Lightning_Linux-x86_64.AppImage
 
-      - name: Upload Linux release asset
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload Linux installer artifact
+        uses: actions/upload-artifact@v4
         with:
-          draft: true
-          prerelease: false
-          files: dist/Stremio_Lightning_Linux-x86_64.AppImage
+          name: stremio-lightning-linux-amd64.deb
+          path: dist/stremio-lightning-linux-amd64.deb
 
   windows:
-    permissions:
-      contents: write
     runs-on: windows-latest
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -82,6 +96,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: lts/*
+          cache: npm
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -92,6 +107,9 @@ jobs:
       - name: Rust cache
         uses: swatinem/rust-cache@v2
 
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
       - name: Install frontend dependencies
         run: npm ci
 
@@ -100,9 +118,51 @@ jobs:
 
       - name: Download Windows shell dependencies
         run: cargo xtask setup-windows
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Package Windows portable artifact
         run: cargo xtask package-windows
+
+      - name: Package Windows installer artifact
+        run: cargo xtask package-windows-installer
+
+      - name: Verify Windows artifacts
+        shell: pwsh
+        run: |
+          $zip = "dist/stremio-lightning-windows-portable.zip"
+          if (-not (Test-Path $zip)) {
+            throw "Missing Windows portable zip: $zip"
+          }
+
+          $installer = "dist/stremio-lightning-windows-setup.exe"
+          if (-not (Test-Path $installer)) {
+            throw "Missing Windows installer: $installer"
+          }
+          if ((Get-Item $installer).Length -eq 0) {
+            throw "Windows installer is empty: $installer"
+          }
+
+          $contents = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path $zip))
+          try {
+            $names = $contents.Entries.FullName
+            $required = @(
+              "stremio-lightning-windows.exe",
+              "libmpv-2.dll",
+              "resources/stremio-runtime.exe",
+              "resources/server.cjs",
+              "resources/ffmpeg.exe",
+              "resources/ffprobe.exe"
+            )
+
+            foreach ($name in $required) {
+              if ($names -notcontains $name) {
+                throw "Windows portable zip is missing $name"
+              }
+            }
+          } finally {
+            $contents.Dispose()
+          }
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
@@ -110,12 +170,53 @@ jobs:
           name: stremio-lightning-windows-portable.zip
           path: dist/stremio-lightning-windows-portable.zip
 
-      - name: Upload Windows release asset
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Upload Windows installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: stremio-lightning-windows-setup.exe
+          path: dist/stremio-lightning-windows-setup.exe
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [linux, windows]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download Linux artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Stremio_Lightning_Linux-x86_64.AppImage
+          path: release-assets
+
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: stremio-lightning-windows-portable.zip
+          path: release-assets
+
+      - name: Download Linux installer artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: stremio-lightning-linux-amd64.deb
+          path: release-assets
+
+      - name: Download Windows installer artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: stremio-lightning-windows-setup.exe
+          path: release-assets
+
+      - name: Upload release assets
         uses: softprops/action-gh-release@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           draft: true
           prerelease: false
-          files: dist/stremio-lightning-windows-portable.zip
+          files: |
+            release-assets/Stremio_Lightning_Linux-x86_64.AppImage
+            release-assets/stremio-lightning-linux-amd64.deb
+            release-assets/stremio-lightning-windows-portable.zip
+            release-assets/stremio-lightning-windows-setup.exe
