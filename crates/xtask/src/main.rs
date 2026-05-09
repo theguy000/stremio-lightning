@@ -933,7 +933,8 @@ fn remove_file_if_exists(path: impl AsRef<Path>) -> Result<()> {
 }
 
 fn run_npm(args: &[&str]) -> Result<()> {
-    run_program("npm", args)
+    let program = if cfg!(windows) { "npm.cmd" } else { "npm" };
+    run_program(program, args)
 }
 
 fn run_program<I, S>(program: impl AsRef<OsStr>, args: I) -> Result<()>
