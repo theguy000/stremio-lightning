@@ -61,7 +61,7 @@ jobs:
       - name: Download appimagetool
         run: |
           mkdir -p "$HOME/.cache/appimage"
-          curl -L "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage" -o "$HOME/.cache/appimage/appimagetool-x86_64.AppImage"
+          curl -L --fail "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage" -o "$HOME/.cache/appimage/appimagetool-x86_64.AppImage"
           chmod +x "$HOME/.cache/appimage/appimagetool-x86_64.AppImage"
 
       - name: Build Linux AppImage
