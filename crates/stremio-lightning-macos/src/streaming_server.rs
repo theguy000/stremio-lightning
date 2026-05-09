@@ -354,6 +354,12 @@ fn default_project_root() -> PathBuf {
         return PathBuf::from(path);
     }
 
+    if let Ok(executable) = std::env::current_exe() {
+        if let Some(resources) = bundled_resources_root_from_executable(&executable) {
+            return resources;
+        }
+    }
+
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .ancestors()
         .nth(2)
@@ -377,6 +383,18 @@ fn default_log_dir() -> PathBuf {
         .unwrap_or_else(|_| PathBuf::from("."))
         .join("stremio-lightning")
         .join("logs")
+}
+
+fn bundled_resources_root_from_executable(executable: &Path) -> Option<PathBuf> {
+    let macos_dir = executable.parent()?;
+    if macos_dir.file_name().and_then(|name| name.to_str()) != Some("MacOS") {
+        return None;
+    }
+    let contents_dir = macos_dir.parent()?;
+    if contents_dir.file_name().and_then(|name| name.to_str()) != Some("Contents") {
+        return None;
+    }
+    Some(contents_dir.join("Resources"))
 }
 
 #[cfg(test)]
@@ -411,6 +429,22 @@ mod tests {
         assert_eq!(
             spec.stderr_log,
             PathBuf::from("/logs/stremio-server.stderr.log")
+        );
+    }
+
+    #[test]
+    fn detects_packaged_app_resources_from_executable_path() {
+        let resources = bundled_resources_root_from_executable(Path::new(
+            "/Applications/Stremio Lightning.app/Contents/MacOS/stremio-lightning-macos",
+        ))
+        .unwrap();
+        assert_eq!(
+            resources,
+            PathBuf::from("/Applications/Stremio Lightning.app/Contents/Resources")
+        );
+        assert_eq!(
+            bundled_resources_root_from_executable(Path::new("/tmp/stremio-lightning-macos")),
+            None
         );
     }
 
