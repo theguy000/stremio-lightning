@@ -87,14 +87,14 @@ fn setup_current_platform() -> Result<()> {
 
 fn setup_linux() -> Result<()> {
     run_program(
-        "bash",
+        bash_program(),
         &[root().join("scripts/download-linux-shell-deps.sh")],
     )
 }
 
 fn setup_windows() -> Result<()> {
     run_program(
-        "bash",
+        bash_program(),
         &[root().join("scripts/download-windows-shell-deps.sh")],
     )
 }
@@ -935,6 +935,18 @@ fn remove_file_if_exists(path: impl AsRef<Path>) -> Result<()> {
 fn run_npm(args: &[&str]) -> Result<()> {
     let program = if cfg!(windows) { "npm.cmd" } else { "npm" };
     run_program(program, args)
+}
+
+fn bash_program() -> OsString {
+    #[cfg(windows)]
+    {
+        let git_bash = Path::new(r"C:\Program Files\Git\bin\bash.exe");
+        if git_bash.is_file() {
+            return git_bash.as_os_str().to_os_string();
+        }
+    }
+
+    OsString::from("bash")
 }
 
 fn run_program<I, S>(program: impl AsRef<OsStr>, args: I) -> Result<()>
