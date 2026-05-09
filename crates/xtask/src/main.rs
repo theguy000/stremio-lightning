@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeSet,
     env,
     error::Error,
     ffi::{OsStr, OsString},
@@ -101,12 +102,13 @@ fn build_linux_appimage() -> Result<()> {
     let icon = root.join("assets/icons/128x128.png");
     let app_resources = appdir.join(format!("usr/lib/{APP_ID}/resources"));
     let app_binaries = appdir.join(format!("usr/lib/{APP_ID}/binaries"));
+    let app_lib = appdir.join("usr/lib");
     let desktop_file = appdir.join(format!("{APP_ID}.desktop"));
 
-    required_file(&runtime, "cargo xtask setup-linux")?;
+    required_executable_file(&runtime, "cargo xtask setup-linux")?;
     required_file(&server, "cargo xtask setup-linux")?;
-    required_file(&ffmpeg, "cargo xtask setup-linux")?;
-    required_file(&ffprobe, "cargo xtask setup-linux")?;
+    required_executable_file(&ffmpeg, "cargo xtask setup-linux")?;
+    required_executable_file(&ffprobe, "cargo xtask setup-linux")?;
     required_file(&icon, "restore assets/icons/128x128.png")?;
 
     println!("==> Building native Linux shell crate...");
@@ -114,6 +116,7 @@ fn build_linux_appimage() -> Result<()> {
 
     remove_dir_if_exists(&appdir)?;
     fs::create_dir_all(appdir.join("usr/bin"))?;
+    fs::create_dir_all(&app_lib)?;
     fs::create_dir_all(&app_binaries)?;
     fs::create_dir_all(&app_resources)?;
     fs::create_dir_all(appdir.join("usr/share/applications"))?;
@@ -150,7 +153,7 @@ fn build_linux_appimage() -> Result<()> {
     write_file(
         appdir.join("AppRun"),
         format!(
-            "#!/bin/bash\nset -euo pipefail\nHERE=$(dirname \"$(readlink -f \"$0\")\")\nexport STREMIO_LIGHTNING_BUNDLE_DIR=\"$HERE/usr/lib/{APP_ID}\"\nexec \"$HERE/usr/bin/{LINUX_BIN}\" \"$@\"\n"
+            "#!/bin/bash\nset -euo pipefail\nHERE=$(dirname \"$(readlink -f \"$0\")\")\nexport LD_LIBRARY_PATH=\"$HERE/usr/lib${{LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}}\"\nexport STREMIO_LIGHTNING_BUNDLE_DIR=\"$HERE/usr/lib/{APP_ID}\"\nexec \"$HERE/usr/bin/{LINUX_BIN}\" \"$@\"\n"
         ),
     )?;
 
@@ -159,6 +162,25 @@ fn build_linux_appimage() -> Result<()> {
     chmod_executable(app_binaries.join(format!("stremio-runtime-{LINUX_TARGET}")))?;
     chmod_executable(app_resources.join("ffmpeg"))?;
     chmod_executable(app_resources.join("ffprobe"))?;
+
+    bundle_linux_shared_libraries(
+        &appdir.join(format!("usr/bin/{LINUX_BIN}")),
+        &app_lib,
+        "cargo xtask setup-linux",
+    )?;
+
+    required_executable_file(appdir.join("AppRun"), "cargo xtask setup-linux")?;
+    required_executable_file(
+        appdir.join(format!("usr/bin/{LINUX_BIN}")),
+        "cargo xtask setup-linux",
+    )?;
+    required_executable_file(
+        app_binaries.join(format!("stremio-runtime-{LINUX_TARGET}")),
+        "cargo xtask setup-linux",
+    )?;
+    required_file(&app_resources.join("server.cjs"), "cargo xtask setup-linux")?;
+    required_executable_file(app_resources.join("ffmpeg"), "cargo xtask setup-linux")?;
+    required_executable_file(app_resources.join("ffprobe"), "cargo xtask setup-linux")?;
 
     let appimage_tool = appimage_tool_path()?;
     if !is_executable_file(&appimage_tool) {
@@ -335,9 +357,114 @@ fn required_file(path: &Path, setup_hint: &str) -> Result<()> {
         )
     })?;
     if !metadata.is_file() || metadata.len() == 0 {
-        return Err(format!("required file is empty or invalid: {}", path.display()).into());
+        return Err(format!(
+            "required file is empty or invalid: {}\n       Run: {setup_hint}",
+            path.display()
+        )
+        .into());
     }
     Ok(())
+}
+
+fn required_executable_file(path: impl AsRef<Path>, setup_hint: &str) -> Result<()> {
+    let path = path.as_ref();
+    required_file(path, setup_hint)?;
+    if !is_executable_file(path) {
+        return Err(format!(
+            "required file is not executable: {}\n       Run: {setup_hint}",
+            path.display()
+        )
+        .into());
+    }
+    Ok(())
+}
+
+fn bundle_linux_shared_libraries(binary: &Path, app_lib: &Path, setup_hint: &str) -> Result<()> {
+    if env::consts::OS != "linux" {
+        return Ok(());
+    }
+
+    println!("==> Bundling Linux shared libraries...");
+    let output = Command::new("ldd").arg(binary).output().map_err(|error| {
+        format!(
+            "failed to inspect Linux shared libraries for {}: {error}\n       Run: {setup_hint}",
+            binary.display()
+        )
+    })?;
+    if !output.status.success() {
+        return Err(format!(
+            "failed to inspect Linux shared libraries for {}\n       Run: {setup_hint}",
+            binary.display()
+        )
+        .into());
+    }
+
+    let ldd = String::from_utf8_lossy(&output.stdout);
+    let mut missing = Vec::new();
+    let mut libs = BTreeSet::new();
+    for line in ldd.lines().map(str::trim).filter(|line| !line.is_empty()) {
+        if line.contains("not found") {
+            missing.push(line.to_string());
+            continue;
+        }
+
+        if let Some(path) = resolved_ldd_path(line) {
+            if should_bundle_linux_library(&path) {
+                libs.insert(path);
+            }
+        }
+    }
+
+    if !missing.is_empty() {
+        return Err(format!(
+            "missing Linux shared libraries while preparing AppImage:\n       {}\n       Run: {setup_hint}",
+            missing.join("\n       ")
+        )
+        .into());
+    }
+
+    for lib in libs {
+        let Some(name) = lib.file_name() else {
+            continue;
+        };
+        copy_file(&lib, app_lib.join(name))?;
+    }
+
+    Ok(())
+}
+
+fn resolved_ldd_path(line: &str) -> Option<PathBuf> {
+    if let Some((_, rest)) = line.split_once("=>") {
+        return rest
+            .split_whitespace()
+            .next()
+            .filter(|path| path.starts_with('/'))
+            .map(PathBuf::from);
+    }
+
+    line.split_whitespace()
+        .next()
+        .filter(|path| path.starts_with('/'))
+        .map(PathBuf::from)
+}
+
+fn should_bundle_linux_library(path: &Path) -> bool {
+    let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+        return false;
+    };
+
+    !matches!(
+        name,
+        "ld-linux-x86-64.so.2"
+            | "libc.so.6"
+            | "libdl.so.2"
+            | "libgcc_s.so.1"
+            | "libm.so.6"
+            | "libpthread.so.0"
+            | "libresolv.so.2"
+            | "librt.so.1"
+            | "libstdc++.so.6"
+    )
 }
 
 fn copy_file(from: impl AsRef<Path>, to: impl AsRef<Path>) -> Result<()> {
