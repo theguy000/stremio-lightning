@@ -117,7 +117,11 @@ fn build_linux_appimage() -> Result<()> {
     println!("==> Packaging AppImage...");
     remove_file_if_exists(&output)?;
     let mut command = Command::new(&appimage_tool);
-    command.env("ARCH", "x86_64").arg(&appdir).arg(&output);
+    command
+        .env("ARCH", "x86_64")
+        .env("APPIMAGE_EXTRACT_AND_RUN", "1")
+        .arg(&appdir)
+        .arg(&output);
     run_command(&mut command)?;
     chmod_executable(&output)?;
 
