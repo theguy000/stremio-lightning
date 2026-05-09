@@ -251,8 +251,8 @@ Build the Windows installer EXE:
 cargo xtask package-windows-installer
 ```
 
-Use this when you want the Windows setup installer. It depends on the portable
-layout having already been built.
+Use this when you want the Windows setup installer. It builds the shell and
+prepares the portable layout internally before creating the installer.
 
 Windows outputs:
 
@@ -270,9 +270,8 @@ On Linux/macOS, the portable build uses `cargo-xwin` for MSVC cross-compilation:
 cargo install cargo-xwin
 ```
 
-The installer EXE is currently supported only on Windows. The xtask command
-requires the portable artifact to exist first, then uses Inno Setup's `iscc`
-compiler from `PATH` to create the installer.
+The installer EXE is currently supported only on Windows. The xtask command uses
+Inno Setup's `iscc` compiler from `PATH` to create the installer.
 
 The GitHub release workflow builds this in the `windows-latest` job after
 installing Inno Setup.

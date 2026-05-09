@@ -435,10 +435,40 @@ fn package_macos() -> Result<()> {
 
 fn package_windows() -> Result<()> {
     let root = root();
+    let dist_dir = root.join("dist");
+    let portable_dir = prepare_windows_portable_layout(&root)?;
+    let zip_path = dist_dir.join(WINDOWS_ZIP);
+
+    remove_file_if_exists(&zip_path)?;
+    if env::consts::OS == "windows" {
+        run_program(
+            "powershell",
+            [
+                "-NoProfile",
+                "-Command",
+                &format!(
+                    "Compress-Archive -Path '{}' -DestinationPath '{}' -Force",
+                    portable_dir.join("*").display(),
+                    zip_path.display()
+                ),
+            ],
+        )?;
+    } else {
+        run_program_in(
+            &portable_dir,
+            "zip",
+            ["-r", &zip_path.to_string_lossy(), "."],
+        )?;
+    }
+    println!("==> Windows portable zip ready: {}", zip_path.display());
+
+    Ok(())
+}
+
+fn prepare_windows_portable_layout(root: &Path) -> Result<PathBuf> {
     let windows_dir = root.join("crates/stremio-lightning-windows");
     let dist_dir = root.join("dist");
     let portable_dir = dist_dir.join("stremio-lightning-windows-portable");
-    let zip_path = dist_dir.join(WINDOWS_ZIP);
 
     required_file(
         &windows_dir.join("resources/stremio-runtime.exe"),
@@ -469,8 +499,8 @@ fn package_windows() -> Result<()> {
     build_windows_shell()?;
 
     remove_dir_if_exists(&portable_dir)?;
-    fs::create_dir_all(&portable_dir)?;
     fs::create_dir_all(&dist_dir)?;
+    fs::create_dir_all(&portable_dir)?;
 
     copy_file(
         root.join(format!("target/{WINDOWS_TARGET}/release/{WINDOWS_BIN}.exe")),
@@ -500,30 +530,7 @@ fn package_windows() -> Result<()> {
         )?;
     }
 
-    remove_file_if_exists(&zip_path)?;
-    if env::consts::OS == "windows" {
-        run_program(
-            "powershell",
-            [
-                "-NoProfile",
-                "-Command",
-                &format!(
-                    "Compress-Archive -Path '{}' -DestinationPath '{}' -Force",
-                    portable_dir.join("*").display(),
-                    zip_path.display()
-                ),
-            ],
-        )?;
-    } else {
-        run_program_in(
-            &portable_dir,
-            "zip",
-            ["-r", &zip_path.to_string_lossy(), "."],
-        )?;
-    }
-    println!("==> Windows portable zip ready: {}", zip_path.display());
-
-    Ok(())
+    Ok(portable_dir)
 }
 
 fn package_windows_installer() -> Result<()> {
@@ -533,7 +540,7 @@ fn package_windows_installer() -> Result<()> {
 
     let root = root();
     let dist_dir = root.join("dist");
-    let portable_dir = dist_dir.join("stremio-lightning-windows-portable");
+    let portable_dir = prepare_windows_portable_layout(&root)?;
     let installer_script = root.join("target/windows-installer/stremio-lightning.iss");
     let installer_output = dist_dir.join(WINDOWS_INSTALLER);
     let icon = root.join("src/favicon.ico");
@@ -542,25 +549,6 @@ fn package_windows_installer() -> Result<()> {
         &icon,
         "restore src/favicon.ico for the Windows installer icon",
     )?;
-    required_file(
-        &portable_dir.join(format!("{WINDOWS_BIN}.exe")),
-        "cargo xtask package-windows-portable",
-    )?;
-    required_file(
-        &portable_dir.join("libmpv-2.dll"),
-        "cargo xtask package-windows-portable",
-    )?;
-    for name in [
-        "stremio-runtime.exe",
-        "server.cjs",
-        "ffmpeg.exe",
-        "ffprobe.exe",
-    ] {
-        required_file(
-            &portable_dir.join(format!("resources/{name}")),
-            "cargo xtask package-windows-portable",
-        )?;
-    }
 
     remove_file_if_exists(&installer_output)?;
     write_file(
