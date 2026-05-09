@@ -2,6 +2,11 @@ name: Build & Release
 
 on:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Existing release tag to upload assets to"
+        required: false
+        type: string
   push:
     tags: ["v*"]
 
@@ -180,7 +185,7 @@ jobs:
           path: dist/stremio-lightning-windows-setup.exe
 
   release:
-    if: startsWith(github.ref, 'refs/tags/')
+    if: startsWith(github.ref, 'refs/tags/') || github.event.inputs.release_tag != ''
     needs: [linux, windows]
     runs-on: ubuntu-24.04
     permissions:
@@ -218,6 +223,7 @@ jobs:
         with:
           draft: true
           prerelease: false
+          tag_name: ${{ github.event.inputs.release_tag || github.ref_name }}
           files: |
             release-assets/Stremio_Lightning_Linux-x86_64.AppImage
             release-assets/stremio-lightning-linux-amd64.deb
