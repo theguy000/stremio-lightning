@@ -1,4 +1,4 @@
-use crate::player::{NativePlayerStatus, PlayerBackend};
+use crate::player::{self, NativePlayerStatus, PlayerBackend};
 use crate::streaming_server::{ProcessSpawner, StreamingServer};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -195,6 +195,11 @@ where
             }
             "get_native_player_status" => Ok(serde_json::to_value(self.native_player_status())
                 .map_err(|e| format!("Failed to serialize macOS player status: {e}"))?),
+            "mpv-observe-prop" | "mpv-set-prop" | "mpv-command" | "native-player-stop" => {
+                player::handle_transport(&self.player, command, payload)?;
+                self.emit_drained_player_events()?;
+                Ok(Value::Null)
+            }
             "get_plugins" => Ok(serde_json::to_value(mods::list_mods(
                 &self.app_data_dir,
                 mods::ModType::Plugin,
@@ -365,7 +370,33 @@ where
         )
     }
 
+    pub fn emit_native_player_transport_args(&self, args: Value) -> Result<(), String> {
+        let values = args
+            .as_array()
+            .ok_or_else(|| "Invalid macOS native player event args".to_string())?;
+        let event_type = values
+            .first()
+            .and_then(Value::as_str)
+            .ok_or_else(|| "Missing macOS native player event type".to_string())?;
+        let payload = values.get(1).cloned().unwrap_or(Value::Null);
+        self.emit_event(
+            SHELL_TRANSPORT_EVENT,
+            json!({
+                "type": event_type,
+                "payload": payload,
+            }),
+        )
+    }
+
+    pub fn emit_drained_player_events(&self) -> Result<(), String> {
+        for event in self.player.drain_events()? {
+            self.emit_native_player_transport_args(event.transport_args())?;
+        }
+        Ok(())
+    }
+
     pub fn drain_emitted_events(&self) -> Result<Vec<HostEventRecord>, String> {
+        self.emit_drained_player_events()?;
         Ok(self
             .listeners
             .lock()
@@ -662,6 +693,70 @@ mod tests {
             .unwrap_err(),
             "Rejected non-whitelisted open_external_url URL"
         );
+    }
+
+    #[test]
+    fn host_routes_player_transport_commands() {
+        let player = FakePlayerBackend::initialized();
+        let host = Host::new(
+            player.clone(),
+            StreamingServer::new(FakeProcessSpawner::default()),
+        );
+
+        host.invoke("mpv-observe-prop", Some(json!("pause")))
+            .unwrap();
+        host.invoke("mpv-set-prop", Some(json!(["pause", true])))
+            .unwrap();
+        host.invoke(
+            "mpv-command",
+            Some(json!(["loadfile", "file:///tmp/sample.mp4", "replace"])),
+        )
+        .unwrap();
+        host.invoke("native-player-stop", None).unwrap();
+
+        assert_eq!(
+            player.actions(),
+            vec![
+                crate::player::PlayerAction::ObserveProperty("pause".to_string()),
+                crate::player::PlayerAction::SetProperty {
+                    name: "pause".to_string(),
+                    value: json!(true),
+                },
+                crate::player::PlayerAction::Command {
+                    name: "loadfile".to_string(),
+                    args: vec!["file:///tmp/sample.mp4".to_string(), "replace".to_string()],
+                },
+                crate::player::PlayerAction::Stop,
+            ]
+        );
+    }
+
+    #[test]
+    fn host_drains_player_events_to_shell_transport() {
+        let player = FakePlayerBackend::initialized();
+        let host = Host::new(
+            player.clone(),
+            StreamingServer::new(FakeProcessSpawner::default()),
+        );
+        host.dispatch_ipc(
+            "listen",
+            Some(json!({"id": 3, "event": SHELL_TRANSPORT_EVENT})),
+        )
+        .unwrap();
+        player
+            .push_event(stremio_lightning_core::player_api::PlayerEvent::Ended(
+                stremio_lightning_core::player_api::PlayerEnded {
+                    reason: "eof".to_string(),
+                    error: None,
+                },
+            ))
+            .unwrap();
+
+        let events = host.drain_emitted_events().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event, SHELL_TRANSPORT_EVENT);
+        assert_eq!(events[0].payload["type"], "mpv-event-ended");
+        assert_eq!(events[0].payload["payload"]["reason"], "eof");
     }
 
     #[test]
