@@ -4,6 +4,7 @@ pub const DEFAULT_WEBUI_URL: &str = "https://web.stremio.com/";
 pub struct WindowsShellSettings {
     pub webui_url: String,
     pub streaming_server_disabled: bool,
+    pub devtools: bool,
 }
 
 pub type ShellSettings = WindowsShellSettings;
@@ -13,6 +14,10 @@ impl Default for WindowsShellSettings {
         let mut settings = Self {
             webui_url: DEFAULT_WEBUI_URL.to_string(),
             streaming_server_disabled: false,
+            devtools: std::env::var("STREMIO_LIGHTNING_WINDOWS_DEVTOOLS")
+                .ok()
+                .as_deref()
+                == Some("1"),
         };
 
         settings.apply_args(std::env::args().skip(1));
@@ -32,6 +37,8 @@ impl WindowsShellSettings {
                 self.webui_url = url.to_string();
             } else if arg == "--streaming-server-disabled" {
                 self.streaming_server_disabled = true;
+            } else if arg == "--devtools" {
+                self.devtools = true;
             }
         }
     }
@@ -44,6 +51,7 @@ impl WindowsShellSettings {
         Self {
             webui_url: DEFAULT_WEBUI_URL.to_string(),
             streaming_server_disabled: false,
+            devtools: false,
         }
         .with_args(args)
     }
@@ -67,5 +75,12 @@ mod tests {
         let settings = WindowsShellSettings::from_args(["--webui-url=http://127.0.0.1:5173/"]);
 
         assert_eq!(settings.webui_url, "http://127.0.0.1:5173/");
+    }
+
+    #[test]
+    fn parses_devtools_flag() {
+        let settings = WindowsShellSettings::from_args(["--devtools"]);
+
+        assert!(settings.devtools);
     }
 }
