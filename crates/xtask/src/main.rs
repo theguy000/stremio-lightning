@@ -19,6 +19,9 @@ const LINUX_TARGET: &str = "x86_64-unknown-linux-gnu";
 const WINDOWS_TARGET: &str = "x86_64-pc-windows-msvc";
 const LINUX_APPIMAGE: &str = "Stremio_Lightning_Linux-x86_64.AppImage";
 const LINUX_DEB: &str = "stremio-lightning-linux-amd64.deb";
+const LINUX_FLATPAK: &str = "Stremio_Lightning_Linux-x86_64.flatpak";
+const LINUX_FLATPAK_ID: &str = "io.github.theguy000.StremioLightning";
+const LINUX_FLATPAK_RUNTIME_VERSION: &str = "49";
 const MACOS_APP_BUNDLE: &str = "Stremio Lightning.app";
 const WINDOWS_ZIP: &str = "stremio-lightning-windows-portable.zip";
 const WINDOWS_INSTALLER: &str = "stremio-lightning-windows-setup.exe";
@@ -46,6 +49,7 @@ fn run() -> Result<()> {
         "test-ui" => run_npm(&["run", "test:ui"])?,
         "package-linux-appimage" => build_linux_appimage()?,
         "package-linux-deb" => package_linux_deb()?,
+        "package-linux-flatpak" => package_linux_flatpak()?,
         "package-macos" => package_macos()?,
         "package-windows-portable" => package_windows()?,
         "package-windows-installer" => package_windows_installer()?,
@@ -71,6 +75,7 @@ Usage:\n\
   cargo xtask test-ui                     Run frontend tests\n\
   cargo xtask package-linux-appimage      Build dist/{LINUX_APPIMAGE}\n\
   cargo xtask package-linux-deb           Build dist/{LINUX_DEB}\n\
+    cargo xtask package-linux-flatpak       Build dist/{LINUX_FLATPAK}\n\
   cargo xtask package-macos               Build dist/{MACOS_APP_BUNDLE}\n\
   cargo xtask package-windows-portable    Build dist/{WINDOWS_ZIP}\n\
   cargo xtask package-windows-installer   Build dist/{WINDOWS_INSTALLER}\n"
@@ -226,6 +231,180 @@ fn package_linux_deb() -> Result<()> {
     println!("==> Linux deb ready: {}", output.display());
 
     Ok(())
+}
+
+fn package_linux_flatpak() -> Result<()> {
+    if env::consts::OS != "linux" {
+        return Err("cargo xtask package-linux-flatpak must be run on Linux".into());
+    }
+    if !program_exists("flatpak-builder") {
+        return Err("missing flatpak-builder. Install Flatpak tooling, then retry.".into());
+    }
+    if !program_exists("flatpak") {
+        return Err("missing flatpak. Install Flatpak tooling, then retry.".into());
+    }
+
+    let root = root();
+    let dist_dir = root.join("dist");
+    let output = dist_dir.join(LINUX_FLATPAK);
+    let appdir = prepare_linux_appdir()?;
+    let flatpak_dir = root.join("target/flatpak");
+    let payload_dir = flatpak_dir.join("payload");
+    let build_dir = flatpak_dir.join("build");
+    let repo_dir = flatpak_dir.join("repo");
+    let manifest = flatpak_dir.join(format!("{LINUX_FLATPAK_ID}.json"));
+
+    remove_dir_if_exists(&payload_dir)?;
+    fs::create_dir_all(&payload_dir)?;
+    fs::create_dir_all(&dist_dir)?;
+    prepare_linux_flatpak_payload(&appdir, &payload_dir)?;
+    write_file(&manifest, linux_flatpak_manifest(&payload_dir))?;
+
+    println!("==> Building Flatpak repository...");
+    run_program(
+        "flatpak-builder",
+        [
+            OsString::from("--force-clean"),
+            OsString::from("--repo"),
+            repo_dir.as_os_str().to_os_string(),
+            build_dir.as_os_str().to_os_string(),
+            manifest.as_os_str().to_os_string(),
+        ],
+    )?;
+
+    println!("==> Exporting Flatpak bundle...");
+    remove_file_if_exists(&output)?;
+    run_program(
+        "flatpak",
+        [
+            OsString::from("build-bundle"),
+            repo_dir.as_os_str().to_os_string(),
+            output.as_os_str().to_os_string(),
+            OsString::from(LINUX_FLATPAK_ID),
+            OsString::from("stable"),
+        ],
+    )?;
+
+    println!(
+        "==> Linux Flatpak ready: {}",
+        output.strip_prefix(&root).unwrap_or(&output).display()
+    );
+    Ok(())
+}
+
+fn prepare_linux_flatpak_payload(appdir: &Path, payload_dir: &Path) -> Result<()> {
+    let files_dir = payload_dir.join("files");
+    let bin_dir = files_dir.join("bin");
+    let applications_dir = files_dir.join("share/applications");
+    let icons_dir = files_dir.join("share/icons/hicolor/128x128/apps");
+    let metainfo_dir = files_dir.join("share/metainfo");
+
+    fs::create_dir_all(&bin_dir)?;
+    fs::create_dir_all(&applications_dir)?;
+    fs::create_dir_all(&icons_dir)?;
+    fs::create_dir_all(&metainfo_dir)?;
+
+    copy_dir_recursive(appdir.join("usr/lib"), files_dir.join("lib"))?;
+    copy_file(
+        appdir.join(format!("usr/bin/{LINUX_BIN}")),
+        bin_dir.join(LINUX_BIN),
+    )?;
+    write_file(
+        bin_dir.join(APP_ID),
+        format!(
+            "#!/bin/sh\nset -eu\nexport LD_LIBRARY_PATH=\"/app/lib${{LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}}\"\nexport STREMIO_LIGHTNING_BUNDLE_DIR=\"/app/lib/{APP_ID}\"\nexec /app/bin/{LINUX_BIN} \"$@\"\n"
+        ),
+    )?;
+    chmod_executable(bin_dir.join(APP_ID))?;
+    chmod_executable(bin_dir.join(LINUX_BIN))?;
+    chmod_executable(
+        files_dir.join(format!(
+            "lib/{APP_ID}/binaries/stremio-runtime-{LINUX_TARGET}"
+        )),
+    )?;
+    chmod_executable(files_dir.join(format!("lib/{APP_ID}/resources/ffmpeg")))?;
+    chmod_executable(files_dir.join(format!("lib/{APP_ID}/resources/ffprobe")))?;
+
+    write_file(
+        applications_dir.join(format!("{LINUX_FLATPAK_ID}.desktop")),
+        format!(
+            "[Desktop Entry]\nType=Application\nName={APP_NAME}\nExec={APP_ID}\nIcon={LINUX_FLATPAK_ID}\nCategories=AudioVideo;Video;Player;\nTerminal=false\nStartupNotify=true\n"
+        ),
+    )?;
+    copy_file(
+        appdir.join(format!("{APP_ID}.png")),
+        icons_dir.join(format!("{LINUX_FLATPAK_ID}.png")),
+    )?;
+    write_file(
+        metainfo_dir.join(format!("{LINUX_FLATPAK_ID}.metainfo.xml")),
+        linux_flatpak_metainfo(),
+    )?;
+
+    Ok(())
+}
+
+fn linux_flatpak_manifest(payload_dir: &Path) -> String {
+    format!(
+        r#"{{
+    "app-id": "{LINUX_FLATPAK_ID}",
+    "runtime": "org.gnome.Platform",
+    "runtime-version": "{LINUX_FLATPAK_RUNTIME_VERSION}",
+    "sdk": "org.gnome.Sdk",
+    "command": "{APP_ID}",
+    "finish-args": [
+        "--share=ipc",
+        "--share=network",
+        "--socket=x11",
+        "--socket=pulseaudio",
+        "--device=dri",
+        "--talk-name=org.freedesktop.Notifications"
+    ],
+    "modules": [
+        {{
+            "name": "stremio-lightning",
+            "buildsystem": "simple",
+            "build-commands": [
+                "cp -a files/. /app/"
+            ],
+            "sources": [
+                {{
+                    "type": "dir",
+                    "path": "{}"
+                }}
+            ]
+        }}
+    ]
+}}
+"#,
+        json_string(&payload_dir.to_string_lossy())
+    )
+}
+
+fn linux_flatpak_metainfo() -> String {
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>{LINUX_FLATPAK_ID}</id>
+  <name>{APP_NAME}</name>
+  <summary>Lightweight native Stremio shell</summary>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+  <description>
+    <p>Stremio Lightning packages a native Linux shell with plugin management, theme support, and MPV-powered playback.</p>
+  </description>
+  <launchable type="desktop-id">{LINUX_FLATPAK_ID}.desktop</launchable>
+  <categories>
+    <category>AudioVideo</category>
+    <category>Video</category>
+    <category>Player</category>
+  </categories>
+  <releases>
+    <release version="{}" date="2026-05-12" />
+  </releases>
+</component>
+"#,
+        package_version().unwrap_or_else(|_| "0.1.0".to_string())
+    )
 }
 
 fn prepare_linux_appdir() -> Result<PathBuf> {
@@ -893,6 +1072,15 @@ fn copy_dir_recursive(from: impl AsRef<Path>, to: impl AsRef<Path>) -> Result<()
     }
 
     Ok(())
+}
+
+fn json_string(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
+        .replace('\t', "\\t")
 }
 
 fn inno_path(path: &Path) -> String {

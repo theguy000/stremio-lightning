@@ -22,6 +22,8 @@ jobs:
             ca-certificates \
             clang \
             curl \
+            flatpak \
+            flatpak-builder \
             gh \
             git \
             libgtk-4-dev \
@@ -64,16 +66,25 @@ jobs:
           curl -L --fail "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage" -o "$HOME/.cache/appimage/appimagetool-x86_64.AppImage"
           chmod +x "$HOME/.cache/appimage/appimagetool-x86_64.AppImage"
 
+      - name: Install Flatpak runtime
+        run: |
+          flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          flatpak install --noninteractive flathub org.gnome.Platform//49 org.gnome.Sdk//49
+
       - name: Build Linux AppImage
         run: cargo xtask package-linux-appimage
 
       - name: Build Linux installer package
         run: cargo xtask package-linux-deb
 
+      - name: Build Linux Flatpak bundle
+        run: cargo xtask package-linux-flatpak
+
       - name: Verify Linux artifact
         run: |
           test -s dist/Stremio_Lightning_Linux-x86_64.AppImage
           test -s dist/stremio-lightning-linux-amd64.deb
+          test -s dist/Stremio_Lightning_Linux-x86_64.flatpak
 
       - name: Upload Linux portable artifact
         uses: actions/upload-artifact@v4
@@ -86,6 +97,12 @@ jobs:
         with:
           name: stremio-lightning-linux-amd64.deb
           path: dist/stremio-lightning-linux-amd64.deb
+
+      - name: Upload Linux Flatpak artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Stremio_Lightning_Linux-x86_64.flatpak
+          path: dist/Stremio_Lightning_Linux-x86_64.flatpak
 
   windows:
     runs-on: windows-latest
@@ -205,6 +222,12 @@ jobs:
           name: stremio-lightning-linux-amd64.deb
           path: release-assets
 
+      - name: Download Linux Flatpak artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Stremio_Lightning_Linux-x86_64.flatpak
+          path: release-assets
+
       - name: Download Windows installer artifact
         uses: actions/download-artifact@v4
         with:
@@ -221,5 +244,6 @@ jobs:
           files: |
             release-assets/Stremio_Lightning_Linux-x86_64.AppImage
             release-assets/stremio-lightning-linux-amd64.deb
+            release-assets/Stremio_Lightning_Linux-x86_64.flatpak
             release-assets/stremio-lightning-windows-portable.zip
             release-assets/stremio-lightning-windows-setup.exe

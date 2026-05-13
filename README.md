@@ -74,6 +74,7 @@ Developer workflow details are documented in [`docs/developer-guide.md`](docs/de
 ```bash
 cargo xtask build-ui
 cargo xtask package-linux-appimage
+cargo xtask package-linux-flatpak
 cargo xtask package-windows-portable
 ```
 
@@ -98,7 +99,7 @@ Plugins have access to the global `window.StremioEnhancedAPI` object, which expo
 |----------|------------------------------------------|
 | Windows  | Requires `libmpv-2.dll`, ffmpeg, ffprobe |
 | macOS    | Minimum macOS 10.15 (Catalina)           |
-| Linux    | Requires `libwebkit2gtk-4.1`             |
+| Linux    | AppImage, `.deb`, and Flatpak packaging  |
 
 ---
 
