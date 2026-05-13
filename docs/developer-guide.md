@@ -57,6 +57,7 @@ The main xtask commands are:
 | `cargo xtask test-ui` | Run frontend tests through Vitest. |
 | `cargo xtask package-linux-appimage` | Build the Linux AppImage. |
 | `cargo xtask package-linux-deb` | Build the Linux `.deb` package. |
+| `cargo xtask package-linux-flatpak` | Build the Linux Flatpak bundle. |
 | `cargo xtask package-macos` | Build the macOS `.app` bundle. |
 | `cargo xtask package-windows-portable` | Build the Windows portable zip. |
 | `cargo xtask package-windows-installer` | Build the Windows installer EXE. |
@@ -136,6 +137,7 @@ Build Linux packages:
 ```bash
 cargo xtask package-linux-appimage
 cargo xtask package-linux-deb
+cargo xtask package-linux-flatpak
 ```
 
 Use these when you need Linux artifacts under `dist/`.
@@ -145,6 +147,27 @@ Linux outputs:
 ```text
 dist/Stremio_Lightning_Linux-x86_64.AppImage
 dist/stremio-lightning-linux-amd64.deb
+dist/Stremio_Lightning_Linux-x86_64.flatpak
+```
+
+The Flatpak package command requires `flatpak`, `flatpak-builder`, and the GNOME
+runtime/SDK used by the manifest:
+
+```bash
+flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+flatpak install flathub org.gnome.Platform//49 org.gnome.Sdk//49
+```
+
+It currently exports an X11-only sandbox because Linux PiP always-on-top is
+implemented with X11 `_NET_WM_STATE_ABOVE`; KDE Wayland users should run the
+Flatpak through Xwayland or create a KDE Window Rule if they want forced
+always-on-top behavior.
+
+Install and run a local Flatpak bundle:
+
+```bash
+flatpak install --user --bundle dist/Stremio_Lightning_Linux-x86_64.flatpak
+flatpak run io.github.theguy000.StremioLightning
 ```
 
 Run the generated AppImage with DevTools enabled:
