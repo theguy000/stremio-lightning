@@ -268,6 +268,12 @@ creating:
 dist/stremio-lightning-windows-portable.zip
 ```
 
+Run the generated Windows executable with DevTools enabled:
+
+```powershell
+.\stremio-lightning-windows.exe --devtools
+```
+
 Build the Windows installer EXE:
 
 ```bash

@@ -104,6 +104,7 @@ fn bridge_module_scripts() -> Vec<InjectionScript> {
 
 pub struct WindowsWebView2Shell {
     url: String,
+    devtools: bool,
     injection: InjectionBundle,
     #[allow(dead_code)]
     host: Arc<Host>,
@@ -137,12 +138,14 @@ impl WindowsWebView2Shell {
         ui_notifier: Arc<Mutex<Option<crate::window::UiThreadNotifier>>>,
     ) -> Result<Self, String> {
         let url = settings.webui_url;
+        let devtools = settings.devtools;
         if !(url.starts_with("https://") || url.starts_with("http://127.0.0.1:")) {
             return Err(format!("Unsupported WebView2 load URL: {url}"));
         }
 
         Ok(Self {
             url,
+            devtools,
             injection: InjectionBundle::load(),
             host: Arc::new(Host::with_streaming_server_disabled(
                 env!("CARGO_PKG_VERSION"),
@@ -159,12 +162,14 @@ impl WindowsWebView2Shell {
         launch_intents: mpsc::Receiver<LaunchIntent>,
     ) -> Result<Self, String> {
         let url = settings.webui_url;
+        let devtools = settings.devtools;
         if !(url.starts_with("https://") || url.starts_with("http://127.0.0.1:")) {
             return Err(format!("Unsupported WebView2 load URL: {url}"));
         }
 
         Ok(Self {
             url,
+            devtools,
             injection: InjectionBundle::load(),
             host: Arc::new(Host::with_streaming_server_disabled(
                 env!("CARGO_PKG_VERSION"),
@@ -185,6 +190,7 @@ impl WindowsWebView2Shell {
     pub fn run(self) -> Result<(), String> {
         platform::run_webview2_shell(
             &self.url,
+            self.devtools,
             &self.injection,
             self.host,
             self.launch_intents,
@@ -216,6 +222,7 @@ mod platform {
 
     pub fn run_webview2_shell(
         url: &str,
+        devtools: bool,
         injection: &InjectionBundle,
         host: Arc<Host>,
         launch_intents: mpsc::Receiver<LaunchIntent>,
@@ -231,6 +238,7 @@ mod platform {
             WindowConfig::default(),
             WebView2WindowHost::new(
                 url.to_string(),
+                devtools,
                 injection.clone(),
                 host,
                 launch_intents,
@@ -241,6 +249,7 @@ mod platform {
 
     struct WebView2WindowHost {
         url: String,
+        devtools: bool,
         injection: InjectionBundle,
         host: Arc<Host>,
         controller: Option<ICoreWebView2Controller>,
@@ -254,6 +263,7 @@ mod platform {
     impl WebView2WindowHost {
         fn new(
             url: String,
+            devtools: bool,
             injection: InjectionBundle,
             host: Arc<Host>,
             launch_intents: mpsc::Receiver<LaunchIntent>,
@@ -261,6 +271,7 @@ mod platform {
         ) -> Self {
             Self {
                 url,
+                devtools,
                 injection,
                 host,
                 controller: None,
@@ -323,7 +334,7 @@ mod platform {
                     .map_err(|error| format!("Failed to get WebView2 instance: {error}"))?
             };
 
-            configure_webview(&webview)?;
+            configure_webview(&webview, self.devtools)?;
             add_injection_scripts(&webview, &self.injection)?;
             add_message_handler(&webview, self.host.clone())?;
             self.navigation_starting_token = Some(add_navigation_starting_handler(
@@ -494,7 +505,7 @@ mod platform {
         Ok(())
     }
 
-    fn configure_webview(webview: &ICoreWebView2) -> Result<(), String> {
+    fn configure_webview(webview: &ICoreWebView2, devtools: bool) -> Result<(), String> {
         let settings = unsafe {
             webview
                 .Settings()
@@ -502,7 +513,7 @@ mod platform {
         };
         unsafe {
             settings.SetIsStatusBarEnabled(false).ok();
-            settings.SetAreDevToolsEnabled(true).ok();
+            settings.SetAreDevToolsEnabled(devtools).ok();
             settings.SetIsZoomControlEnabled(false).ok();
             settings.SetIsBuiltInErrorPageEnabled(false).ok();
             settings.SetAreHostObjectsAllowed(false).ok();
