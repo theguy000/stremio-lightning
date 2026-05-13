@@ -261,6 +261,7 @@ fn package_linux_flatpak() -> Result<()> {
         "flatpak",
         [
             OsString::from("build-finish"),
+            OsString::from("--no-exports"),
             payload_dir.as_os_str().to_os_string(),
         ],
     )?;
