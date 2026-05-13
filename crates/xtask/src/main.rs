@@ -93,6 +93,18 @@ fn setup_current_platform() -> Result<()> {
 }
 
 fn setup_linux() -> Result<()> {
+    require_program("bash", "install bash, then rerun: cargo xtask setup-linux")?;
+    require_program(
+        "gh",
+        "install GitHub CLI (`gh`), then rerun: cargo xtask setup-linux",
+    )?;
+    require_program(
+        "dpkg-deb",
+        "install dpkg tooling (`dpkg-deb`), then rerun: cargo xtask setup-linux",
+    )?;
+    require_program("curl", "install curl, then rerun: cargo xtask setup-linux")?;
+    require_program("tar", "install tar, then rerun: cargo xtask setup-linux")?;
+
     run_program(
         bash_program(),
         &[root().join("scripts/download-linux-shell-deps.sh")],
@@ -1171,16 +1183,30 @@ fn run_command(command: &mut Command) -> Result<()> {
 }
 
 fn run_command_in(command: &mut Command, cwd: impl AsRef<Path>) -> Result<()> {
+    let cwd = cwd.as_ref();
     command
         .current_dir(cwd)
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit());
-    let status = command.status()?;
+    let status = command.status().map_err(|error| {
+        format!(
+            "failed to start command in {}: {command:?}\n       Cause: {error}",
+            cwd.display()
+        )
+    })?;
     if !status.success() {
         return Err(format!("command failed with status {status:?}: {command:?}").into());
     }
     Ok(())
+}
+
+fn require_program(program: &str, setup_hint: &str) -> Result<()> {
+    if program_exists(program) {
+        return Ok(());
+    }
+
+    Err(format!("missing required command: {program}\n       {setup_hint}").into())
 }
 
 fn program_exists(program: &str) -> bool {
