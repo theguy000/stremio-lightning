@@ -9,7 +9,10 @@ jobs:
   linux:
     runs-on: ubuntu-latest
     container:
-      image: ubuntu:resolute
+      # Keep Linux artifacts below the Freedesktop 25.08 runtime's GLIBC level.
+      # ubuntu:resolute currently produces bundled GTK/WebKit/GLib libraries that
+      # require GLIBC_2.43, which is newer than org.freedesktop.Platform//25.08.
+      image: ubuntu:questing
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 

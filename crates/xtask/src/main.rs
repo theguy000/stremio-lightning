@@ -256,6 +256,7 @@ fn package_linux_flatpak() -> Result<()> {
     fs::create_dir_all(&payload_dir)?;
     fs::create_dir_all(&dist_dir)?;
     prepare_linux_flatpak_payload(&appdir, &payload_dir)?;
+    validate_flatpak_glibc_symbols(&payload_dir)?;
     write_file(payload_dir.join("metadata"), linux_flatpak_metadata())?;
 
     println!("==> Finalizing Flatpak payload...");
@@ -380,6 +381,58 @@ fn linux_flatpak_metainfo() -> String {
 "#,
         package_version().unwrap_or_else(|_| "0.1.0".to_string())
     )
+}
+
+fn validate_flatpak_glibc_symbols(payload_dir: &Path) -> Result<()> {
+    if !program_exists("readelf") {
+        return Err("missing readelf. Install binutils before packaging the Flatpak.".into());
+    }
+
+    let mut offenders = Vec::new();
+    collect_flatpak_glibc_symbol_offenders(&payload_dir.join("files"), &mut offenders)?;
+
+    if offenders.is_empty() {
+        return Ok(());
+    }
+
+    Err(format!(
+        "Flatpak payload contains libraries requiring GLIBC newer than {LINUX_FLATPAK_RUNTIME}//{LINUX_FLATPAK_RUNTIME_VERSION}:\n       {}\n       Build the Linux payload with a distro/SDK whose GLIBC is compatible with the target Flatpak runtime.",
+        offenders.join("\n       ")
+    )
+    .into())
+}
+
+fn collect_flatpak_glibc_symbol_offenders(path: &Path, offenders: &mut Vec<String>) -> Result<()> {
+    if path.is_dir() {
+        for entry in fs::read_dir(path)? {
+            collect_flatpak_glibc_symbol_offenders(&entry?.path(), offenders)?;
+        }
+        return Ok(());
+    }
+
+    if !path.is_file() || !is_elf_file(path)? {
+        return Ok(());
+    }
+
+    let output = Command::new("readelf")
+        .arg("--version-info")
+        .arg(path)
+        .output()?;
+    if !output.status.success() {
+        return Ok(());
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    if stdout.contains("GLIBC_2.43") {
+        offenders.push(format!("{} requires GLIBC_2.43", path.display()));
+    }
+
+    Ok(())
+}
+
+fn is_elf_file(path: &Path) -> Result<bool> {
+    let bytes = fs::read(path)?;
+    Ok(bytes.starts_with(b"\x7fELF"))
 }
 
 fn prepare_linux_appdir() -> Result<PathBuf> {
