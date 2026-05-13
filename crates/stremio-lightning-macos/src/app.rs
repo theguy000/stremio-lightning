@@ -22,10 +22,7 @@ impl Default for AppConfig {
     fn default() -> Self {
         Self {
             url: DEFAULT_URL.to_string(),
-            devtools: std::env::var("STREMIO_LIGHTNING_MACOS_DEVTOOLS")
-                .ok()
-                .as_deref()
-                == Some("1"),
+            devtools: true,
             headless_bootstrap: false,
             disable_streaming_server: std::env::var("STREMIO_LIGHTNING_MACOS_NO_SERVER")
                 .ok()
@@ -116,7 +113,7 @@ mod tests {
     fn defaults_to_streaming_server_proxy() {
         let config = parse_args(["stremio-lightning-macos"]);
         assert_eq!(config.url, DEFAULT_URL);
-        assert!(!config.devtools);
+        assert!(config.devtools);
         assert!(!config.headless_bootstrap);
     }
 

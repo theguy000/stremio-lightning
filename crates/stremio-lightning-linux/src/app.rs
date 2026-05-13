@@ -22,10 +22,7 @@ impl Default for AppConfig {
     fn default() -> Self {
         Self {
             url: DEFAULT_URL.to_string(),
-            devtools: std::env::var("STREMIO_LIGHTNING_LINUX_DEVTOOLS")
-                .ok()
-                .as_deref()
-                == Some("1"),
+            devtools: true,
             headless_bootstrap: false,
         }
     }
@@ -109,6 +106,13 @@ mod tests {
     fn defaults_to_streaming_server_proxy() {
         let config = parse_args(["stremio-lightning-linux"]);
         assert_eq!(config.url, DEFAULT_URL);
+        assert!(config.devtools);
+    }
+
+    #[test]
+    fn accepts_devtools_flag_for_compatibility() {
+        let config = parse_args(["stremio-lightning-linux", "--devtools"]);
+        assert!(config.devtools);
     }
 
     #[test]

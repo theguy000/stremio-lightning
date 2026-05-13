@@ -14,10 +14,7 @@ impl Default for WindowsShellSettings {
         let mut settings = Self {
             webui_url: DEFAULT_WEBUI_URL.to_string(),
             streaming_server_disabled: false,
-            devtools: std::env::var("STREMIO_LIGHTNING_WINDOWS_DEVTOOLS")
-                .ok()
-                .as_deref()
-                == Some("1"),
+            devtools: true,
         };
 
         settings.apply_args(std::env::args().skip(1));
@@ -51,7 +48,7 @@ impl WindowsShellSettings {
         Self {
             webui_url: DEFAULT_WEBUI_URL.to_string(),
             streaming_server_disabled: false,
-            devtools: false,
+            devtools: true,
         }
         .with_args(args)
     }
@@ -75,6 +72,13 @@ mod tests {
         let settings = WindowsShellSettings::from_args(["--webui-url=http://127.0.0.1:5173/"]);
 
         assert_eq!(settings.webui_url, "http://127.0.0.1:5173/");
+    }
+
+    #[test]
+    fn enables_devtools_by_default() {
+        let settings = WindowsShellSettings::from_args([] as [&str; 0]);
+
+        assert!(settings.devtools);
     }
 
     #[test]

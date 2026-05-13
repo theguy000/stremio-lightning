@@ -206,12 +206,6 @@ flatpak install --user --bundle dist/Stremio_Lightning_Linux-x86_64.flatpak
 flatpak run io.github.theguy000.StremioLightning
 ```
 
-Run the generated AppImage with DevTools enabled:
-
-```bash
-./dist/Stremio_Lightning_Linux-x86_64.AppImage --devtools
-```
-
 If `appimagetool` is missing, place it at the default cache path:
 
 ```bash
