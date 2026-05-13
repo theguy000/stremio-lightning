@@ -123,6 +123,20 @@ impl<P: ProcessSpawner> StreamingServer<P> {
         }
 
         let spec = command_spec(&self.project_root, &self.log_dir);
+        println!(
+            "[StreamingServer] Linux sidecar command runtime={} server={} NO_CORS={} stdout_log={} stderr_log={}",
+            spec.program.display(),
+            spec.args
+                .first()
+                .map(|path| path.display().to_string())
+                .unwrap_or_else(|| "<missing>".to_string()),
+            spec.env
+                .get("NO_CORS")
+                .map(String::as_str)
+                .unwrap_or("<unset>"),
+            spec.stdout_log.display(),
+            spec.stderr_log.display()
+        );
         let spawned = self.spawner.spawn(spec)?;
         *child = Some(spawned);
         Ok(())
@@ -178,7 +192,7 @@ pub fn command_spec(project_root: &Path, log_dir: &Path) -> CommandSpec {
     let ffprobe = project_root.join("resources").join("ffprobe");
 
     let mut env = BTreeMap::new();
-    env.insert("NO_CORS".to_string(), "1".to_string());
+    env.insert("NO_CORS".to_string(), "0".to_string());
     env.insert(
         "FFMPEG_BIN".to_string(),
         ffmpeg.to_string_lossy().into_owned(),
@@ -302,7 +316,7 @@ mod tests {
             PathBuf::from("/repo/binaries/stremio-runtime-x86_64-unknown-linux-gnu")
         );
         assert_eq!(spec.args, vec![PathBuf::from("/repo/resources/server.cjs")]);
-        assert_eq!(spec.env.get("NO_CORS").unwrap(), "1");
+        assert_eq!(spec.env.get("NO_CORS").unwrap(), "0");
         assert_eq!(
             spec.env.get("FFMPEG_BIN").unwrap(),
             "/repo/resources/ffmpeg"
