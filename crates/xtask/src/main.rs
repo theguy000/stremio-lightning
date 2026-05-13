@@ -265,6 +265,7 @@ fn package_linux_flatpak() -> Result<()> {
         "flatpak-builder",
         [
             OsString::from("--force-clean"),
+            OsString::from("--disable-rofiles-fuse"),
             OsString::from("--repo"),
             repo_dir.as_os_str().to_os_string(),
             build_dir.as_os_str().to_os_string(),
