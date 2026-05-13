@@ -237,9 +237,6 @@ fn package_linux_flatpak() -> Result<()> {
     if env::consts::OS != "linux" {
         return Err("cargo xtask package-linux-flatpak must be run on Linux".into());
     }
-    if !program_exists("flatpak-builder") {
-        return Err("missing flatpak-builder. Install Flatpak tooling, then retry.".into());
-    }
     if !program_exists("flatpak") {
         return Err("missing flatpak. Install Flatpak tooling, then retry.".into());
     }
@@ -250,26 +247,24 @@ fn package_linux_flatpak() -> Result<()> {
     let appdir = prepare_linux_appdir()?;
     let flatpak_dir = root.join("target/flatpak");
     let payload_dir = flatpak_dir.join("payload");
-    let build_dir = flatpak_dir.join("build");
     let repo_dir = flatpak_dir.join("repo");
-    let manifest = flatpak_dir.join(format!("{LINUX_FLATPAK_ID}.json"));
 
     remove_dir_if_exists(&payload_dir)?;
+    remove_dir_if_exists(&repo_dir)?;
     fs::create_dir_all(&payload_dir)?;
     fs::create_dir_all(&dist_dir)?;
     prepare_linux_flatpak_payload(&appdir, &payload_dir)?;
-    write_file(&manifest, linux_flatpak_manifest(&payload_dir))?;
+    write_file(payload_dir.join("metadata"), linux_flatpak_metadata())?;
 
     println!("==> Building Flatpak repository...");
     run_program(
-        "flatpak-builder",
+        "flatpak",
         [
-            OsString::from("--force-clean"),
-            OsString::from("--disable-rofiles-fuse"),
-            OsString::from("--repo"),
+            OsString::from("build-export"),
+            OsString::from("--arch=x86_64"),
             repo_dir.as_os_str().to_os_string(),
-            build_dir.as_os_str().to_os_string(),
-            manifest.as_os_str().to_os_string(),
+            payload_dir.as_os_str().to_os_string(),
+            OsString::from("stable"),
         ],
     )?;
 
@@ -344,40 +339,9 @@ fn prepare_linux_flatpak_payload(appdir: &Path, payload_dir: &Path) -> Result<()
     Ok(())
 }
 
-fn linux_flatpak_manifest(payload_dir: &Path) -> String {
+fn linux_flatpak_metadata() -> String {
     format!(
-        r#"{{
-    "app-id": "{LINUX_FLATPAK_ID}",
-    "runtime": "org.gnome.Platform",
-    "runtime-version": "{LINUX_FLATPAK_RUNTIME_VERSION}",
-    "sdk": "org.gnome.Sdk",
-    "command": "{APP_ID}",
-    "finish-args": [
-        "--share=ipc",
-        "--share=network",
-        "--socket=x11",
-        "--socket=pulseaudio",
-        "--device=dri",
-        "--talk-name=org.freedesktop.Notifications"
-    ],
-    "modules": [
-        {{
-            "name": "stremio-lightning",
-            "buildsystem": "simple",
-            "build-commands": [
-                "cp -a files/. /app/"
-            ],
-            "sources": [
-                {{
-                    "type": "dir",
-                    "path": "{}"
-                }}
-            ]
-        }}
-    ]
-}}
-"#,
-        json_string(&payload_dir.to_string_lossy())
+        "[Application]\nname={LINUX_FLATPAK_ID}\nruntime=org.gnome.Platform/x86_64/{LINUX_FLATPAK_RUNTIME_VERSION}\nsdk=org.gnome.Sdk/x86_64/{LINUX_FLATPAK_RUNTIME_VERSION}\ncommand={APP_ID}\n\n[Context]\nshared=ipc;network;\nsockets=x11;pulseaudio;\ndevices=dri;\n\n[Session Bus Policy]\norg.freedesktop.Notifications=talk\n"
     )
 }
 
@@ -1073,15 +1037,6 @@ fn copy_dir_recursive(from: impl AsRef<Path>, to: impl AsRef<Path>) -> Result<()
     }
 
     Ok(())
-}
-
-fn json_string(value: &str) -> String {
-    value
-        .replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\n', "\\n")
-        .replace('\r', "\\r")
-        .replace('\t', "\\t")
 }
 
 fn inno_path(path: &Path) -> String {
