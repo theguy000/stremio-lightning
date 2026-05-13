@@ -15,6 +15,42 @@ Install Rust stable and Node.js LTS, then install frontend dependencies:
 npm install
 ```
 
+On Linux `x86_64-unknown-linux-gnu`, Cargo is configured to link Rust crates
+with `clang` and [`mold`](https://github.com/rui314/mold) in `.cargo/config.toml`:
+
+```toml
+[target.x86_64-unknown-linux-gnu]
+linker = "clang"
+rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+```
+
+Check whether both tools are installed before building:
+
+```bash
+command -v clang
+command -v mold
+```
+
+If either command prints nothing or exits with `command not found`, install the
+missing package with your distro package manager. Examples:
+
+```bash
+# Debian/Ubuntu
+sudo apt install clang mold
+
+# Fedora
+sudo dnf install clang mold
+
+# Arch Linux
+sudo pacman -S clang mold
+
+# openSUSE
+sudo zypper install clang mold
+```
+
+If `mold` is missing, Linux Cargo builds will fail during linking with an error
+from `clang`/the linker about `-fuse-ld=mold` or `mold` not being found.
+
 Download native runtime dependencies for the current platform:
 
 ```bash

@@ -42,7 +42,8 @@ Stremio Lightning is a desktop wrapper for [Stremio](https://www.stremio.com/) b
 
 - [Node.js](https://nodejs.org/) (LTS recommended)
 - [Rust](https://www.rust-lang.org/tools/install) (stable toolchain)
-- Linux: WebKitGTK 4.1 development/runtime packages for the native shell
+- Linux: WebKitGTK development/runtime packages for the native shell, plus
+  `clang` and [`mold`](https://github.com/rui314/mold) for Rust linking
 - Windows: WebView2 Runtime and MSVC Rust target/toolchain
 
 ### Installation
