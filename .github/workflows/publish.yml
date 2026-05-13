@@ -69,7 +69,7 @@ jobs:
       - name: Install Flatpak runtime
         run: |
           flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-          flatpak install --noninteractive flathub org.gnome.Platform//49 org.gnome.Sdk//49
+          flatpak install --noninteractive flathub org.freedesktop.Platform//25.08 org.freedesktop.Sdk//25.08
 
       - name: Build Linux AppImage
         run: cargo xtask package-linux-appimage

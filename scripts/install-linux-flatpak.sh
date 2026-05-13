@@ -7,4 +7,5 @@ tmp="$(mktemp --suffix=.flatpak)"
 trap 'rm -f "$tmp"' EXIT
 
 curl -L -o "$tmp" "$BUNDLE_URL"
+flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
 flatpak install --user --bundle "$tmp" -y
