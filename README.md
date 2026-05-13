@@ -47,25 +47,19 @@ Stremio Lightning is a desktop wrapper for [Stremio](https://www.stremio.com/) b
 
 ### Installation
 
-1. **Clone the repository**
-   ```
-   git clone https://github.com/theguy000/stremio-lightning.git
-   cd stremio-lightning
-   ```
+**Linux Flatpak**
 
-2. **Install dependencies**
-   ```
-   npm install
-   ```
+```bash
+curl -fsSL https://raw.githubusercontent.com/theguy000/stremio-lightning/master/scripts/install-linux-flatpak.sh | bash
+```
 
-3. **Download native shell dependencies**
-   ```
-   cargo xtask setup
-   ```
+**Windows EXE installer**
+
+Download and run `stremio-lightning-windows-setup.exe` from the [latest release](https://github.com/theguy000/stremio-lightning/releases/latest).
 
 ### Development
 
-Use `npm run dev:ui` for the injected UI bundle and run the native shell crate with Cargo.
+Clone the repository, install dependencies, then use `npm run dev:ui` for the injected UI bundle and run the native shell crate with Cargo.
 
 Developer workflow details are documented in [`docs/developer-guide.md`](docs/developer-guide.md).
 
