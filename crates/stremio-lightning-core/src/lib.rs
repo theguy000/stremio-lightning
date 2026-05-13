@@ -1,3 +1,5 @@
+#[cfg(feature = "app-updates")]
+pub mod app_update;
 pub mod host_api;
 #[cfg(feature = "mods")]
 pub mod mods;

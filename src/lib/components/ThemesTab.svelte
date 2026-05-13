@@ -24,6 +24,9 @@
     if (!info.update_url) return;
     await downloadMod(info.update_url, 'theme');
     await refreshThemes();
+    if (activeTheme === filename) {
+      await applyTheme(filename);
+    }
     delete updates[filename];
     updates = { ...updates };
   }

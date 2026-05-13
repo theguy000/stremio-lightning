@@ -11,7 +11,7 @@ use stremio_lightning_core::host_api::{self, HostEvent, ParsedRequest};
 use stremio_lightning_core::pip::{
     serialize_picture_in_picture, PipRestoreSnapshot, PipState, PipWindowController,
 };
-use stremio_lightning_core::{mods, settings};
+use stremio_lightning_core::{app_update, mods, settings};
 
 pub const SHELL_TRANSPORT_EVENT: &str = "shell-transport-message";
 const MAX_PENDING_MESSAGES: usize = 512;
@@ -117,7 +117,7 @@ where
 
     pub fn invoke(&self, command: &str, payload: Option<Value>) -> Result<Value, String> {
         match command {
-            "download_mod" | "get_registry" | "check_mod_updates" => {
+            "download_mod" | "get_registry" | "check_mod_updates" | "check_app_update" => {
                 let runtime = tokio::runtime::Builder::new_current_thread()
                     .enable_all()
                     .build()
@@ -204,6 +204,10 @@ where
                 )
                 .map_err(|e| format!("Failed to serialize update info: {e}"))?)
             }
+            "check_app_update" => Ok(serde_json::to_value(
+                app_update::check_app_update(env!("CARGO_PKG_VERSION")).await?,
+            )
+            .map_err(|e| format!("Failed to serialize app update info: {e}"))?),
             _ => self.invoke_sync(command, payload),
         }
     }

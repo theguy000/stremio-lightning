@@ -323,44 +323,37 @@ pub async fn check_mod_updates(
     };
 
     let installed_version = metadata.version.clone();
-    let Some(update_url) = metadata.update_url.clone() else {
-        return Ok(UpdateInfo::unavailable(Some(installed_version)));
-    };
-
-    let remote_response = reqwest::get(&update_url)
-        .await
-        .map_err(|e| format!("Failed to fetch update: {}", e))?;
     let mut new_version = None;
     let mut has_update = false;
-    let mut resolved_update_url = update_url.clone();
+    let mut resolved_update_url = metadata.update_url.clone();
 
-    if remote_response.status().is_success() {
-        let remote_content = remote_response
-            .text()
+    if let Some(update_url) = metadata.update_url.clone() {
+        let remote_response = reqwest::get(&update_url)
             .await
-            .map_err(|e| format!("Failed to read remote content: {}", e))?;
-        if let Some(remote_meta) = parse_metadata(&remote_content) {
-            if is_newer_version(&remote_meta.version, &installed_version) {
-                has_update = true;
-                new_version = Some(remote_meta.version);
+            .map_err(|e| format!("Failed to fetch update: {}", e))?;
+
+        if remote_response.status().is_success() {
+            let remote_content = remote_response
+                .text()
+                .await
+                .map_err(|e| format!("Failed to read remote content: {}", e))?;
+            if let Some(remote_meta) = parse_metadata(&remote_content) {
+                if is_newer_version(&remote_meta.version, &installed_version) {
+                    has_update = true;
+                    new_version = Some(remote_meta.version);
+                }
             }
         }
     }
 
     let mut registry_version = None;
-    if mod_type == ModType::Plugin {
-        if let Ok(registry) = fetch_registry().await {
-            if let Some(entry) = registry
-                .plugins
-                .iter()
-                .find(|entry| entry.name == metadata.name)
-            {
-                registry_version = Some(entry.version.clone());
-                if !has_update && is_newer_version(&entry.version, &installed_version) {
-                    has_update = true;
-                    new_version = Some(entry.version.clone());
-                    resolved_update_url = entry.download.clone();
-                }
+    if let Ok(registry) = fetch_registry().await {
+        if let Some(entry) = registry_match(&registry, filename, mod_type, &metadata) {
+            registry_version = Some(entry.version.clone());
+            if !has_update && is_newer_version(&entry.version, &installed_version) {
+                has_update = true;
+                new_version = Some(entry.version.clone());
+                resolved_update_url = Some(entry.download.clone());
             }
         }
     }
@@ -370,8 +363,32 @@ pub async fn check_mod_updates(
         installed_version: Some(installed_version),
         new_version,
         registry_version,
-        update_url: has_update.then_some(resolved_update_url),
+        update_url: has_update.then_some(resolved_update_url).flatten(),
     })
+}
+
+fn registry_entries(registry: &Registry, mod_type: ModType) -> &[RegistryEntry] {
+    match mod_type {
+        ModType::Plugin => &registry.plugins,
+        ModType::Theme => &registry.themes,
+    }
+}
+
+fn registry_match<'a>(
+    registry: &'a Registry,
+    filename: &str,
+    mod_type: ModType,
+    metadata: &ModMetadata,
+) -> Option<&'a RegistryEntry> {
+    let entries = registry_entries(registry, mod_type);
+    entries
+        .iter()
+        .find(|entry| filename_from_url(&entry.download).ok().as_deref() == Some(filename))
+        .or_else(|| {
+            entries
+                .iter()
+                .find(|entry| entry.name == metadata.name && entry.author == metadata.author)
+        })
 }
 
 pub use crate::validation::validate_filename;
@@ -506,5 +523,81 @@ mod tests {
             Some(vec!["a".to_string(), "b".to_string()])
         );
         assert_eq!(json!(metadata)["update_url"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn registry_match_prefers_download_filename() {
+        let metadata = ModMetadata {
+            name: "Shared Name".to_string(),
+            description: "Demo".to_string(),
+            author: "Alice".to_string(),
+            version: "1.0.0".to_string(),
+            update_url: None,
+            source: None,
+            license: None,
+            homepage: None,
+            requirements: None,
+        };
+        let registry = Registry {
+            plugins: vec![
+                RegistryEntry {
+                    name: "Shared Name".to_string(),
+                    author: "Alice".to_string(),
+                    description: None,
+                    version: "9.0.0".to_string(),
+                    repo: "https://example.com/other".to_string(),
+                    download: "https://example.com/other.plugin.js".to_string(),
+                    preview: None,
+                },
+                RegistryEntry {
+                    name: "Renamed".to_string(),
+                    author: "Bob".to_string(),
+                    description: None,
+                    version: "2.0.0".to_string(),
+                    repo: "https://example.com/current".to_string(),
+                    download: "https://example.com/current.plugin.js".to_string(),
+                    preview: None,
+                },
+            ],
+            themes: vec![],
+        };
+
+        let entry = registry_match(&registry, "current.plugin.js", ModType::Plugin, &metadata)
+            .expect("registry entry should match by download filename");
+
+        assert_eq!(entry.version, "2.0.0");
+    }
+
+    #[test]
+    fn registry_match_supports_themes() {
+        let metadata = ModMetadata {
+            name: "Theme".to_string(),
+            description: "Demo".to_string(),
+            author: "Alice".to_string(),
+            version: "1.0.0".to_string(),
+            update_url: None,
+            source: None,
+            license: None,
+            homepage: None,
+            requirements: None,
+        };
+        let registry = Registry {
+            plugins: vec![],
+            themes: vec![RegistryEntry {
+                name: "Theme".to_string(),
+                author: "Alice".to_string(),
+                description: None,
+                version: "2.0.0".to_string(),
+                repo: "https://example.com/theme".to_string(),
+                download: "https://example.com/theme.theme.css".to_string(),
+                preview: None,
+            }],
+        };
+
+        let entry = registry_match(&registry, "theme.theme.css", ModType::Theme, &metadata)
+            .expect("theme registry entry should match");
+
+        assert!(is_newer_version(&entry.version, &metadata.version));
+        assert_eq!(entry.download, "https://example.com/theme.theme.css");
     }
 }

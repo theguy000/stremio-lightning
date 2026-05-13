@@ -51,7 +51,13 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
+    environmentOptions: {
+      jsdom: {
+        url: 'http://127.0.0.1/',
+      },
+    },
     include: ['src/**/*.test.ts'],
+    setupFiles: ['src/test/setup.ts'],
     globals: true,
     clearMocks: true,
     restoreMocks: true,
