@@ -21,7 +21,9 @@ const LINUX_APPIMAGE: &str = "Stremio_Lightning_Linux-x86_64.AppImage";
 const LINUX_DEB: &str = "stremio-lightning-linux-amd64.deb";
 const LINUX_FLATPAK: &str = "Stremio_Lightning_Linux-x86_64.flatpak";
 const LINUX_FLATPAK_ID: &str = "io.github.theguy000.StremioLightning";
-const LINUX_FLATPAK_RUNTIME_VERSION: &str = "49";
+const LINUX_FLATPAK_RUNTIME: &str = "org.freedesktop.Platform";
+const LINUX_FLATPAK_SDK: &str = "org.freedesktop.Sdk";
+const LINUX_FLATPAK_RUNTIME_VERSION: &str = "25.08";
 const MACOS_APP_BUNDLE: &str = "Stremio Lightning.app";
 const WINDOWS_ZIP: &str = "stremio-lightning-windows-portable.zip";
 const WINDOWS_INSTALLER: &str = "stremio-lightning-windows-setup.exe";
@@ -323,11 +325,9 @@ fn prepare_linux_flatpak_payload(appdir: &Path, payload_dir: &Path) -> Result<()
     )?;
     chmod_executable(bin_dir.join(APP_ID))?;
     chmod_executable(bin_dir.join(LINUX_BIN))?;
-    chmod_executable(
-        files_dir.join(format!(
-            "lib/{APP_ID}/binaries/stremio-runtime-{LINUX_TARGET}"
-        )),
-    )?;
+    chmod_executable(files_dir.join(format!(
+        "lib/{APP_ID}/binaries/stremio-runtime-{LINUX_TARGET}"
+    )))?;
     chmod_executable(files_dir.join(format!("lib/{APP_ID}/resources/ffmpeg")))?;
     chmod_executable(files_dir.join(format!("lib/{APP_ID}/resources/ffprobe")))?;
 
@@ -351,7 +351,7 @@ fn prepare_linux_flatpak_payload(appdir: &Path, payload_dir: &Path) -> Result<()
 
 fn linux_flatpak_metadata() -> String {
     format!(
-        "[Application]\nname={LINUX_FLATPAK_ID}\nruntime=org.gnome.Platform/x86_64/{LINUX_FLATPAK_RUNTIME_VERSION}\nsdk=org.gnome.Sdk/x86_64/{LINUX_FLATPAK_RUNTIME_VERSION}\ncommand={APP_ID}\n\n[Context]\nshared=ipc;network;\nsockets=x11;pulseaudio;\ndevices=dri;\n\n[Session Bus Policy]\norg.freedesktop.Notifications=talk\n"
+        "[Application]\nname={LINUX_FLATPAK_ID}\nruntime={LINUX_FLATPAK_RUNTIME}/x86_64/{LINUX_FLATPAK_RUNTIME_VERSION}\nsdk={LINUX_FLATPAK_SDK}/x86_64/{LINUX_FLATPAK_RUNTIME_VERSION}\ncommand={APP_ID}\n\n[Context]\nshared=ipc;network;\nsockets=x11;pulseaudio;\ndevices=dri;\n\n[Session Bus Policy]\norg.freedesktop.Notifications=talk\n"
     )
 }
 
