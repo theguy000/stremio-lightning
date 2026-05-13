@@ -5,9 +5,10 @@ edition = "2021"
 build = "build.rs"
 
 [dependencies]
-stremio-lightning-core = { path = "../stremio-lightning-core", default-features = false }
+stremio-lightning-core = { path = "../stremio-lightning-core", default-features = false, features = ["app-updates"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+tokio = { version = "1", features = ["rt"] }
 
 [target.'cfg(windows)'.dependencies]
 libmpv2 = { version = "5.0.3", default-features = false }

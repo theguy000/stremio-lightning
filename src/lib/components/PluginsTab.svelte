@@ -42,8 +42,13 @@
   async function handleUpdate(filename: string, info: UpdateInfo) {
     if (!info.update_url) return;
     const type = filename.endsWith('.theme.css') ? 'theme' : 'plugin';
-    await downloadMod(info.update_url, type);
+    const updatedFilename = await downloadMod(info.update_url, type);
     await refreshPlugins();
+    if (updatedFilename === filename && isEnabled(filename)) {
+      await loadPlugin(filename);
+    } else if (isEnabled(filename)) {
+      showReloadWarning = true;
+    }
     delete updates[filename];
     updates = { ...updates };
   }

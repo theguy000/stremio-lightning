@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Mutex;
+use stremio_lightning_core::app_update;
 use stremio_lightning_core::host_api::{self, HostEvent, ParsedRequest};
 use stremio_lightning_core::pip::{serialize_picture_in_picture, PipState};
 use stremio_lightning_core::player_api::PlayerEvent;
@@ -393,7 +394,16 @@ impl WindowsHost {
             "toggle_devtools" | "start_discord_rpc" | "stop_discord_rpc" | "update_discord_activity" => {
                 Ok(Value::Null)
             }
-            "check_app_update" => Ok(Value::Null),
+            "check_app_update" => {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .map_err(|e| format!("Failed to create Windows update runtime: {e}"))?;
+                Ok(serde_json::to_value(runtime.block_on(
+                    app_update::check_app_update(env!("CARGO_PKG_VERSION")),
+                )?)
+                .map_err(|e| format!("Failed to serialize Windows app update info: {e}"))?)
+            }
             "set_auto_pause" | "set_pip_disables_auto_pause" => Ok(Value::Null),
             "get_auto_pause" | "get_pip_disables_auto_pause" => Ok(json!(false)),
             "toggle_pip" => {

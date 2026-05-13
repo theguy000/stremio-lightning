@@ -696,6 +696,7 @@ mod platform {
 
     pub fn run_webview2_shell(
         _url: &str,
+        _devtools: bool,
         _injection: &InjectionBundle,
         _host: Arc<Host>,
         _launch_intents: mpsc::Receiver<LaunchIntent>,

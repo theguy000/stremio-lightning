@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use stremio_lightning_core::{
+    app_update,
     host_api::{self, ParsedRequest},
     mods,
     pip::{serialize_picture_in_picture, PipState},
@@ -223,7 +224,7 @@ where
 
     pub fn invoke(&self, command: &str, payload: Option<Value>) -> Result<Value, String> {
         match command {
-            "download_mod" | "get_registry" | "check_mod_updates" => {
+            "download_mod" | "get_registry" | "check_mod_updates" | "check_app_update" => {
                 let runtime = tokio::runtime::Builder::new_current_thread()
                     .enable_all()
                     .build()
@@ -258,6 +259,10 @@ where
                 )
                 .map_err(|e| format!("Failed to serialize update info: {e}"))?)
             }
+            "check_app_update" => Ok(serde_json::to_value(
+                app_update::check_app_update(env!("CARGO_PKG_VERSION")).await?,
+            )
+            .map_err(|e| format!("Failed to serialize macOS app update info: {e}"))?),
             _ => self.invoke_sync(command, payload),
         }
     }
@@ -295,6 +300,7 @@ where
                     .and_then(Value::as_str)
                     .ok_or_else(|| "Missing open_external_url url".to_string())?;
                 validate_external_url(url)?;
+                open_external_url(url)?;
                 Ok(Value::Null)
             }
             "get_native_player_status" => Ok(serde_json::to_value(self.native_player_status())
@@ -385,7 +391,6 @@ where
             | "start_discord_rpc"
             | "stop_discord_rpc"
             | "update_discord_activity" => Ok(Value::Null),
-            "check_app_update" => Ok(Value::Null),
             "set_auto_pause" => {
                 let enabled = parse_optional_bool(payload).unwrap_or(true);
                 self.shell_preferences
@@ -795,6 +800,20 @@ fn validate_external_url(url: &str) -> Result<(), String> {
     } else {
         Err("Rejected non-whitelisted open_external_url URL".to_string())
     }
+}
+
+#[cfg(target_os = "macos")]
+fn open_external_url(url: &str) -> Result<(), String> {
+    std::process::Command::new("open")
+        .arg(url)
+        .spawn()
+        .map_err(|e| format!("Failed to open external URL: {e}"))?;
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn open_external_url(_url: &str) -> Result<(), String> {
+    Ok(())
 }
 
 #[cfg(test)]
