@@ -256,6 +256,15 @@ fn package_linux_flatpak() -> Result<()> {
     prepare_linux_flatpak_payload(&appdir, &payload_dir)?;
     write_file(payload_dir.join("metadata"), linux_flatpak_metadata())?;
 
+    println!("==> Finalizing Flatpak payload...");
+    run_program(
+        "flatpak",
+        [
+            OsString::from("build-finish"),
+            payload_dir.as_os_str().to_os_string(),
+        ],
+    )?;
+
     println!("==> Building Flatpak repository...");
     run_program(
         "flatpak",
