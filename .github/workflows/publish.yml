@@ -8,16 +8,14 @@ on:
 jobs:
   linux:
     runs-on: ubuntu-latest
-    container:
-      image: ubuntu:resolute
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
       - name: Install system dependencies (Linux)
         run: |
-          apt-get update
-          apt-get install -y \
+          sudo apt-get update
+          sudo apt-get install -y \
             build-essential \
             ca-certificates \
             clang \
@@ -68,8 +66,8 @@ jobs:
 
       - name: Install Flatpak runtime
         run: |
-          flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-          flatpak install --noninteractive flathub org.gnome.Platform//49 org.gnome.Sdk//49
+          sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          sudo flatpak install --noninteractive flathub org.gnome.Platform//49 org.gnome.Sdk//49
 
       - name: Build Linux AppImage
         run: cargo xtask package-linux-appimage
