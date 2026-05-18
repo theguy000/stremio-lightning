@@ -20,7 +20,8 @@ const WINDOWS_TARGET: &str = "x86_64-pc-windows-msvc";
 const LINUX_APPIMAGE: &str = "Stremio_Lightning_Linux-x86_64.AppImage";
 const LINUX_DEB: &str = "stremio-lightning-linux-amd64.deb";
 const LINUX_FLATPAK: &str = "Stremio_Lightning_Linux-x86_64.flatpak";
-const LINUX_FLATPAK_ID: &str = "io.github.theguy000.StremioLightning";
+const LINUX_DESKTOP_ID: &str = "io.github.theguy000.StremioLightning";
+const LINUX_FLATPAK_ID: &str = LINUX_DESKTOP_ID;
 const LINUX_FLATPAK_RUNTIME: &str = "org.freedesktop.Platform";
 const LINUX_FLATPAK_SDK: &str = "org.freedesktop.Sdk";
 const LINUX_FLATPAK_RUNTIME_VERSION: &str = "25.08";
@@ -187,8 +188,12 @@ fn package_linux_deb() -> Result<()> {
         install_root.join("resources"),
     )?;
     copy_file(
-        appdir.join(format!("usr/share/icons/hicolor/128x128/apps/{APP_ID}.png")),
-        deb_root.join(format!("usr/share/icons/hicolor/128x128/apps/{APP_ID}.png")),
+        appdir.join(format!(
+            "usr/share/icons/hicolor/128x128/apps/{LINUX_DESKTOP_ID}.png"
+        )),
+        deb_root.join(format!(
+            "usr/share/icons/hicolor/128x128/apps/{LINUX_DESKTOP_ID}.png"
+        )),
     )?;
 
     for entry in fs::read_dir(appdir.join("usr/lib"))? {
@@ -219,9 +224,9 @@ fn package_linux_deb() -> Result<()> {
     chmod_executable(install_root.join("resources/ffprobe"))?;
 
     write_file(
-        deb_root.join(format!("usr/share/applications/{APP_ID}.desktop")),
+        deb_root.join(format!("usr/share/applications/{LINUX_DESKTOP_ID}.desktop")),
         format!(
-            "[Desktop Entry]\nType=Application\nName={APP_NAME}\nExec={APP_ID}\nIcon={APP_ID}\nCategories=AudioVideo;Video;Player;\nTerminal=false\n"
+            "[Desktop Entry]\nType=Application\nName={APP_NAME}\nExec={APP_ID}\nIcon={LINUX_DESKTOP_ID}\nCategories=AudioVideo;Video;Player;\nTerminal=false\nStartupNotify=true\nStartupWMClass={LINUX_DESKTOP_ID}\n"
         ),
     )?;
     write_file(
@@ -347,11 +352,11 @@ fn prepare_linux_flatpak_payload(appdir: &Path, payload_dir: &Path) -> Result<()
     write_file(
         applications_dir.join(format!("{LINUX_FLATPAK_ID}.desktop")),
         format!(
-            "[Desktop Entry]\nType=Application\nName={APP_NAME}\nExec={APP_ID}\nIcon={LINUX_FLATPAK_ID}\nCategories=AudioVideo;Video;Player;\nTerminal=false\nStartupNotify=true\n"
+            "[Desktop Entry]\nType=Application\nName={APP_NAME}\nExec={APP_ID}\nIcon={LINUX_FLATPAK_ID}\nCategories=AudioVideo;Video;Player;\nTerminal=false\nStartupNotify=true\nStartupWMClass={LINUX_FLATPAK_ID}\n"
         ),
     )?;
     copy_file(
-        appdir.join(format!("{APP_ID}.png")),
+        appdir.join(format!("{LINUX_DESKTOP_ID}.png")),
         icons_dir.join(format!("{LINUX_FLATPAK_ID}.png")),
     )?;
     write_file(
@@ -460,7 +465,7 @@ fn prepare_linux_appdir() -> Result<PathBuf> {
     let app_resources = appdir.join(format!("usr/lib/{APP_ID}/resources"));
     let app_binaries = appdir.join(format!("usr/lib/{APP_ID}/binaries"));
     let app_lib = appdir.join("usr/lib");
-    let desktop_file = appdir.join(format!("{APP_ID}.desktop"));
+    let desktop_file = appdir.join(format!("{LINUX_DESKTOP_ID}.desktop"));
 
     required_executable_file(&runtime, "cargo xtask setup-linux")?;
     required_file(&server, "cargo xtask setup-linux")?;
@@ -491,21 +496,23 @@ fn prepare_linux_appdir() -> Result<PathBuf> {
     copy_file(&server, app_resources.join("server.cjs"))?;
     copy_file(&ffmpeg, app_resources.join("ffmpeg"))?;
     copy_file(&ffprobe, app_resources.join("ffprobe"))?;
-    copy_file(&icon, appdir.join(format!("{APP_ID}.png")))?;
+    copy_file(&icon, appdir.join(format!("{LINUX_DESKTOP_ID}.png")))?;
     copy_file(
-        appdir.join(format!("{APP_ID}.png")),
-        appdir.join(format!("usr/share/icons/hicolor/128x128/apps/{APP_ID}.png")),
+        appdir.join(format!("{LINUX_DESKTOP_ID}.png")),
+        appdir.join(format!(
+            "usr/share/icons/hicolor/128x128/apps/{LINUX_DESKTOP_ID}.png"
+        )),
     )?;
 
     write_file(
         &desktop_file,
         format!(
-            "[Desktop Entry]\nType=Application\nName={APP_NAME}\nExec={LINUX_BIN}\nIcon={APP_ID}\nCategories=AudioVideo;Video;Player;\nTerminal=false\n"
+            "[Desktop Entry]\nType=Application\nName={APP_NAME}\nExec={LINUX_BIN}\nIcon={LINUX_DESKTOP_ID}\nCategories=AudioVideo;Video;Player;\nTerminal=false\nStartupNotify=true\nStartupWMClass={LINUX_DESKTOP_ID}\n"
         ),
     )?;
     copy_file(
         &desktop_file,
-        appdir.join(format!("usr/share/applications/{APP_ID}.desktop")),
+        appdir.join(format!("usr/share/applications/{LINUX_DESKTOP_ID}.desktop")),
     )?;
     write_file(
         appdir.join("AppRun"),

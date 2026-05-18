@@ -28,6 +28,8 @@ use webkit::{
 };
 
 const IPC_HANDLER_NAME: &str = "ipc";
+const APP_ID: &str = "io.github.theguy000.StremioLightning";
+const APP_NAME: &str = "Stremio Lightning";
 const DEFAULT_WINDOW_WIDTH: i32 = 1500;
 const DEFAULT_WINDOW_HEIGHT: i32 = 850;
 const X11_CLIENT_MESSAGE: c_int = 33;
@@ -124,7 +126,9 @@ pub fn run_native_window(
     load_epoxy()?;
 
     let state = runtime.load()?;
-    let app = gtk::Application::new(Some("com.stremio-lightning.linux"), Default::default());
+    glib::set_application_name(APP_NAME);
+    glib::set_prgname(Some(APP_ID));
+    let app = gtk::Application::new(Some(APP_ID), Default::default());
     let runtime = Rc::new(runtime);
     let startup_error: Rc<RefCell<Option<String>>> = Rc::default();
 
@@ -133,6 +137,7 @@ pub fn run_native_window(
         let player = player.clone();
         let startup_error = startup_error.clone();
         app.connect_activate(move |app| {
+            gtk::Window::set_default_icon_name(APP_ID);
             if let Err(error) = build_window(app, &config, runtime.clone(), player.clone()) {
                 *startup_error.borrow_mut() = Some(error);
                 app.quit();
@@ -146,7 +151,7 @@ pub fn run_native_window(
         state.document_start_scripts.join(" -> ")
     );
 
-    let exit_code = app.run_with_args(&["stremio-lightning-linux"]);
+    let exit_code = app.run_with_args(&[APP_ID]);
     if let Some(error) = startup_error.borrow_mut().take() {
         return Err(error);
     }
@@ -169,6 +174,7 @@ fn build_window(
     let window = gtk::ApplicationWindow::builder()
         .application(app)
         .title("Stremio Lightning Linux")
+        .icon_name(APP_ID)
         .default_width(DEFAULT_WINDOW_WIDTH)
         .default_height(DEFAULT_WINDOW_HEIGHT)
         .build();
