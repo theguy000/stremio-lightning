@@ -43,6 +43,11 @@
     return last;
   }
 
+  function parseCssPixels(value: string, fallback: number) {
+    const parsed = Number.parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  }
+
   function getCurrentRoute() {
     let route = window.location.hash ? window.location.hash.replace(/^#/, '') : (window.location.pathname || '/');
     route = route.split('?')[0].split('#')[0];
@@ -98,16 +103,19 @@
 
     if (nav) {
       const lastTab = findLastNavTab(nav.element);
-      const navPadding = 10;
+      const navStyle = getComputedStyle(nav.element);
+      const navGap = parseCssPixels(navStyle.rowGap || navStyle.gap, 16);
+      const measuredTabSize = lastTab ? Math.round(lastTab.rect.width) : 0;
+      const fallbackTabSize = Math.round(nav.rect.width - 12);
+      const tabSize = Math.max(48, measuredTabSize || fallbackTabSize);
       const minTop = Math.round(nav.rect.top + 16);
-      const maxTop = Math.round(nav.rect.bottom - 64);
-      const desiredTop = lastTab ? Math.round(lastTab.rect.bottom + 12) : minTop;
+      const maxTop = Math.round(nav.rect.bottom - tabSize);
+      const desiredTop = lastTab ? Math.round(lastTab.rect.bottom + navGap) : minTop;
 
       anchorMode = 'nav';
       const top = Math.max(minTop, Math.min(desiredTop, maxTop));
-      const left = Math.round(nav.rect.left + navPadding);
-      const width = Math.max(48, Math.round(nav.rect.width - (navPadding * 2)));
-      btnStyle = `left:${left}px;top:${top}px;bottom:auto;width:${width}px;`;
+      const left = Math.round(nav.rect.left + ((nav.rect.width - tabSize) / 2));
+      btnStyle = `left:${left}px;top:${top}px;bottom:auto;width:${tabSize}px;height:${tabSize}px;`;
     } else {
       anchorMode = 'floating';
       btnStyle = 'left:1rem;bottom:1rem;';
