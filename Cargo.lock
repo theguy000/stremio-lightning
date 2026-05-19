@@ -1865,6 +1865,7 @@ name = "stremio-lightning-linux"
 version = "0.1.0"
 dependencies = [
  "epoxy",
+ "gdk-pixbuf",
  "gtk4",
  "libc",
  "libloading",

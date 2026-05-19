@@ -9,6 +9,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["process", "rt", "sync"] }
 gtk = { package = "gtk4", version = "0.11.3", features = ["v4_20"] }
+gdk-pixbuf = "0.22.0"
 webkit = { package = "webkit6", version = "0.6.1", features = ["v2_50"] }
 libmpv2 = "5.0.3"
 epoxy = "0.1.0"

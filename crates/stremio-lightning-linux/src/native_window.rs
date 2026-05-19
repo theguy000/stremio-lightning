@@ -2,10 +2,11 @@ use crate::app::AppConfig;
 use crate::player::{MpvBackendCommand, MpvPlayerBackend};
 use crate::streaming_server::RealProcessSpawner;
 use crate::webview_runtime::LinuxWebviewRuntime;
-use gtk::gdk::{GLContext, RGBA};
+use gdk_pixbuf::Pixbuf;
+use gtk::gdk::{Display, GLContext, RGBA};
 use gtk::glib::{self, Propagation};
 use gtk::prelude::*;
-use libc::{c_char, c_int, c_long, c_ulong, setlocale, LC_NUMERIC};
+use libc::{c_char, c_int, c_long, c_uchar, c_ulong, setlocale, LC_NUMERIC};
 use libmpv2::events::{Event, PropertyData};
 use libmpv2::render::{OpenGLInitParams, RenderContext, RenderParam, RenderParamApiType};
 use libmpv2::{Format, Mpv};
@@ -13,6 +14,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::cell::{Cell, RefCell};
 use std::os::raw::c_void;
+use std::path::PathBuf;
 use std::ptr;
 use std::rc::Rc;
 use std::sync::mpsc::{self, Receiver};
@@ -30,9 +32,11 @@ use webkit::{
 const IPC_HANDLER_NAME: &str = "ipc";
 const APP_ID: &str = "io.github.theguy000.StremioLightning";
 const APP_NAME: &str = "Stremio Lightning";
+const DEV_ICON_NAME: &str = "128x128";
 const DEFAULT_WINDOW_WIDTH: i32 = 1500;
 const DEFAULT_WINDOW_HEIGHT: i32 = 850;
 const X11_CLIENT_MESSAGE: c_int = 33;
+const X11_PROP_MODE_REPLACE: c_int = 0;
 const X11_PROP_MODE_REMOVE: c_long = 0;
 const X11_PROP_MODE_ADD: c_long = 1;
 const X11_SUBSTRUCTURE_NOTIFY_MASK: c_long = 1 << 19;
@@ -109,6 +113,16 @@ unsafe extern "C" {
         atom_name: *const c_char,
         only_if_exists: c_int,
     ) -> c_ulong;
+    fn XChangeProperty(
+        display: *mut c_void,
+        window: c_ulong,
+        property: c_ulong,
+        type_: c_ulong,
+        format: c_int,
+        mode: c_int,
+        data: *const c_uchar,
+        nelements: c_int,
+    ) -> c_int;
     fn XSendEvent(
         display: *mut c_void,
         window: c_ulong,
@@ -137,8 +151,11 @@ pub fn run_native_window(
         let player = player.clone();
         let startup_error = startup_error.clone();
         app.connect_activate(move |app| {
-            gtk::Window::set_default_icon_name(APP_ID);
-            if let Err(error) = build_window(app, &config, runtime.clone(), player.clone()) {
+            let icon_name = configure_application_icon_name();
+            gtk::Window::set_default_icon_name(icon_name);
+            if let Err(error) =
+                build_window(app, &config, runtime.clone(), player.clone(), icon_name)
+            {
                 *startup_error.borrow_mut() = Some(error);
                 app.quit();
             }
@@ -170,14 +187,16 @@ fn build_window(
     config: &AppConfig,
     runtime: Rc<LinuxWebviewRuntime<MpvPlayerBackend, RealProcessSpawner>>,
     player: MpvPlayerBackend,
+    icon_name: &str,
 ) -> Result<(), String> {
     let window = gtk::ApplicationWindow::builder()
         .application(app)
         .title("Stremio Lightning Linux")
-        .icon_name(APP_ID)
+        .icon_name(icon_name)
         .default_width(DEFAULT_WINDOW_WIDTH)
         .default_height(DEFAULT_WINDOW_HEIGHT)
         .build();
+    install_source_tree_window_icon(&window);
 
     let fullscreen = Rc::new(Cell::new(false));
     let overlay = gtk::Overlay::new();
@@ -211,6 +230,127 @@ fn build_window(
     }
 
     window.present();
+    Ok(())
+}
+
+fn configure_application_icon_name() -> &'static str {
+    let Some(display) = Display::default() else {
+        eprintln!(
+            "[StremioLightning] Unable to resolve Linux window icon: no GTK display available"
+        );
+        return APP_ID;
+    };
+
+    let icon_theme = gtk::IconTheme::for_display(&display);
+    let dev_icon_dir = source_tree_icon_dir();
+    if dev_icon_dir.exists() {
+        icon_theme.add_search_path(dev_icon_dir);
+    }
+
+    if icon_theme.has_icon(APP_ID) {
+        APP_ID
+    } else if icon_theme.has_icon(DEV_ICON_NAME) {
+        DEV_ICON_NAME
+    } else {
+        eprintln!(
+            "[StremioLightning] Unable to resolve Linux window icon: missing {APP_ID} or {DEV_ICON_NAME} in GTK icon theme"
+        );
+        APP_ID
+    }
+}
+
+fn source_tree_icon_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../assets/icons")
+}
+
+fn source_tree_icon_path() -> PathBuf {
+    source_tree_icon_dir().join("128x128.png")
+}
+
+fn install_source_tree_window_icon(window: &gtk::ApplicationWindow) {
+    let window = window.clone();
+    window.connect_realize(move |window| {
+        let Some(surface) = window.surface() else {
+            return;
+        };
+        if !is_x11_surface(&surface) {
+            return;
+        }
+        if let Err(error) = set_x11_window_icon_from_file(&surface, source_tree_icon_path()) {
+            eprintln!("[StremioLightning] Failed to set Linux taskbar icon: {error}");
+        }
+    });
+}
+
+fn set_x11_window_icon_from_file(
+    surface: &gtk::gdk::Surface,
+    icon_path: PathBuf,
+) -> Result<(), String> {
+    const NET_WM_ICON: &[u8] = b"_NET_WM_ICON\0";
+    const CARDINAL: &[u8] = b"CARDINAL\0";
+
+    let pixbuf = Pixbuf::from_file(&icon_path)
+        .map_err(|error| format!("failed to load {}: {error}", icon_path.display()))?;
+    let width = pixbuf.width();
+    let height = pixbuf.height();
+    let channels = pixbuf.n_channels();
+    if width <= 0 || height <= 0 || channels < 3 {
+        return Err(format!("invalid icon image: {}", icon_path.display()));
+    }
+
+    let pixels = pixbuf.read_pixel_bytes();
+    let pixels = pixels.as_ref();
+    let rowstride = pixbuf.rowstride() as usize;
+    let width_usize = width as usize;
+    let height_usize = height as usize;
+    let channels_usize = channels as usize;
+    let mut icon_data = Vec::with_capacity(2 + width_usize * height_usize);
+    icon_data.push(width as c_ulong);
+    icon_data.push(height as c_ulong);
+    for y in 0..height_usize {
+        for x in 0..width_usize {
+            let offset = y * rowstride + x * channels_usize;
+            let r = pixels[offset] as c_ulong;
+            let g = pixels[offset + 1] as c_ulong;
+            let b = pixels[offset + 2] as c_ulong;
+            let a = if channels_usize >= 4 {
+                pixels[offset + 3] as c_ulong
+            } else {
+                0xff
+            };
+            icon_data.push((a << 24) | (r << 16) | (g << 8) | b);
+        }
+    }
+
+    let display = surface.display();
+    let xdisplay = unsafe { gdk_x11_display_get_xdisplay(display.as_ptr() as *mut c_void) };
+    if xdisplay.is_null() {
+        return Err("failed to read X11 display".to_string());
+    }
+    let xid = unsafe { gdk_x11_surface_get_xid(surface.as_ptr() as *mut c_void) };
+    if xid == 0 {
+        return Err("failed to read X11 window id".to_string());
+    }
+    let icon_atom = unsafe { XInternAtom(xdisplay, NET_WM_ICON.as_ptr().cast(), 0) };
+    let cardinal_atom = unsafe { XInternAtom(xdisplay, CARDINAL.as_ptr().cast(), 0) };
+    if icon_atom == 0 || cardinal_atom == 0 {
+        return Err("failed to resolve X11 taskbar icon atoms".to_string());
+    }
+
+    unsafe {
+        XChangeProperty(
+            xdisplay,
+            xid,
+            icon_atom,
+            cardinal_atom,
+            32,
+            X11_PROP_MODE_REPLACE,
+            icon_data.as_ptr().cast::<c_uchar>(),
+            icon_data.len() as c_int,
+        );
+        XFlush(xdisplay);
+    }
+
     Ok(())
 }
 
