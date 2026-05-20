@@ -75,27 +75,30 @@
     await refreshPlugins();
     loadEnabledFromStorage();
 
-    // Check for settings schemas and updates
+    // Check for settings schemas and updates concurrently
     const list = get(plugins);
-    for (const plugin of list) {
-      if (!plugin.metadata) continue;
+    list.forEach((plugin) => {
+      if (!plugin.metadata) return;
       const baseName = plugin.filename.replace('.plugin.js', '');
-      try {
-        const schema = await getRegisteredSettings(baseName);
-        if (schema && Array.isArray(schema) && schema.length > 0) {
-          hasSettings[plugin.filename] = true;
-          hasSettings = { ...hasSettings };
-        }
-      } catch { /* ignore */ }
 
-      try {
-        const info = await checkModUpdates(plugin.filename, 'plugin');
-        if (info?.has_update) {
-          updates[plugin.filename] = info;
-          updates = { ...updates };
-        }
-      } catch { /* ignore */ }
-    }
+      getRegisteredSettings(baseName)
+        .then((schema) => {
+          if (schema && Array.isArray(schema) && schema.length > 0) {
+            hasSettings[plugin.filename] = true;
+            hasSettings = { ...hasSettings };
+          }
+        })
+        .catch(() => {});
+
+      checkModUpdates(plugin.filename, 'plugin')
+        .then((info) => {
+          if (info?.has_update) {
+            updates[plugin.filename] = info;
+            updates = { ...updates };
+          }
+        })
+        .catch(() => {});
+    });
   });
 </script>
 

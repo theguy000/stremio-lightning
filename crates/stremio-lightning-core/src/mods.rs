@@ -290,7 +290,28 @@ pub fn delete_mod(app_data_dir: &Path, filename: &str, mod_type: ModType) -> Res
     Ok(())
 }
 
+struct RegistryCache {
+    registry: Registry,
+    fetched_at: std::time::Instant,
+}
+
+static REGISTRY_CACHE: OnceLock<std::sync::Mutex<Option<RegistryCache>>> = OnceLock::new();
+
 pub async fn fetch_registry() -> Result<Registry, String> {
+    let cache_mutex = REGISTRY_CACHE.get_or_init(|| std::sync::Mutex::new(None));
+
+    // 1. Return cached registry if it exists and is less than 5 minutes old
+    {
+        if let Ok(guard) = cache_mutex.lock() {
+            if let Some(cache) = &*guard {
+                if cache.fetched_at.elapsed() < std::time::Duration::from_secs(300) {
+                    return Ok(cache.registry.clone());
+                }
+            }
+        }
+    }
+
+    // 2. Fetch over network on cache miss
     let url = "https://raw.githubusercontent.com/REVENGE977/stremio-enhanced-registry/refs/heads/main/registry.json";
     let response = reqwest::get(url)
         .await
@@ -303,10 +324,22 @@ pub async fn fetch_registry() -> Result<Registry, String> {
         ));
     }
 
-    response
+    let registry = response
         .json::<Registry>()
         .await
-        .map_err(|e| format!("Failed to parse registry: {}", e))
+        .map_err(|e| format!("Failed to parse registry: {}", e))?;
+
+    // 3. Save registry to cache
+    {
+        if let Ok(mut guard) = cache_mutex.lock() {
+            *guard = Some(RegistryCache {
+                registry: registry.clone(),
+                fetched_at: std::time::Instant::now(),
+            });
+        }
+    }
+
+    Ok(registry)
 }
 
 pub async fn check_mod_updates(

@@ -1,4 +1,4 @@
-import { writable } from 'svelte/store';
+import { writable, get } from 'svelte/store';
 import { getRegistry, getPlugins, getThemes, downloadMod, deleteMod } from '../ipc';
 import type { Registry, RegistryEntry, InstalledMod } from '../types';
 
@@ -9,7 +9,10 @@ export const marketplaceLoading = writable(true);
 export const searchQuery = writable('');
 
 export async function refreshMarketplace(): Promise<void> {
-  marketplaceLoading.set(true);
+  const currentReg = get(registry);
+  if (!currentReg) {
+    marketplaceLoading.set(true);
+  }
   try {
     const [reg, plugins, themes] = await Promise.all([
       getRegistry(),

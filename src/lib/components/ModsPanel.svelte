@@ -100,29 +100,19 @@
   </div>
   <div class="sl-content">
     <div class="sl-tab-content" class:sl-visible={activeTab === 'plugins'}>
-      {#if activeTab === 'plugins'}
-        <PluginsTab />
-      {/if}
+      <PluginsTab />
     </div>
     <div class="sl-tab-content" class:sl-visible={activeTab === 'themes'}>
-      {#if activeTab === 'themes'}
-        <ThemesTab />
-      {/if}
+      <ThemesTab />
     </div>
     <div class="sl-tab-content" class:sl-visible={activeTab === 'marketplace'}>
-      {#if activeTab === 'marketplace'}
-        <MarketplaceTab />
-      {/if}
+      <MarketplaceTab />
     </div>
     <div class="sl-tab-content" class:sl-visible={activeTab === 'settings'}>
-      {#if activeTab === 'settings'}
-        <SettingsTab />
-      {/if}
+      <SettingsTab />
     </div>
     <div class="sl-tab-content" class:sl-visible={activeTab === 'about'}>
-      {#if activeTab === 'about'}
-        <AboutTab />
-      {/if}
+      <AboutTab />
     </div>
   </div>
 </div>
