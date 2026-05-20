@@ -18,7 +18,7 @@
   let activeTab = $state('plugins');
 
   const tabs = [
-    { id: 'plugins', label: 'Plugins', icon: ICONS.mods },
+    { id: 'plugins', label: 'Plugins', icon: ICONS.plugin },
     { id: 'themes', label: 'Themes', icon: ICONS.theme },
     { id: 'marketplace', label: 'Marketplace', icon: ICONS.marketplace },
     { id: 'settings', label: 'Settings', icon: ICONS.wrench },

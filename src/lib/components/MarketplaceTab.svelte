@@ -90,7 +90,7 @@
         {#if entry.preview}
           <img class="sl-card-logo" src={entry.preview} alt="Preview" loading="lazy" />
         {:else}
-          <div class="sl-card-logo-placeholder">{@html ICONS.mods}</div>
+          <div class="sl-card-logo-placeholder">{@html ICONS.plugin}</div>
         {/if}
         <div class="sl-card-info">
           <div class="sl-card-name">
