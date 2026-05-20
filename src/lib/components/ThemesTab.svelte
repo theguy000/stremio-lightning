@@ -34,17 +34,19 @@
   onMount(async () => {
     await refreshThemes();
 
+    // Check for updates concurrently
     const list = get(themes);
-    for (const theme of list) {
-      if (!theme.metadata) continue;
-      try {
-        const info = await checkModUpdates(theme.filename, 'theme');
-        if (info?.has_update) {
-          updates[theme.filename] = info;
-          updates = { ...updates };
-        }
-      } catch { /* ignore */ }
-    }
+    list.forEach((theme) => {
+      if (!theme.metadata) return;
+      checkModUpdates(theme.filename, 'theme')
+        .then((info) => {
+          if (info?.has_update) {
+            updates[theme.filename] = info;
+            updates = { ...updates };
+          }
+        })
+        .catch(() => {});
+    });
   });
 </script>
 
