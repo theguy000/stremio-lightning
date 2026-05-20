@@ -85,6 +85,7 @@ export function applyBlurIntensity(percent: number, enabled: boolean): void {
   if (panel) {
     panel.style.backdropFilter = `blur(${blurPanelVal}) saturate(135%)`;
     panel.style.setProperty('-webkit-backdrop-filter', `blur(${blurPanelVal}) saturate(135%)`);
+    panel.setAttribute('data-sl-blur-active', String(enabled));
   }
   const btn = document.getElementById('sl-mods-btn');
   if (btn) {
