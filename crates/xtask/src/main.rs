@@ -396,6 +396,7 @@ fn linux_flatpak_metadata() -> String {
 }
 
 fn linux_flatpak_metainfo() -> String {
+    let date = current_date();
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
@@ -414,12 +415,21 @@ fn linux_flatpak_metainfo() -> String {
     <category>Player</category>
   </categories>
   <releases>
-    <release version="{}" date="2026-05-12" />
+    <release version="{}" date="{}" />
   </releases>
 </component>
 "#,
-        package_version().unwrap_or_else(|_| "0.1.0".to_string())
+        package_version().unwrap_or_else(|_| "0.1.0".to_string()),
+        date
     )
+}
+
+fn current_date() -> String {
+    Command::new("date")
+        .arg("+%Y-%m-%d")
+        .output()
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+        .unwrap_or_else(|_| "2026-05-22".to_string())
 }
 
 fn validate_flatpak_glibc_symbols(payload_dir: &Path) -> Result<()> {
