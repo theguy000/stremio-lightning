@@ -349,7 +349,7 @@ fn collect_flatpak_glibc_symbol_offenders(path: &Path, offenders: &mut Vec<Strin
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    if stdout.contains("GLIBC_2.43") {
+    if LINUX_FLATPAK_RUNTIME_VERSION == "25.08" && stdout.contains("GLIBC_2.43") {
         offenders.push(format!("{} requires GLIBC_2.43", path.display()));
     }
 
