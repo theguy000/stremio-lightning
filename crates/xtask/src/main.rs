@@ -425,11 +425,7 @@ fn linux_flatpak_metainfo() -> String {
 }
 
 fn current_date() -> String {
-    Command::new("date")
-        .arg("+%Y-%m-%d")
-        .output()
-        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
-        .unwrap_or_else(|_| "2026-05-22".to_string())
+    chrono::Utc::now().format("%Y-%m-%d").to_string()
 }
 
 fn validate_flatpak_glibc_symbols(payload_dir: &Path) -> Result<()> {
