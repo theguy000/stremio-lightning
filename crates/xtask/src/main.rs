@@ -1101,15 +1101,24 @@ fn bundle_webkitgtk_helpers(appdir: &Path) -> Result<()> {
     }
 
     let Some(host_helper_dir) = helper_dir else {
-        println!("WARNING: WebKitNetworkProcess not found on host. WebKitGTK helper bundling skipped.");
+        println!(
+            "WARNING: WebKitNetworkProcess not found on host. WebKitGTK helper bundling skipped."
+        );
         return Ok(());
     };
 
-    println!("==> Bundling WebKitGTK helper processes from {}...", host_helper_dir.display());
+    println!(
+        "==> Bundling WebKitGTK helper processes from {}...",
+        host_helper_dir.display()
+    );
     let dest_dir = appdir.join("usr/lib/webkitgtk-6.0");
     fs::create_dir_all(&dest_dir)?;
 
-    for name in ["WebKitNetworkProcess", "WebKitWebProcess", "WebKitGPUProcess"] {
+    for name in [
+        "WebKitNetworkProcess",
+        "WebKitWebProcess",
+        "WebKitGPUProcess",
+    ] {
         let source = host_helper_dir.join(name);
         if source.is_file() {
             let destination = dest_dir.join(name);
@@ -1136,7 +1145,10 @@ fn patch_absolute_needed_paths(path: &Path) -> Result<()> {
     }
 
     if path.is_dir() {
-        println!("==> Patching absolute DT_NEEDED paths with patchelf in {}...", path.display());
+        println!(
+            "==> Patching absolute DT_NEEDED paths with patchelf in {}...",
+            path.display()
+        );
         for entry in fs::read_dir(path)? {
             let entry = entry?;
             let subpath = entry.path();
@@ -1166,7 +1178,12 @@ fn patch_file_absolute_needed_paths(file_path: &Path) -> Result<()> {
         if line.starts_with('/') {
             let needed_path = Path::new(line);
             if let Some(filename) = needed_path.file_name().and_then(|n| n.to_str()) {
-                println!("    Fixing absolute dependency in {}: {} -> {}", file_path.display(), line, filename);
+                println!(
+                    "    Fixing absolute dependency in {}: {} -> {}",
+                    file_path.display(),
+                    line,
+                    filename
+                );
                 let status = Command::new("patchelf")
                     .arg("--replace-needed")
                     .arg(line)
@@ -1174,7 +1191,10 @@ fn patch_file_absolute_needed_paths(file_path: &Path) -> Result<()> {
                     .arg(file_path)
                     .status()?;
                 if !status.success() {
-                    println!("WARNING: patchelf failed to replace needed path in {}", file_path.display());
+                    println!(
+                        "WARNING: patchelf failed to replace needed path in {}",
+                        file_path.display()
+                    );
                 }
             }
         }
