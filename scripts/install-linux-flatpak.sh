@@ -190,6 +190,9 @@ if ! show_spinner $! "Installing Stremio Lightning Flatpak"; then
     exit 1
 fi
 
+# Refresh desktop database so the shortcut is immediately visible in the launcher menu
+update-desktop-database ~/.local/share/flatpak/exports/share/applications/ 2>/dev/null || true
+
 echo -e "\n${GREEN}${BOLD}Stremio Lightning has been successfully installed!${NC}"
 echo -e "You can launch it from your application menu or by running:"
 echo -e "  ${CYAN}flatpak run io.github.theguy000.StremioLightning${NC}\n"
