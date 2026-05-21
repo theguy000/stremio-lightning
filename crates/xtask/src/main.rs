@@ -360,7 +360,7 @@ fn prepare_linux_flatpak_payload(appdir: &Path, payload_dir: &Path) -> Result<()
     write_file(
         bin_dir.join(APP_ID),
         format!(
-            "#!/bin/sh\nset -eu\nexport LD_LIBRARY_PATH=\"/app/lib${{LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}}\"\nexport STREMIO_LIGHTNING_BUNDLE_DIR=\"/app/lib/{APP_ID}\"\nexec /app/bin/{LINUX_BIN} \"$@\"\n"
+            "#!/bin/sh\nset -eu\nexport LD_LIBRARY_PATH=\"/app/lib${{LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}}\"\nexport STREMIO_LIGHTNING_BUNDLE_DIR=\"/app/lib/{APP_ID}\"\nexport WEBKIT_EXEC_PATH=\"/app/lib/webkitgtk-6.0\"\nexport WEBKIT_INJECTED_BUNDLE_PATH=\"/app/lib/webkitgtk-6.0/injected-bundle\"\nexec /app/bin/{LINUX_BIN} \"$@\"\n"
         ),
     )?;
     chmod_executable(bin_dir.join(APP_ID))?;
@@ -431,6 +431,11 @@ fn validate_flatpak_glibc_symbols(payload_dir: &Path) -> Result<()> {
     collect_flatpak_glibc_symbol_offenders(&payload_dir.join("files"), &mut offenders)?;
 
     if offenders.is_empty() {
+        return Ok(());
+    }
+
+    if env::var("IGNORE_GLIBC").is_ok() || env::var("STREMIO_LIGHTNING_IGNORE_GLIBC").is_ok() {
+        println!("WARNING: Ignoring GLIBC symbol compatibility error as requested.");
         return Ok(());
     }
 
@@ -539,7 +544,7 @@ fn prepare_linux_appdir() -> Result<PathBuf> {
     write_file(
         appdir.join("AppRun"),
         format!(
-            "#!/bin/bash\nset -euo pipefail\nHERE=$(dirname \"$(readlink -f \"$0\")\")\nexport LD_LIBRARY_PATH=\"$HERE/usr/lib${{LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}}\"\nexport STREMIO_LIGHTNING_BUNDLE_DIR=\"$HERE/usr/lib/{APP_ID}\"\nexec \"$HERE/usr/bin/{LINUX_BIN}\" \"$@\"\n"
+            "#!/bin/bash\nset -euo pipefail\nHERE=$(dirname \"$(readlink -f \"$0\")\")\nexport LD_LIBRARY_PATH=\"$HERE/usr/lib${{LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}}\"\nexport STREMIO_LIGHTNING_BUNDLE_DIR=\"$HERE/usr/lib/{APP_ID}\"\nexport WEBKIT_EXEC_PATH=\"$HERE/usr/lib/webkitgtk-6.0\"\nexport WEBKIT_INJECTED_BUNDLE_PATH=\"$HERE/usr/lib/webkitgtk-6.0/injected-bundle\"\nexec \"$HERE/usr/bin/{LINUX_BIN}\" \"$@\"\n"
         ),
     )?;
 
@@ -554,6 +559,11 @@ fn prepare_linux_appdir() -> Result<PathBuf> {
         &app_lib,
         "cargo xtask setup-linux",
     )?;
+
+    bundle_webkitgtk_helpers(&appdir)?;
+
+    patch_absolute_needed_paths(&app_lib)?;
+    patch_absolute_needed_paths(&appdir.join(format!("usr/bin/{LINUX_BIN}")))?;
 
     required_executable_file(appdir.join("AppRun"), "cargo xtask setup-linux")?;
     required_executable_file(
@@ -1069,6 +1079,105 @@ fn bundle_linux_shared_libraries(binary: &Path, app_lib: &Path, setup_hint: &str
             continue;
         };
         copy_file(&lib, app_lib.join(name))?;
+    }
+
+    Ok(())
+}
+
+fn bundle_webkitgtk_helpers(appdir: &Path) -> Result<()> {
+    let host_paths = [
+        "/usr/lib/x86_64-linux-gnu/webkitgtk-6.0",
+        "/usr/lib/webkitgtk-6.0",
+        "/usr/lib/webkit2gtk-6.0",
+    ];
+
+    let mut helper_dir = None;
+    for path in &host_paths {
+        let p = Path::new(path);
+        if p.join("WebKitNetworkProcess").is_file() {
+            helper_dir = Some(p);
+            break;
+        }
+    }
+
+    let Some(host_helper_dir) = helper_dir else {
+        println!("WARNING: WebKitNetworkProcess not found on host. WebKitGTK helper bundling skipped.");
+        return Ok(());
+    };
+
+    println!("==> Bundling WebKitGTK helper processes from {}...", host_helper_dir.display());
+    let dest_dir = appdir.join("usr/lib/webkitgtk-6.0");
+    fs::create_dir_all(&dest_dir)?;
+
+    for name in ["WebKitNetworkProcess", "WebKitWebProcess", "WebKitGPUProcess"] {
+        let source = host_helper_dir.join(name);
+        if source.is_file() {
+            let destination = dest_dir.join(name);
+            copy_file(&source, &destination)?;
+            chmod_executable(&destination)?;
+        }
+    }
+
+    let source_injected = host_helper_dir.join("injected-bundle");
+    if source_injected.is_dir() {
+        copy_dir_recursive(&source_injected, dest_dir.join("injected-bundle"))?;
+    }
+
+    Ok(())
+}
+
+fn patch_absolute_needed_paths(path: &Path) -> Result<()> {
+    if !program_exists("patchelf") {
+        return Ok(());
+    }
+
+    if path.is_file() {
+        return patch_file_absolute_needed_paths(path);
+    }
+
+    if path.is_dir() {
+        println!("==> Patching absolute DT_NEEDED paths with patchelf in {}...", path.display());
+        for entry in fs::read_dir(path)? {
+            let entry = entry?;
+            let subpath = entry.path();
+            if subpath.is_file() {
+                let filename = subpath.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                if filename.contains(".so") {
+                    patch_file_absolute_needed_paths(&subpath)?;
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn patch_file_absolute_needed_paths(file_path: &Path) -> Result<()> {
+    let output = Command::new("patchelf")
+        .arg("--print-needed")
+        .arg(file_path)
+        .output()?;
+    if !output.status.success() {
+        return Ok(());
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for line in stdout.lines().map(str::trim).filter(|l| !l.is_empty()) {
+        if line.starts_with('/') {
+            let needed_path = Path::new(line);
+            if let Some(filename) = needed_path.file_name().and_then(|n| n.to_str()) {
+                println!("    Fixing absolute dependency in {}: {} -> {}", file_path.display(), line, filename);
+                let status = Command::new("patchelf")
+                    .arg("--replace-needed")
+                    .arg(line)
+                    .arg(filename)
+                    .arg(file_path)
+                    .status()?;
+                if !status.success() {
+                    println!("WARNING: patchelf failed to replace needed path in {}", file_path.display());
+                }
+            }
+        }
     }
 
     Ok(())
