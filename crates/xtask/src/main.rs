@@ -50,6 +50,7 @@ fn run() -> Result<()> {
         "setup-windows" | "setup:windows" | "setup-windows-shell" => setup_windows()?,
         "build-ui" => run_npm(&["run", "build:ui"])?,
         "test-ui" => run_npm(&["run", "test:ui"])?,
+        "validate" => run_validation()?,
         "package-linux-appimage" => build_linux_appimage()?,
         "package-linux-deb" => package_linux_deb()?,
         "package-linux-flatpak" => package_linux_flatpak()?,
@@ -76,6 +77,7 @@ Usage:\n\
   cargo xtask setup-windows               Download Windows shell dependencies\n\
   cargo xtask build-ui                    Build the Svelte/Vite UI bundle\n\
   cargo xtask test-ui                     Run frontend tests\n\
+  cargo xtask validate                    Run all formatting, linting, tests and UI checks\n\
   cargo xtask package-linux-appimage      Build dist/{LINUX_APPIMAGE}\n\
   cargo xtask package-linux-deb           Build dist/{LINUX_DEB}\n\
     cargo xtask package-linux-flatpak       Build dist/{LINUX_FLATPAK}\n\
@@ -83,6 +85,26 @@ Usage:\n\
   cargo xtask package-windows-portable    Build dist/{WINDOWS_ZIP}\n\
   cargo xtask package-windows-installer   Build dist/{WINDOWS_INSTALLER}\n"
     );
+}
+
+fn run_validation() -> Result<()> {
+    println!("==> [1/5] Checking Rust formatting...");
+    run_program("cargo", &["fmt", "--all", "--", "--check"])?;
+
+    println!("==> [2/5] Running Rust clippy lints...");
+    run_program("cargo", &["clippy", "--workspace", "--all-targets"])?;
+
+    println!("==> [3/5] Running Rust unit/integration tests...");
+    run_program("cargo", &["test", "--workspace"])?;
+
+    println!("==> [4/5] Running frontend tests...");
+    run_npm(&["run", "test:ui"])?;
+
+    println!("==> [5/5] Building frontend UI bundle...");
+    run_npm(&["run", "build:ui"])?;
+
+    println!("==> All validations completed successfully!");
+    Ok(())
 }
 
 fn setup_current_platform() -> Result<()> {
