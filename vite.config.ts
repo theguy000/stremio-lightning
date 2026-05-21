@@ -43,11 +43,6 @@ export default defineConfig({
     outDir: 'src/dist',
     emptyOutDir: false,
     minify: true,
-    rollupOptions: {
-      output: {
-        inlineDynamicImports: true,
-      },
-    },
   },
   test: {
     environment: 'jsdom',
