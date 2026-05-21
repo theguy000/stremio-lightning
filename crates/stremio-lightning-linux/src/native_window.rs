@@ -162,12 +162,6 @@ pub fn run_native_window(
         });
     }
 
-    println!(
-        "[StremioLightning] GTK4/WebKitGTK6 webview load url={} document_start={}",
-        state.url,
-        state.document_start_scripts.join(" -> ")
-    );
-
     let exit_code = app.run_with_args(&[APP_ID]);
     if let Some(error) = startup_error.borrow_mut().take() {
         return Err(error);

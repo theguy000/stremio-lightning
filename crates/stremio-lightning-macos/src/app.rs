@@ -72,26 +72,12 @@ pub fn run(config: AppConfig) -> Result<(), String> {
     let streaming_server = StreamingServer::new(RealProcessSpawner::default())
         .with_disabled(config.disable_streaming_server);
     let host = Arc::new(Host::new(player.clone(), streaming_server));
-    if config.disable_streaming_server {
-        println!("[StreamingServer] macOS sidecar disabled");
-    } else {
-        match host.start_streaming_server() {
-            Ok(()) => println!("[StreamingServer] macOS sidecar spawned"),
-            Err(error) => eprintln!("[StreamingServer] Failed to start macOS sidecar: {error}"),
+    if !config.disable_streaming_server {
+        if let Err(error) = host.start_streaming_server() {
+            eprintln!("[StreamingServer] Failed to start macOS sidecar: {error}");
         }
     }
     let injection = InjectionBundle::load()?;
-
-    println!(
-        "[StremioLightning] macOS shell contract bootstrap url={} devtools={} native_player={}",
-        config.url,
-        config.devtools,
-        host.native_player_status().enabled
-    );
-    println!(
-        "[StremioLightning] Injection order: {}",
-        injection.script_names().join(" -> ")
-    );
 
     let runtime = MacosWebviewRuntime::new(config.url.clone(), config.devtools, injection, host);
     if config.headless_bootstrap {

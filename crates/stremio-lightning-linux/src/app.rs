@@ -67,28 +67,12 @@ pub fn run(config: AppConfig) -> Result<(), String> {
         player.clone(),
         StreamingServer::new(RealProcessSpawner::default()),
     ));
-    match host.start_streaming_server() {
-        Ok(()) => println!("[StreamingServer] Linux sidecar spawned"),
-        Err(error) => eprintln!("[StreamingServer] Failed to start Linux sidecar: {error}"),
+    if let Err(error) = host.start_streaming_server() {
+        eprintln!("[StreamingServer] Failed to start Linux sidecar: {error}");
     }
 
     let injection = InjectionBundle::load()?;
-    let render_plan = RenderLoopPlan::default();
-
-    println!(
-        "[StremioLightning] Linux shell contract bootstrap url={} devtools={} native_player={}",
-        config.url,
-        config.devtools,
-        host.native_player_status().enabled
-    );
-    println!(
-        "[StremioLightning] Injection order: {}",
-        injection.script_names().join(" -> ")
-    );
-    println!(
-        "[StremioLightning] Render order: {}",
-        render_plan.steps.join(" -> ")
-    );
+    let _render_plan = RenderLoopPlan::default();
 
     if config.headless_bootstrap {
         Ok(())
