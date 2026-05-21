@@ -102,7 +102,7 @@ Choose commands by intent:
 
 | If you want to... | Use this |
 | --- | --- |
-| Run a shell locally during development | `cargo run -p <platform-crate>` |
+| Run a shell locally during development | `cargo <platform>` (e.g., `cargo linux` / `cargo macos` / `cargo windows`) |
 | Check that a shell crate compiles for a target | `cargo build -p <platform-crate> --release [--target ...]` |
 | Produce a distributable artifact under `dist/` | `cargo xtask package-*` |
 
@@ -162,7 +162,7 @@ cargo xtask setup-linux
 Run the Linux shell directly:
 
 ```bash
-cargo run -p stremio-lightning-linux
+cargo linux
 ```
 
 Use this for local Linux development. It runs the shell from the Cargo target
@@ -225,7 +225,7 @@ APPIMAGE_TOOL=/path/to/appimagetool cargo xtask package-linux-appimage
 Run the macOS shell directly on macOS:
 
 ```bash
-cargo run -p stremio-lightning-macos
+cargo macos
 ```
 
 Use this for local macOS development.

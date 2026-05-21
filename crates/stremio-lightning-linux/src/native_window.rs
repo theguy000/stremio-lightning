@@ -139,7 +139,7 @@ pub fn run_native_window(
 ) -> Result<(), String> {
     load_epoxy()?;
 
-    let state = runtime.load()?;
+    let _state = runtime.load()?;
     glib::set_application_name(APP_NAME);
     glib::set_prgname(Some(APP_ID));
     let app = gtk::Application::new(Some(APP_ID), Default::default());
