@@ -123,20 +123,6 @@ impl<P: ProcessSpawner> StreamingServer<P> {
         }
 
         let spec = command_spec(&self.project_root, &self.log_dir);
-        println!(
-            "[StreamingServer] Linux sidecar command runtime={} server={} NO_CORS={} stdout_log={} stderr_log={}",
-            spec.program.display(),
-            spec.args
-                .first()
-                .map(|path| path.display().to_string())
-                .unwrap_or_else(|| "<missing>".to_string()),
-            spec.env
-                .get("NO_CORS")
-                .map(String::as_str)
-                .unwrap_or("<unset>"),
-            spec.stdout_log.display(),
-            spec.stderr_log.display()
-        );
         let spawned = self.spawner.spawn(spec)?;
         *child = Some(spawned);
         Ok(())
