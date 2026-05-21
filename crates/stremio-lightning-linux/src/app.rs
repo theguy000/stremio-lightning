@@ -65,7 +65,7 @@ pub fn run(config: AppConfig) -> Result<(), String> {
     let player = MpvPlayerBackend::default();
     let host = Arc::new(Host::new(
         player.clone(),
-        StreamingServer::new(RealProcessSpawner::default()),
+        StreamingServer::new(RealProcessSpawner),
     ));
     if let Err(error) = host.start_streaming_server() {
         eprintln!("[StreamingServer] Failed to start Linux sidecar: {error}");

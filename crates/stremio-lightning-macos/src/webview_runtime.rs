@@ -495,7 +495,7 @@ mod tests {
             .mpv_options
             .iter()
             .any(|(name, value)| name == "hwdec" && value == "auto"));
-        assert_eq!(diagnostics.server.running, false);
+        assert!(!diagnostics.server.running);
         assert!(diagnostics
             .server
             .stdout_log

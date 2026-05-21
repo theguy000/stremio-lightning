@@ -89,13 +89,13 @@ Usage:\n\
 
 fn run_validation() -> Result<()> {
     println!("==> [1/5] Checking Rust formatting...");
-    run_program("cargo", &["fmt", "--all", "--", "--check"])?;
+    run_program("cargo", ["fmt", "--all", "--", "--check"])?;
 
     println!("==> [2/5] Running Rust clippy lints...");
-    run_program("cargo", &["clippy", "--workspace", "--all-targets"])?;
+    run_program("cargo", ["clippy", "--workspace", "--all-targets"])?;
 
     println!("==> [3/5] Running Rust unit/integration tests...");
-    run_program("cargo", &["test", "--workspace"])?;
+    run_program("cargo", ["test", "--workspace"])?;
 
     println!("==> [4/5] Running frontend tests...");
     run_npm(&["run", "test:ui"])?;
@@ -1065,10 +1065,8 @@ fn bundle_linux_shared_libraries(binary: &Path, app_lib: &Path, setup_hint: &str
             continue;
         }
 
-        if let Some(path) = resolved_ldd_path(line) {
-            if should_bundle_linux_library(&path) {
-                libs.insert(path);
-            }
+        if let Some(path) = resolved_ldd_path(line).filter(|p| should_bundle_linux_library(p)) {
+            libs.insert(path);
         }
     }
 

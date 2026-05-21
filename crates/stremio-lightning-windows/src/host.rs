@@ -488,10 +488,10 @@ impl WindowsHost {
             .drain_events();
 
         for event in events {
-            if matches!(event, PlayerEvent::Ended(_)) {
-                if self.exit_picture_in_picture_window_for_player_end()? {
-                    self.emit_picture_in_picture(false)?;
-                }
+            if matches!(event, PlayerEvent::Ended(_))
+                && self.exit_picture_in_picture_window_for_player_end()?
+            {
+                self.emit_picture_in_picture(false)?;
             }
             self.emit_transport_message(host_api::response_message(event.transport_args()))?;
         }

@@ -653,6 +653,6 @@ mod tests {
 
     #[test]
     fn ui_thread_wake_message_uses_app_message_range() {
-        assert!(UI_THREAD_WAKE_MESSAGE >= 0x8000);
+        const { assert!(UI_THREAD_WAKE_MESSAGE >= 0x8000) };
     }
 }

@@ -414,11 +414,9 @@ fn build_webview(
         let inspector_shown = Rc::new(Cell::new(false));
         let devtools = config.devtools;
         webview.connect_load_changed(move |webview, event| {
-            if event == LoadEvent::Finished {
-                if devtools && !inspector_shown.replace(true) {
-                    if let Some(inspector) = webview.inspector() {
-                        inspector.show();
-                    }
+            if event == LoadEvent::Finished && devtools && !inspector_shown.replace(true) {
+                if let Some(inspector) = webview.inspector() {
+                    inspector.show();
                 }
             }
         });
@@ -1016,7 +1014,7 @@ impl NativeVideoState {
             Value::Bool(value) => self.mpv.borrow().set_property(name, value),
             Value::Number(value) => value
                 .as_f64()
-                .ok_or_else(|| libmpv2::Error::Raw(-4))
+                .ok_or(libmpv2::Error::Raw(-4))
                 .and_then(|value| self.mpv.borrow().set_property(name, value)),
             Value::String(value) => self.mpv.borrow().set_property(name, value.as_str()),
             other => self
