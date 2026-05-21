@@ -50,6 +50,9 @@ show_spinner() {
         if [ $exit_code -eq 0 ]; then
             printf "\r${GREEN}[OK]${NC} %s... ${GREEN}Done!${NC}\n" "$message"
             return 0
+        elif grep -q "is already installed" "$log_file" 2>/dev/null; then
+            printf "\r${GREEN}[OK]${NC} %s... ${GREEN}Already installed!${NC}\n" "$message"
+            return 0
         else
             printf "\r${RED}[ERR]${NC} %s... ${RED}Failed!${NC}\n" "$message"
             return $exit_code
@@ -60,6 +63,9 @@ show_spinner() {
         local exit_code=$?
         if [ $exit_code -eq 0 ]; then
             echo "...Done!"
+            return 0
+        elif grep -q "is already installed" "$log_file" 2>/dev/null; then
+            echo "...Already installed!"
             return 0
         else
             echo "...Failed!"
