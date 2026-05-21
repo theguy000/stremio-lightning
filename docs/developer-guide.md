@@ -86,6 +86,7 @@ The main xtask commands are:
 
 | Command | Purpose |
 | --- | --- |
+| `cargo xtask validate` | Run all formatting, linting, tests, and UI checks. |
 | `cargo xtask setup` | Download native dependencies for the current platform. |
 | `cargo xtask setup-linux` | Download Linux shell runtime dependencies. |
 | `cargo xtask setup-windows` | Download Windows shell runtime dependencies. |
@@ -104,6 +105,7 @@ Choose commands by intent:
 | --- | --- |
 | Run a shell locally during development | `cargo <platform>` (e.g., `cargo linux` / `cargo macos` / `cargo windows`) |
 | Check that a shell crate compiles for a target | `cargo build -p <platform-crate> --release [--target ...]` |
+| Run complete project format, lint, and test validation | `cargo xtask validate` |
 | Produce a distributable artifact under `dist/` | `cargo xtask package-*` |
 
 In practice, most day-to-day work uses `cargo run` for local iteration and
@@ -341,7 +343,15 @@ available.
 
 ## Validation
 
-Run the relevant subset before pushing native shell changes:
+To run all formatting checks, compiler lints, workspace tests, and frontend checks with a single command, use:
+
+```bash
+cargo xtask validate
+```
+
+This sequentially performs format checks (`cargo fmt`), workspace-wide compiler linting (`cargo clippy`), all Rust package tests (`cargo test`), Vitest frontend verification (`cargo xtask test-ui`), and production UI bundling (`cargo xtask build-ui`).
+
+OR, you can run individual subsets manually before pushing native shell changes:
 
 ```bash
 cargo test -p stremio-lightning-core
