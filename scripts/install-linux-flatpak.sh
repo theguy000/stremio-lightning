@@ -183,7 +183,7 @@ fi
 
 # Step 3: Install
 echo -e "${BLUE}[3/3]${NC} Installing application..."
-flatpak install --user --bundle "$tmp" -y > /dev/null 2> "$log_file" &
+flatpak install --user --bundle "$tmp" -y --or-update > /dev/null 2> "$log_file" &
 if ! show_spinner $! "Installing Stremio Lightning Flatpak"; then
     echo -e "${RED}Installation failed:${NC}"
     cat "$log_file"
