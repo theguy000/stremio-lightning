@@ -446,7 +446,7 @@ pub fn filename_from_url(url: &str) -> Result<String, String> {
     }
 
     path.split('/')
-        .last()
+        .next_back()
         .filter(|filename| !filename.is_empty())
         .map(str::to_string)
         .ok_or_else(|| "Could not extract filename from URL".to_string())

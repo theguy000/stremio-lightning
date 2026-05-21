@@ -235,7 +235,7 @@ mod tests {
         let player = MpvPlayerBackend::default();
         let host = Arc::new(Host::new(
             player.clone(),
-            StreamingServer::new(RealProcessSpawner::default()),
+            StreamingServer::new(RealProcessSpawner),
         ));
         let mut runtime = MacosWebviewRuntime::new(
             "file:///tmp/macos-native-launch-smoke.html",

@@ -506,8 +506,8 @@ mod tests {
         let spawner = FakeProcessSpawner::default();
         let server = StreamingServer::with_config(spawner.clone(), test_config().disabled(true));
         server.start().unwrap();
-        assert_eq!(server.status().running, false);
-        assert_eq!(server.status().disabled, true);
+        assert!(!server.status().running);
+        assert!(server.status().disabled);
         assert_eq!(server.status().url, DEFAULT_SERVER_URL);
         assert!(spawner.spawned().is_empty());
     }
@@ -517,7 +517,7 @@ mod tests {
         let spawner = FakeProcessSpawner::default();
         let server = StreamingServer::with_config(spawner, test_config());
         let diagnostics = server.diagnostics();
-        assert_eq!(diagnostics.status.running, false);
+        assert!(!diagnostics.status.running);
         assert_eq!(diagnostics.status.url, DEFAULT_SERVER_URL);
         assert_eq!(
             diagnostics.stdout_log,

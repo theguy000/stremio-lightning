@@ -168,9 +168,9 @@ mod tests {
     #[test]
     fn pip_state_toggles_and_tracks_snapshot() {
         let state = PipState::new();
-        assert_eq!(state.is_enabled().unwrap(), false);
-        assert_eq!(state.toggle().unwrap(), true);
-        assert_eq!(state.is_enabled().unwrap(), true);
+        assert!(!state.is_enabled().unwrap());
+        assert!(state.toggle().unwrap());
+        assert!(state.is_enabled().unwrap());
 
         let snapshot = PipRestoreSnapshot {
             was_fullscreen: true,
@@ -180,7 +180,7 @@ mod tests {
         assert_eq!(state.take_snapshot().unwrap(), Some(snapshot));
         assert_eq!(state.take_snapshot().unwrap(), None);
 
-        assert_eq!(state.toggle().unwrap(), false);
+        assert!(!state.toggle().unwrap());
     }
 
     #[derive(Default)]
@@ -209,8 +209,8 @@ mod tests {
         let state = PipState::new();
         let mut controller = TestPipController::default();
 
-        assert_eq!(state.toggle_window_pip(&mut controller).unwrap(), true);
-        assert_eq!(state.toggle_window_pip(&mut controller).unwrap(), false);
+        assert!(state.toggle_window_pip(&mut controller).unwrap());
+        assert!(!state.toggle_window_pip(&mut controller).unwrap());
         assert_eq!(controller.entered, 1);
         assert_eq!(
             controller.exited,
@@ -219,8 +219,8 @@ mod tests {
                 saved_size: Some((1280, 720)),
             }]
         );
-        assert_eq!(state.is_enabled().unwrap(), false);
-        assert_eq!(state.exit_window_pip(&mut controller).unwrap(), false);
+        assert!(!state.is_enabled().unwrap());
+        assert!(!state.exit_window_pip(&mut controller).unwrap());
     }
 
     #[test]
@@ -228,12 +228,12 @@ mod tests {
         let state = PipState::new();
         let mut controller = TestPipController::default();
 
-        assert_eq!(state.toggle_window_pip(&mut controller).unwrap(), true);
-        assert_eq!(state.exit_window_pip(&mut controller).unwrap(), true);
-        assert_eq!(state.is_enabled().unwrap(), false);
+        assert!(state.toggle_window_pip(&mut controller).unwrap());
+        assert!(state.exit_window_pip(&mut controller).unwrap());
+        assert!(!state.is_enabled().unwrap());
         assert_eq!(controller.entered, 1);
         assert_eq!(controller.exited.len(), 1);
-        assert_eq!(state.exit_window_pip(&mut controller).unwrap(), false);
+        assert!(!state.exit_window_pip(&mut controller).unwrap());
     }
 
     #[test]

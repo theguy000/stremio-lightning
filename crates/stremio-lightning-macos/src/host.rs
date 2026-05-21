@@ -355,7 +355,7 @@ where
             "save_setting" => {
                 let payload: SaveSettingPayload = parse_payload(command, payload)?;
                 let value = serde_json::from_str::<Value>(&payload.value)
-                    .unwrap_or_else(|_| Value::String(payload.value));
+                    .unwrap_or(Value::String(payload.value));
                 let plugins_dir = mods::mods_dir(&self.app_data_dir, mods::ModType::Plugin);
                 std::fs::create_dir_all(&plugins_dir)
                     .map_err(|e| format!("Failed to create macOS plugins dir: {e}"))?;

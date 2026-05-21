@@ -69,8 +69,8 @@ pub fn normalize_startup_url(url: &str) -> String {
 
 pub fn run(config: AppConfig) -> Result<(), String> {
     let player = MpvPlayerBackend::default();
-    let streaming_server = StreamingServer::new(RealProcessSpawner::default())
-        .with_disabled(config.disable_streaming_server);
+    let streaming_server =
+        StreamingServer::new(RealProcessSpawner).with_disabled(config.disable_streaming_server);
     let host = Arc::new(Host::new(player.clone(), streaming_server));
     if !config.disable_streaming_server {
         if let Err(error) = host.start_streaming_server() {

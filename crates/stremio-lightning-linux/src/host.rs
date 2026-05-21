@@ -57,21 +57,11 @@ impl ListenerRegistry {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct TransportQueue {
     bridge_ready: bool,
     transport_ready: bool,
     pending: VecDeque<String>,
-}
-
-impl Default for TransportQueue {
-    fn default() -> Self {
-        Self {
-            bridge_ready: false,
-            transport_ready: false,
-            pending: VecDeque::new(),
-        }
-    }
 }
 
 pub struct LinuxHost<B, P>
@@ -299,7 +289,7 @@ where
             "save_setting" => {
                 let payload: SaveSettingPayload = parse_payload(command, payload)?;
                 let value = serde_json::from_str::<Value>(&payload.value)
-                    .unwrap_or_else(|_| Value::String(payload.value));
+                    .unwrap_or(Value::String(payload.value));
                 let plugins_dir = mods::mods_dir(&self.app_data_dir, mods::ModType::Plugin);
                 std::fs::create_dir_all(&plugins_dir)
                     .map_err(|e| format!("Failed to create plugins dir: {e}"))?;

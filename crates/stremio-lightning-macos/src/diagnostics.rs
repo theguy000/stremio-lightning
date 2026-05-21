@@ -45,6 +45,7 @@ pub struct MacosDiagnosticsSnapshot {
     pub server: ServerDiagnostics,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn diagnostics_snapshot(
     load_state: &WebviewLoadState,
     ipc_errors: Vec<String>,
