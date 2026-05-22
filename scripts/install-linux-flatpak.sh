@@ -163,7 +163,7 @@ echo -e "${NC}"
 
 # Step 1: Remote repository setup
 echo -e "${BLUE}[1/3]${NC} Preparing Flatpak environment..."
-flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo > /dev/null 2> "$log_file" &
+flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo > /dev/null 2> "$log_file" &
 if ! show_spinner $! "Configuring Flathub repository"; then
     echo -e "${RED}Error configuring Flathub repository:${NC}"
     cat "$log_file"
