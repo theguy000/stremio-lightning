@@ -1,6 +1,54 @@
 (function () {
   "use strict";
 
+  // Prevent SyntaxError from YouTube's www-widgetapi when postMessage is called with targetOrigin "about:blank"
+  (function () {
+    try {
+      var originalPostMessage = Window.prototype.postMessage;
+      var customPostMessage = function (message, targetOrigin, transfer) {
+        var context = this || window;
+        var args = Array.prototype.slice.call(arguments);
+        if (args.length >= 2 && typeof args[1] === "string") {
+          var lower = args[1].toLowerCase();
+          if (lower === "about:blank" || lower.indexOf("about:") === 0 || lower === "") {
+            args[1] = "*";
+          }
+        }
+        try {
+          return originalPostMessage.apply(context, args);
+        } catch (e) {
+          if (e.name === "SyntaxError" || (e.message && e.message.indexOf("expected pattern") !== -1)) {
+            try {
+              if (args.length < 2) {
+                args[1] = "*";
+              } else {
+                args[1] = "*";
+              }
+              return originalPostMessage.apply(context, args);
+            } catch (innerErr) {
+              console.warn("[StremioLightning] Suppressed postMessage SyntaxError:", e);
+              return;
+            }
+          }
+          throw e;
+        }
+      };
+
+      // Try direct assignment first
+      Window.prototype.postMessage = customPostMessage;
+    } catch (err) {
+      try {
+        Object.defineProperty(Window.prototype, "postMessage", {
+          value: customPostMessage,
+          writable: true,
+          configurable: true
+        });
+      } catch (defErr) {
+        console.warn("[StremioLightning] Failed to override Window.prototype.postMessage:", defErr);
+      }
+    }
+  })();
+
   function isYoutubeTrailerUrl(url) {
     if (!url) return false;
     var lower = url.toLowerCase();
@@ -73,6 +121,40 @@
     return "";
   }
 
+  var trailerStyleId = "stremio-lightning-trailer-style";
+  var activeTrailerInterval = null;
+
+  function enableTrailerTransparency() {
+    if (document.getElementById(trailerStyleId)) return;
+
+    var style = document.createElement("style");
+    style.id = trailerStyleId;
+    style.textContent =
+      "html, body, #app, [class*=\"app-\"], [class*=\"detail-\"], [class*=\"modal-\"], [class*=\"route-\"], [class*=\"layout-\"], [class*=\"container-\"], [class*=\"popup-\"], [class*=\"dialog-\"] {\n" +
+      "  background: transparent !important;\n" +
+      "  background-color: transparent !important;\n" +
+      "  background-image: none !important;\n" +
+      "}\n" +
+      "[class*=\"detail-content\"], [class*=\"detail-meta\"], [class*=\"meta-details\"], [class*=\"detail-container\"] {\n" +
+      "  opacity: 0.15 !important;\n" +
+      "  transition: opacity 0.3s ease-in-out !important;\n" +
+      "}\n" +
+      "[class*=\"detail-content\"]:hover, [class*=\"detail-meta\"]:hover, [class*=\"meta-details\"]:hover, [class*=\"detail-container\"]:hover {\n" +
+      "  opacity: 0.95 !important;\n" +
+      "}\n" +
+      "iframe[src=\"about:blank\"] {\n" +
+      "  display: none !important;\n" +
+      "}\n";
+    document.head.appendChild(style);
+  }
+
+  function disableTrailerTransparency() {
+    var style = document.getElementById(trailerStyleId);
+    if (style) {
+      style.parentElement.removeChild(style);
+    }
+  }
+
   function interceptYoutubeIframe(iframe) {
     if (iframe.__STREMIO_LIGHTNING_INTERCEPTED__) return;
 
@@ -85,6 +167,9 @@
       iframe.style.display = "none";
       iframe.style.visibility = "hidden";
       iframe.src = "about:blank"; // Prevent loading inside the engine
+
+      // Enable transparency so the background MPV video is visible through the webview
+      enableTrailerTransparency();
 
       var videoId = extractVideoId(src);
       var playUrl = videoId
@@ -107,6 +192,33 @@
       } else {
         console.warn("[StremioLightning] Native shell bridge is not ready to route YouTube trailer");
       }
+
+      // Start polling to detect when the user closes the trailer modal (iframe is removed from DOM)
+      if (activeTrailerInterval) {
+        clearInterval(activeTrailerInterval);
+      }
+      activeTrailerInterval = setInterval(function () {
+        if (!document.body.contains(iframe)) {
+          console.log("[StremioLightning] YouTube trailer iframe removed, stopping playback and restoring UI");
+          clearInterval(activeTrailerInterval);
+          activeTrailerInterval = null;
+
+          disableTrailerTransparency();
+
+          // Send stop command to native MPV player
+          if (
+            window.chrome &&
+            window.chrome.webview &&
+            typeof window.chrome.webview.postMessage === "function"
+          ) {
+            window.chrome.webview.postMessage({
+              id: 9998,
+              type: 6,
+              args: ["native-player-stop"]
+            });
+          }
+        }
+      }, 250);
     }
   }
 
