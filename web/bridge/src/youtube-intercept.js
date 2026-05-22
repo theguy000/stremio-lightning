@@ -155,6 +155,75 @@
     }
   }
 
+  var isTrailerPaused = false;
+
+  function sendMpvProperty(name, value) {
+    if (
+      window.chrome &&
+      window.chrome.webview &&
+      typeof window.chrome.webview.postMessage === "function"
+    ) {
+      window.chrome.webview.postMessage({
+        id: 9997,
+        type: 6,
+        args: ["mpv-set-prop", [name, value]]
+      });
+    }
+  }
+
+  function sendMpvCommand(name, args) {
+    if (
+      window.chrome &&
+      window.chrome.webview &&
+      typeof window.chrome.webview.postMessage === "function"
+    ) {
+      window.chrome.webview.postMessage({
+        id: 9999,
+        type: 6,
+        args: ["mpv-command", [name].concat(args)]
+      });
+    }
+  }
+
+  function handleTrailerKeyDown(e) {
+    var activeTag = document.activeElement ? document.activeElement.tagName : "";
+    if (activeTag === "INPUT" || activeTag === "TEXTAREA" || activeTag === "SELECT") {
+      return;
+    }
+
+    if (e.key === " ") {
+      e.preventDefault();
+      e.stopPropagation();
+      isTrailerPaused = !isTrailerPaused;
+      sendMpvProperty("pause", isTrailerPaused);
+    } else if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      e.stopPropagation();
+      sendMpvCommand("seek", ["-10"]);
+    } else if (e.key === "ArrowRight") {
+      e.preventDefault();
+      e.stopPropagation();
+      sendMpvCommand("seek", ["10"]);
+    }
+  }
+
+  function handleTrailerClick(e) {
+    // Avoid toggling play/pause if clicking on a button, anchor, or anything inside a button
+    var el = e.target;
+    while (el && el !== document.body) {
+      var tag = el.tagName;
+      if (tag === "BUTTON" || tag === "A" || el.onclick || el.getAttribute("role") === "button" || (el.className && el.className.indexOf("close") !== -1)) {
+        return;
+      }
+      el = el.parentElement;
+    }
+
+    e.preventDefault();
+    e.stopPropagation();
+    isTrailerPaused = !isTrailerPaused;
+    sendMpvProperty("pause", isTrailerPaused);
+  }
+
   function interceptYoutubeIframe(iframe) {
     if (iframe.__STREMIO_LIGHTNING_INTERCEPTED__) return;
 
@@ -193,6 +262,11 @@
         console.warn("[StremioLightning] Native shell bridge is not ready to route YouTube trailer");
       }
 
+      // Bind trailer controls key/click listeners
+      isTrailerPaused = false;
+      window.addEventListener("keydown", handleTrailerKeyDown, true);
+      window.addEventListener("click", handleTrailerClick, true);
+
       // Start polling to detect when the user closes the trailer modal (iframe is removed from DOM)
       if (activeTrailerInterval) {
         clearInterval(activeTrailerInterval);
@@ -204,6 +278,10 @@
           activeTrailerInterval = null;
 
           disableTrailerTransparency();
+
+          // Unbind control listeners
+          window.removeEventListener("keydown", handleTrailerKeyDown, true);
+          window.removeEventListener("click", handleTrailerClick, true);
 
           // Send stop command to native MPV player
           if (
