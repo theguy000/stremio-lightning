@@ -705,6 +705,7 @@ pub fn package_linux_flatpak_builder() -> Result<()> {
         [
             "--force-clean",
             "--ccache",
+            "--disable-rofiles-fuse",
             &format!("--repo={}", repo_dir.display()),
             &build_dir.to_string_lossy(),
             &manifest.to_string_lossy(),
