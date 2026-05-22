@@ -175,7 +175,8 @@ Build Linux packages:
 ```bash
 cargo xtask package-linux-appimage
 cargo xtask package-linux-deb
-cargo xtask package-linux-flatpak
+cargo xtask package-linux-flatpak          # Fast-Host bundling (for local dev)
+cargo xtask package-linux-flatpak-builder  # Hermetic flatpak-builder compilation (for release build)
 ```
 
 Use these when you need Linux artifacts under `dist/`.
@@ -188,8 +189,19 @@ dist/stremio-lightning-linux-amd64.deb
 dist/Stremio_Lightning_Linux-x86_64.flatpak
 ```
 
-The Flatpak package command requires `flatpak`, `flatpak-builder`, and the GNOME
-runtime/SDK used by the manifest:
+### Flatpak Workflows: Fast-Host vs. Hermetic Builder
+
+Stremio Lightning supports two distinct Flatpak packaging methods:
+
+1. **Fast-Host Bundling (`cargo xtask package-linux-flatpak`)**
+   * **Use Case:** Fast local development (takes <10 seconds).
+   * **Mechanism:** Bundles host binaries and host shared libraries into a basic Flatpak.
+   * **Requirements:** `flatpak` CLI.
+
+2. **Hermetic Builder (`cargo xtask package-linux-flatpak-builder`)**
+   * **Use Case:** Release packaging & CI pipeline (what runs in GitHub Actions).
+   * **Mechanism:** Compiles everything hermetically inside the GNOME 50 sandbox.
+   * **Requirements:** `flatpak-builder` and GNOME 50 platform/SDK.
 
 ```bash
 flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo

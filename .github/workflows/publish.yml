@@ -81,7 +81,7 @@ jobs:
         run: cargo xtask package-linux-deb
 
       - name: Build Linux Flatpak bundle
-        run: cargo xtask package-linux-flatpak
+        run: cargo xtask package-linux-flatpak-builder
 
       - name: Verify Linux artifact
         run: |

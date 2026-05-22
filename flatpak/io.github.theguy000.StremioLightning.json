@@ -1,0 +1,153 @@
+{
+    "app-id": "io.github.theguy000.StremioLightning",
+    "runtime": "org.gnome.Platform",
+    "runtime-version": "50",
+    "sdk": "org.gnome.Sdk",
+    "sdk-extensions": [
+        "org.freedesktop.Sdk.Extension.rust-stable"
+    ],
+    "add-extensions": {
+        "org.freedesktop.Platform.ffmpeg-full": {
+            "version": "25.08",
+            "directory": "lib/ffmpeg",
+            "add-ld-path": "."
+        },
+        "org.freedesktop.Platform.VAAPI.Intel": {
+            "version": "25.08",
+            "directory": "lib/intel-vaapi-driver",
+            "add-ld-path": ".",
+            "download-if": "have-intel-gpu",
+            "enable-if": "have-intel-gpu"
+        }
+    },
+    "command": "stremio-lightning",
+    "finish-args": [
+        "--socket=wayland",
+        "--socket=fallback-x11",
+        "--socket=pulseaudio",
+        "--share=ipc",
+        "--share=network",
+        "--device=dri",
+        "--persist=.stremio-lightning",
+        "--filesystem=xdg-download",
+        "--talk-name=org.kde.StatusNotifierWatcher",
+        "--own-name=io.github.theguy000.StremioLightning"
+    ],
+    "build-options": {
+        "append-path": "/usr/lib/sdk/rust-stable/bin"
+    },
+    "modules": [
+        {
+            "name": "libplacebo",
+            "buildsystem": "meson",
+            "config-opts": [
+                "-Ddemos=false"
+            ],
+            "cleanup": [
+                "/include",
+                "/lib/pkgconfig"
+            ],
+            "sources": [
+                {
+                    "type": "git",
+                    "url": "https://github.com/haasn/libplacebo.git",
+                    "tag": "v7.360.1"
+                }
+            ]
+        },
+        {
+            "name": "libass",
+            "buildsystem": "meson",
+            "cleanup": [
+                "/include",
+                "/lib/pkgconfig"
+            ],
+            "sources": [
+                {
+                    "type": "archive",
+                    "url": "https://github.com/libass/libass/archive/0.17.4.tar.gz",
+                    "sha256": "c287d180d93dc9c9021872574b618ac49027e84cc90e1289318b1ee68bb42251"
+                }
+            ]
+        },
+        {
+            "name": "libmpv",
+            "buildsystem": "meson",
+            "config-opts": [
+                "-Dbuild-date=false",
+                "-Dcplayer=false",
+                "-Dlibmpv=true",
+                "-Dmanpage-build=disabled"
+            ],
+            "cleanup": [
+                "/include",
+                "/lib/pkgconfig"
+            ],
+            "sources": [
+                {
+                    "type": "archive",
+                    "url": "https://github.com/mpv-player/mpv/archive/v0.41.0.tar.gz",
+                    "sha256": "ee21092a5ee427353392360929dc64645c54479aefdb5babc5cfbb5fad626209"
+                }
+            ]
+        },
+        {
+            "name": "stremio-lightning",
+            "buildsystem": "simple",
+            "build-options": {
+                "env": {
+                    "CARGO_HOME": "/run/build/stremio-lightning/cargo",
+                    "RUSTFLAGS": "-L /app/lib -L /app/lib64 -C link-arg=-Wl,-rpath-link=/app/lib -C link-arg=-Wl,-rpath-link=/app/lib64"
+                }
+            },
+            "build-commands": [
+                "cargo build --release -p stremio-lightning-linux"
+            ],
+            "post-install": [
+                "install -Dm755 target/release/stremio-lightning-linux /app/bin/stremio-lightning-linux",
+                "mkdir -p /app/lib/stremio-lightning/binaries",
+                "mkdir -p /app/lib/stremio-lightning/resources",
+                "install -Dm755 crates/stremio-lightning-linux/binaries/stremio-runtime-x86_64-unknown-linux-gnu -t /app/lib/stremio-lightning/binaries/",
+                "install -Dm644 crates/stremio-lightning-linux/resources/server.cjs -t /app/lib/stremio-lightning/resources/",
+                "install -Dm755 crates/stremio-lightning-linux/resources/ffmpeg -t /app/lib/stremio-lightning/resources/",
+                "install -Dm755 crates/stremio-lightning-linux/resources/ffprobe -t /app/lib/stremio-lightning/resources/",
+                "install -Dm644 assets/icons/128x128.png /app/share/icons/hicolor/128x128/apps/io.github.theguy000.StremioLightning.png",
+                "mkdir -p /app/share/applications",
+                "echo '[Desktop Entry]' > /app/share/applications/io.github.theguy000.StremioLightning.desktop",
+                "echo 'Type=Application' >> /app/share/applications/io.github.theguy000.StremioLightning.desktop",
+                "echo 'Name=Stremio Lightning' >> /app/share/applications/io.github.theguy000.StremioLightning.desktop",
+                "echo 'Exec=stremio-lightning' >> /app/share/applications/io.github.theguy000.StremioLightning.desktop",
+                "echo 'Icon=io.github.theguy000.StremioLightning' >> /app/share/applications/io.github.theguy000.StremioLightning.desktop",
+                "echo 'Categories=AudioVideo;Video;Player;' >> /app/share/applications/io.github.theguy000.StremioLightning.desktop",
+                "echo 'Terminal=false' >> /app/share/applications/io.github.theguy000.StremioLightning.desktop",
+                "echo 'StartupNotify=true' >> /app/share/applications/io.github.theguy000.StremioLightning.desktop",
+                "echo 'StartupWMClass=io.github.theguy000.StremioLightning' >> /app/share/applications/io.github.theguy000.StremioLightning.desktop",
+                "mkdir -p /app/share/metainfo",
+                "echo '<?xml version=\"1.0\" encoding=\"UTF-8\"?>' > /app/share/metainfo/io.github.theguy000.StremioLightning.metainfo.xml",
+                "echo '<component type=\"desktop-application\">' >> /app/share/metainfo/io.github.theguy000.StremioLightning.metainfo.xml",
+                "echo '  <id>io.github.theguy000.StremioLightning</id>' >> /app/share/metainfo/io.github.theguy000.StremioLightning.metainfo.xml",
+                "echo '  <name>Stremio Lightning</name>' >> /app/share/metainfo/io.github.theguy000.StremioLightning.metainfo.xml",
+                "echo '  <summary>Lightweight native Stremio shell</summary>' >> /app/share/metainfo/io.github.theguy000.StremioLightning.metainfo.xml",
+                "echo '  <metadata_license>MIT</metadata_license>' >> /app/share/metainfo/io.github.theguy000.StremioLightning.metainfo.xml",
+                "echo '  <project_license>MIT</project_license>' >> /app/share/metainfo/io.github.theguy000.StremioLightning.metainfo.xml",
+                "echo '  <description>' >> /app/share/metainfo/io.github.theguy000.StremioLightning.metainfo.xml",
+                "echo '    <p>Stremio Lightning packages a native Linux shell with plugin management, theme support, and MPV-powered playback.</p>' >> /app/share/metainfo/io.github.theguy000.StremioLightning.metainfo.xml",
+                "echo '  </description>' >> /app/share/metainfo/io.github.theguy000.StremioLightning.metainfo.xml",
+                "echo '  <launchable type=\"desktop-id\">io.github.theguy000.StremioLightning.desktop</launchable>' >> /app/share/metainfo/io.github.theguy000.StremioLightning.metainfo.xml",
+                "echo '</component>' >> /app/share/metainfo/io.github.theguy000.StremioLightning.metainfo.xml",
+                "echo '#!/bin/sh' > /app/bin/stremio-lightning",
+                "echo 'set -eu' >> /app/bin/stremio-lightning",
+                "echo 'export LD_LIBRARY_PATH=\"/app/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}}\"' >> /app/bin/stremio-lightning",
+                "echo 'export STREMIO_LIGHTNING_BUNDLE_DIR=\"/app/lib/stremio-lightning\"' >> /app/bin/stremio-lightning",
+                "echo 'exec /app/bin/stremio-lightning-linux \"$@\"' >> /app/bin/stremio-lightning",
+                "chmod +x /app/bin/stremio-lightning"
+            ],
+            "sources": [
+                {
+                    "type": "dir",
+                    "path": "../"
+                }
+            ]
+        }
+    ]
+}

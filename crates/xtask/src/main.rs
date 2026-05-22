@@ -52,6 +52,7 @@ fn run() -> Result<()> {
         "package-linux-appimage" => package_linux::build_linux_appimage()?,
         "package-linux-deb" => package_linux::package_linux_deb()?,
         "package-linux-flatpak" => package_linux::package_linux_flatpak()?,
+        "package-linux-flatpak-builder" => package_linux::package_linux_flatpak_builder()?,
         "package-macos" => package_macos::package_macos()?,
         "package-windows-portable" => package_windows::package_windows()?,
         "package-windows-installer" => package_windows::package_windows_installer()?,
@@ -78,7 +79,8 @@ Usage:\n\
   cargo xtask validate                    Run all formatting, linting, tests and UI checks\n\
   cargo xtask package-linux-appimage      Build dist/{LINUX_APPIMAGE}\n\
   cargo xtask package-linux-deb           Build dist/{LINUX_DEB}\n\
-  cargo xtask package-linux-flatpak       Build dist/{LINUX_FLATPAK}\n\
+  cargo xtask package-linux-flatpak       Build dist/{LINUX_FLATPAK} (Fast-Host bundling)\n\
+  cargo xtask package-linux-flatpak-builder Build dist/{LINUX_FLATPAK} (Hermetic flatpak-builder)\n\
   cargo xtask package-macos               Build dist/{MACOS_APP_BUNDLE}\n\
   cargo xtask package-windows-portable    Build dist/{WINDOWS_ZIP}\n\
   cargo xtask package-windows-installer   Build dist/{WINDOWS_INSTALLER}\n"
