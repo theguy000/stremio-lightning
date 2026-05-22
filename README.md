@@ -3,101 +3,61 @@
   Stremio Lightning
 </h1>
 
-![Built with Rust](https://img.shields.io/badge/Built_with-Rust-000000?logo=rust&logoColor=white)
-![Frontend Svelte](https://img.shields.io/badge/Frontend-Svelte-FF3E00?logo=svelte&logoColor=white)
+<p align="center">
+  <img src="https://img.shields.io/badge/Built_with-Rust-000000?logo=rust&logoColor=white" alt="Built with Rust">
+  <img src="https://img.shields.io/badge/Frontend-Svelte-FF3E00?logo=svelte&logoColor=white" alt="Frontend Svelte">
+</p>
 
-Stremio Lightning is a desktop wrapper for [Stremio](https://www.stremio.com/) built with Rust-native shell crates and [Svelte](https://svelte.dev/). It adds plugin management, theme support, Discord Rich Presence, MPV-powered native playback for a better viewing experience, and tighter control over the local streaming server.
+<p align="center">
+  Stremio Lightning is a fast, lightweight, and modern desktop wrapper for <a href="https://www.stremio.com/">Stremio</a> built with Rust-native shell crates and Svelte.
+</p>
 
----
 
-## Features
+## Key Features
 
-| Feature | Description |
-|---------|-------------|
-| Plugin system | Install and manage community-made plugins through a built-in marketplace. |
-| Theme support | Customize Stremio with downloadable themes. |
-| Discord Rich Presence | Show what you are watching directly on Discord. |
-| Native player | Use an integrated MPV-based media player on Windows. |
-| Streaming server control | Start, stop, and restart the Stremio streaming server from inside the app. |
-| Auto-update checking | Receive built-in notifications when app updates are available. |
+- **Plugin System** – Install and manage community plugins.
+- **Theme Support** – Customize the appearance with downloadable themes.
+- **Discord Rich Presence** – Show what you are watching directly on Discord.
+- **Native Player** – Enjoy native MPV-powered media playback.
+- **Server Control** – Start, stop, and restart the local streaming server.
+- **Auto-Updates** – Built-in notifications for app updates.
 
----
 
 ## Tech Stack
 
-| Layer     | Technology                        |
-|-----------|-----------------------------------|
-| Frontend  | Svelte 5, TypeScript, Vite        |
-| Backend   | Rust native shell crates          |
-| Player    | libmpv2 (Windows/Linux)           |
-| Windows   | WebView2                          |
-| Linux     | GTK4, WebKitGTK 6, GTK GLArea     |
-| Packaging | Native crate packaging scripts    |
+- **Frontend:** Svelte 5, TypeScript, Vite
+- **Backend:** Rust native shell crates
+- **Media Player:** libmpv2 (Windows/Linux)
+- **Native WebViews:** WebView2 (Windows), GTK4 & WebKitGTK 6 (Linux)
 
----
 
 ## Getting Started
 
-### Prerequisites
-
-- [Node.js](https://nodejs.org/) (LTS recommended)
-- [Rust](https://www.rust-lang.org/tools/install) (stable toolchain)
-- Linux: WebKitGTK development/runtime packages for the native shell, plus
-  `clang` and [`mold`](https://github.com/rui314/mold) for Rust linking
-- Windows: WebView2 Runtime and MSVC Rust target/toolchain
-
 ### Installation
 
-**Linux Flatpak**
+- **Windows (Installer/Portable)**
+  Download and run the installer or portable version from the [latest release](https://github.com/theguy000/stremio-lightning/releases/latest).
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/theguy000/stremio-lightning/master/scripts/install-linux-flatpak.sh | bash
-```
+- **Linux**
+  One-click install with Flatpak:
+  ```bash
+  curl -fsSL https://raw.githubusercontent.com/theguy000/stremio-lightning/master/scripts/install-linux-flatpak.sh | bash
+  ```
+  *(Debian `.deb` and AppImage packages are also available in the [latest release](https://github.com/theguy000/stremio-lightning/releases/latest).)*
 
-**Windows EXE installer**
 
-Download and run `stremio-lightning-windows-setup.exe` from the [latest release](https://github.com/theguy000/stremio-lightning/releases/latest).
+## Development
 
-### Development
+Developer guide, build instructions, and plugin API documentation are located in [`docs/developer-guide.md`](docs/developer-guide.md).
 
-Clone the repository, install dependencies, then use `npm run dev:ui` for the injected UI bundle and run the native shell crate with Cargo.
-
-Developer workflow details are documented in [`docs/developer-guide.md`](docs/developer-guide.md).
-
-### Build
-
-```bash
-cargo xtask build-ui
-cargo xtask package-linux-appimage
-cargo xtask package-linux-flatpak
-cargo xtask package-windows-portable
-```
-
----
-
-## Plugin API
-
-Plugins have access to the global `window.StremioEnhancedAPI` object, which exposes:
-
-- **Window management** - minimize, maximize, close, drag
-- **Streaming server** - start, stop, restart, get status
-- **Mod management** - list, download, delete, and update plugins & themes
-- **Settings** - get, save, and register plugin-specific settings
-- **Events** - subscribe to fullscreen, maximize, and server state changes
-- **Logging** - `info`, `warn`, `error` helpers
-
----
 
 ## Platform Support
 
-| Platform | Notes                                    |
-|----------|------------------------------------------|
-| Windows  | Requires `libmpv-2.dll`, ffmpeg, ffprobe |
-| macOS    | Minimum macOS 10.15 (Catalina)           |
-| Linux    | AppImage, `.deb`, and Flatpak packaging  |
+- **Windows:** Supported (Installer & Portable `.zip`)
+- **Linux:** Supported (Flatpak, AppImage, & Debian `.deb`)
+- **macOS:** *In Development* (No release available yet)
 
----
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
+Licensed under the [MIT License](LICENSE).
