@@ -77,9 +77,36 @@ pub fn run(config: AppConfig) -> Result<(), String> {
     if config.headless_bootstrap {
         Ok(())
     } else {
-        let webview = WebviewRuntime::new(config.url.clone(), config.devtools, injection, host);
+        let webview = WebviewRuntime::new(config.url.clone(), config.devtools, injection, host.clone());
+        setup_signal_handler(host);
         run_native_window(config, webview, player)
     }
+}
+
+fn setup_signal_handler(host: Arc<Host<MpvPlayerBackend, RealProcessSpawner>>) {
+    std::thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("Failed to create signal runtime");
+        runtime.block_on(async {
+            use tokio::signal::unix::{signal, SignalKind};
+            let mut sigint = signal(SignalKind::interrupt()).expect("Failed to register SIGINT");
+            let mut sigterm = signal(SignalKind::terminate()).expect("Failed to register SIGTERM");
+            tokio::select! {
+                _ = sigint.recv() => {
+                    eprintln!("[StremioLightning] Received SIGINT (Ctrl+C), shutting down sidecar...");
+                }
+                _ = sigterm.recv() => {
+                    eprintln!("[StremioLightning] Received SIGTERM (Taskbar Close), shutting down sidecar...");
+                }
+            }
+            if let Err(error) = host.shutdown() {
+                eprintln!("[StremioLightning] Failed to shut down Linux runtime: {error}");
+            }
+            std::process::exit(0);
+        });
+    });
 }
 
 #[cfg(test)]
