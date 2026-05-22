@@ -95,6 +95,9 @@
             "name": "stremio-lightning",
             "buildsystem": "simple",
             "build-options": {
+                "build-args": [
+                    "--share=network"
+                ],
                 "env": {
                     "CARGO_HOME": "/run/build/stremio-lightning/cargo",
                     "RUSTFLAGS": "-L /app/lib -L /app/lib64 -C link-arg=-Wl,-rpath-link=/app/lib -C link-arg=-Wl,-rpath-link=/app/lib64"
