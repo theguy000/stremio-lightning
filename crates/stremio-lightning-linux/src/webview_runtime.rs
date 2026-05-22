@@ -17,6 +17,7 @@ pub const BRIDGE_SHORTCUTS_NAME: &str = "bridge/shortcuts.js";
 pub const BRIDGE_PIP_NAME: &str = "bridge/pip.js";
 pub const BRIDGE_DISCORD_RPC_NAME: &str = "bridge/discord-rpc.js";
 pub const BRIDGE_UPDATE_BANNER_NAME: &str = "bridge/update-banner.js";
+pub const BRIDGE_YOUTUBE_INTERCEPT_NAME: &str = "bridge/youtube-intercept.js";
 pub const BRIDGE_NAME: &str = "bridge.js";
 pub const MOD_UI_NAME: &str = "mod-ui-svelte.iife.js";
 
@@ -102,6 +103,10 @@ fn bridge_module_scripts() -> Vec<InjectionScript> {
         InjectionScript {
             name: BRIDGE_UPDATE_BANNER_NAME,
             source: include_str!("../../../web/bridge/src/update-banner.js").to_string(),
+        },
+        InjectionScript {
+            name: BRIDGE_YOUTUBE_INTERCEPT_NAME,
+            source: include_str!("../../../web/bridge/src/youtube-intercept.js").to_string(),
         },
     ]
 }
@@ -322,6 +327,7 @@ mod tests {
                 BRIDGE_PIP_NAME,
                 BRIDGE_DISCORD_RPC_NAME,
                 BRIDGE_UPDATE_BANNER_NAME,
+                BRIDGE_YOUTUBE_INTERCEPT_NAME,
                 BRIDGE_NAME,
                 MOD_UI_NAME
             ]
@@ -365,6 +371,7 @@ mod tests {
                 BRIDGE_PIP_NAME,
                 BRIDGE_DISCORD_RPC_NAME,
                 BRIDGE_UPDATE_BANNER_NAME,
+                BRIDGE_YOUTUBE_INTERCEPT_NAME,
                 BRIDGE_NAME,
                 MOD_UI_NAME
             ]
