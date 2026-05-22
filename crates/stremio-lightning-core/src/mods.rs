@@ -348,7 +348,8 @@ pub async fn check_mod_updates(
     mod_type: ModType,
 ) -> Result<UpdateInfo, String> {
     validate_mod_filename(filename, mod_type)?;
-    let content = std::fs::read_to_string(mods_dir(app_data_dir, mod_type).join(filename))
+    let content = tokio::fs::read_to_string(mods_dir(app_data_dir, mod_type).join(filename))
+        .await
         .map_err(|e| format!("Failed to read file: {}", e))?;
 
     let Some(metadata) = parse_metadata(&content) else {
