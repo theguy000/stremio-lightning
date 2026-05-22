@@ -296,11 +296,13 @@ struct RegistryCache {
 }
 
 static REGISTRY_CACHE: OnceLock<std::sync::Mutex<Option<RegistryCache>>> = OnceLock::new();
+static REGISTRY_FETCH_MUTEX: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
 
 pub async fn fetch_registry() -> Result<Registry, String> {
     let cache_mutex = REGISTRY_CACHE.get_or_init(|| std::sync::Mutex::new(None));
+    let fetch_mutex = REGISTRY_FETCH_MUTEX.get_or_init(|| tokio::sync::Mutex::new(()));
 
-    // 1. Return cached registry if it exists and is less than 5 minutes old
+    // 1. Fast path: return cached registry if it exists and is less than 5 minutes old
     {
         if let Ok(guard) = cache_mutex.lock() {
             if let Some(cache) = &*guard {
@@ -311,7 +313,21 @@ pub async fn fetch_registry() -> Result<Registry, String> {
         }
     }
 
-    // 2. Fetch over network on cache miss
+    // 2. Slow path: serialize network fetch using async Mutex
+    let _guard = fetch_mutex.lock().await;
+
+    // 3. Double-check cache inside the lock
+    {
+        if let Ok(guard) = cache_mutex.lock() {
+            if let Some(cache) = &*guard {
+                if cache.fetched_at.elapsed() < std::time::Duration::from_secs(300) {
+                    return Ok(cache.registry.clone());
+                }
+            }
+        }
+    }
+
+    // 4. Fetch over network on cache miss
     let url = "https://raw.githubusercontent.com/REVENGE977/stremio-enhanced-registry/refs/heads/main/registry.json";
     let response = reqwest::get(url)
         .await
@@ -329,7 +345,7 @@ pub async fn fetch_registry() -> Result<Registry, String> {
         .await
         .map_err(|e| format!("Failed to parse registry: {}", e))?;
 
-    // 3. Save registry to cache
+    // 5. Save registry to cache
     {
         if let Ok(mut guard) = cache_mutex.lock() {
             *guard = Some(RegistryCache {
