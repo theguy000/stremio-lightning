@@ -18,7 +18,7 @@
 - [x] 1.2 Implement `WebviewShell` for existing `LinuxWebviewRuntime` (WebKit backend)
 - [x] 1.3 Create stub `ServoWebviewRuntime` behind `#[cfg(feature = "servo-engine")]` implementing `WebviewShell`
 - [x] 1.4 Wire `config.engine` into `run()` to branch between WebKit and Servo runtime paths
-- [ ] 1.5 Add `servo` crate as optional dependency in `Cargo.toml` behind `servo-engine` feature (deferred to actual Servo compilation step)
+- [x] 1.5 Add `servo` crate as optional dependency in `Cargo.toml` behind `servo-engine` feature
 - [x] 1.6 Add `servo_runtime` module to `lib.rs` gated by `#[cfg(feature = "servo-engine")]`
 
 ### Phase 4: Polyfill & Styling Injection
