@@ -136,6 +136,8 @@ export function loadSettingsFromStorage(): void {
   blurIntensity.set(blurInt);
   applyBlurIntensity(blurInt, blurEn);
 
+
+
   syncBooleanStoreFromStorage('sl-auto-pause', autoPauseEnabled, getAutoPause, setAutoPause);
   syncBooleanStoreFromStorage(
     'sl-pip-disables-auto-pause',
@@ -190,3 +192,6 @@ export async function togglePipActivation(): Promise<void> {
     pipModeActive.set(false);
   }
 }
+
+
+

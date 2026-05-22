@@ -20,12 +20,16 @@
   let pipFeatureOn = $state(true);
   let pipDisablesAutoPauseOn = $state(true);
 
+
   discordRpcEnabled.subscribe((v) => { discordOn = v; });
   blurEnabled.subscribe((v) => { blurOn = v; });
   blurIntensity.subscribe((v) => { blurVal = v; });
   autoPauseEnabled.subscribe((v) => { autoPauseOn = v; });
   pipFeatureEnabled.subscribe((v) => { pipFeatureOn = v; });
   pipDisablesAutoPause.subscribe((v) => { pipDisablesAutoPauseOn = v; });
+
+
+
 
   async function handleDiscordToggle(e: Event) {
     const checked = (e.target as HTMLInputElement).checked;
@@ -144,6 +148,8 @@
       </label>
     </div>
   </div>
+
+
 
   <h3 style="margin:1.5rem 0 0.75rem; font-size:1.1rem; font-weight:500; color:var(--primary-foreground-color, #f2f2f2); opacity:0.6;">Blur Effect</h3>
 
