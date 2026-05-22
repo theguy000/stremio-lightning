@@ -9,11 +9,24 @@ use std::sync::Arc;
 pub const DEFAULT_URL: &str = "http://127.0.0.1:11470/proxy/d=https%3A%2F%2Fweb.stremio.com/";
 const STREMIO_WEB_URL: &str = "https://web.stremio.com/";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WebviewEngine {
+    WebKit,
+    Servo,
+}
+
+impl Default for WebviewEngine {
+    fn default() -> Self {
+        Self::WebKit
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AppConfig {
     pub url: String,
     pub devtools: bool,
     pub headless_bootstrap: bool,
+    pub engine: WebviewEngine,
 }
 
 pub type ShellSettings = AppConfig;
@@ -24,6 +37,7 @@ impl Default for AppConfig {
             url: DEFAULT_URL.to_string(),
             devtools: true,
             headless_bootstrap: false,
+            engine: WebviewEngine::default(),
         }
     }
 }
@@ -47,6 +61,18 @@ where
             config.devtools = true;
         } else if arg == "--headless-bootstrap" {
             config.headless_bootstrap = true;
+        } else if arg == "--engine" {
+            if let Some(eng) = args.next() {
+                config.engine = match eng.as_str() {
+                    "servo" => WebviewEngine::Servo,
+                    _ => WebviewEngine::WebKit,
+                };
+            }
+        } else if let Some(eng) = arg.strip_prefix("--engine=") {
+            config.engine = match eng {
+                "servo" => WebviewEngine::Servo,
+                _ => WebviewEngine::WebKit,
+            };
         }
     }
 
@@ -141,5 +167,17 @@ mod tests {
             "https://web.stremio.com/",
         ]);
         assert_eq!(config.url, DEFAULT_URL);
+    }
+
+    #[test]
+    fn parses_engine_selection() {
+        let config = parse_args(["stremio-lightning-linux", "--engine", "servo"]);
+        assert_eq!(config.engine, WebviewEngine::Servo);
+
+        let config2 = parse_args(["stremio-lightning-linux", "--engine=webkit"]);
+        assert_eq!(config2.engine, WebviewEngine::WebKit);
+
+        let config3 = parse_args(["stremio-lightning-linux"]);
+        assert_eq!(config3.engine, WebviewEngine::WebKit);
     }
 }
