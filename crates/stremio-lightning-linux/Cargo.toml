@@ -21,3 +21,4 @@ default = []
 # Phase 3 follows the upstream stremio-linux-shell stack: GTK4 + WebKitGTK 6
 # for the web layer, with libmpv rendered through GTK GLArea for native video.
 native-shell = []
+servo-engine = []
