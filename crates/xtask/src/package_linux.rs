@@ -678,3 +678,54 @@ fn appimage_tool_path() -> Result<PathBuf> {
         .ok_or("HOME/USERPROFILE is not set; set APPIMAGE_TOOL explicitly")?;
     Ok(PathBuf::from(home).join(".cache/appimage/appimagetool-x86_64.AppImage"))
 }
+
+pub fn package_linux_flatpak_builder() -> Result<()> {
+    if env::consts::OS != "linux" {
+        return Err("cargo xtask package-linux-flatpak-builder must be run on Linux".into());
+    }
+    if !program_exists("flatpak-builder") {
+        return Err("missing flatpak-builder. Install flatpak-builder, then retry.".into());
+    }
+
+    let root = root();
+    let dist_dir = root.join("dist");
+    let output = dist_dir.join(LINUX_FLATPAK);
+    let build_dir = root.join("target/flatpak-builder-build");
+    let repo_dir = root.join("target/flatpak-builder-repo");
+    let manifest = root.join("flatpak/io.github.theguy000.StremioLightning.json");
+
+    println!("==> Cleaning previous Flatpak Builder directories...");
+    remove_dir_if_exists(&build_dir)?;
+    remove_dir_if_exists(&repo_dir)?;
+    fs::create_dir_all(&dist_dir)?;
+
+    println!("==> Running flatpak-builder...");
+    run_program(
+        "flatpak-builder",
+        [
+            "--force-clean",
+            "--ccache",
+            &format!("--repo={}", repo_dir.display()),
+            &build_dir.to_string_lossy(),
+            &manifest.to_string_lossy(),
+        ],
+    )?;
+
+    println!("==> Exporting Flatpak bundle...");
+    remove_file_if_exists(&output)?;
+    run_program(
+        "flatpak",
+        [
+            OsString::from("build-bundle"),
+            repo_dir.as_os_str().to_os_string(),
+            output.as_os_str().to_os_string(),
+            OsString::from(LINUX_FLATPAK_ID),
+        ],
+    )?;
+
+    println!(
+        "==> Hermetic Flatpak ready: {}",
+        output.strip_prefix(&root).unwrap_or(&output).display()
+    );
+    Ok(())
+}
