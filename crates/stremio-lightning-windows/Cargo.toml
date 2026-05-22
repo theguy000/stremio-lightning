@@ -34,3 +34,8 @@ windows = { version = "0.62.2", features = [
 
 [target.'cfg(windows)'.build-dependencies]
 embed-resource = "3.0.9"
+
+[features]
+default = []
+servo-engine = []
+

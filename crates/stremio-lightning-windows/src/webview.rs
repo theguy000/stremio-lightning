@@ -19,6 +19,8 @@ pub const BRIDGE_DISCORD_RPC_NAME: &str = "bridge/discord-rpc.js";
 pub const BRIDGE_UPDATE_BANNER_NAME: &str = "bridge/update-banner.js";
 pub const BRIDGE_NAME: &str = "bridge.js";
 pub const MOD_UI_NAME: &str = "mod-ui-svelte.iife.js";
+pub const BRIDGE_POLYFILLS_NAME: &str = "bridge/polyfills.js";
+pub const BRIDGE_SERVO_COMPAT_STYLE_NAME: &str = "bridge/servo-compat-style.js";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InjectionScript {
@@ -52,9 +54,63 @@ impl InjectionBundle {
         Self { scripts }
     }
 
+    pub fn load_for_servo() -> Result<Self, String> {
+        let servo_scripts = vec![
+            InjectionScript {
+                name: BRIDGE_POLYFILLS_NAME,
+                source: include_str!("../../../web/bridge/polyfills.js").to_string(),
+            },
+            InjectionScript {
+                name: BRIDGE_SERVO_COMPAT_STYLE_NAME,
+                source: servo_compat_style_injection(),
+            },
+        ];
+
+        let mut scripts = servo_scripts;
+        scripts.push(InjectionScript {
+            name: HOST_ADAPTER_NAME,
+            source: host_adapter(),
+        });
+        scripts.extend(bridge_module_scripts());
+        scripts.extend([
+            InjectionScript {
+                name: BRIDGE_NAME,
+                source: include_str!("../../../web/bridge/bridge.js").to_string(),
+            },
+            InjectionScript {
+                name: MOD_UI_NAME,
+                source: include_str!("../../../src/dist/mod-ui-svelte.iife.js").to_string(),
+            },
+        ]);
+
+        Ok(Self { scripts })
+    }
+
     pub fn scripts(&self) -> &[InjectionScript] {
         &self.scripts
     }
+}
+
+fn servo_compat_style_injection() -> String {
+    let css = include_str!("../../../web/bridge/servo-compat.css");
+    format!(
+        r#"(function () {{
+  "use strict";
+  var style = document.createElement("style");
+  style.setAttribute("data-stremio-servo-compat", "true");
+  style.textContent = {css_json};
+  (document.head || document.documentElement).appendChild(style);
+  console.log("[StremioLightning] Servo compat stylesheet injected.");
+}})();"#,
+        css_json = serde_json::to_string(css).unwrap_or_else(|_| format!("`{css}`"))
+    )
+}
+
+pub trait WebviewShell {
+    fn document_start_script_names(&self) -> Vec<&'static str>;
+    fn run(self) -> Result<(), String>
+    where
+        Self: Sized;
 }
 
 fn bridge_module_scripts() -> Vec<InjectionScript> {
@@ -197,6 +253,16 @@ impl WindowsWebView2Shell {
             #[cfg(windows)]
             self.ui_notifier,
         )
+    }
+}
+
+impl WebviewShell for WindowsWebView2Shell {
+    fn document_start_script_names(&self) -> Vec<&'static str> {
+        self.document_start_script_names()
+    }
+
+    fn run(self) -> Result<(), String> {
+        self.run()
     }
 }
 
