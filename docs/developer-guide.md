@@ -7,9 +7,20 @@ Stremio Lightning is organized around Rust-native shell crates. Shared shell
 behavior lives in `stremio-lightning-core`, platform shells live under `crates/`,
 and the injected Svelte/Vite UI bundle lives under `src/`.
 
-## Quick Start
+## Quick Start & Prerequisites
 
-Install Rust stable and Node.js LTS, then install frontend dependencies:
+### Prerequisites
+
+Before developing or packaging Stremio Lightning, ensure you have the following installed:
+
+- **Node.js** (LTS recommended)
+- **Rust** (stable toolchain)
+- **Linux**: WebKitGTK development/runtime packages for the native shell, plus `clang` and [`mold`](https://github.com/rui314/mold) for Rust linking.
+- **Windows**: WebView2 Runtime and MSVC Rust target/toolchain.
+
+### Setup & Installation
+
+Install frontend dependencies:
 
 ```bash
 npm install
@@ -391,6 +402,19 @@ cargo xtask package-windows-installer
 ```
 
 Only run `cargo xtask package-windows-installer` on Windows with Inno Setup installed.
+
+## Plugin API
+
+Plugins have access to the global `window.StremioEnhancedAPI` object, which exposes:
+
+- **Window management** - minimize, maximize, close, drag
+- **Streaming server** - start, stop, restart, get status
+- **Mod management** - list, download, delete, and update plugins & themes
+- **Settings** - get, save, and register plugin-specific settings
+- **Events** - subscribe to fullscreen, maximize, and server state changes
+- **Logging** - `info`, `warn`, `error` helpers
+
+---
 
 ## Runtime Notes
 
