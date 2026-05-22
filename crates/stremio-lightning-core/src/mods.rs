@@ -298,33 +298,31 @@ struct RegistryCache {
 static REGISTRY_CACHE: OnceLock<std::sync::Mutex<Option<RegistryCache>>> = OnceLock::new();
 static REGISTRY_FETCH_MUTEX: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
 
+fn get_cached_registry(cache_mutex: &std::sync::Mutex<Option<RegistryCache>>) -> Option<Registry> {
+    let guard = cache_mutex.lock().ok()?;
+    let cache = guard.as_ref()?;
+    if cache.fetched_at.elapsed() < std::time::Duration::from_secs(300) {
+        Some(cache.registry.clone())
+    } else {
+        None
+    }
+}
+
 pub async fn fetch_registry() -> Result<Registry, String> {
     let cache_mutex = REGISTRY_CACHE.get_or_init(|| std::sync::Mutex::new(None));
     let fetch_mutex = REGISTRY_FETCH_MUTEX.get_or_init(|| tokio::sync::Mutex::new(()));
 
     // 1. Fast path: return cached registry if it exists and is less than 5 minutes old
-    {
-        if let Ok(guard) = cache_mutex.lock() {
-            if let Some(cache) = &*guard {
-                if cache.fetched_at.elapsed() < std::time::Duration::from_secs(300) {
-                    return Ok(cache.registry.clone());
-                }
-            }
-        }
+    if let Some(registry) = get_cached_registry(cache_mutex) {
+        return Ok(registry);
     }
 
     // 2. Slow path: serialize network fetch using async Mutex
     let _guard = fetch_mutex.lock().await;
 
     // 3. Double-check cache inside the lock
-    {
-        if let Ok(guard) = cache_mutex.lock() {
-            if let Some(cache) = &*guard {
-                if cache.fetched_at.elapsed() < std::time::Duration::from_secs(300) {
-                    return Ok(cache.registry.clone());
-                }
-            }
-        }
+    if let Some(registry) = get_cached_registry(cache_mutex) {
+        return Ok(registry);
     }
 
     // 4. Fetch over network on cache miss
@@ -346,13 +344,11 @@ pub async fn fetch_registry() -> Result<Registry, String> {
         .map_err(|e| format!("Failed to parse registry: {}", e))?;
 
     // 5. Save registry to cache
-    {
-        if let Ok(mut guard) = cache_mutex.lock() {
-            *guard = Some(RegistryCache {
-                registry: registry.clone(),
-                fetched_at: std::time::Instant::now(),
-            });
-        }
+    if let Ok(mut guard) = cache_mutex.lock() {
+        *guard = Some(RegistryCache {
+            registry: registry.clone(),
+            fetched_at: std::time::Instant::now(),
+        });
     }
 
     Ok(registry)
@@ -377,8 +373,8 @@ pub async fn check_mod_updates(
     let mut has_update = false;
     let mut resolved_update_url = metadata.update_url.clone();
 
-    if let Some(update_url) = metadata.update_url.clone() {
-        let remote_response = reqwest::get(&update_url)
+    if let Some(update_url) = &metadata.update_url {
+        let remote_response = reqwest::get(update_url)
             .await
             .map_err(|e| format!("Failed to fetch update: {}", e))?;
 
