@@ -953,6 +953,7 @@ impl NativeVideoState {
             init.set_property("demuxer-max-bytes", "33554432")?;
             init.set_property("demuxer-max-back-bytes", "16777216")?;
             init.set_property("cache", "yes")?;
+            init.set_property("ytdl", "no")?;
             Ok(())
         })
         .map_err(|error| format!("Failed to create mpv: {error}"))?;

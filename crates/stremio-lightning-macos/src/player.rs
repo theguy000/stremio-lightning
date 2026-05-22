@@ -103,6 +103,10 @@ pub fn default_mpv_options(app_name: &str, debug: bool) -> Vec<MpvOption> {
             name: "cache",
             value: "yes".to_string(),
         },
+        MpvOption {
+            name: "ytdl",
+            value: "no".to_string(),
+        },
     ]
 }
 

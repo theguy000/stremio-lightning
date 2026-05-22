@@ -243,6 +243,7 @@ mod platform {
             initializer.set_property("quiet", "yes")?;
             initializer.set_property("hwdec", "auto")?;
             initializer.set_property("audio-fallback-to-null", "yes")?;
+            initializer.set_property("ytdl", "no")?;
             Ok(())
         })
         .map_err(|error| format!("Failed to initialize Windows MPV backend: {error}"))
