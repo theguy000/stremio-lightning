@@ -9,16 +9,11 @@ use std::sync::Arc;
 pub const DEFAULT_URL: &str = "http://127.0.0.1:11470/proxy/d=https%3A%2F%2Fweb.stremio.com/";
 const STREMIO_WEB_URL: &str = "https://web.stremio.com/";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum WebviewEngine {
+    #[default]
     WebKit,
     Servo,
-}
-
-impl Default for WebviewEngine {
-    fn default() -> Self {
-        Self::WebKit
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

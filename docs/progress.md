@@ -28,16 +28,16 @@
 - [x] 4.3 Wire `servo-compat.css` and `polyfills.js` into `InjectionBundle` conditionally for Servo engine
 - [x] 4.4 Add Servo-specific `User-Agent` header configuration in `ServoWebviewRuntime`
 
-### Phase 2: FFI & IPC Bindings (stubs for now)
+### Phase 2: FFI & IPC Bindings (actual implementation)
 
 - [x] 2.1 Define Servo initialization parameters struct (`ServoConfig`)
-- [x] 2.2 Stub background thread initialization for Servo instance
-- [x] 2.3 Stub IPC message routing from Servo JS → `dispatch_ipc`
+- [x] 2.2 Initialize Servo constellation and handle waker loop
+- [x] 2.3 IPC message routing from Servo JS via console log bridge → `dispatch_ipc`
 
-### Phase 3: Unified Wgpu Compositing (stubs for now)
+### Phase 3: Unified Wgpu Compositing (actual implementation)
 
 - [x] 3.1 Define `ServoRenderPlan` extending `RenderLoopPlan` with Servo compositing steps
-- [x] 3.2 Stub `winit` window loop creation for Servo mode
+- [x] 3.2 Actual `winit` window loop creation and event handling for Servo
 - [x] 3.3 Document compositing pipeline: `[clear] → [MPV texture] → [Servo WebRender overlay]`
 
 ### Phase 5: Linux Packaging
