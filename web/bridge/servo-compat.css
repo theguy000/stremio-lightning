@@ -1,0 +1,81 @@
+/*
+ * Servo Compatibility Stylesheet — Stremio Lightning
+ *
+ * Servo's CSS Grid implementation (via Taffy) is disabled by default and
+ * has known overlap/clipping bugs. This stylesheet provides robust Flexbox
+ * fallbacks for Stremio Web's catalog poster grids and other grid-dependent
+ * layouts.
+ *
+ * Injected only when the rendering engine is Servo, at document_start
+ * before Stremio Web styles load.
+ */
+
+/* ── Poster catalog grid fallback ───────────────────────────────────── */
+/* Stremio Web renders movie/series poster catalogs using CSS Grid.
+   Override with flex-wrap to guarantee correct flow on Servo. */
+
+[class*="poster-grid"],
+[class*="catalog-grid"],
+[class*="meta-catalog"],
+.board-row .poster-container {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 16px !important;
+  justify-content: flex-start !important;
+}
+
+/* Individual poster cards within the grid */
+[class*="poster-grid"] > *,
+[class*="catalog-grid"] > *,
+[class*="meta-catalog"] > * {
+  flex: 0 0 auto !important;
+  /* Poster width matching Stremio Web's default grid column size */
+  width: 185px !important;
+  max-width: 185px !important;
+}
+
+/* ── Search results grid fallback ───────────────────────────────────── */
+[class*="search-grid"],
+[class*="search-row"] {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 12px !important;
+}
+
+/* ── Continue watching / board rows ─────────────────────────────────── */
+[class*="board-row"],
+[class*="shelf-row"] {
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  overflow-x: auto !important;
+  gap: 12px !important;
+  -webkit-overflow-scrolling: touch !important;
+}
+
+/* ── Settings grid layouts ──────────────────────────────────────────── */
+[class*="settings-grid"],
+[class*="addon-grid"] {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 16px !important;
+}
+
+[class*="settings-grid"] > *,
+[class*="addon-grid"] > * {
+  flex: 1 1 300px !important;
+  max-width: 100% !important;
+}
+
+/* ── Scroll container fixes ─────────────────────────────────────────── */
+/* Servo may not support all scroll-snap properties; ensure basic scrolling */
+[class*="scroll-container"] {
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+}
+
+/* ── Focus indicator fallback ───────────────────────────────────────── */
+/* Ensure focus rings are visible on Servo for keyboard navigation */
+:focus-visible {
+  outline: 2px solid #7b5bf5 !important;
+  outline-offset: 2px !important;
+}

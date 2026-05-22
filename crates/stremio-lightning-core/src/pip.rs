@@ -87,7 +87,7 @@ impl PipState {
 
     pub fn exit_window_pip(
         &self,
-        controller: &mut impl PipWindowController,
+        controller: &mut (impl PipWindowController + ?Sized),
     ) -> Result<bool, String> {
         let snapshot = {
             let inner = self.inner.lock().map_err(|e| e.to_string())?;
@@ -108,14 +108,14 @@ impl PipState {
 
     pub fn exit_window_pip_for_player_end(
         &self,
-        controller: &mut impl PipWindowController,
+        controller: &mut (impl PipWindowController + ?Sized),
     ) -> Result<bool, String> {
         self.exit_window_pip(controller)
     }
 
     pub fn toggle_window_pip(
         &self,
-        controller: &mut impl PipWindowController,
+        controller: &mut (impl PipWindowController + ?Sized),
     ) -> Result<bool, String> {
         if self.is_enabled()? {
             self.exit_window_pip(controller)?;

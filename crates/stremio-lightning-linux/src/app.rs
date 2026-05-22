@@ -97,16 +97,51 @@ pub fn run(config: AppConfig) -> Result<(), String> {
         eprintln!("[StreamingServer] Failed to start Linux sidecar: {error}");
     }
 
-    let injection = InjectionBundle::load()?;
     let _render_plan = RenderLoopPlan::default();
 
     if config.headless_bootstrap {
-        Ok(())
-    } else {
-        let webview =
-            WebviewRuntime::new(config.url.clone(), config.devtools, injection, host.clone());
-        setup_signal_handler(host);
-        run_native_window(config, webview, player)
+        return Ok(());
+    }
+
+    match config.engine {
+        WebviewEngine::WebKit => {
+            let injection = InjectionBundle::load()?;
+            let webview =
+                WebviewRuntime::new(config.url.clone(), config.devtools, injection, host.clone());
+            setup_signal_handler(host);
+            run_native_window(config, webview, player)
+        }
+        WebviewEngine::Servo => run_servo_engine(config, host, player),
+    }
+}
+
+fn run_servo_engine(
+    _config: AppConfig,
+    _host: Arc<Host<MpvPlayerBackend, RealProcessSpawner>>,
+    _player: MpvPlayerBackend,
+) -> Result<(), String> {
+    #[cfg(feature = "servo-engine")]
+    {
+        use crate::servo_runtime::{run_servo_window, ServoWebviewRuntime};
+
+        let injection = InjectionBundle::load_for_servo()?;
+        let runtime = ServoWebviewRuntime::new(
+            _config.url.clone(),
+            _config.devtools,
+            injection,
+            _host.clone(),
+        );
+        setup_signal_handler(_host);
+        run_servo_window(runtime)
+    }
+
+    #[cfg(not(feature = "servo-engine"))]
+    {
+        Err(
+            "Servo engine is not available. Run with: \
+             cargo run -p stremio-lightning-linux --features servo-engine -- --engine=servo"
+                .to_string(),
+        )
     }
 }
 

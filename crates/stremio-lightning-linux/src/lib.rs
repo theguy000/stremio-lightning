@@ -3,6 +3,8 @@ pub mod host;
 pub mod native_window;
 pub mod player;
 pub mod render;
+#[cfg(feature = "servo-engine")]
+pub mod servo_runtime;
 pub mod smoke;
 pub mod streaming_server;
 pub mod webview_runtime;

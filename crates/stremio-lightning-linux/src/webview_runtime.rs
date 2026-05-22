@@ -5,6 +5,52 @@ use serde_json::Value;
 use std::sync::Arc;
 use stremio_lightning_core::pip::PipWindowController;
 
+/// Trait abstracting the webview runtime interface for both WebKit and Servo backends.
+///
+/// This trait defines the contract that any web engine runtime must implement to
+/// integrate with Stremio Lightning's native window, IPC router, and player pipeline.
+pub trait WebviewShell {
+    /// Initialize the webview and validate the startup URL.
+    fn load(&mut self) -> Result<WebviewLoadState, String>;
+
+    /// Return the current load state without modifying the runtime.
+    fn load_state(&self) -> WebviewLoadState;
+
+    /// Dispatch an IPC message from the web layer to the native host.
+    fn dispatch_ipc(&self, kind: &str, payload: Option<Value>) -> Result<Value, String>;
+
+    /// Shut down the webview runtime and release resources.
+    fn shutdown(&self) -> Result<(), String>;
+
+    /// Retrieve the source code of a named injection script.
+    fn script_source(&self, name: &str) -> Option<String>;
+
+    /// Drain pending host events and return JavaScript dispatch snippets.
+    fn drain_event_dispatch_scripts(&self) -> Result<Vec<String>, String>;
+
+    /// Notify the web layer that a native player property changed.
+    fn emit_native_player_property_changed(
+        &self,
+        name: &str,
+        data: Value,
+    ) -> Result<(), String>;
+
+    /// Notify the web layer that native playback ended.
+    fn emit_native_player_ended(&self, reason: &str) -> Result<(), String>;
+
+    /// Toggle picture-in-picture mode.
+    fn toggle_picture_in_picture(
+        &self,
+        controller: &mut dyn PipWindowController,
+    ) -> Result<bool, String>;
+
+    /// Exit picture-in-picture mode.
+    fn exit_picture_in_picture(
+        &self,
+        controller: &mut dyn PipWindowController,
+    ) -> Result<bool, String>;
+}
+
 pub const LINUX_HOST_ADAPTER_NAME: &str = "linux-host-adapter";
 pub const HOST_ADAPTER_NAME: &str = LINUX_HOST_ADAPTER_NAME;
 pub const BRIDGE_UTILS_NAME: &str = "bridge/utils.js";
@@ -20,6 +66,10 @@ pub const BRIDGE_UPDATE_BANNER_NAME: &str = "bridge/update-banner.js";
 pub const BRIDGE_YOUTUBE_INTERCEPT_NAME: &str = "bridge/youtube-intercept.js";
 pub const BRIDGE_NAME: &str = "bridge.js";
 pub const MOD_UI_NAME: &str = "mod-ui-svelte.iife.js";
+
+// Servo-specific injection script names
+pub const BRIDGE_POLYFILLS_NAME: &str = "bridge/polyfills.js";
+pub const BRIDGE_SERVO_COMPAT_STYLE_NAME: &str = "bridge/servo-compat-style.js";
 
 #[derive(Debug, Clone)]
 pub struct InjectionScript {
@@ -38,6 +88,43 @@ impl InjectionBundle {
             name: HOST_ADAPTER_NAME,
             source: host_adapter(),
         }];
+        scripts.extend(bridge_module_scripts());
+        scripts.extend([
+            InjectionScript {
+                name: BRIDGE_NAME,
+                source: include_str!("../../../web/bridge/bridge.js").to_string(),
+            },
+            InjectionScript {
+                name: MOD_UI_NAME,
+                source: include_str!("../../../src/dist/mod-ui-svelte.iife.js").to_string(),
+            },
+        ]);
+
+        Ok(Self { scripts })
+    }
+
+    /// Load the injection bundle with additional Servo-specific polyfills and compat styles.
+    ///
+    /// Prepends `polyfills.js` and a CSS-injecting wrapper for `servo-compat.css` before
+    /// the standard host adapter, ensuring they execute at the absolute start of document
+    /// loading before any Stremio Web scripts.
+    pub fn load_for_servo() -> Result<Self, String> {
+        let servo_scripts = vec![
+            InjectionScript {
+                name: BRIDGE_POLYFILLS_NAME,
+                source: include_str!("../../../web/bridge/polyfills.js").to_string(),
+            },
+            InjectionScript {
+                name: BRIDGE_SERVO_COMPAT_STYLE_NAME,
+                source: servo_compat_style_injection(),
+            },
+        ];
+
+        let mut scripts = servo_scripts;
+        scripts.push(InjectionScript {
+            name: HOST_ADAPTER_NAME,
+            source: host_adapter(),
+        });
         scripts.extend(bridge_module_scripts());
         scripts.extend([
             InjectionScript {
@@ -236,6 +323,25 @@ pub fn linux_host_adapter() -> String {
     host_adapter()
 }
 
+/// Wrap the Servo compat CSS in a JavaScript snippet that injects it as a `<style>` element.
+///
+/// This allows CSS overrides to be delivered through the same `UserScript` /
+/// document-start injection mechanism used for JavaScript polyfills.
+fn servo_compat_style_injection() -> String {
+    let css = include_str!("../../../web/bridge/servo-compat.css");
+    format!(
+        r#"(function () {{
+  "use strict";
+  var style = document.createElement("style");
+  style.setAttribute("data-stremio-servo-compat", "true");
+  style.textContent = {css_json};
+  (document.head || document.documentElement).appendChild(style);
+  console.log("[StremioLightning] Servo compat stylesheet injected.");
+}})();"#,
+        css_json = serde_json::to_string(css).unwrap_or_else(|_| format!("`{css}`"))
+    )
+}
+
 pub fn host_adapter() -> String {
     r#"(function () {
   "use strict";
@@ -290,6 +396,62 @@ pub fn host_adapter() -> String {
 }
 
 pub type WebviewRuntime<B, P> = LinuxWebviewRuntime<B, P>;
+
+impl<B, P> WebviewShell for LinuxWebviewRuntime<B, P>
+where
+    B: PlayerBackend,
+    P: ProcessSpawner,
+{
+    fn load(&mut self) -> Result<WebviewLoadState, String> {
+        LinuxWebviewRuntime::load(self)
+    }
+
+    fn load_state(&self) -> WebviewLoadState {
+        LinuxWebviewRuntime::load_state(self)
+    }
+
+    fn dispatch_ipc(&self, kind: &str, payload: Option<Value>) -> Result<Value, String> {
+        LinuxWebviewRuntime::dispatch_ipc(self, kind, payload)
+    }
+
+    fn shutdown(&self) -> Result<(), String> {
+        LinuxWebviewRuntime::shutdown(self)
+    }
+
+    fn script_source(&self, name: &str) -> Option<String> {
+        LinuxWebviewRuntime::script_source(self, name)
+    }
+
+    fn drain_event_dispatch_scripts(&self) -> Result<Vec<String>, String> {
+        LinuxWebviewRuntime::drain_event_dispatch_scripts(self)
+    }
+
+    fn emit_native_player_property_changed(
+        &self,
+        name: &str,
+        data: Value,
+    ) -> Result<(), String> {
+        self.host.emit_native_player_property_changed(name, data)
+    }
+
+    fn emit_native_player_ended(&self, reason: &str) -> Result<(), String> {
+        self.host.emit_native_player_ended(reason)
+    }
+
+    fn toggle_picture_in_picture(
+        &self,
+        controller: &mut dyn PipWindowController,
+    ) -> Result<bool, String> {
+        self.host.toggle_picture_in_picture(controller)
+    }
+
+    fn exit_picture_in_picture(
+        &self,
+        controller: &mut dyn PipWindowController,
+    ) -> Result<bool, String> {
+        self.host.exit_picture_in_picture(controller)
+    }
+}
 
 fn validate_load_url(url: &str) -> Result<(), String> {
     let lower = url.to_lowercase();

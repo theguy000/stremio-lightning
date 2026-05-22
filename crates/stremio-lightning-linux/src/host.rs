@@ -403,7 +403,7 @@ where
 
     pub fn toggle_picture_in_picture(
         &self,
-        controller: &mut impl PipWindowController,
+        controller: &mut (impl PipWindowController + ?Sized),
     ) -> Result<bool, String> {
         let enabled = self.pip_state.toggle_window_pip(controller)?;
         self.emit_transport_event(serialize_picture_in_picture(enabled))?;
@@ -412,7 +412,7 @@ where
 
     pub fn exit_picture_in_picture(
         &self,
-        controller: &mut impl PipWindowController,
+        controller: &mut (impl PipWindowController + ?Sized),
     ) -> Result<bool, String> {
         let changed = self.pip_state.exit_window_pip(controller)?;
         self.emit_picture_in_picture_exit(changed)
@@ -420,7 +420,7 @@ where
 
     pub fn exit_picture_in_picture_for_player_end(
         &self,
-        controller: &mut impl PipWindowController,
+        controller: &mut (impl PipWindowController + ?Sized),
     ) -> Result<bool, String> {
         self.exit_picture_in_picture(controller)
     }
