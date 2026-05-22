@@ -20,13 +20,15 @@
     // Load enabled plugins
     await refreshPlugins();
     const enabled = loadEnabledFromStorage();
-    for (const pluginName of enabled) {
-      try {
-        await loadPlugin(pluginName);
-      } catch (e) {
-        console.error(`Failed to load plugin ${pluginName}:`, e);
-      }
-    }
+    await Promise.all(
+      enabled.map(async (pluginName) => {
+        try {
+          await loadPlugin(pluginName);
+        } catch (e) {
+          console.error(`Failed to load plugin ${pluginName}:`, e);
+        }
+      })
+    );
 
     // Re-apply blur intensity when theme changes (defer one frame so browser
     // has processed the new <style> element before we read computed styles)
