@@ -257,10 +257,6 @@ fn source_tree_icon_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../assets/icons")
 }
 
-fn source_tree_icon_path() -> PathBuf {
-    source_tree_icon_dir().join("128x128.png")
-}
-
 fn install_source_tree_window_icon(window: &gtk::ApplicationWindow) {
     let window = window.clone();
     window.connect_realize(move |window| {
@@ -270,26 +266,30 @@ fn install_source_tree_window_icon(window: &gtk::ApplicationWindow) {
         if !is_x11_surface(&surface) {
             return;
         }
-        if let Err(error) = set_x11_window_icon_from_file(&surface, source_tree_icon_path()) {
+        if let Err(error) = set_x11_window_icon(&surface) {
             eprintln!("[StremioLightning] Failed to set Linux taskbar icon: {error}");
         }
     });
 }
 
-fn set_x11_window_icon_from_file(
+fn set_x11_window_icon(
     surface: &gtk::gdk::Surface,
-    icon_path: PathBuf,
 ) -> Result<(), String> {
     const NET_WM_ICON: &[u8] = b"_NET_WM_ICON\0";
     const CARDINAL: &[u8] = b"CARDINAL\0";
 
-    let pixbuf = Pixbuf::from_file(&icon_path)
-        .map_err(|error| format!("failed to load {}: {error}", icon_path.display()))?;
+    const ICON_BYTES: &[u8] = include_bytes!("../../../assets/icons/128x128.png");
+
+    let bytes = gtk::glib::Bytes::from(ICON_BYTES);
+    let stream = gtk::gio::MemoryInputStream::from_bytes(&bytes);
+    let pixbuf = Pixbuf::from_stream(&stream, None::<&gtk::gio::Cancellable>)
+        .map_err(|error| format!("failed to load icon from bytes: {error}"))?;
+
     let width = pixbuf.width();
     let height = pixbuf.height();
     let channels = pixbuf.n_channels();
     if width <= 0 || height <= 0 || channels < 3 {
-        return Err(format!("invalid icon image: {}", icon_path.display()));
+        return Err("invalid icon image".to_string());
     }
 
     let pixels = pixbuf.read_pixel_bytes();
