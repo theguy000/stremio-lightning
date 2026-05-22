@@ -272,9 +272,7 @@ fn install_source_tree_window_icon(window: &gtk::ApplicationWindow) {
     });
 }
 
-fn set_x11_window_icon(
-    surface: &gtk::gdk::Surface,
-) -> Result<(), String> {
+fn set_x11_window_icon(surface: &gtk::gdk::Surface) -> Result<(), String> {
     const NET_WM_ICON: &[u8] = b"_NET_WM_ICON\0";
     const CARDINAL: &[u8] = b"CARDINAL\0";
 
@@ -1065,12 +1063,13 @@ fn build_native_video(
 ) -> Result<(gtk::GLArea, Rc<NativeVideoState>), String> {
     let area = gtk::GLArea::new();
     let state = Rc::new(NativeVideoState::new()?);
-    
+
     // Bridge standard blocking channel required by the player backend to the single-threaded GLib main loop.
     let (std_sender, std_receiver) = mpsc::channel::<MpvBackendCommand>();
     player.attach(std_sender)?;
 
-    let (glib_sender, mut glib_receiver) = tokio::sync::mpsc::unbounded_channel::<MpvBackendCommand>();
+    let (glib_sender, mut glib_receiver) =
+        tokio::sync::mpsc::unbounded_channel::<MpvBackendCommand>();
     let state_for_command = state.clone();
     glib::MainContext::default().spawn_local(async move {
         while let Some(command) = glib_receiver.recv().await {
@@ -1120,7 +1119,7 @@ fn build_native_video(
                 let area_for_render = area.clone();
                 let state_for_render = state.clone();
                 glib::MainContext::default().spawn_local(async move {
-                    while let Some(_) = glib_receiver.recv().await {
+                    while glib_receiver.recv().await.is_some() {
                         if state_for_render.shutting_down.get() {
                             break;
                         }
@@ -1237,7 +1236,6 @@ fn drain_runtime_events_to_webview(
         Err(error) => eprintln!("[StremioLightning] Failed to drain host events: {error}"),
     }
 }
-
 
 #[cfg(test)]
 mod tests {

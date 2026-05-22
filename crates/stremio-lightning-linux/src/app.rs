@@ -77,7 +77,8 @@ pub fn run(config: AppConfig) -> Result<(), String> {
     if config.headless_bootstrap {
         Ok(())
     } else {
-        let webview = WebviewRuntime::new(config.url.clone(), config.devtools, injection, host.clone());
+        let webview =
+            WebviewRuntime::new(config.url.clone(), config.devtools, injection, host.clone());
         setup_signal_handler(host);
         run_native_window(config, webview, player)
     }
