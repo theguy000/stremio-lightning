@@ -41,7 +41,7 @@
         window.chrome.webview.postMessage({
           id: 9999, // Specific intercept message ID
           type: 6,  // Shell transport raw message type
-          args: ["mpv-command", "loadfile", playUrl, "replace"]
+          args: ["mpv-command", ["loadfile", playUrl, "replace"]]
         });
       } else {
         console.warn("[StremioLightning] Native shell bridge is not ready to route YouTube trailer");
