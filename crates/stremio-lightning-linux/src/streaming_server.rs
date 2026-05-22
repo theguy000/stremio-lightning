@@ -190,7 +190,7 @@ pub fn command_spec(project_root: &Path, log_dir: &Path) -> CommandSpec {
 
     CommandSpec {
         program: runtime,
-        args: vec![server],
+        args: vec![PathBuf::from("--max-old-space-size=192"), server],
         env,
         stdout_log: log_dir.join("stremio-server.stdout.log"),
         stderr_log: log_dir.join("stremio-server.stderr.log"),
@@ -301,7 +301,13 @@ mod tests {
             spec.program,
             PathBuf::from("/repo/binaries/stremio-runtime-x86_64-unknown-linux-gnu")
         );
-        assert_eq!(spec.args, vec![PathBuf::from("/repo/resources/server.cjs")]);
+        assert_eq!(
+            spec.args,
+            vec![
+                PathBuf::from("--max-old-space-size=192"),
+                PathBuf::from("/repo/resources/server.cjs")
+            ]
+        );
         assert_eq!(spec.env.get("NO_CORS").unwrap(), "0");
         assert_eq!(
             spec.env.get("FFMPEG_BIN").unwrap(),

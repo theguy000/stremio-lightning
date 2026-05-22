@@ -17,7 +17,7 @@ use std::os::raw::c_void;
 use std::path::PathBuf;
 use std::ptr;
 use std::rc::Rc;
-use std::sync::mpsc::{self, Receiver};
+use std::sync::mpsc;
 use std::sync::OnceLock;
 use std::time::Duration;
 use stremio_lightning_core::pip::{
@@ -378,6 +378,8 @@ fn build_webview(
         settings.set_enable_media_capabilities(false);
         settings.set_enable_media_stream(false);
         settings.set_enable_webaudio(false);
+        // Optimize memory consumption by disabling unused graphics features
+        settings.set_enable_webgl(false);
     }
 
     {
@@ -949,6 +951,10 @@ impl NativeVideoState {
             init.set_property("vo", "libmpv")?;
             init.set_property("video-timing-offset", "0")?;
             init.set_property("terminal", "yes")?;
+            // Restrict MPV buffering in RAM to prevent memory bloat
+            init.set_property("demuxer-max-bytes", "33554432")?;
+            init.set_property("demuxer-max-back-bytes", "16777216")?;
+            init.set_property("cache", "yes")?;
             Ok(())
         })
         .map_err(|error| format!("Failed to create mpv: {error}"))?;
@@ -1059,10 +1065,30 @@ fn build_native_video(
 ) -> Result<(gtk::GLArea, Rc<NativeVideoState>), String> {
     let area = gtk::GLArea::new();
     let state = Rc::new(NativeVideoState::new()?);
-    let (command_sender, command_receiver) = mpsc::channel::<MpvBackendCommand>();
-    player.attach(command_sender)?;
+    
+    // Bridge standard blocking channel required by the player backend to the single-threaded GLib main loop.
+    let (std_sender, std_receiver) = mpsc::channel::<MpvBackendCommand>();
+    player.attach(std_sender)?;
 
-    install_mpv_command_drain(&state, command_receiver);
+    let (glib_sender, mut glib_receiver) = tokio::sync::mpsc::unbounded_channel::<MpvBackendCommand>();
+    let state_for_command = state.clone();
+    glib::MainContext::default().spawn_local(async move {
+        while let Some(command) = glib_receiver.recv().await {
+            if state_for_command.shutting_down.get() {
+                break;
+            }
+            state_for_command.handle_command(command);
+        }
+    });
+
+    std::thread::spawn(move || {
+        while let Ok(command) = std_receiver.recv() {
+            if glib_sender.send(command).is_err() {
+                break;
+            }
+        }
+    });
+
     install_mpv_event_drain(&state, runtime, webview, window, fullscreen);
 
     {
@@ -1089,22 +1115,21 @@ fn build_native_video(
                 )
                 .expect("Failed to create mpv render context");
 
-                let (sender, receiver) = mpsc::channel::<()>();
-                let area_for_idle = area.clone();
-                let state_for_idle = state.clone();
-                glib::idle_add_local(move || {
-                    if state_for_idle.shutting_down.get() {
-                        return glib::ControlFlow::Break;
+                // Safely request GLArea redrawing on the main GTK/GLib thread from the background MPV render thread.
+                let (glib_sender, mut glib_receiver) = tokio::sync::mpsc::unbounded_channel::<()>();
+                let area_for_render = area.clone();
+                let state_for_render = state.clone();
+                glib::MainContext::default().spawn_local(async move {
+                    while let Some(_) = glib_receiver.recv().await {
+                        if state_for_render.shutting_down.get() {
+                            break;
+                        }
+                        area_for_render.queue_render();
                     }
-
-                    if receiver.try_recv().is_ok() {
-                        area_for_idle.queue_render();
-                    }
-                    glib::ControlFlow::Continue
                 });
 
                 render_context.set_update_callback(move || {
-                    sender.send(()).ok();
+                    glib_sender.send(()).ok();
                 });
 
                 *state.render_context.borrow_mut() = Some(render_context);
@@ -1152,7 +1177,7 @@ fn install_mpv_event_drain(
     fullscreen: Rc<Cell<bool>>,
 ) {
     let state = state.clone();
-    glib::idle_add_local(move || {
+    glib::timeout_add_local(Duration::from_millis(16), move || {
         if state.shutting_down.get() {
             return glib::ControlFlow::Break;
         }
@@ -1213,22 +1238,6 @@ fn drain_runtime_events_to_webview(
     }
 }
 
-fn install_mpv_command_drain(
-    state: &Rc<NativeVideoState>,
-    command_receiver: Receiver<MpvBackendCommand>,
-) {
-    let state = state.clone();
-    glib::idle_add_local(move || {
-        if state.shutting_down.get() {
-            return glib::ControlFlow::Break;
-        }
-
-        while let Ok(command) = command_receiver.try_recv() {
-            state.handle_command(command);
-        }
-        glib::ControlFlow::Continue
-    });
-}
 
 #[cfg(test)]
 mod tests {
