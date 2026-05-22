@@ -211,13 +211,11 @@ mod platform {
         }
 
         pub fn shutdown(&mut self) {
-            if let Some(sender) = self.sender.as_ref() {
+            if let Some(sender) = self.sender.take() {
                 let _ = sender.send(BackendCommand::Shutdown);
             }
-            self.sender.take();
-            if let Some(thread) = self.thread.take() {
-                let _ = thread.join();
-            }
+            // Do not join thread to prevent circular deadlock during window destruction
+            self.thread.take();
             self.initialized = false;
         }
     }

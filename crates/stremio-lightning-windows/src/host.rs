@@ -180,10 +180,9 @@ impl WindowsHost {
     }
 
     pub fn shutdown(&self) -> Result<(), String> {
-        self.player
-            .lock()
-            .map_err(|_| "Windows player lock poisoned during shutdown".to_string())?
-            .shutdown();
+        if let Ok(mut player) = self.player.lock() {
+            player.shutdown();
+        }
         self.streaming_server.stop()
     }
 
