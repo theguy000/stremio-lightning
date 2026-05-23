@@ -414,7 +414,6 @@ fn build_webview(
         });
     }
 
-
     webview.connect_decide_policy(move |_, decision, decision_type| {
         if decision_type == PolicyDecisionType::NewWindowAction {
             if let Some(uri) = decision
@@ -547,11 +546,6 @@ impl NativeWindowIpc for LinuxWebviewRuntime<MpvPlayerBackend, RealProcessSpawne
                 if let Some(fullscreen_value) =
                     shell_transport_fullscreen_request(payload.as_ref())?
                 {
-                    let fullscreen_value = if fullscreen_value && fullscreen.get() {
-                        false
-                    } else {
-                        fullscreen_value
-                    };
                     set_window_fullscreen(webview, self, window, fullscreen, fullscreen_value);
                     return Ok(Value::Null);
                 }

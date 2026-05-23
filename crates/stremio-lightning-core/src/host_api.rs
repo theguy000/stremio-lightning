@@ -161,6 +161,17 @@ pub fn response_message(args: Value) -> String {
     .expect("failed to serialize transport response")
 }
 
+pub fn serialize_window_visibility(visible: bool, is_fullscreen: bool) -> Value {
+    serde_json::json!([
+        "win-visibility-changed",
+        {
+            "visible": visible,
+            "visibility": u8::from(is_fullscreen),
+            "isFullscreen": is_fullscreen
+        }
+    ])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -242,6 +253,26 @@ mod tests {
                 "type": 1,
                 "args": ["open-media", "stremio://foo"]
             })
+        );
+    }
+
+    #[test]
+    fn serializes_window_visibility_event() {
+        assert_eq!(
+            serialize_window_visibility(true, true),
+            json!(["win-visibility-changed", {
+                "visible": true,
+                "visibility": 1,
+                "isFullscreen": true
+            }])
+        );
+        assert_eq!(
+            serialize_window_visibility(true, false),
+            json!(["win-visibility-changed", {
+                "visible": true,
+                "visibility": 0,
+                "isFullscreen": false
+            }])
         );
     }
 }
