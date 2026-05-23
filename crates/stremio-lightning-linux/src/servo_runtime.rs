@@ -228,6 +228,8 @@ struct AppState<B: PlayerBackend + 'static, P: ProcessSpawner + 'static> {
     rendering_context: std::rc::Rc<servo::WindowRenderingContext>,
     webviews: std::cell::RefCell<Vec<servo::WebView>>,
     host: Arc<Host<B, P>>,
+    last_cursor_pos: std::cell::Cell<servo::DevicePoint>,
+    modifiers: std::cell::Cell<winit::keyboard::ModifiersState>,
 }
 
 #[cfg(feature = "servo-engine")]
@@ -338,6 +340,8 @@ impl<B: PlayerBackend + 'static, P: ProcessSpawner + 'static> winit::application
                 rendering_context,
                 webviews: Default::default(),
                 host: runtime.host.clone(),
+                last_cursor_pos: std::cell::Cell::new(servo::DevicePoint::default()),
+                modifiers: std::cell::Cell::new(winit::keyboard::ModifiersState::default()),
             });
 
             let url = Url::parse(&runtime.url)
@@ -396,6 +400,7 @@ impl<B: PlayerBackend + 'static, P: ProcessSpawner + 'static> winit::application
                             }
                         };
 
+                        let pos = state.last_cursor_pos.get();
                         webview.notify_input_event(servo::InputEvent::Wheel(servo::WheelEvent::new(
                             servo::WheelDelta {
                                 x: delta_x,
@@ -403,7 +408,7 @@ impl<B: PlayerBackend + 'static, P: ProcessSpawner + 'static> winit::application
                                 z: 0.0,
                                 mode,
                             },
-                            servo::DevicePoint::default().into(),
+                            pos.into(),
                         )));
                     }
                 }
@@ -415,9 +420,141 @@ impl<B: PlayerBackend + 'static, P: ProcessSpawner + 'static> winit::application
                     }
                 }
             }
+            winit::event::WindowEvent::ModifiersChanged(new_mods) => {
+                if let Self::Running(state) = self {
+                    state.modifiers.set(new_mods.state());
+                }
+            }
+            winit::event::WindowEvent::CursorMoved { position, .. } => {
+                if let Self::Running(state) = self {
+                    if let Some(webview) = state.webviews.borrow().last() {
+                        let pos = servo::DevicePoint::new(position.x as f32, position.y as f32);
+                        state.last_cursor_pos.set(pos);
+                        webview.notify_input_event(servo::InputEvent::MouseMove(
+                            servo::MouseMoveEvent::new(servo::WebViewPoint::Device(pos))
+                        ));
+                    }
+                }
+            }
+            winit::event::WindowEvent::MouseInput { state: element_state, button: winit_button, .. } => {
+                if let Self::Running(state) = self {
+                    if let Some(webview) = state.webviews.borrow().last() {
+                        let action = match element_state {
+                            winit::event::ElementState::Pressed => servo::MouseButtonAction::Down,
+                            winit::event::ElementState::Released => servo::MouseButtonAction::Up,
+                        };
+
+                        let button = match winit_button {
+                            winit::event::MouseButton::Left => servo::MouseButton::Left,
+                            winit::event::MouseButton::Right => servo::MouseButton::Right,
+                            winit::event::MouseButton::Middle => servo::MouseButton::Middle,
+                            winit::event::MouseButton::Back => servo::MouseButton::Back,
+                            winit::event::MouseButton::Forward => servo::MouseButton::Forward,
+                            winit::event::MouseButton::Other(n) => servo::MouseButton::Other(n),
+                        };
+
+                        let pos = state.last_cursor_pos.get();
+                        webview.notify_input_event(servo::InputEvent::MouseButton(
+                            servo::MouseButtonEvent::new(action, button, servo::WebViewPoint::Device(pos))
+                        ));
+                    }
+                }
+            }
+            winit::event::WindowEvent::KeyboardInput { event, .. } => {
+                if let Self::Running(state) = self {
+                    if let Some(webview) = state.webviews.borrow().last() {
+                        let key_state = match event.state {
+                            winit::event::ElementState::Pressed => keyboard_types::KeyState::Down,
+                            winit::event::ElementState::Released => keyboard_types::KeyState::Up,
+                        };
+
+                        let key = map_key(&event.logical_key);
+                        let code = map_code(&event.physical_key);
+                        let location = map_location(event.location);
+                        let modifiers = map_modifiers(&state.modifiers.get());
+
+                        let kb_event = keyboard_types::KeyboardEvent {
+                            state: key_state,
+                            key,
+                            code,
+                            location,
+                            modifiers,
+                            repeat: event.repeat,
+                            is_composing: false,
+                        };
+
+                        webview.notify_input_event(servo::InputEvent::Keyboard(
+                            servo::KeyboardEvent::new(kb_event)
+                        ));
+                    }
+                }
+            }
             _ => (),
         }
     }
+}
+
+#[cfg(feature = "servo-engine")]
+fn map_key(winit_key: &winit::keyboard::Key) -> keyboard_types::Key {
+    use std::str::FromStr;
+    match winit_key {
+        winit::keyboard::Key::Named(named) => {
+            let name_str = format!("{:?}", named);
+            if let Ok(k) = keyboard_types::NamedKey::from_str(&name_str) {
+                keyboard_types::Key::Named(k)
+            } else {
+                keyboard_types::Key::Named(keyboard_types::NamedKey::Unidentified)
+            }
+        }
+        winit::keyboard::Key::Character(s) => {
+            keyboard_types::Key::Character(s.to_string())
+        }
+        _ => keyboard_types::Key::Named(keyboard_types::NamedKey::Unidentified),
+    }
+}
+
+#[cfg(feature = "servo-engine")]
+fn map_code(winit_code: &winit::keyboard::PhysicalKey) -> keyboard_types::Code {
+    use std::str::FromStr;
+    match winit_code {
+        winit::keyboard::PhysicalKey::Code(code) => {
+            let code_str = format!("{:?}", code);
+            if let Ok(c) = keyboard_types::Code::from_str(&code_str) {
+                c
+            } else {
+                keyboard_types::Code::Unidentified
+            }
+        }
+        _ => keyboard_types::Code::Unidentified,
+    }
+}
+
+#[cfg(feature = "servo-engine")]
+fn map_location(winit_loc: winit::keyboard::KeyLocation) -> keyboard_types::Location {
+    match winit_loc {
+        winit::keyboard::KeyLocation::Standard => keyboard_types::Location::Standard,
+        winit::keyboard::KeyLocation::Left => keyboard_types::Location::Left,
+        winit::keyboard::KeyLocation::Right => keyboard_types::Location::Right,
+        winit::keyboard::KeyLocation::Numpad => keyboard_types::Location::Numpad,
+    }
+}
+
+#[cfg(feature = "servo-engine")]
+fn map_modifiers(winit_mods: &winit::keyboard::ModifiersState) -> keyboard_types::Modifiers {
+    let mut mods = keyboard_types::Modifiers::empty();
+    if winit_mods.shift_key() {
+        mods.insert(keyboard_types::Modifiers::SHIFT);
+    }
+    if winit_mods.control_key() {
+        mods.insert(keyboard_types::Modifiers::CONTROL);
+    }
+    if winit_mods.alt_key() {
+        mods.insert(keyboard_types::Modifiers::ALT);
+    }
+    if winit_mods.super_key() {
+        mods.insert(keyboard_types::Modifiers::META);
+    }
+    mods
 }
 
 #[cfg(feature = "servo-engine")]

@@ -50,6 +50,8 @@
 - [x] V.2 `cargo test -p stremio-lightning-linux` passes (no regressions)
 - [x] V.3 Unit tests for `WebviewShell` trait dispatch
 - [x] V.4 Unit tests for `ServoWebviewRuntime` stub initialization
+- [x] V.5 Comprehensive input mapping (clicks, movements, scrolling, keyboard keys, and modifier states) forwarded from winit to Servo WebViews
+- [x] V.6 Verified full UI rendering under Servo for both proxy and direct HTTPS URLs
 
 ---
 

@@ -8255,6 +8255,7 @@ dependencies = [
  "euclid",
  "gdk-pixbuf",
  "gtk4",
+ "keyboard-types",
  "libc",
  "libloading 0.9.0",
  "libmpv2",
