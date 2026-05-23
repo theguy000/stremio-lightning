@@ -30,6 +30,8 @@
         "--device=dri",
         "--persist=.stremio-lightning",
         "--filesystem=xdg-download",
+        "--filesystem=xdg-data/icons:ro",
+        "--filesystem=~/.icons:ro",
         "--talk-name=org.kde.StatusNotifierWatcher",
         "--own-name=io.github.theguy000.StremioLightning"
     ],
