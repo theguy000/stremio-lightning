@@ -25,7 +25,7 @@ use stremio_lightning_core::pip::{
 };
 use webkit::prelude::*;
 use webkit::{
-    LoadEvent, NavigationPolicyDecision, PolicyDecisionType, UserContentInjectedFrames, UserScript,
+    NavigationPolicyDecision, PolicyDecisionType, UserContentInjectedFrames, UserScript,
     UserScriptInjectionTime, WebView as WebKitWebView,
 };
 
@@ -410,17 +410,6 @@ fn build_webview(
         });
     }
 
-    {
-        let inspector_shown = Rc::new(Cell::new(false));
-        let devtools = config.devtools;
-        webview.connect_load_changed(move |webview, event| {
-            if event == LoadEvent::Finished && devtools && !inspector_shown.replace(true) {
-                if let Some(inspector) = webview.inspector() {
-                    inspector.show();
-                }
-            }
-        });
-    }
 
     webview.connect_decide_policy(move |_, decision, decision_type| {
         if decision_type == PolicyDecisionType::NewWindowAction {
@@ -571,6 +560,17 @@ impl NativeWindowIpc for LinuxWebviewRuntime<MpvPlayerBackend, RealProcessSpawne
                         fullscreen,
                     };
                     let _enabled = self.toggle_picture_in_picture(&mut controller)?;
+                    return Ok(Value::Null);
+                }
+
+                if invoke_command(payload.as_ref()) == Some("toggle_devtools") {
+                    if let Some(inspector) = webview.inspector() {
+                        if inspector.property::<bool>("is-visible") {
+                            inspector.close();
+                        } else {
+                            inspector.show();
+                        }
+                    }
                     return Ok(Value::Null);
                 }
 

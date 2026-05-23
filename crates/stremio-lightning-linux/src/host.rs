@@ -326,6 +326,7 @@ where
                 self.set_picture_in_picture(enabled, None)?;
                 Ok(json!(enabled))
             }
+            "toggle_pip_mode" | "toggle_devtools" => Ok(Value::Null),
             "get_pip_mode" => Ok(json!(self.pip_state.is_enabled()?)),
             other => Err(format!("Unsupported Linux host command: {other}")),
         }
