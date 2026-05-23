@@ -326,7 +326,7 @@ pub async fn fetch_registry() -> Result<Registry, String> {
     }
 
     // 4. Fetch over network on cache miss
-    let url = "https://raw.githubusercontent.com/REVENGE977/stremio-enhanced-registry/refs/heads/main/registry.json";
+    let url = "https://raw.githubusercontent.com/theguy000/stremio-lightning-registry/refs/heads/main/registry.json";
     let response = reqwest::get(url)
         .await
         .map_err(|e| format!("Failed to fetch registry: {}", e))?;
