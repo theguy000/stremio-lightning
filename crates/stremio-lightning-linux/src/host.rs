@@ -438,7 +438,8 @@ where
     }
 
     pub fn emit_window_fullscreen_changed(&self, fullscreen: bool) -> Result<(), String> {
-        self.emit_host_event(HostEvent::WindowFullscreenChanged, json!(fullscreen))
+        self.emit_host_event(HostEvent::WindowFullscreenChanged, json!(fullscreen))?;
+        self.emit_transport_event(host_api::serialize_window_visibility(true, fullscreen))
     }
 
     fn emit_server_started(&self) -> Result<(), String> {
@@ -995,6 +996,11 @@ console.log("sample");"#,
         assert_eq!(events[1].event, "window-fullscreen-changed");
         assert_eq!(events[1].payload, json!(false));
         assert!(events[2]
+            .payload
+            .as_str()
+            .unwrap()
+            .contains("win-visibility-changed"));
+        assert!(events[3]
             .payload
             .as_str()
             .unwrap()

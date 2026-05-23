@@ -523,7 +523,10 @@ where
         self.emit_event(
             "window-fullscreen-changed",
             json!({ "fullscreen": fullscreen }),
-        )
+        )?;
+        self.emit_transport_response(host_api::response_message(
+            host_api::serialize_window_visibility(true, fullscreen),
+        ))
     }
 
     pub fn emit_window_maximized_changed(&self, maximized: bool) -> Result<(), String> {
