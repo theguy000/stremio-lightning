@@ -23,10 +23,7 @@ impl Default for ServoConfig {
         Self {
             enable_css_grid: true,
             user_agent_suffix: "Servo/StremioLightning".to_string(),
-            engine_prefs: vec![(
-                "layout.grid.enabled".to_string(),
-                "true".to_string(),
-            )],
+            engine_prefs: vec![],
         }
     }
 }

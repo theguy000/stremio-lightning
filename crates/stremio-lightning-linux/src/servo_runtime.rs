@@ -29,10 +29,7 @@ impl Default for ServoConfig {
         Self {
             enable_css_grid: true,
             user_agent_suffix: "Servo/StremioLightning".to_string(),
-            engine_prefs: vec![(
-                "layout.grid.enabled".to_string(),
-                "true".to_string(),
-            )],
+            engine_prefs: vec![],
         }
     }
 }
@@ -318,8 +315,19 @@ impl<B: PlayerBackend + 'static, P: ProcessSpawner + 'static> winit::application
 
             let _ = rendering_context.make_current();
 
+            let mut preferences = servo::Preferences::default();
+            preferences.layout_grid_enabled = runtime.servo_config.enable_css_grid;
+            if !runtime.servo_config.user_agent_suffix.is_empty() {
+                preferences.user_agent = format!("{} {}", preferences.user_agent, runtime.servo_config.user_agent_suffix);
+            }
+            for (key, val) in &runtime.servo_config.engine_prefs {
+                let pref_val = servo::PrefValue::from_booleanish_str(val);
+                preferences.set_value(key, pref_val);
+            }
+
             let servo = servo::ServoBuilder::default()
                 .event_loop_waker(Box::new(waker.clone()))
+                .preferences(preferences)
                 .build();
             servo.setup_logging();
 
@@ -667,10 +675,6 @@ mod tests {
     fn servo_config_defaults_enable_css_grid() {
         let config = ServoConfig::default();
         assert!(config.enable_css_grid);
-        assert!(config
-            .engine_prefs
-            .iter()
-            .any(|(k, v)| k == "layout.grid.enabled" && v == "true"));
         assert!(config.user_agent_suffix.contains("Servo"));
     }
 

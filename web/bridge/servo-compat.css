@@ -16,15 +16,14 @@
 
 [class*="poster-grid"],
 [class*="catalog-grid"],
-[class*="meta-catalog"],
-.board-row .poster-container {
+[class*="meta-catalog"] {
   display: flex !important;
   flex-wrap: wrap !important;
   gap: 16px !important;
   justify-content: flex-start !important;
 }
 
-/* Individual poster cards within the grid */
+/* Individual poster cards within the catalog grid */
 [class*="poster-grid"] > *,
 [class*="catalog-grid"] > *,
 [class*="meta-catalog"] > * {
@@ -46,10 +45,54 @@
 [class*="board-row"],
 [class*="shelf-row"] {
   display: flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  align-items: stretch !important;
+  justify-content: flex-start !important;
+  width: 100% !important;
+  overflow: visible !important;
+  gap: 20px !important;
+  margin-bottom: 24px !important;
+}
+
+/* Row title/header container on the left */
+[class*="board-row"] > *:first-child,
+[class*="shelf-row"] > *:first-child {
+  flex: 0 0 160px !important;
+  width: 160px !important;
+  max-width: 160px !important;
+  min-width: 160px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: center !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  box-sizing: border-box !important;
+}
+
+/* Poster items container scrolling on the right */
+[class*="board-row"] > [class*="poster-container"],
+[class*="board-row"] > [class*="items"],
+[class*="board-row"] > *:last-child,
+[class*="shelf-row"] > *:last-child {
+  flex: 1 1 auto !important;
+  display: flex !important;
+  flex-direction: row !important;
   flex-wrap: nowrap !important;
   overflow-x: auto !important;
-  gap: 12px !important;
-  -webkit-overflow-scrolling: touch !important;
+  overflow-y: hidden !important;
+  gap: 16px !important;
+  padding: 10px 0 !important;
+}
+
+/* Individual poster cards within the board row */
+[class*="board-row"] > [class*="poster-container"] > *,
+[class*="board-row"] > [class*="items"] > *,
+[class*="board-row"] > *:last-child > *,
+[class*="shelf-row"] > *:last-child > * {
+  flex: 0 0 auto !important;
+  width: 140px !important;
+  max-width: 140px !important;
 }
 
 /* ── Settings grid layouts ──────────────────────────────────────────── */
@@ -78,4 +121,116 @@
 :focus-visible {
   outline: 2px solid #7b5bf5 !important;
   outline-offset: 2px !important;
+}
+
+/* ── Main App Shell Layout Fallback ─────────────────────────────────── */
+/* Stremio Web uses CSS Grid for the outer app layout shell, which
+   collapses under Servo. Force a robust Flexbox column/row structure. */
+
+#root > div,
+[class*="app-layout"],
+[class*="main-layout"],
+[class*="layout-root"],
+[class*="app-container"],
+[class*="main-container"] {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: stretch !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  overflow: hidden !important;
+}
+
+/* Left sidebar navigation container */
+[class*="sidebar"],
+[class*="menu-container"],
+[class*="navigation"],
+[class*="nav-container"],
+[class*="side-bar"] {
+  flex: 0 0 80px !important;
+  width: 80px !important;
+  max-width: 80px !important;
+  min-width: 80px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  background-color: #0e0e1e !important;
+  height: 100% !important;
+  padding-top: 20px !important;
+  gap: 24px !important;
+  box-sizing: border-box !important;
+}
+
+/* Right-hand side content wrapper (top bar + scrollable page content) */
+[class*="content-wrapper"],
+[class*="right-wrapper"],
+[class*="main-content-wrapper"],
+#root > div > *:last-child {
+  flex: 1 1 auto !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: stretch !important;
+  height: 100% !important;
+  overflow: hidden !important;
+  box-sizing: border-box !important;
+}
+
+/* Top search/navigation bar inside the content container */
+[class*="top-bar"],
+[class*="header-container"],
+[class*="header"],
+[class*="navigation-bar"] {
+  flex: 0 0 64px !important;
+  height: 64px !important;
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  padding: 0 24px !important;
+  box-sizing: border-box !important;
+  background-color: #121224 !important;
+}
+
+/* ── Buttons and Icons Centering Fallback ───────────────────────────── */
+/* Grid-based button centering/alignment breaks in Servo. Apply robust inline-flex. */
+button,
+[role="button"],
+[class*="btn"],
+[class*="button"],
+[class*="nav-item"],
+[class*="menu-item"],
+[class*="icon-container"],
+[class*="icon-button"] {
+  display: inline-flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 8px !important;
+  box-sizing: border-box !important;
+}
+
+/* Ensure SVG icons have explicit dimensions and align properly */
+button svg,
+[role="button"] svg,
+[class*="btn"] svg,
+[class*="button"] svg,
+[class*="nav-item"] svg,
+[class*="menu-item"] svg,
+[class*="icon-button"] svg {
+  display: block !important;
+  flex: 0 0 auto !important;
+  width: 20px !important;
+  height: 20px !important;
+  fill: currentColor !important;
+}
+
+/* Sidebar navigation icons specifically */
+[class*="sidebar"] svg,
+[class*="menu-container"] svg,
+[class*="navigation"] svg,
+[class*="nav-container"] svg,
+[class*="side-bar"] svg {
+  width: 26px !important;
+  height: 26px !important;
 }
