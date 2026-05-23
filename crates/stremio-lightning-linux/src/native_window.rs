@@ -35,6 +35,10 @@ const APP_NAME: &str = "Stremio Lightning";
 const DEV_ICON_NAME: &str = "128x128";
 const DEFAULT_WINDOW_WIDTH: i32 = 1500;
 const DEFAULT_WINDOW_HEIGHT: i32 = 850;
+
+thread_local! {
+    static LAST_NORMAL_SIZE: RefCell<Option<(i32, i32)>> = RefCell::new(None);
+}
 const X11_CLIENT_MESSAGE: c_int = 33;
 const X11_PROP_MODE_REPLACE: c_int = 0;
 const X11_PROP_MODE_REMOVE: c_long = 0;
@@ -629,7 +633,13 @@ fn start_window_dragging(window: &gtk::ApplicationWindow) -> Result<(), String> 
         .and_then(|seat| seat.pointer())
         .ok_or_else(|| "No pointer device available for window dragging".to_string())?;
 
-    toplevel.begin_move(&pointer, 1, 0.0, 0.0, 0);
+    let (x, y) = if let Some((px, py, _)) = surface.device_position(&pointer) {
+        (px, py)
+    } else {
+        (0.0, 0.0)
+    };
+
+    toplevel.begin_move(&pointer, 1, x, y, 0);
     Ok(())
 }
 
@@ -686,7 +696,9 @@ impl PipWindowController for NativeWindowController<'_> {
     fn enter_pip(&mut self) -> Result<PipRestoreSnapshot, String> {
         let was_fullscreen = self.fullscreen.get();
         let saved_size = if was_fullscreen {
-            None
+            LAST_NORMAL_SIZE
+                .with(|cell| *cell.borrow())
+                .or(Some((DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)))
         } else {
             let width = self.window.width();
             let height = self.window.height();
@@ -724,6 +736,12 @@ impl PipWindowController for NativeWindowController<'_> {
         self.window.set_decorated(true);
         self.window.set_modal(false);
         if snapshot.was_fullscreen {
+            if let Some((width, height)) = snapshot.saved_size {
+                self.window.set_resizable(false);
+                self.window.set_size_request(-1, -1);
+                self.window.set_size_request(width, height);
+                self.window.set_default_size(width, height);
+            }
             self.window.set_size_request(-1, -1);
             self.window.set_resizable(true);
             set_window_fullscreen(
@@ -841,6 +859,13 @@ fn set_window_fullscreen(
     fullscreen_value: bool,
 ) {
     if fullscreen_value {
+        let width = window.width();
+        let height = window.height();
+        if width > 0 && height > 0 {
+            LAST_NORMAL_SIZE.with(|cell| {
+                *cell.borrow_mut() = Some((width, height));
+            });
+        }
         window.fullscreen();
     } else {
         window.unfullscreen();
