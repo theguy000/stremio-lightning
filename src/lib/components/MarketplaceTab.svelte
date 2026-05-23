@@ -73,7 +73,7 @@
 />
 
 <div class="sl-submit-link">
-  <a class="sl-link" href="https://github.com/REVENGE977/stremio-enhanced-registry" target="_blank" rel="noreferrer">Submit your plugins and themes here</a>
+  <a class="sl-link" href="https://github.com/theguy000/stremio-lightning-registry" target="_blank" rel="noreferrer">Submit your plugins and themes here</a>
 </div>
 
 {#if loading}
