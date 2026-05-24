@@ -99,6 +99,17 @@
         })
         .catch(() => {});
     });
+
+    const handleSettingsRegistered = (e: Event): void => {
+      const { pluginName } = (e as CustomEvent<{ pluginName: string }>).detail;
+      hasSettings[`${pluginName}.plugin.js`] = true;
+      hasSettings = { ...hasSettings };
+    };
+
+    window.addEventListener('sl-settings-registered', handleSettingsRegistered);
+    return () => {
+      window.removeEventListener('sl-settings-registered', handleSettingsRegistered);
+    };
   });
 </script>
 
@@ -131,16 +142,6 @@
           <div class="sl-card-author">by {plugin.metadata.author}</div>
         </div>
         <div class="sl-card-actions">
-          {#if hasSettings[plugin.filename]}
-            <!-- svelte-ignore a11y_click_events_have_key_events -->
-            <!-- svelte-ignore a11y_no_static_element_interactions -->
-            <div class="sl-gear-btn" style="display:flex;" title="Settings" onclick={() => openSettings(plugin.filename)}>
-              {@html ICONS.gear}
-            </div>
-          {/if}
-          {#if updates[plugin.filename]}
-            <button class="sl-btn sl-btn-warning" onclick={() => handleUpdate(plugin.filename, updates[plugin.filename])}>Update</button>
-          {/if}
           <!-- svelte-ignore a11y_label_has_associated_control -->
           <label class="sl-toggle">
             <input
@@ -150,6 +151,17 @@
             />
             <div class="sl-toggle-track"><div class="sl-toggle-thumb"></div></div>
           </label>
+          {#if updates[plugin.filename]}
+            <button class="sl-btn sl-btn-warning" onclick={() => handleUpdate(plugin.filename, updates[plugin.filename])}>Update</button>
+          {/if}
+          <button
+            class="sl-gear-btn {hasSettings[plugin.filename] ? '' : 'sl-gear-hidden'}"
+            title="Settings"
+            onclick={() => openSettings(plugin.filename)}
+            type="button"
+          >
+            {@html ICONS.gear}
+          </button>
         </div>
       </div>
     {/if}
