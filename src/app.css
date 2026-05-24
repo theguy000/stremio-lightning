@@ -524,7 +524,6 @@ nav[data-sl-mods-muted] .selected:not(:hover):not(:focus):not(:focus-visible):no
   text-decoration: none;
   cursor: pointer;
   outline: none;
-  transition: background-color 0.12s ease-out, filter 0.12s ease-out, box-shadow 0.12s ease-out, opacity 0.12s ease-out;
   box-sizing: border-box;
 }
 
