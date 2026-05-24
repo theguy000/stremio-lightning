@@ -185,7 +185,7 @@ nav[data-sl-mods-muted] .selected:not(:hover):not(:focus):not(:focus-visible):no
 .sl-setting-label { flex:1 1 auto; min-width:0; padding-right:1rem; }
 .sl-setting-label-text { font-size:1rem; color:var(--primary-foreground-color, #f2f2f2); }
 .sl-setting-label-desc { margin-top:0.35rem; font-size:0.85rem; line-height:1.45; color:var(--primary-foreground-color, #f2f2f2); opacity:0.45; }
-.sl-setting-control { flex:none; width:min(18rem, 42%); }
+.sl-setting-control { flex:none; width:min(18rem, 42%); display:flex; justify-content:flex-end; align-items:center; }
 .sl-setting-input, .sl-setting-select { width:100%; min-height:3.25rem; padding:0 1rem; border-radius:3rem; border:2px solid transparent; background-color:var(--overlay-color, rgba(255,255,255,0.08)); color:var(--primary-foreground-color, #f2f2f2); font-size:0.95rem; outline:none; box-sizing:border-box; transition:border-color 0.12s ease-out, background-color 0.12s ease-out; }
 .sl-setting-input:hover, .sl-setting-input:focus, .sl-setting-select:hover, .sl-setting-select:focus { border-color:var(--primary-foreground-color, #f2f2f2); background-color:transparent; }
 .sl-setting-select option { background-color:var(--modal-background-color, rgba(16,16,20,0.96)); color:var(--primary-foreground-color, #f2f2f2); }
