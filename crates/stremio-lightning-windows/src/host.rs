@@ -5,11 +5,12 @@ use crate::single_instance::LaunchIntent;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Mutex;
-use stremio_lightning_core::app_update;
 use stremio_lightning_core::host_api::{self, HostEvent, ParsedRequest};
 use stremio_lightning_core::pip::{serialize_picture_in_picture, PipState};
 use stremio_lightning_core::player_api::PlayerEvent;
+use stremio_lightning_core::{app_update, mods, settings};
 
 #[cfg(windows)]
 use crate::window::NativeWindowController;
@@ -132,6 +133,8 @@ pub struct WindowsHost {
     #[cfg(windows)]
     window_controller: Mutex<Option<NativeWindowController>>,
     package_version: &'static str,
+    app_data_dir: PathBuf,
+    settings: settings::SettingsState,
 }
 
 pub type Host = WindowsHost;
@@ -152,10 +155,26 @@ impl Default for WindowsHost {
 
 impl WindowsHost {
     pub fn new(package_version: &'static str) -> Self {
-        Self::with_streaming_server_disabled(package_version, false)
+        Self::with_app_data_dir(package_version, default_app_data_dir())
+    }
+
+    pub fn with_app_data_dir(package_version: &'static str, app_data_dir: PathBuf) -> Self {
+        Self::with_app_data_dir_and_server_disabled(package_version, app_data_dir, false)
     }
 
     pub fn with_streaming_server_disabled(package_version: &'static str, disabled: bool) -> Self {
+        Self::with_app_data_dir_and_server_disabled(
+            package_version,
+            default_app_data_dir(),
+            disabled,
+        )
+    }
+
+    pub fn with_app_data_dir_and_server_disabled(
+        package_version: &'static str,
+        app_data_dir: PathBuf,
+        disabled: bool,
+    ) -> Self {
         Self {
             player: Mutex::default(),
             streaming_server: WindowsStreamingServer::from_resources(
@@ -168,6 +187,8 @@ impl WindowsHost {
             #[cfg(windows)]
             window_controller: Mutex::default(),
             package_version,
+            app_data_dir,
+            settings: settings::SettingsState::default(),
         }
     }
 
@@ -319,10 +340,55 @@ impl WindowsHost {
 
     pub fn invoke(&self, command: &str, payload: Option<Value>) -> Result<Value, String> {
         match command {
+            "download_mod" | "get_registry" | "check_mod_updates" | "check_app_update" => {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .map_err(|e| format!("Failed to create Windows async runtime: {e}"))?;
+                runtime.block_on(self.invoke_async(command, payload))
+            }
+            _ => self.invoke_sync(command, payload),
+        }
+    }
+
+    pub async fn invoke_async(
+        &self,
+        command: &str,
+        payload: Option<Value>,
+    ) -> Result<Value, String> {
+        match command {
+            "download_mod" => {
+                let payload: DownloadModPayload = parse_payload(command, payload)?;
+                let mod_type = payload.mod_type.parse()?;
+                let filename =
+                    mods::download_mod(&self.app_data_dir, &payload.url, mod_type).await?;
+                Ok(json!(filename))
+            }
+            "get_registry" => Ok(serde_json::to_value(mods::fetch_registry().await?)
+                .map_err(|e| format!("Failed to serialize registry: {e}"))?),
+            "check_mod_updates" => {
+                let payload: ModFilePayload = parse_payload(command, payload)?;
+                let mod_type = payload.mod_type.parse()?;
+                Ok(serde_json::to_value(
+                    mods::check_mod_updates(&self.app_data_dir, &payload.filename, mod_type)
+                        .await?,
+                )
+                .map_err(|e| format!("Failed to serialize update info: {e}"))?)
+            }
+            "check_app_update" => Ok(serde_json::to_value(
+                app_update::check_app_update(self.package_version).await?,
+            )
+            .map_err(|e| format!("Failed to serialize Windows app update info: {e}"))?),
+            _ => self.invoke_sync(command, payload),
+        }
+    }
+
+    fn invoke_sync(&self, command: &str, payload: Option<Value>) -> Result<Value, String> {
+        match command {
             "init" => Ok(json!({
                 "platform": "windows",
                 "shell": "webview2",
-                "shellVersion": env!("CARGO_PKG_VERSION"),
+                "shellVersion": self.package_version,
                 "nativePlayer": self.player
                     .lock()
                     .map_err(|_| "Windows player lock poisoned".to_string())?
@@ -382,27 +448,78 @@ impl WindowsHost {
                 }
                 Ok(Value::Null)
             }
-            "get_plugins" | "get_themes" => Ok(json!([])),
-            "get_registry" => Ok(json!({ "plugins": [], "themes": [] })),
-            "get_registered_settings" => Ok(Value::Null),
-            "get_setting" => Ok(Value::Null),
-            "save_setting" | "register_settings" => Ok(Value::Null),
-            "download_mod" | "delete_mod" | "get_mod_content" | "check_mod_updates" => Err(
-                format!("Windows host command is not implemented before mods storage milestone: {command}"),
-            ),
-            "toggle_devtools" | "start_discord_rpc" | "stop_discord_rpc" | "update_discord_activity" => {
+            "get_plugins" => Ok(serde_json::to_value(mods::list_mods(
+                &self.app_data_dir,
+                mods::ModType::Plugin,
+            )?)
+            .map_err(|e| format!("Failed to serialize plugins: {e}"))?),
+            "get_themes" => Ok(serde_json::to_value(mods::list_mods(
+                &self.app_data_dir,
+                mods::ModType::Theme,
+            )?)
+            .map_err(|e| format!("Failed to serialize themes: {e}"))?),
+            "delete_mod" => {
+                let payload: ModFilePayload = parse_payload(command, payload)?;
+                let mod_type = payload.mod_type.parse()?;
+                mods::delete_mod(&self.app_data_dir, &payload.filename, mod_type)?;
                 Ok(Value::Null)
             }
-            "check_app_update" => {
-                let runtime = tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .map_err(|e| format!("Failed to create Windows update runtime: {e}"))?;
-                Ok(serde_json::to_value(runtime.block_on(
-                    app_update::check_app_update(env!("CARGO_PKG_VERSION")),
-                )?)
-                .map_err(|e| format!("Failed to serialize Windows app update info: {e}"))?)
+            "get_mod_content" => {
+                let payload: ModFilePayload = parse_payload(command, payload)?;
+                let mod_type = payload.mod_type.parse()?;
+                Ok(json!(mods::read_mod_content(
+                    &self.app_data_dir,
+                    &payload.filename,
+                    mod_type
+                )?))
             }
+            "get_setting" => {
+                let payload: SettingKeyPayload = parse_payload(command, payload)?;
+                Ok(settings::get_setting(
+                    &mods::mods_dir(&self.app_data_dir, mods::ModType::Plugin),
+                    &payload.plugin_name,
+                    &payload.key,
+                )?)
+            }
+            "save_setting" => {
+                let payload: SaveSettingPayload = parse_payload(command, payload)?;
+                let value = serde_json::from_str::<Value>(&payload.value)
+                    .unwrap_or(Value::String(payload.value));
+                let plugins_dir = mods::mods_dir(&self.app_data_dir, mods::ModType::Plugin);
+                std::fs::create_dir_all(&plugins_dir)
+                    .map_err(|e| format!("Failed to create plugins dir: {e}"))?;
+                let _guard = self
+                    .settings
+                    .settings_lock
+                    .lock()
+                    .map_err(|e| e.to_string())?;
+                settings::save_setting(&plugins_dir, &payload.plugin_name, &payload.key, value)?;
+                Ok(Value::Null)
+            }
+            "register_settings" => {
+                let payload: RegisterSettingsPayload = parse_payload(command, payload)?;
+                mods::validate_filename(&payload.plugin_name)?;
+                let schema = serde_json::from_str::<Value>(&payload.schema)
+                    .map_err(|e| format!("Failed to parse settings schema: {e}"))?;
+                settings::register_settings(
+                    &self.settings.registered_schemas,
+                    payload.plugin_name,
+                    schema,
+                )?;
+                Ok(Value::Null)
+            }
+            "get_registered_settings" => {
+                let payload: PluginNamePayload = parse_payload(command, payload)?;
+                mods::validate_filename(&payload.plugin_name)?;
+                settings::get_registered_settings(
+                    &self.settings.registered_schemas,
+                    &payload.plugin_name,
+                )
+            }
+            "toggle_devtools"
+            | "start_discord_rpc"
+            | "stop_discord_rpc"
+            | "update_discord_activity" => Ok(Value::Null),
             "set_auto_pause" | "set_pip_disables_auto_pause" => Ok(Value::Null),
             "get_auto_pause" | "get_pip_disables_auto_pause" => Ok(json!(false)),
             "toggle_pip" => {
@@ -818,6 +935,48 @@ impl From<HostEventRecord> for WindowsIpcOutbound {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DownloadModPayload {
+    url: String,
+    mod_type: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ModFilePayload {
+    filename: String,
+    mod_type: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PluginNamePayload {
+    plugin_name: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SettingKeyPayload {
+    plugin_name: String,
+    key: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SaveSettingPayload {
+    plugin_name: String,
+    key: String,
+    value: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RegisterSettingsPayload {
+    plugin_name: String,
+    schema: String,
+}
+
+#[derive(Debug, Deserialize)]
 struct InvokeIpcPayload {
     command: String,
     payload: Option<Value>,
@@ -850,6 +1009,14 @@ where
 {
     serde_json::from_value(payload.unwrap_or(Value::Null))
         .map_err(|e| format!("Invalid {command} payload: {e}"))
+}
+
+fn default_app_data_dir() -> PathBuf {
+    if let Some(path) = std::env::var_os("LOCALAPPDATA") {
+        PathBuf::from(path)
+    } else {
+        std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+    }
 }
 
 fn validate_external_url(url: &str) -> Result<(), String> {
@@ -1186,5 +1353,199 @@ mod tests {
             serde_json::to_value(&invalid[0]).unwrap(),
             fixture["invalidCommandResponse"]
         );
+    }
+
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static TEMP_ID: AtomicUsize = AtomicUsize::new(0);
+
+    fn temp_dir(name: &str) -> PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "stremio-lightning-windows-host-test-{}-{}-{}",
+            std::process::id(),
+            name,
+            TEMP_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = std::fs::remove_dir_all(&path);
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    }
+
+    fn host_with_app_data(app_data_dir: PathBuf) -> WindowsHost {
+        WindowsHost::with_app_data_dir_and_server_disabled(
+            env!("CARGO_PKG_VERSION"),
+            app_data_dir,
+            true,
+        )
+    }
+
+    fn block_on<F: std::future::Future>(future: F) -> F::Output {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(future)
+    }
+
+    #[test]
+    fn lists_reads_and_deletes_plugin_and_theme_mods() {
+        let root = temp_dir("mods-contract");
+        let host = host_with_app_data(root.clone());
+
+        assert_eq!(host.invoke("get_plugins", None).unwrap(), json!([]));
+        assert_eq!(host.invoke("get_themes", None).unwrap(), json!([]));
+
+        mods::write_mod_content(
+            &root,
+            "sample.plugin.js",
+            mods::ModType::Plugin,
+            br#"/**
+ * @name Sample Plugin
+ * @description Demo plugin
+ * @author Tester
+ * @version 1.0.0
+ */
+console.log("sample");"#,
+        )
+        .unwrap();
+        mods::write_mod_content(
+            &root,
+            "sample.theme.css",
+            mods::ModType::Theme,
+            br#"/**
+ * @name Sample Theme
+ * @description Demo theme
+ * @author Tester
+ * @version 1.0.0
+ */
+:root { --sl-test-color: red; }"#,
+        )
+        .unwrap();
+        host.invoke(
+            "save_setting",
+            Some(json!({"pluginName": "sample", "key": "enabled", "value": "true"})),
+        )
+        .unwrap();
+
+        let plugins = host.invoke("get_plugins", None).unwrap();
+        assert_eq!(plugins[0]["filename"], "sample.plugin.js");
+        assert_eq!(plugins[0]["mod_type"], "plugin");
+        assert_eq!(plugins[0]["metadata"]["name"], "Sample Plugin");
+
+        let themes = host.invoke("get_themes", None).unwrap();
+        assert_eq!(themes[0]["filename"], "sample.theme.css");
+        assert_eq!(themes[0]["mod_type"], "theme");
+
+        let content = host
+            .invoke(
+                "get_mod_content",
+                Some(json!({"filename": "sample.plugin.js", "modType": "plugin"})),
+            )
+            .unwrap();
+        assert!(content.as_str().unwrap().contains("console.log"));
+
+        host.invoke(
+            "delete_mod",
+            Some(json!({"filename": "sample.plugin.js", "modType": "plugin"})),
+        )
+        .unwrap();
+        assert_eq!(host.invoke("get_plugins", None).unwrap(), json!([]));
+        assert!(!mods::mods_dir(&root, mods::ModType::Plugin)
+            .join("sample.plugin.json")
+            .exists());
+    }
+
+    #[test]
+    fn rejects_invalid_mod_payloads() {
+        let host = WindowsHost::default();
+        let traversal = host
+            .invoke(
+                "get_mod_content",
+                Some(json!({"filename": "../evil.plugin.js", "modType": "plugin"})),
+            )
+            .unwrap_err();
+        assert!(traversal.contains("Invalid filename"));
+
+        let invalid_type = host
+            .invoke(
+                "delete_mod",
+                Some(json!({"filename": "sample.plugin.js", "modType": "script"})),
+            )
+            .unwrap_err();
+        assert!(invalid_type.contains("Unknown mod type"));
+
+        let download_error = block_on(host.invoke_async(
+            "download_mod",
+            Some(json!({"url": "https://example.test/evil.theme.css", "modType": "plugin"})),
+        ))
+        .unwrap_err();
+        assert!(download_error.contains("Invalid plugin filename extension"));
+    }
+
+    #[test]
+    fn plugin_settings_round_trip_and_validate() {
+        let root = temp_dir("settings-contract");
+        let host = host_with_app_data(root.clone());
+
+        host.invoke(
+            "register_settings",
+            Some(json!({
+                "pluginName": "sample",
+                "schema": r#"[{"key":"enabled","type":"toggle"}]"#
+            })),
+        )
+        .unwrap();
+        assert_eq!(
+            host.invoke(
+                "get_registered_settings",
+                Some(json!({"pluginName": "sample"}))
+            )
+            .unwrap(),
+            json!([{"key": "enabled", "type": "toggle"}])
+        );
+
+        host.invoke(
+            "save_setting",
+            Some(json!({"pluginName": "sample", "key": "enabled", "value": "true"})),
+        )
+        .unwrap();
+        assert_eq!(
+            host.invoke(
+                "get_setting",
+                Some(json!({"pluginName": "sample", "key": "enabled"}))
+            )
+            .unwrap(),
+            json!(true)
+        );
+
+        host.invoke(
+            "save_setting",
+            Some(json!({"pluginName": "sample", "key": "mode", "value": "plain text"})),
+        )
+        .unwrap();
+        assert_eq!(
+            host.invoke(
+                "get_setting",
+                Some(json!({"pluginName": "sample", "key": "mode"}))
+            )
+            .unwrap(),
+            json!("plain text")
+        );
+
+        let invalid_schema = host
+            .invoke(
+                "register_settings",
+                Some(json!({"pluginName": "sample", "schema": "{"})),
+            )
+            .unwrap_err();
+        assert!(invalid_schema.contains("Failed to parse settings schema"));
+
+        let invalid_plugin = host
+            .invoke(
+                "get_registered_settings",
+                Some(json!({"pluginName": "../sample"})),
+            )
+            .unwrap_err();
+        assert!(invalid_plugin.contains("Invalid filename"));
     }
 }
