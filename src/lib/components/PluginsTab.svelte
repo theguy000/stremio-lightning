@@ -55,10 +55,11 @@
 
   async function openSettings(filename: string) {
     const baseName = filename.replace('.plugin.js', '');
-    const schema = await getRegisteredSettings(baseName);
+    const allSchemas = await getRegisteredSettings();
+    const schema = allSchemas[baseName];
     if (schema && Array.isArray(schema) && schema.length > 0) {
       settingsModalPlugin = filename;
-      settingsModalSchema = schema;
+      settingsModalSchema = schema as any[];
     }
   }
 
@@ -71,29 +72,37 @@
     location.reload();
   }
 
-  onMount(async () => {
-    await refreshPlugins();
-    loadEnabledFromStorage();
+  onMount(() => {
+    refreshPlugins().then(() => {
+      loadEnabledFromStorage();
 
-    // Check for settings schemas and updates concurrently
-    const list = get(plugins);
-    list.forEach((plugin) => {
-      if (!plugin.metadata) return;
-      const baseName = plugin.filename.replace('.plugin.js', '');
+      const list = get(plugins);
+      const validPlugins = list.filter(p => p.metadata);
+      if (validPlugins.length === 0) return;
 
-      getRegisteredSettings(baseName)
-        .then((schema) => {
-          if (schema && Array.isArray(schema) && schema.length > 0) {
-            hasSettings[plugin.filename] = true;
+      getRegisteredSettings()
+        .then((allSchemas) => {
+          if (allSchemas && typeof allSchemas === 'object') {
+            validPlugins.forEach((plugin) => {
+              const baseName = plugin.filename.replace('.plugin.js', '');
+              const schema = allSchemas[baseName];
+              if (schema && Array.isArray(schema) && schema.length > 0) {
+                hasSettings[plugin.filename] = true;
+              }
+            });
             hasSettings = { ...hasSettings };
           }
         })
         .catch(() => {});
 
-      checkModUpdates(plugin.filename, 'plugin')
-        .then((info) => {
-          if (info?.has_update) {
-            updates[plugin.filename] = info;
+      checkModUpdates('plugin')
+        .then((results) => {
+          if (results) {
+            for (const [filename, info] of Object.entries(results)) {
+              if (info?.has_update) {
+                updates[filename] = info;
+              }
+            }
             updates = { ...updates };
           }
         })

@@ -30,8 +30,8 @@ export function getRegistry(): Promise<Registry> {
   return host().invoke('get_registry');
 }
 
-export function checkModUpdates(filename: string, modType: string): Promise<UpdateInfo> {
-  return host().invoke('check_mod_updates', { filename, modType });
+export function checkModUpdates(modType: string): Promise<Record<string, UpdateInfo>> {
+  return host().invoke('check_mod_updates', { modType });
 }
 
 // ── Plugin settings ──
@@ -48,8 +48,8 @@ export function registerSettings(pluginName: string, schema: string): Promise<vo
   return host().invoke('register_settings', { pluginName, schema });
 }
 
-export function getRegisteredSettings(pluginName: string): Promise<unknown> {
-  return host().invoke('get_registered_settings', { pluginName });
+export function getRegisteredSettings(): Promise<Record<string, unknown>> {
+  return host().invoke('get_registered_settings');
 }
 
 // ── Discord RPC ──

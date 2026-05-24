@@ -26,11 +26,11 @@ type HostCommandMap = {
   delete_mod: { payload: { filename: string; modType: string }; result: void };
   get_mod_content: { payload: { filename: string; modType: string }; result: string };
   get_registry: { payload: undefined; result: Registry };
-  check_mod_updates: { payload: { filename: string; modType: string }; result: UpdateInfo };
+  check_mod_updates: { payload: { modType: string }; result: Record<string, UpdateInfo> };
   get_setting: { payload: { pluginName: string; key: string }; result: unknown };
   save_setting: { payload: { pluginName: string; key: string; value: string }; result: void };
   register_settings: { payload: { pluginName: string; schema: string }; result: void };
-  get_registered_settings: { payload: { pluginName: string }; result: unknown };
+  get_registered_settings: { payload: undefined; result: Record<string, unknown> };
   start_discord_rpc: { payload: undefined; result: void };
   stop_discord_rpc: { payload: undefined; result: void };
   update_discord_activity: { payload: { activity: DiscordActivity }; result: void };

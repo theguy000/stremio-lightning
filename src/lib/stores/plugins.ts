@@ -102,10 +102,12 @@ export function unloadPlugin(pluginName: string): void {
 
 export async function checkPluginUpdate(filename: string): Promise<UpdateInfo> {
   const modType = filename.endsWith('.theme.css') ? 'theme' : 'plugin';
-  return checkModUpdates(filename, modType);
+  const results = await checkModUpdates(modType);
+  return results[filename] || { has_update: false };
 }
 
 export async function getPluginSchema(pluginName: string): Promise<unknown> {
   const baseName = pluginName.replace('.plugin.js', '');
-  return getRegisteredSettings(baseName);
+  const schemas = await getRegisteredSettings();
+  return schemas[baseName];
 }

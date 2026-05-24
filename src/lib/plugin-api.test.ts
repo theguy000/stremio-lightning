@@ -21,10 +21,10 @@ const pluginApiInvokeCases: PluginApiTestCase[] = [
   ['getThemes', 'get_themes', []],
   ['downloadMod', 'download_mod', ['https://example.test/mod.js', 'plugin']],
   ['deleteMod', 'delete_mod', ['a.plugin.js', 'plugin']],
-  ['checkModUpdates', 'check_mod_updates', ['a.plugin.js', 'plugin']],
+  ['checkModUpdates', 'check_mod_updates', ['plugin']],
   ['getModContent', 'get_mod_content', ['a.plugin.js', 'plugin']],
   ['getRegistry', 'get_registry', []],
-  ['getRegisteredSettings', 'get_registered_settings', ['plugin-a']],
+  ['getRegisteredSettings', 'get_registered_settings', []],
   ['getSetting', 'get_setting', ['plugin-a', 'enabled']],
   ['checkAppUpdate', 'check_app_update', []],
 ];
@@ -47,9 +47,8 @@ function expectedPayload(command: HostCommand, args: unknown[]): unknown {
   const payloads: Partial<Record<HostCommand, unknown>> = {
     download_mod: { url: args[0], modType: args[1] },
     delete_mod: { filename: args[0], modType: args[1] },
-    check_mod_updates: { filename: args[0], modType: args[1] },
+    check_mod_updates: { modType: args[0] },
     get_mod_content: { filename: args[0], modType: args[1] },
-    get_registered_settings: { pluginName: args[0] },
     get_setting: { pluginName: args[0], key: args[1] },
   };
 
