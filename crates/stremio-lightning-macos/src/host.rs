@@ -251,13 +251,13 @@ where
             "get_registry" => Ok(serde_json::to_value(mods::fetch_registry().await?)
                 .map_err(|e| format!("Failed to serialize registry: {e}"))?),
             "check_mod_updates" => {
-                let payload: ModFilePayload = parse_payload(command, payload)?;
+                let payload: ModTypePayload = parse_payload(command, payload)?;
                 let mod_type = payload.mod_type.parse()?;
                 Ok(serde_json::to_value(
-                    mods::check_mod_updates(&self.app_data_dir, &payload.filename, mod_type)
+                    mods::check_mod_updates(&self.app_data_dir, mod_type)
                         .await?,
                 )
-                .map_err(|e| format!("Failed to serialize update info: {e}"))?)
+                .map_err(|e| format!("Failed to serialize macOS update info: {e}"))?)
             }
             "check_app_update" => Ok(serde_json::to_value(
                 app_update::check_app_update(env!("CARGO_PKG_VERSION")).await?,
@@ -380,12 +380,7 @@ where
                 Ok(Value::Null)
             }
             "get_registered_settings" => {
-                let payload: PluginNamePayload = parse_payload(command, payload)?;
-                mods::validate_filename(&payload.plugin_name)?;
-                settings::get_registered_settings(
-                    &self.settings.registered_schemas,
-                    &payload.plugin_name,
-                )
+                settings::get_registered_settings(&self.settings.registered_schemas)
             }
             "toggle_devtools"
             | "start_discord_rpc"
@@ -742,6 +737,12 @@ struct ModFilePayload {
 }
 
 #[derive(Debug, Deserialize)]
+struct ModTypePayload {
+    #[serde(rename = "type")]
+    mod_type: String,
+}
+
+#[derive(Debug, Deserialize)]
 struct SettingKeyPayload {
     #[serde(rename = "pluginName")]
     plugin_name: String,
@@ -761,12 +762,6 @@ struct RegisterSettingsPayload {
     #[serde(rename = "pluginName")]
     plugin_name: String,
     schema: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct PluginNamePayload {
-    #[serde(rename = "pluginName")]
-    plugin_name: String,
 }
 
 fn parse_payload<T>(label: &str, payload: Option<Value>) -> Result<T, String>
@@ -978,9 +973,9 @@ mod tests {
         assert_eq!(
             host.invoke(
                 "get_registered_settings",
-                Some(json!({"pluginName": "cinema"})),
+                None,
             )
-            .unwrap()["type"],
+            .unwrap()["cinema"]["type"],
             "object"
         );
         let _ = fs::remove_dir_all(app_data_dir);

@@ -186,10 +186,10 @@ where
             "get_registry" => Ok(serde_json::to_value(mods::fetch_registry().await?)
                 .map_err(|e| format!("Failed to serialize registry: {e}"))?),
             "check_mod_updates" => {
-                let payload: ModFilePayload = parse_payload(command, payload)?;
+                let payload: ModTypePayload = parse_payload(command, payload)?;
                 let mod_type = payload.mod_type.parse()?;
                 Ok(serde_json::to_value(
-                    mods::check_mod_updates(&self.app_data_dir, &payload.filename, mod_type)
+                    mods::check_mod_updates(&self.app_data_dir, mod_type)
                         .await?,
                 )
                 .map_err(|e| format!("Failed to serialize update info: {e}"))?)
@@ -314,12 +314,7 @@ where
                 Ok(Value::Null)
             }
             "get_registered_settings" => {
-                let payload: PluginNamePayload = parse_payload(command, payload)?;
-                mods::validate_filename(&payload.plugin_name)?;
-                settings::get_registered_settings(
-                    &self.settings.registered_schemas,
-                    &payload.plugin_name,
-                )
+                settings::get_registered_settings(&self.settings.registered_schemas)
             }
             "toggle_pip" => {
                 let enabled = !self.pip_state.is_enabled()?;
@@ -558,8 +553,8 @@ struct ModFilePayload {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct PluginNamePayload {
-    plugin_name: String,
+struct ModTypePayload {
+    mod_type: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -847,10 +842,10 @@ console.log("sample");"#,
         assert_eq!(
             host.invoke(
                 "get_registered_settings",
-                Some(json!({"pluginName": "sample"}))
+                None
             )
             .unwrap(),
-            json!([{"key": "enabled", "type": "toggle"}])
+            json!({"sample": [{"key": "enabled", "type": "toggle"}]})
         );
 
         host.invoke(
@@ -888,14 +883,6 @@ console.log("sample");"#,
             )
             .unwrap_err();
         assert!(invalid_schema.contains("Failed to parse settings schema"));
-
-        let invalid_plugin = host
-            .invoke(
-                "get_registered_settings",
-                Some(json!({"pluginName": "../sample"})),
-            )
-            .unwrap_err();
-        assert!(invalid_plugin.contains("Invalid filename"));
     }
 
     #[test]

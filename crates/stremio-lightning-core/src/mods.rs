@@ -354,10 +354,11 @@ pub async fn fetch_registry() -> Result<Registry, String> {
     Ok(registry)
 }
 
-pub async fn check_mod_updates(
+async fn check_mod_updates_internal(
     app_data_dir: &Path,
     filename: &str,
     mod_type: ModType,
+    registry: Option<&Registry>,
 ) -> Result<UpdateInfo, String> {
     validate_mod_filename(filename, mod_type)?;
     let content = tokio::fs::read_to_string(mods_dir(app_data_dir, mod_type).join(filename))
@@ -393,8 +394,8 @@ pub async fn check_mod_updates(
     }
 
     let mut registry_version = None;
-    if let Ok(registry) = fetch_registry().await {
-        if let Some(entry) = registry_match(&registry, filename, mod_type, &metadata) {
+    if let Some(registry) = registry {
+        if let Some(entry) = registry_match(registry, filename, mod_type, &metadata) {
             registry_version = Some(entry.version.clone());
             if !has_update && is_newer_version(&entry.version, &installed_version) {
                 has_update = true;
@@ -411,6 +412,33 @@ pub async fn check_mod_updates(
         registry_version,
         update_url: has_update.then_some(resolved_update_url).flatten(),
     })
+}
+
+pub async fn check_mod_updates(
+    app_data_dir: &Path,
+    mod_type: ModType,
+) -> Result<HashMap<String, UpdateInfo>, String> {
+    let mods = list_mods(app_data_dir, mod_type)?;
+    let registry = fetch_registry().await.ok();
+    let mut tasks = Vec::new();
+
+    for md in mods {
+        let app_data = app_data_dir.to_path_buf();
+        let registry = registry.clone();
+        let filename = md.filename.clone();
+        tasks.push(async move {
+            let res = check_mod_updates_internal(&app_data, &filename, mod_type, registry.as_ref()).await;
+            (filename, res)
+        });
+    }
+
+    let results = futures::future::join_all(tasks).await;
+    let mut map = HashMap::new();
+    for (filename, res) in results {
+        map.insert(filename, res.unwrap_or_else(|_| UpdateInfo::unavailable(None)));
+    }
+
+    Ok(map)
 }
 
 fn registry_entries(registry: &Registry, mod_type: ModType) -> &[RegistryEntry] {
@@ -645,5 +673,46 @@ mod tests {
 
         assert!(is_newer_version(&entry.version, &metadata.version));
         assert_eq!(entry.download, "https://example.com/theme.theme.css");
+    }
+
+    #[tokio::test]
+    async fn check_mod_updates_checks_all_installed_mods() {
+        let root = temp_dir("bulk-check-test");
+        write_mod_content(
+            &root,
+            "plugin1.plugin.js",
+            ModType::Plugin,
+            br#"/**
+ * @name Plugin One
+ * @description Demo
+ * @author Alice
+ * @version 1.0.0
+ */"#,
+        )
+        .unwrap();
+
+        write_mod_content(
+            &root,
+            "plugin2.plugin.js",
+            ModType::Plugin,
+            br#"/**
+ * @name Plugin Two
+ * @description Demo
+ * @author Bob
+ * @version 1.1.0
+ */"#,
+        )
+        .unwrap();
+
+        let results = check_mod_updates(&root, ModType::Plugin).await.unwrap();
+
+        assert_eq!(results.len(), 2);
+        assert!(results.contains_key("plugin1.plugin.js"));
+        assert!(results.contains_key("plugin2.plugin.js"));
+
+        let p1_res = results.get("plugin1.plugin.js").unwrap();
+        assert_eq!(p1_res.installed_version, Some("1.0.0".to_string()));
+
+        let _ = fs::remove_dir_all(root);
     }
 }

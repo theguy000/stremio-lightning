@@ -31,17 +31,20 @@
     updates = { ...updates };
   }
 
-  onMount(async () => {
-    await refreshThemes();
+  onMount(() => {
+    refreshThemes().then(() => {
+      const list = get(themes);
+      const validThemes = list.filter(t => t.metadata);
+      if (validThemes.length === 0) return;
 
-    // Check for updates concurrently
-    const list = get(themes);
-    list.forEach((theme) => {
-      if (!theme.metadata) return;
-      checkModUpdates(theme.filename, 'theme')
-        .then((info) => {
-          if (info?.has_update) {
-            updates[theme.filename] = info;
+      checkModUpdates('theme')
+        .then((results) => {
+          if (results) {
+            for (const [filename, info] of Object.entries(results)) {
+              if (info?.has_update) {
+                updates[filename] = info;
+              }
+            }
             updates = { ...updates };
           }
         })

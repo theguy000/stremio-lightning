@@ -39,13 +39,13 @@ export function initPluginAPI(): void {
       host.invoke('download_mod', { url, modType }),
     deleteMod: (filename: string, modType: string): Promise<void> =>
       host.invoke('delete_mod', { filename, modType }),
-    checkModUpdates: (filename: string, modType: string): Promise<unknown> =>
-      host.invoke('check_mod_updates', { filename, modType }),
+    checkModUpdates: (modType: string): Promise<unknown> =>
+      host.invoke('check_mod_updates', { modType }),
     getModContent: (filename: string, modType: string): Promise<string> =>
       host.invoke('get_mod_content', { filename, modType }),
     getRegistry: (): Promise<unknown> => host.invoke('get_registry'),
-    getRegisteredSettings: (pluginName: string): Promise<unknown> =>
-      host.invoke('get_registered_settings', { pluginName }),
+    getRegisteredSettings: (): Promise<unknown> =>
+      host.invoke('get_registered_settings'),
 
     // ── Settings ──
     getSetting: (pluginName: string, key: string): Promise<unknown> =>
