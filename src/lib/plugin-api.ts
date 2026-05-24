@@ -52,8 +52,12 @@ export function initPluginAPI(): void {
       host.invoke('get_setting', { pluginName, key }),
     saveSetting: (pluginName: string, key: string, value: unknown): Promise<void> =>
       host.invoke('save_setting', { pluginName, key, value: JSON.stringify(value) }),
-    registerSettings: (pluginName: string, schema: unknown): Promise<void> =>
-      host.invoke('register_settings', { pluginName, schema: JSON.stringify(schema) }),
+    registerSettings: (pluginName: string, schema: unknown): Promise<void> => {
+      window.dispatchEvent(
+        new CustomEvent('sl-settings-registered', { detail: { pluginName } })
+      );
+      return host.invoke('register_settings', { pluginName, schema: JSON.stringify(schema) });
+    },
 
     // ── Theme ──
     applyTheme: (filename: string) => applyTheme(filename),
