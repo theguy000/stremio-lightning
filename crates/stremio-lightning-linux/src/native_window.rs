@@ -37,7 +37,7 @@ const DEFAULT_WINDOW_WIDTH: i32 = 1500;
 const DEFAULT_WINDOW_HEIGHT: i32 = 850;
 
 thread_local! {
-    static LAST_NORMAL_SIZE: RefCell<Option<(i32, i32)>> = RefCell::new(None);
+    static LAST_NORMAL_SIZE: RefCell<Option<(i32, i32)>> = const { RefCell::new(None) };
 }
 const X11_CLIENT_MESSAGE: c_int = 33;
 const X11_PROP_MODE_REPLACE: c_int = 0;
