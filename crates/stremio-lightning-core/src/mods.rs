@@ -427,7 +427,8 @@ pub async fn check_mod_updates(
         let registry = registry.clone();
         let filename = md.filename.clone();
         tasks.push(async move {
-            let res = check_mod_updates_internal(&app_data, &filename, mod_type, registry.as_ref()).await;
+            let res =
+                check_mod_updates_internal(&app_data, &filename, mod_type, registry.as_ref()).await;
             (filename, res)
         });
     }
@@ -435,7 +436,10 @@ pub async fn check_mod_updates(
     let results = futures::future::join_all(tasks).await;
     let mut map = HashMap::new();
     for (filename, res) in results {
-        map.insert(filename, res.unwrap_or_else(|_| UpdateInfo::unavailable(None)));
+        map.insert(
+            filename,
+            res.unwrap_or_else(|_| UpdateInfo::unavailable(None)),
+        );
     }
 
     Ok(map)

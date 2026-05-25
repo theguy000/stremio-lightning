@@ -254,8 +254,7 @@ where
                 let payload: ModTypePayload = parse_payload(command, payload)?;
                 let mod_type = payload.mod_type.parse()?;
                 Ok(serde_json::to_value(
-                    mods::check_mod_updates(&self.app_data_dir, mod_type)
-                        .await?,
+                    mods::check_mod_updates(&self.app_data_dir, mod_type).await?,
                 )
                 .map_err(|e| format!("Failed to serialize macOS update info: {e}"))?)
             }
@@ -971,11 +970,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            host.invoke(
-                "get_registered_settings",
-                None,
-            )
-            .unwrap()["cinema"]["type"],
+            host.invoke("get_registered_settings", None,).unwrap()["cinema"]["type"],
             "object"
         );
         let _ = fs::remove_dir_all(app_data_dir);
