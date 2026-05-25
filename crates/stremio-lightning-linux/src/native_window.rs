@@ -35,6 +35,8 @@ const APP_NAME: &str = "Stremio Lightning";
 const DEV_ICON_NAME: &str = "128x128";
 const DEFAULT_WINDOW_WIDTH: i32 = 1500;
 const DEFAULT_WINDOW_HEIGHT: i32 = 850;
+const MIN_WINDOW_WIDTH: i32 = 800;
+const MIN_WINDOW_HEIGHT: i32 = 600;
 
 thread_local! {
     static LAST_NORMAL_SIZE: RefCell<Option<(i32, i32)>> = const { RefCell::new(None) };
@@ -194,6 +196,7 @@ fn build_window(
         .default_width(DEFAULT_WINDOW_WIDTH)
         .default_height(DEFAULT_WINDOW_HEIGHT)
         .build();
+    window.set_size_request(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT);
     install_source_tree_window_icon(&window);
 
     let fullscreen = Rc::new(Cell::new(false));
@@ -734,11 +737,13 @@ impl PipWindowController for NativeWindowController<'_> {
         if snapshot.was_fullscreen {
             if let Some((width, height)) = snapshot.saved_size {
                 self.window.set_resizable(false);
-                self.window.set_size_request(-1, -1);
+                self.window
+                    .set_size_request(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT);
                 self.window.set_size_request(width, height);
                 self.window.set_default_size(width, height);
             }
-            self.window.set_size_request(-1, -1);
+            self.window
+                .set_size_request(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT);
             self.window.set_resizable(true);
             set_window_fullscreen(
                 self.webview,
@@ -749,16 +754,18 @@ impl PipWindowController for NativeWindowController<'_> {
             );
         } else if let Some((width, height)) = snapshot.saved_size {
             self.window.set_resizable(false);
-            self.window.set_size_request(-1, -1);
+            self.window
+                .set_size_request(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT);
             self.window.set_size_request(width, height);
             self.window.set_default_size(width, height);
             let window = self.window.clone();
             glib::timeout_add_local_once(Duration::from_millis(250), move || {
-                window.set_size_request(-1, -1);
+                window.set_size_request(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT);
                 window.set_resizable(true);
             });
         } else {
-            self.window.set_size_request(-1, -1);
+            self.window
+                .set_size_request(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT);
             self.window.set_resizable(true);
         }
 

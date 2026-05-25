@@ -11,6 +11,8 @@ pub const DEFAULT_WINDOW_HEIGHT: f64 = 850.0;
 pub struct NativeWindowPlan {
     pub width: f64,
     pub height: f64,
+    pub min_width: f64,
+    pub min_height: f64,
     pub title: &'static str,
     pub ipc_handler: &'static str,
     pub video_layer_behind_webview: bool,
@@ -23,6 +25,8 @@ impl Default for NativeWindowPlan {
         Self {
             width: DEFAULT_WINDOW_WIDTH,
             height: DEFAULT_WINDOW_HEIGHT,
+            min_width: 800.0,
+            min_height: 600.0,
             title: crate::APP_NAME,
             ipc_handler: IPC_HANDLER_NAME,
             video_layer_behind_webview: true,
@@ -36,6 +40,15 @@ impl NativeWindowPlan {
     pub fn validate(&self) -> Result<(), String> {
         if self.width <= 0.0 || self.height <= 0.0 {
             return Err("macOS native window dimensions must be positive".to_string());
+        }
+        if self.min_width <= 0.0 || self.min_height <= 0.0 {
+            return Err("macOS native window minimum dimensions must be positive".to_string());
+        }
+        if self.min_width > self.width || self.min_height > self.height {
+            return Err(
+                "macOS native window minimum dimensions cannot exceed initial dimensions"
+                    .to_string(),
+            );
         }
         if self.ipc_handler != IPC_HANDLER_NAME {
             return Err("macOS native window IPC handler must be named ipc".to_string());
@@ -212,6 +225,8 @@ mod tests {
         plan.validate().unwrap();
         assert_eq!(plan.width, DEFAULT_WINDOW_WIDTH);
         assert_eq!(plan.height, DEFAULT_WINDOW_HEIGHT);
+        assert_eq!(plan.min_width, 800.0);
+        assert_eq!(plan.min_height, 600.0);
         assert_eq!(plan.ipc_handler, IPC_HANDLER_NAME);
         assert!(plan.video_layer_behind_webview);
         assert!(plan.transparent_webview);

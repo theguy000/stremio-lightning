@@ -11,10 +11,10 @@ impl Default for WindowConfig {
     fn default() -> Self {
         Self {
             title: crate::APP_NAME,
-            width: 1280,
-            height: 720,
-            min_width: 640,
-            min_height: 480,
+            width: 1500,
+            height: 850,
+            min_width: 800,
+            min_height: 600,
         }
     }
 }
@@ -647,8 +647,8 @@ mod tests {
         let config = WindowConfig::default();
 
         assert_eq!(config.title, crate::APP_NAME);
-        assert_eq!((config.width, config.height), (1280, 720));
-        assert_eq!((config.min_width, config.min_height), (640, 480));
+        assert_eq!((config.width, config.height), (1500, 850));
+        assert_eq!((config.min_width, config.min_height), (800, 600));
     }
 
     #[test]
