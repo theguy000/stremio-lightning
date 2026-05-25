@@ -6,7 +6,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use stremio_lightning_core::{
     app_update,
     host_api::{self, ParsedRequest},
@@ -135,6 +135,24 @@ where
     B: PlayerBackend,
     P: ProcessSpawner,
 {
+    fn lock_listeners(&self) -> Result<std::sync::MutexGuard<'_, ListenerRegistry>, String> {
+        self.listeners
+            .lock()
+            .map_err(|e| format!("macOS listeners lock poisoned: {e}"))
+    }
+
+    fn lock_window_state(&self) -> Result<std::sync::MutexGuard<'_, WindowRuntimeState>, String> {
+        self.window_state
+            .lock()
+            .map_err(|e| format!("macOS window state lock poisoned: {e}"))
+    }
+
+    fn lock_shell_preferences(&self) -> Result<std::sync::MutexGuard<'_, ShellPreferenceState>, String> {
+        self.shell_preferences
+            .lock()
+            .map_err(|e| format!("macOS shell preferences lock poisoned: {e}"))
+    }
+
     pub fn new(player: B, streaming_server: StreamingServer<P>) -> Self {
         Self::with_app_data_dir(player, streaming_server, default_app_data_dir())
     }
@@ -192,10 +210,7 @@ where
         let Some(value) = intent.open_media_value() else {
             return Ok(());
         };
-        self.listeners
-            .lock()
-            .map_err(|e| e.to_string())?
-            .queue_open_media(value);
+        self.lock_listeners()?.queue_open_media(value);
         Ok(())
     }
 
@@ -225,10 +240,7 @@ where
     pub fn invoke(&self, command: &str, payload: Option<Value>) -> Result<Value, String> {
         match command {
             "download_mod" | "get_registry" | "check_mod_updates" | "check_app_update" => {
-                let runtime = tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .map_err(|e| format!("Failed to create async runtime: {e}"))?;
+                let runtime = get_async_runtime();
                 runtime.block_on(self.invoke_async(command, payload))
             }
             _ => self.invoke_sync(command, payload),
@@ -387,32 +399,18 @@ where
             | "update_discord_activity" => Ok(Value::Null),
             "set_auto_pause" => {
                 let enabled = parse_optional_bool(payload).unwrap_or(true);
-                self.shell_preferences
-                    .lock()
-                    .map_err(|e| e.to_string())?
-                    .auto_pause = enabled;
+                self.lock_shell_preferences()?.auto_pause = enabled;
                 Ok(Value::Null)
             }
-            "get_auto_pause" => Ok(json!(
-                self.shell_preferences
-                    .lock()
-                    .map_err(|e| e.to_string())?
-                    .auto_pause
-            )),
+            "get_auto_pause" => Ok(json!(self.lock_shell_preferences()?.auto_pause)),
             "set_pip_disables_auto_pause" => {
                 let enabled = parse_optional_bool(payload).unwrap_or(true);
-                self.shell_preferences
-                    .lock()
-                    .map_err(|e| e.to_string())?
-                    .pip_disables_auto_pause = enabled;
+                self.lock_shell_preferences()?.pip_disables_auto_pause = enabled;
                 Ok(Value::Null)
             }
-            "get_pip_disables_auto_pause" => Ok(json!(
-                self.shell_preferences
-                    .lock()
-                    .map_err(|e| e.to_string())?
-                    .pip_disables_auto_pause
-            )),
+            "get_pip_disables_auto_pause" => {
+                Ok(json!(self.lock_shell_preferences()?.pip_disables_auto_pause))
+            }
             "toggle_pip" => {
                 let enabled = self.pip_state.toggle()?;
                 self.emit_native_player_transport_args(serialize_picture_in_picture(enabled))?;
@@ -490,26 +488,16 @@ where
     }
 
     pub fn listen(&self, event: impl Into<String>) -> Result<u64, String> {
-        Ok(self
-            .listeners
-            .lock()
-            .map_err(|e| e.to_string())?
-            .listen(event))
+        Ok(self.lock_listeners()?.listen(event))
     }
 
     pub fn listen_with_id(&self, id: u64, event: impl Into<String>) -> Result<(), String> {
-        self.listeners
-            .lock()
-            .map_err(|e| e.to_string())?
-            .listen_with_id(id, event);
+        self.lock_listeners()?.listen_with_id(id, event);
         Ok(())
     }
 
     pub fn unlisten(&self, id: u64) -> Result<(), String> {
-        self.listeners
-            .lock()
-            .map_err(|e| e.to_string())?
-            .unlisten(id);
+        self.lock_listeners()?.unlisten(id);
         Ok(())
     }
 
@@ -590,22 +578,16 @@ where
     }
 
     pub fn window_state(&self) -> Result<WindowRuntimeState, String> {
-        Ok(self.window_state.lock().map_err(|e| e.to_string())?.clone())
+        Ok(self.lock_window_state()?.clone())
     }
 
     fn mark_bridge_ready(&self) -> Result<(), String> {
-        self.listeners
-            .lock()
-            .map_err(|e| e.to_string())?
-            .mark_bridge_ready();
+        self.lock_listeners()?.mark_bridge_ready();
         Ok(())
     }
 
     fn mark_transport_ready(&self) -> Result<(), String> {
-        self.listeners
-            .lock()
-            .map_err(|e| e.to_string())?
-            .mark_transport_ready();
+        self.lock_listeners()?.mark_transport_ready();
         Ok(())
     }
 
@@ -619,7 +601,7 @@ where
 
     fn toggle_window_maximize(&self) -> Result<(), String> {
         let maximized = {
-            let mut state = self.window_state.lock().map_err(|e| e.to_string())?;
+            let mut state = self.lock_window_state()?;
             state.maximized = !state.maximized;
             state.visible = true;
             state.maximized
@@ -646,18 +628,18 @@ where
     }
 
     fn set_window_focus(&self, focused: bool) -> Result<(), String> {
-        self.window_state.lock().map_err(|e| e.to_string())?.focused = focused;
+        self.lock_window_state()?.focused = focused;
         Ok(())
     }
 
     fn set_window_visible(&self, visible: bool) -> Result<(), String> {
-        self.window_state.lock().map_err(|e| e.to_string())?.visible = visible;
+        self.lock_window_state()?.visible = visible;
         Ok(())
     }
 
     fn set_window_fullscreen(&self, fullscreen: bool) -> Result<(), String> {
         let changed = {
-            let mut state = self.window_state.lock().map_err(|e| e.to_string())?;
+            let mut state = self.lock_window_state()?;
             let changed = state.fullscreen != fullscreen;
             state.fullscreen = fullscreen;
             state.visible = true;
@@ -678,18 +660,11 @@ where
 
     pub fn drain_emitted_events(&self) -> Result<Vec<HostEventRecord>, String> {
         self.emit_drained_player_events()?;
-        Ok(self
-            .listeners
-            .lock()
-            .map_err(|e| e.to_string())?
-            .drain_emitted())
+        Ok(self.lock_listeners()?.drain_emitted())
     }
 
     fn emit_event(&self, event: impl Into<String>, payload: Value) -> Result<(), String> {
-        self.listeners
-            .lock()
-            .map_err(|e| e.to_string())?
-            .emit(event, payload);
+        self.lock_listeners()?.emit(event, payload);
         Ok(())
     }
 }
@@ -763,6 +738,16 @@ struct RegisterSettingsPayload {
     schema: String,
 }
 
+fn get_async_runtime() -> &'static tokio::runtime::Runtime {
+    static TOKIO_RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+    TOKIO_RUNTIME.get_or_init(|| {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("Failed to create macOS async runtime")
+    })
+}
+
 fn parse_payload<T>(label: &str, payload: Option<Value>) -> Result<T, String>
 where
     T: for<'de> Deserialize<'de>,
@@ -786,13 +771,18 @@ fn default_app_data_dir() -> PathBuf {
 }
 
 fn validate_external_url(url: &str) -> Result<(), String> {
-    let lower = url.to_lowercase();
-    if [
+    let trimmed = url.trim();
+    let allowed = [
         "http://", "https://", "rtp://", "rtsp://", "ftp://", "ipfs://",
     ]
     .iter()
-    .any(|prefix| lower.starts_with(prefix))
-    {
+    .any(|prefix| {
+        trimmed
+            .get(..prefix.len())
+            .map_or(false, |s| s.eq_ignore_ascii_case(prefix))
+    });
+
+    if allowed {
         Ok(())
     } else {
         Err("Rejected non-whitelisted open_external_url URL".to_string())

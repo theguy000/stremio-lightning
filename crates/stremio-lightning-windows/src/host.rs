@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use stremio_lightning_core::host_api::{self, HostEvent, ParsedRequest};
 use stremio_lightning_core::pip::{serialize_picture_in_picture, PipState};
 use stremio_lightning_core::player_api::PlayerEvent;
@@ -40,7 +40,7 @@ impl ListenerRegistry {
         let is_shell_transport = event == SHELL_TRANSPORT_EVENT;
         self.listeners.insert(id, event);
         if is_shell_transport {
-            self.flush_pending_open_media();
+            self.flush_pending_transport_messages();
         }
     }
 
@@ -75,10 +75,6 @@ impl ListenerRegistry {
 
     fn queue_transport_message(&mut self, message: String) {
         self.pending_shell_transport_messages.push(message);
-        self.flush_pending_transport_messages();
-    }
-
-    fn flush_pending_open_media(&mut self) {
         self.flush_pending_transport_messages();
     }
 
@@ -154,6 +150,31 @@ impl Default for WindowsHost {
 }
 
 impl WindowsHost {
+    fn lock_listeners(&self) -> Result<std::sync::MutexGuard<'_, ListenerRegistry>, String> {
+        self.listeners
+            .lock()
+            .map_err(|e| format!("Windows listeners lock poisoned: {e}"))
+    }
+
+    fn lock_player(&self) -> Result<std::sync::MutexGuard<'_, WindowsPlayer>, String> {
+        self.player
+            .lock()
+            .map_err(|e| format!("Windows player lock poisoned: {e}"))
+    }
+
+    fn lock_window_state(&self) -> Result<std::sync::MutexGuard<'_, WindowRuntimeState>, String> {
+        self.window_state
+            .lock()
+            .map_err(|e| format!("Windows window state lock poisoned: {e}"))
+    }
+
+    #[cfg(windows)]
+    fn lock_window_controller(&self) -> Result<std::sync::MutexGuard<'_, Option<NativeWindowController>>, String> {
+        self.window_controller
+            .lock()
+            .map_err(|e| format!("Windows window controller lock poisoned: {e}"))
+    }
+
     pub fn new(package_version: &'static str) -> Self {
         Self::with_app_data_dir(package_version, default_app_data_dir())
     }
@@ -211,20 +232,13 @@ impl WindowsHost {
         let Some(value) = intent.open_media_value() else {
             return Ok(());
         };
-        self.listeners
-            .lock()
-            .map_err(|e| e.to_string())?
-            .queue_open_media(value);
+        self.lock_listeners()?.queue_open_media(value);
         Ok(())
     }
 
     #[cfg(windows)]
     pub fn bind_native_window(&self, hwnd: windows::Win32::Foundation::HWND) -> Result<(), String> {
-        *self
-            .window_controller
-            .lock()
-            .map_err(|_| "Windows window controller lock poisoned".to_string())? =
-            Some(NativeWindowController::new(hwnd));
+        *self.lock_window_controller()? = Some(NativeWindowController::new(hwnd));
         Ok(())
     }
 
@@ -261,10 +275,7 @@ impl WindowsHost {
         hwnd: windows::Win32::Foundation::HWND,
         notifier: crate::window::UiThreadNotifier,
     ) -> Result<(), String> {
-        self.player
-            .lock()
-            .map_err(|_| "Windows player lock poisoned".to_string())?
-            .initialize(hwnd, notifier)
+        self.lock_player()?.initialize(hwnd, notifier)
     }
 
     pub fn drain_ipc_events(&self) -> Vec<WindowsIpcOutbound> {
@@ -341,10 +352,7 @@ impl WindowsHost {
     pub fn invoke(&self, command: &str, payload: Option<Value>) -> Result<Value, String> {
         match command {
             "download_mod" | "get_registry" | "check_mod_updates" | "check_app_update" => {
-                let runtime = tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .map_err(|e| format!("Failed to create Windows async runtime: {e}"))?;
+                let runtime = get_async_runtime();
                 runtime.block_on(self.invoke_async(command, payload))
             }
             _ => self.invoke_sync(command, payload),
@@ -388,17 +396,11 @@ impl WindowsHost {
                 "platform": "windows",
                 "shell": "webview2",
                 "shellVersion": self.package_version,
-                "nativePlayer": self.player
-                    .lock()
-                    .map_err(|_| "Windows player lock poisoned".to_string())?
-                    .status(),
+                "nativePlayer": self.lock_player()?.status(),
                 "streamingServerRunning": self.streaming_server.is_running(),
             })),
             "get_native_player_status" => Ok(serde_json::to_value(
-                self.player
-                    .lock()
-                    .map_err(|_| "Windows player lock poisoned".to_string())?
-                    .status(),
+                self.lock_player()?.status(),
             )
             .map_err(|error| error.to_string())?),
             "shell_transport_send" => {
@@ -534,10 +536,7 @@ impl WindowsHost {
             ParsedRequest::Command { method, data } => match method.as_str() {
                 "app-ready" | "app-error" => self.mark_transport_ready(),
                 "mpv-observe-prop" | "mpv-set-prop" | "mpv-command" | "native-player-stop" => {
-                    self.player
-                        .lock()
-                        .map_err(|_| "Windows player lock poisoned".to_string())?
-                        .handle_transport(&method, data)?;
+                    self.lock_player()?.handle_transport(&method, data)?;
                     Ok(())
                 }
                 other => Err(format!("Unsupported shell transport method: {other}")),
@@ -546,43 +545,27 @@ impl WindowsHost {
     }
 
     fn listen_with_id(&self, id: u64, event: impl Into<String>) -> Result<(), String> {
-        self.listeners
-            .lock()
-            .map_err(|e| e.to_string())?
-            .listen_with_id(id, event);
+        self.lock_listeners()?.listen_with_id(id, event);
         Ok(())
     }
 
     fn unlisten(&self, id: u64) -> Result<(), String> {
-        self.listeners
-            .lock()
-            .map_err(|e| e.to_string())?
-            .unlisten(id);
+        self.lock_listeners()?.unlisten(id);
         Ok(())
     }
 
     fn mark_bridge_ready(&self) -> Result<(), String> {
-        self.listeners
-            .lock()
-            .map_err(|e| e.to_string())?
-            .mark_bridge_ready();
+        self.lock_listeners()?.mark_bridge_ready();
         Ok(())
     }
 
     fn mark_transport_ready(&self) -> Result<(), String> {
-        self.listeners
-            .lock()
-            .map_err(|e| e.to_string())?
-            .mark_transport_ready();
+        self.lock_listeners()?.mark_transport_ready();
         Ok(())
     }
 
     fn drain_emitted_events(&self) -> Result<Vec<HostEventRecord>, String> {
-        Ok(self
-            .listeners
-            .lock()
-            .map_err(|e| e.to_string())?
-            .drain_emitted())
+        Ok(self.lock_listeners()?.drain_emitted())
     }
 
     fn drain_all_emitted_events(&self) -> Result<Vec<HostEventRecord>, String> {
@@ -591,11 +574,7 @@ impl WindowsHost {
     }
 
     fn emit_player_events(&self) -> Result<(), String> {
-        let events = self
-            .player
-            .lock()
-            .map_err(|_| "Windows player lock poisoned".to_string())?
-            .drain_events();
+        let events = self.lock_player()?.drain_events();
 
         for event in events {
             if matches!(event, PlayerEvent::Ended(_))
@@ -620,10 +599,7 @@ impl WindowsHost {
 
     #[cfg(windows)]
     fn toggle_picture_in_picture_window(&self) -> Result<bool, String> {
-        let mut controller = self
-            .window_controller
-            .lock()
-            .map_err(|_| "Windows window controller lock poisoned".to_string())?;
+        let mut controller = self.lock_window_controller()?;
         let controller = controller
             .as_mut()
             .ok_or_else(|| "Windows window controller is not initialized".to_string())?;
@@ -652,10 +628,7 @@ impl WindowsHost {
         &self,
         exit: impl FnOnce(&PipState, &mut NativeWindowController) -> Result<bool, String>,
     ) -> Result<bool, String> {
-        let mut controller = self
-            .window_controller
-            .lock()
-            .map_err(|_| "Windows window controller lock poisoned".to_string())?;
+        let mut controller = self.lock_window_controller()?;
         if let Some(controller) = controller.as_mut() {
             return exit(&self.pip_state, controller);
         }
@@ -675,10 +648,7 @@ impl WindowsHost {
     }
 
     pub fn emit_media_key(&self, action: &str) -> Result<(), String> {
-        self.listeners
-            .lock()
-            .map_err(|e| e.to_string())?
-            .queue_media_key(action);
+        self.lock_listeners()?.queue_media_key(action);
         Ok(())
     }
 
@@ -688,10 +658,7 @@ impl WindowsHost {
 
     pub fn update_window_focus(&self, focused: bool) -> Result<(), String> {
         let changed = {
-            let mut state = self
-                .window_state
-                .lock()
-                .map_err(|_| "Windows window state lock poisoned".to_string())?;
+            let mut state = self.lock_window_state()?;
             let changed = state.focused != focused;
             state.focused = focused;
             changed
@@ -704,10 +671,7 @@ impl WindowsHost {
 
     pub fn update_window_visible(&self, visible: bool) -> Result<(), String> {
         let changed = {
-            let mut state = self
-                .window_state
-                .lock()
-                .map_err(|_| "Windows window state lock poisoned".to_string())?;
+            let mut state = self.lock_window_state()?;
             let changed = state.visible != visible;
             state.visible = visible;
             changed
@@ -720,12 +684,7 @@ impl WindowsHost {
 
     fn minimize_window(&self) -> Result<(), String> {
         #[cfg(windows)]
-        if let Some(controller) = self
-            .window_controller
-            .lock()
-            .map_err(|_| "Windows window controller lock poisoned".to_string())?
-            .as_ref()
-        {
+        if let Some(controller) = self.lock_window_controller()?.as_ref() {
             controller.minimize();
         }
         self.update_window_visible(false)
@@ -733,12 +692,7 @@ impl WindowsHost {
 
     fn focus_window(&self) -> Result<(), String> {
         #[cfg(windows)]
-        if let Some(controller) = self
-            .window_controller
-            .lock()
-            .map_err(|_| "Windows window controller lock poisoned".to_string())?
-            .as_ref()
-        {
+        if let Some(controller) = self.lock_window_controller()?.as_ref() {
             controller.focus();
         }
         self.update_window_focus(true)
@@ -746,19 +700,11 @@ impl WindowsHost {
 
     fn toggle_window_maximize(&self) -> Result<bool, String> {
         #[cfg(windows)]
-        if let Some(controller) = self
-            .window_controller
-            .lock()
-            .map_err(|_| "Windows window controller lock poisoned".to_string())?
-            .as_ref()
-        {
+        if let Some(controller) = self.lock_window_controller()?.as_ref() {
             return Ok(controller.toggle_maximize());
         }
 
-        let state = self
-            .window_state
-            .lock()
-            .map_err(|_| "Windows window state lock poisoned".to_string())?;
+        let state = self.lock_window_state()?;
         Ok(!state.maximized)
     }
 
@@ -766,12 +712,7 @@ impl WindowsHost {
         self.exit_picture_in_picture_window()?;
 
         #[cfg(windows)]
-        if let Some(controller) = self
-            .window_controller
-            .lock()
-            .map_err(|_| "Windows window controller lock poisoned".to_string())?
-            .as_ref()
-        {
+        if let Some(controller) = self.lock_window_controller()?.as_ref() {
             controller.close();
         }
         Ok(())
@@ -779,12 +720,7 @@ impl WindowsHost {
 
     fn start_window_dragging(&self) -> Result<(), String> {
         #[cfg(windows)]
-        if let Some(controller) = self
-            .window_controller
-            .lock()
-            .map_err(|_| "Windows window controller lock poisoned".to_string())?
-            .as_ref()
-        {
+        if let Some(controller) = self.lock_window_controller()?.as_ref() {
             controller.start_dragging();
         }
         Ok(())
@@ -792,46 +728,25 @@ impl WindowsHost {
 
     fn is_window_maximized(&self) -> Result<bool, String> {
         #[cfg(windows)]
-        if let Some(controller) = self
-            .window_controller
-            .lock()
-            .map_err(|_| "Windows window controller lock poisoned".to_string())?
-            .as_ref()
-        {
+        if let Some(controller) = self.lock_window_controller()?.as_ref() {
             return Ok(controller.is_maximized());
         }
 
-        Ok(self
-            .window_state
-            .lock()
-            .map_err(|_| "Windows window state lock poisoned".to_string())?
-            .maximized)
+        Ok(self.lock_window_state()?.maximized)
     }
 
     fn is_window_fullscreen(&self) -> Result<bool, String> {
         #[cfg(windows)]
-        if let Some(controller) = self
-            .window_controller
-            .lock()
-            .map_err(|_| "Windows window controller lock poisoned".to_string())?
-            .as_ref()
-        {
+        if let Some(controller) = self.lock_window_controller()?.as_ref() {
             return Ok(controller.is_fullscreen());
         }
 
-        Ok(self
-            .window_state
-            .lock()
-            .map_err(|_| "Windows window state lock poisoned".to_string())?
-            .fullscreen)
+        Ok(self.lock_window_state()?.fullscreen)
     }
 
     fn set_window_maximized(&self, maximized: bool) -> Result<(), String> {
         let changed = {
-            let mut state = self
-                .window_state
-                .lock()
-                .map_err(|_| "Windows window state lock poisoned".to_string())?;
+            let mut state = self.lock_window_state()?;
             let changed = state.maximized != maximized;
             state.maximized = maximized;
             state.visible = true;
@@ -847,12 +762,7 @@ impl WindowsHost {
         let changed = {
             #[cfg(windows)]
             {
-                if let Some(controller) = self
-                    .window_controller
-                    .lock()
-                    .map_err(|_| "Windows window controller lock poisoned".to_string())?
-                    .as_mut()
-                {
+                if let Some(controller) = self.lock_window_controller()?.as_mut() {
                     controller.set_fullscreen(fullscreen)?
                 } else {
                     false
@@ -866,10 +776,7 @@ impl WindowsHost {
         };
 
         let state_changed = {
-            let mut state = self
-                .window_state
-                .lock()
-                .map_err(|_| "Windows window state lock poisoned".to_string())?;
+            let mut state = self.lock_window_state()?;
             let state_changed = state.fullscreen != fullscreen;
             state.fullscreen = fullscreen;
             state.visible = true;
@@ -911,10 +818,7 @@ impl WindowsHost {
     }
 
     fn emit_event(&self, event: impl Into<String>, payload: Value) -> Result<(), String> {
-        self.listeners
-            .lock()
-            .map_err(|e| e.to_string())?
-            .emit(event, payload);
+        self.lock_listeners()?.emit(event, payload);
         Ok(())
     }
 }
@@ -997,6 +901,16 @@ struct ZoomIpcPayload {
     level: f64,
 }
 
+fn get_async_runtime() -> &'static tokio::runtime::Runtime {
+    static TOKIO_RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+    TOKIO_RUNTIME.get_or_init(|| {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("Failed to create Windows async runtime")
+    })
+}
+
 fn parse_payload<T>(command: &str, payload: Option<Value>) -> Result<T, String>
 where
     T: for<'de> Deserialize<'de>,
@@ -1019,10 +933,13 @@ fn validate_external_url(url: &str) -> Result<(), String> {
         return Err("Rejected non-whitelisted open_external_url URL".to_string());
     }
 
-    let lower = trimmed.to_ascii_lowercase();
     let allowed = ["http://", "https://", "mailto:"]
         .iter()
-        .any(|prefix| lower.starts_with(prefix));
+        .any(|prefix| {
+            trimmed
+                .get(..prefix.len())
+                .map_or(false, |s| s.eq_ignore_ascii_case(prefix))
+        });
 
     if allowed {
         Ok(())

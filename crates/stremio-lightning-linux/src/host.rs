@@ -6,7 +6,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use stremio_lightning_core::host_api::{self, HostEvent, ParsedRequest};
 use stremio_lightning_core::pip::{
     serialize_picture_in_picture, PipRestoreSnapshot, PipState, PipWindowController,
@@ -85,6 +85,18 @@ where
     B: PlayerBackend,
     P: ProcessSpawner,
 {
+    fn lock_listeners(&self) -> Result<std::sync::MutexGuard<'_, ListenerRegistry>, String> {
+        self.listeners
+            .lock()
+            .map_err(|e| format!("Linux listeners lock poisoned: {e}"))
+    }
+
+    fn lock_transport(&self) -> Result<std::sync::MutexGuard<'_, TransportQueue>, String> {
+        self.transport
+            .lock()
+            .map_err(|e| format!("Linux transport lock poisoned: {e}"))
+    }
+
     pub fn new(player: B, streaming_server: StreamingServer<P>) -> Self {
         Self::with_app_data_dir(player, streaming_server, default_app_data_dir())
     }
@@ -108,10 +120,7 @@ where
     pub fn invoke(&self, command: &str, payload: Option<Value>) -> Result<Value, String> {
         match command {
             "download_mod" | "get_registry" | "check_mod_updates" | "check_app_update" => {
-                let runtime = tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .map_err(|e| format!("Failed to create async runtime: {e}"))?;
+                let runtime = get_async_runtime();
                 runtime.block_on(self.invoke_async(command, payload))
             }
             _ => self.invoke_sync(command, payload),
@@ -327,44 +336,25 @@ where
     }
 
     pub fn listen(&self, event: impl Into<String>) -> Result<u64, String> {
-        Ok(self
-            .listeners
-            .lock()
-            .map_err(|e| e.to_string())?
-            .listen(event))
+        Ok(self.lock_listeners()?.listen(event))
     }
 
     pub fn listen_with_id(&self, id: u64, event: impl Into<String>) -> Result<(), String> {
-        self.listeners
-            .lock()
-            .map_err(|e| e.to_string())?
-            .listen_with_id(id, event);
+        self.lock_listeners()?.listen_with_id(id, event);
         Ok(())
     }
 
     pub fn unlisten(&self, id: u64) -> Result<(), String> {
-        self.listeners
-            .lock()
-            .map_err(|e| e.to_string())?
-            .unlisten(id);
+        self.lock_listeners()?.unlisten(id);
         Ok(())
     }
 
     pub fn emitted_events(&self) -> Result<Vec<HostEventRecord>, String> {
-        Ok(self
-            .listeners
-            .lock()
-            .map_err(|e| e.to_string())?
-            .emitted
-            .clone())
+        Ok(self.lock_listeners()?.emitted.clone())
     }
 
     pub fn drain_emitted_events(&self) -> Result<Vec<HostEventRecord>, String> {
-        Ok(self
-            .listeners
-            .lock()
-            .map_err(|e| e.to_string())?
-            .drain_emitted())
+        Ok(self.lock_listeners()?.drain_emitted())
     }
 
     pub fn native_player_status(&self) -> NativePlayerStatus {
@@ -467,23 +457,17 @@ where
     }
 
     fn mark_bridge_ready(&self) -> Result<(), String> {
-        self.transport
-            .lock()
-            .map_err(|e| e.to_string())?
-            .bridge_ready = true;
+        self.lock_transport()?.bridge_ready = true;
         Ok(())
     }
 
     fn mark_transport_ready(&self) -> Result<(), String> {
-        self.transport
-            .lock()
-            .map_err(|e| e.to_string())?
-            .transport_ready = true;
+        self.lock_transport()?.transport_ready = true;
         Ok(())
     }
 
     fn queue_transport_message(&self, message: String) -> Result<(), String> {
-        let mut transport = self.transport.lock().map_err(|e| e.to_string())?;
+        let mut transport = self.lock_transport()?;
         if transport.bridge_ready && transport.transport_ready {
             drop(transport);
             self.emit_transport_message(message)
@@ -497,7 +481,7 @@ where
     }
 
     fn flush_pending_transport_messages(&self) -> Result<(), String> {
-        let mut transport = self.transport.lock().map_err(|e| e.to_string())?;
+        let mut transport = self.lock_transport()?;
         if !transport.bridge_ready || !transport.transport_ready {
             return Ok(());
         }
@@ -528,10 +512,7 @@ where
     }
 
     fn emit_event(&self, event: impl Into<String>, payload: Value) -> Result<(), String> {
-        self.listeners
-            .lock()
-            .map_err(|e| e.to_string())?
-            .emit(event, payload);
+        self.lock_listeners()?.emit(event, payload);
         Ok(())
     }
 }
@@ -605,6 +586,16 @@ struct ZoomIpcPayload {
     level: f64,
 }
 
+fn get_async_runtime() -> &'static tokio::runtime::Runtime {
+    static TOKIO_RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+    TOKIO_RUNTIME.get_or_init(|| {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("Failed to create Linux async runtime")
+    })
+}
+
 fn parse_payload<T>(command: &str, payload: Option<Value>) -> Result<T, String>
 where
     T: for<'de> Deserialize<'de>,
@@ -623,13 +614,18 @@ fn default_app_data_dir() -> PathBuf {
 }
 
 fn validate_external_url(url: &str) -> Result<(), String> {
-    let lower = url.to_lowercase();
-    if [
+    let trimmed = url.trim();
+    let allowed = [
         "http://", "https://", "rtp://", "rtsp://", "ftp://", "ipfs://",
     ]
     .iter()
-    .any(|prefix| lower.starts_with(prefix))
-    {
+    .any(|prefix| {
+        trimmed
+            .get(..prefix.len())
+            .map_or(false, |s| s.eq_ignore_ascii_case(prefix))
+    });
+
+    if allowed {
         Ok(())
     } else {
         Err("Rejected non-whitelisted open_external_url URL".to_string())
