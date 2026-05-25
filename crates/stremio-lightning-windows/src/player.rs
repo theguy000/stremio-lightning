@@ -241,7 +241,7 @@ mod platform {
                 },
             )?;
             initializer.set_property("quiet", "yes")?;
-            initializer.set_property("hwdec", "auto")?;
+            initializer.set_property("hwdec", "yes")?;
             initializer.set_property("audio-fallback-to-null", "yes")?;
             Ok(())
         })

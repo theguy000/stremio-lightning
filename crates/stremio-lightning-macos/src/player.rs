@@ -93,7 +93,7 @@ pub fn default_mpv_options(app_name: &str, debug: bool) -> Vec<MpvOption> {
         },
         MpvOption {
             name: "hwdec",
-            value: "auto".to_string(),
+            value: "yes".to_string(),
         },
         MpvOption {
             name: "audio-fallback-to-null",
@@ -808,7 +808,7 @@ mod tests {
         }));
         assert!(options.contains(&MpvOption {
             name: "hwdec",
-            value: "auto".to_string(),
+            value: "yes".to_string(),
         }));
         assert!(options.contains(&MpvOption {
             name: "audio-fallback-to-null",
