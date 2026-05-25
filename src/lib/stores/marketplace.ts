@@ -1,6 +1,8 @@
 import { writable, get } from 'svelte/store';
 import { getRegistry, getPlugins, getThemes, downloadMod, deleteMod } from '../ipc';
 import type { Registry, RegistryEntry, InstalledMod } from '../types';
+import { refreshPlugins } from './plugins';
+import { refreshThemes } from './themes';
 
 export const registry = writable<Registry | null>(null);
 export const installedPlugins = writable<InstalledMod[]>([]);
@@ -32,6 +34,11 @@ export async function refreshMarketplace(): Promise<void> {
 export async function installMod(entry: RegistryEntry, type: 'plugin' | 'theme'): Promise<void> {
   await downloadMod(entry.download, type);
   await refreshMarketplace();
+  if (type === 'plugin') {
+    await refreshPlugins();
+  } else {
+    await refreshThemes();
+  }
 }
 
 export async function uninstallMod(filename: string, type: 'plugin' | 'theme'): Promise<void> {
@@ -55,6 +62,11 @@ export async function uninstallMod(filename: string, type: 'plugin' | 'theme'): 
   }
 
   await refreshMarketplace();
+  if (type === 'plugin') {
+    await refreshPlugins();
+  } else {
+    await refreshThemes();
+  }
 }
 
 export function isInstalled(downloadUrl: string, installed: InstalledMod[]): InstalledMod | undefined {
