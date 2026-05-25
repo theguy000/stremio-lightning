@@ -494,7 +494,7 @@ mod tests {
             .player
             .mpv_options
             .iter()
-            .any(|(name, value)| name == "hwdec" && value == "auto"));
+            .any(|(name, value)| name == "hwdec" && value == "yes"));
         assert!(!diagnostics.server.running);
         assert!(diagnostics
             .server
