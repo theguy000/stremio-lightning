@@ -4,6 +4,8 @@ use crate::player::MpvPlayerBackend;
 use crate::render::RenderLoopPlan;
 use crate::streaming_server::{RealProcessSpawner, StreamingServer};
 use crate::webview_runtime::{InjectionBundle, WebviewRuntime};
+use gtk::prelude::*;
+use gtk::glib;
 use std::sync::Arc;
 
 pub const DEFAULT_URL: &str = "http://127.0.0.1:11470/proxy/d=https%3A%2F%2Fweb.stremio.com/";
@@ -15,8 +17,6 @@ pub struct AppConfig {
     pub devtools: bool,
     pub headless_bootstrap: bool,
 }
-
-pub type ShellSettings = AppConfig;
 
 impl Default for AppConfig {
     fn default() -> Self {
@@ -79,13 +79,13 @@ pub fn run(config: AppConfig) -> Result<(), String> {
     } else {
         let webview =
             WebviewRuntime::new(config.url.clone(), config.devtools, injection, host.clone());
-        setup_signal_handler(host);
+        setup_signal_handler();
         run_native_window(config, webview, player)
     }
 }
 
-fn setup_signal_handler(host: Arc<Host<MpvPlayerBackend, RealProcessSpawner>>) {
-    std::thread::spawn(move || {
+fn setup_signal_handler() {
+    std::thread::spawn(|| {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -94,20 +94,31 @@ fn setup_signal_handler(host: Arc<Host<MpvPlayerBackend, RealProcessSpawner>>) {
             use tokio::signal::unix::{signal, SignalKind};
             let mut sigint = signal(SignalKind::interrupt()).expect("Failed to register SIGINT");
             let mut sigterm = signal(SignalKind::terminate()).expect("Failed to register SIGTERM");
-            tokio::select! {
-                _ = sigint.recv() => {
-                    eprintln!("[StremioLightning] Received SIGINT (Ctrl+C), shutting down sidecar...");
-                }
-                _ = sigterm.recv() => {
-                    eprintln!("[StremioLightning] Received SIGTERM (Taskbar Close), shutting down sidecar...");
-                }
-            }
-            if let Err(error) = host.shutdown() {
-                eprintln!("[StremioLightning] Failed to shut down Linux runtime: {error}");
-            }
-            std::process::exit(0);
+            let signal_name = tokio::select! {
+                _ = sigint.recv() => "SIGINT (Ctrl+C)",
+                _ = sigterm.recv() => "SIGTERM",
+            };
+            eprintln!("[StremioLightning] Received {signal_name}, shutting down...");
+            glib::idle_add_once(request_gtk_shutdown);
         });
     });
+}
+
+fn request_gtk_shutdown() {
+    let Some(app) = gtk::gio::Application::default() else {
+        return;
+    };
+    let closed = app
+        .downcast_ref::<gtk::Application>()
+        .and_then(|gtk_app| gtk_app.active_window())
+        .map(|window| {
+            window.close();
+            true
+        })
+        .unwrap_or(false);
+    if !closed {
+        app.quit();
+    }
 }
 
 #[cfg(test)]
