@@ -380,6 +380,8 @@ fn build_webview(
         settings.set_enable_media_capabilities(false);
         settings.set_enable_media_stream(false);
         settings.set_enable_webaudio(false);
+        settings.set_enable_smooth_scrolling(true);
+        settings.set_hardware_acceleration_policy(webkit::HardwareAccelerationPolicy::Always);
         // Optimize memory consumption by disabling unused graphics features
         settings.set_enable_webgl(false);
     }
