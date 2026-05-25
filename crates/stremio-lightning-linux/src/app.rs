@@ -4,8 +4,8 @@ use crate::player::MpvPlayerBackend;
 use crate::render::RenderLoopPlan;
 use crate::streaming_server::{RealProcessSpawner, StreamingServer};
 use crate::webview_runtime::{InjectionBundle, WebviewRuntime};
-use gtk::prelude::*;
 use gtk::glib;
+use gtk::prelude::*;
 use std::sync::Arc;
 
 pub const DEFAULT_URL: &str = "http://127.0.0.1:11470/proxy/d=https%3A%2F%2Fweb.stremio.com/";
