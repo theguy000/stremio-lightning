@@ -189,7 +189,7 @@ fn build_window(
 ) -> Result<(), String> {
     let window = gtk::ApplicationWindow::builder()
         .application(app)
-        .title("Stremio Lightning Linux")
+        .title(APP_NAME)
         .icon_name(icon_name)
         .default_width(DEFAULT_WINDOW_WIDTH)
         .default_height(DEFAULT_WINDOW_HEIGHT)
