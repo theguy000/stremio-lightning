@@ -439,6 +439,15 @@ nav[data-sl-mods-muted] .selected:not(:hover):not(:focus):not(:focus-visible):no
   opacity: 0.55;
 }
 
+.sl-about-version {
+  margin-left: 0.5rem;
+  font-size: 1rem;
+  font-weight: 400;
+  vertical-align: middle;
+  color: var(--primary-foreground-color, #f2f2f2);
+  opacity: 0.55;
+}
+
 .sl-card-desc {
   margin-top: 0.5rem;
   padding: 0 0.5rem 0 0;

@@ -76,11 +76,9 @@ pub fn register_settings(
     Ok(())
 }
 
-pub fn get_registered_settings(
-    schemas: &Mutex<HashMap<String, Value>>,
-) -> Result<Value, String> {
+pub fn get_registered_settings(schemas: &Mutex<HashMap<String, Value>>) -> Result<Value, String> {
     let map = schemas.lock().map_err(|e| e.to_string())?;
-    Ok(serde_json::to_value(&*map).map_err(|e| format!("Failed to serialize schemas: {e}"))?)
+    serde_json::to_value(&*map).map_err(|e| format!("Failed to serialize schemas: {e}"))
 }
 
 #[cfg(test)]

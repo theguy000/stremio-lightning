@@ -295,7 +295,7 @@ fn linux_flatpak_metainfo() -> String {
   </releases>
 </component>
 "#,
-        package_version().unwrap_or_else(|_| "0.1.0".to_string()),
+        package_version().unwrap_or_else(|_| "0.0.0".to_string()),
         date
     )
 }

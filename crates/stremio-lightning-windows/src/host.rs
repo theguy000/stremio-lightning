@@ -370,8 +370,7 @@ impl WindowsHost {
                 let payload: ModTypePayload = parse_payload(command, payload)?;
                 let mod_type = payload.mod_type.parse()?;
                 Ok(serde_json::to_value(
-                    mods::check_mod_updates(&self.app_data_dir, mod_type)
-                        .await?,
+                    mods::check_mod_updates(&self.app_data_dir, mod_type).await?,
                 )
                 .map_err(|e| format!("Failed to serialize Windows update info: {e}"))?)
             }
@@ -1088,7 +1087,7 @@ mod tests {
 
     #[test]
     fn handles_shell_transport_handshake() {
-        let host = WindowsHost::new("0.1.0");
+        let host = WindowsHost::new("0.0.0");
         host.dispatch_windows_ipc(
             "listen",
             Some(json!({ "id": 7, "event": "shell-transport-message" })),
@@ -1491,11 +1490,7 @@ console.log("sample");"#,
         )
         .unwrap();
         assert_eq!(
-            host.invoke(
-                "get_registered_settings",
-                None
-            )
-            .unwrap(),
+            host.invoke("get_registered_settings", None).unwrap(),
             json!({"sample": [{"key": "enabled", "type": "toggle"}]})
         );
 
