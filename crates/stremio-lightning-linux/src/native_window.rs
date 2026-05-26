@@ -230,6 +230,21 @@ fn build_window(
         });
     }
 
+    {
+        let webview = webview.clone();
+        let runtime = runtime.clone();
+        window.connect_notify_local(Some("is-active"), move |window, _| {
+            let active = window.is_active();
+            let event = if active { "focus" } else { "blur" };
+            let script = format!("window.dispatchEvent(new Event('{event}'));");
+            evaluate_javascript(&webview, &script);
+
+            runtime
+                .dispatch_ipc("window.focus_changed", Some(json!({"focused": active})))
+                .ok();
+        });
+    }
+
     window.present();
     Ok(())
 }

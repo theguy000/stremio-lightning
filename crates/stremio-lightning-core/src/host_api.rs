@@ -297,10 +297,23 @@ pub struct BaseHost<P: PlatformBridge> {
     pub shell_preferences: Mutex<ShellPreferenceState>,
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShellPreferenceState {
     pub auto_pause: bool,
     pub pip_disables_auto_pause: bool,
+    pub auto_paused: bool,
+    pub player_paused: bool,
+}
+
+impl Default for ShellPreferenceState {
+    fn default() -> Self {
+        Self {
+            auto_pause: true,
+            pip_disables_auto_pause: true,
+            auto_paused: false,
+            player_paused: true,
+        }
+    }
 }
 
 impl<P: PlatformBridge> BaseHost<P> {
@@ -381,7 +394,57 @@ impl<P: PlatformBridge> BaseHost<P> {
         }
     }
 
+    fn update_player_paused_from_transport(&self, payload: &Value) {
+        let Some(msg_str) = payload.as_str() else {
+            return;
+        };
+        let Ok(resp) = serde_json::from_str::<RpcResponse>(msg_str) else {
+            return;
+        };
+        let Some(arr) = resp.args.as_ref().and_then(|v| v.as_array()) else {
+            return;
+        };
+
+        match arr.first().and_then(|v| v.as_str()) {
+            Some("mpv-prop-change") => {
+                let prop = match arr.get(1) {
+                    Some(p) if p.get("name").and_then(|v| v.as_str()) == Some("pause") => p,
+                    _ => return,
+                };
+                if let Some(paused) = prop.get("data").and_then(|v| v.as_bool()) {
+                    self.shell_preferences.lock().unwrap().player_paused = paused;
+                }
+            }
+            Some("mpv-event-ended") => {
+                let mut prefs = self.shell_preferences.lock().unwrap();
+                prefs.player_paused = true;
+                prefs.auto_paused = false;
+            }
+            _ => {}
+        }
+    }
+
+    fn update_player_paused_from_set_prop(&self, payload: &Option<Value>) {
+        let Some(args) = payload.as_ref().and_then(|v| v.as_array()) else {
+            return;
+        };
+        if args.first().and_then(|v| v.as_str()) != Some("pause") {
+            return;
+        }
+        let Some(paused) = args.get(1).and_then(|v| v.as_bool()) else {
+            return;
+        };
+
+        let mut prefs = self.shell_preferences.lock().unwrap();
+        prefs.player_paused = paused;
+        prefs.auto_paused = false;
+    }
+
     pub fn emit_event(&self, event: impl Into<String>, payload: Value) -> Result<(), String> {
+        let event = event.into();
+        if event == SHELL_TRANSPORT_EVENT {
+            self.update_player_paused_from_transport(&payload);
+        }
         self.lock_listeners()?.emit(event, payload);
         Ok(())
     }
@@ -421,6 +484,11 @@ impl<P: PlatformBridge> BaseHost<P> {
             }
             "window.focus" => {
                 self.bridge.focus_window()?;
+                Ok(Value::Null)
+            }
+            "window.focus_changed" => {
+                let payload: FocusChangedPayload = parse_payload(kind, payload)?;
+                self.update_window_focus(payload.focused)?;
                 Ok(Value::Null)
             }
             "window.toggleMaximize" => {
@@ -696,6 +764,9 @@ impl<P: PlatformBridge> BaseHost<P> {
                     .pip_disables_auto_pause
             )),
             "mpv-observe-prop" | "mpv-set-prop" | "mpv-command" | "native-player-stop" => {
+                if command == "mpv-set-prop" {
+                    self.update_player_paused_from_set_prop(&payload);
+                }
                 self.bridge.handle_custom_transport(command, payload)?;
                 Ok(Value::Null)
             }
@@ -731,6 +802,37 @@ impl<P: PlatformBridge> BaseHost<P> {
                 Ok(())
             }
         }
+    }
+
+    pub fn update_window_focus(&self, focused: bool) -> Result<(), String> {
+        self.emit_event("window-focus-changed", json!(focused))?;
+
+        let is_pip = self.bridge.is_pip_enabled().unwrap_or(false);
+
+        // Determine the action while holding the lock, then release before calling bridge
+        let pause_action = {
+            let mut prefs = self.shell_preferences.lock().unwrap();
+            if !prefs.auto_pause || (is_pip && prefs.pip_disables_auto_pause) {
+                return Ok(());
+            }
+            if focused && prefs.auto_paused {
+                prefs.auto_paused = false;
+                Some(false)
+            } else if !focused && !prefs.player_paused {
+                prefs.auto_paused = true;
+                Some(true)
+            } else {
+                None
+            }
+        };
+
+        if let Some(paused) = pause_action {
+            self.bridge
+                .handle_custom_transport("mpv-set-prop", Some(json!(["pause", paused])))
+                .ok();
+        }
+
+        Ok(())
     }
 }
 
@@ -796,6 +898,11 @@ pub struct UnlistenIpcPayload {
 #[derive(Debug, Deserialize)]
 pub struct FullscreenIpcPayload {
     pub fullscreen: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FocusChangedPayload {
+    pub focused: bool,
 }
 
 #[derive(Debug, Deserialize)]

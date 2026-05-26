@@ -387,8 +387,7 @@ impl WindowsHost {
             changed
         };
         if changed {
-            self.base
-                .emit_event("window-focus-changed", json!(focused))?;
+            self.base.update_window_focus(focused)?;
         }
         Ok(())
     }
