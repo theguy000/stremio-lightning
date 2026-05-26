@@ -363,6 +363,7 @@ impl<P: PlatformBridge> BaseHost<P> {
     }
 
     pub fn queue_transport_message(&self, message: String) -> Result<(), String> {
+        self.update_player_paused_from_transport(&Value::String(message.clone()));
         let mut registry = self.lock_listeners()?;
         if registry.pending_transport_messages.len() >= 512 {
             registry.pending_transport_messages.pop_front();
@@ -397,27 +398,57 @@ impl<P: PlatformBridge> BaseHost<P> {
     }
 
     fn update_player_paused_from_transport(&self, payload: &Value) {
-        let Some(msg_str) = payload.as_str() else {
+        // Case 1: Payload is a serialized JSON string (Linux/Windows queued/emitted message)
+        if let Some(msg_str) = payload.as_str() {
+            if let Ok(resp) = serde_json::from_str::<RpcResponse>(msg_str) {
+                if let Some(arr) = resp.args.as_ref().and_then(|v| v.as_array()) {
+                    if let Some(event_type) = arr.first().and_then(|v| v.as_str()) {
+                        let (name, data) = match event_type {
+                            "mpv-prop-change" => {
+                                let prop = arr.get(1);
+                                let name =
+                                    prop.and_then(|p| p.get("name")).and_then(|v| v.as_str());
+                                let data = prop.and_then(|p| p.get("data"));
+                                (name, data)
+                            }
+                            _ => (None, None),
+                        };
+                        self.handle_player_event(event_type, name, data);
+                    }
+                }
+            }
             return;
-        };
-        let Ok(resp) = serde_json::from_str::<RpcResponse>(msg_str) else {
-            return;
-        };
-        let Some(arr) = resp.args.as_ref().and_then(|v| v.as_array()) else {
-            return;
-        };
+        }
 
-        match arr.first().and_then(|v| v.as_str()) {
-            Some("mpv-prop-change") => {
-                let prop = match arr.get(1) {
-                    Some(p) if p.get("name").and_then(|v| v.as_str()) == Some("pause") => p,
-                    _ => return,
+        // Case 2: Payload is a raw JSON object (macOS native player event)
+        if let Some(obj) = payload.as_object() {
+            if let Some(event_type) = obj.get("type").and_then(|v| v.as_str()) {
+                let (name, data) = match event_type {
+                    "mpv-prop-change" => {
+                        let name = obj.get("name").and_then(|v| v.as_str());
+                        let data = obj.get("data");
+                        (name, data)
+                    }
+                    _ => (None, None),
                 };
-                if let Some(paused) = prop.get("data").and_then(|v| v.as_bool()) {
+                self.handle_player_event(event_type, name, data);
+            }
+        }
+    }
+
+    fn handle_player_event(
+        &self,
+        event_type: &str,
+        prop_name: Option<&str>,
+        prop_data: Option<&Value>,
+    ) {
+        match (event_type, prop_name) {
+            ("mpv-prop-change", Some("pause")) => {
+                if let Some(paused) = prop_data.and_then(|v| v.as_bool()) {
                     self.shell_preferences.lock().unwrap().player_paused = paused;
                 }
             }
-            Some("mpv-event-ended") => {
+            ("mpv-event-ended", _) => {
                 let mut prefs = self.shell_preferences.lock().unwrap();
                 prefs.player_paused = true;
                 prefs.auto_paused = false;
