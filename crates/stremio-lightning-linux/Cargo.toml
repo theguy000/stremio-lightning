@@ -25,3 +25,7 @@ test-utils = []
 
 [dev-dependencies]
 stremio-lightning-linux = { path = ".", features = ["test-utils"] }
+
+[[test]]
+name = "process_spawner"
+harness = false

@@ -286,8 +286,7 @@ fn validate_external_url(url: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::player::FakePlayerBackend;
-    use crate::streaming_server::FakeProcessSpawner;
+    use crate::e2e_host::{FakePlayerBackend, FakeProcessSpawner};
     use serde_json::json;
     use std::fs;
     use std::path::PathBuf;

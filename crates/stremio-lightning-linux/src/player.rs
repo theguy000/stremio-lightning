@@ -38,67 +38,6 @@ pub trait PlayerBackend: Send + Sync + 'static {
 }
 
 #[derive(Debug, Default, Clone)]
-pub struct FakePlayerBackend {
-    actions: Arc<Mutex<Vec<PlayerAction>>>,
-    initialized: bool,
-}
-
-impl FakePlayerBackend {
-    pub fn initialized() -> Self {
-        Self {
-            actions: Arc::default(),
-            initialized: true,
-        }
-    }
-
-    pub fn actions(&self) -> Vec<PlayerAction> {
-        self.actions.lock().expect("fake player poisoned").clone()
-    }
-}
-
-impl PlayerBackend for FakePlayerBackend {
-    fn status(&self) -> NativePlayerStatus {
-        NativePlayerStatus {
-            enabled: true,
-            initialized: self.initialized,
-            backend: "fake".to_string(),
-        }
-    }
-
-    fn observe_property(&self, name: String) -> Result<(), String> {
-        self.actions
-            .lock()
-            .map_err(|e| e.to_string())?
-            .push(PlayerAction::ObserveProperty(name));
-        Ok(())
-    }
-
-    fn set_property(&self, name: String, value: Value) -> Result<(), String> {
-        self.actions
-            .lock()
-            .map_err(|e| e.to_string())?
-            .push(PlayerAction::SetProperty { name, value });
-        Ok(())
-    }
-
-    fn command(&self, name: String, args: Vec<String>) -> Result<(), String> {
-        self.actions
-            .lock()
-            .map_err(|e| e.to_string())?
-            .push(PlayerAction::Command { name, args });
-        Ok(())
-    }
-
-    fn stop(&self) -> Result<(), String> {
-        self.actions
-            .lock()
-            .map_err(|e| e.to_string())?
-            .push(PlayerAction::Stop);
-        Ok(())
-    }
-}
-
-#[derive(Debug, Default, Clone)]
 pub struct MpvPlayerBackend {
     initialized: Arc<Mutex<bool>>,
     sender: Arc<Mutex<Option<Sender<MpvBackendCommand>>>>,
@@ -308,6 +247,7 @@ pub mod mpv_render_ffi {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::e2e_host::FakePlayerBackend;
     use serde_json::json;
 
     #[test]

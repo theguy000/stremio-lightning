@@ -299,9 +299,9 @@ fn validate_load_url(url: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::e2e_host::{FakePlayerBackend, FakeProcessSpawner};
     use crate::host::SHELL_TRANSPORT_EVENT;
-    use crate::player::FakePlayerBackend;
-    use crate::streaming_server::{FakeProcessSpawner, StreamingServer};
+    use crate::streaming_server::StreamingServer;
     use serde_json::json;
     use std::path::PathBuf;
 
