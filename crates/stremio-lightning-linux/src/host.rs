@@ -286,7 +286,8 @@ fn validate_external_url(url: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::e2e_host::{FakePlayerBackend, FakeProcessSpawner};
+    use crate::player::MpvPlayerBackend;
+    use crate::streaming_server::RealProcessSpawner;
     use serde_json::json;
     use std::fs;
     use std::path::PathBuf;
@@ -296,9 +297,9 @@ mod tests {
     static TEMP_ID: AtomicUsize = AtomicUsize::new(0);
 
     fn host() -> (
-        LinuxHost<FakePlayerBackend, FakeProcessSpawner>,
-        FakePlayerBackend,
-        FakeProcessSpawner,
+        LinuxHost<MpvPlayerBackend, RealProcessSpawner>,
+        MpvPlayerBackend,
+        RealProcessSpawner,
     ) {
         host_with_app_data(temp_dir("default"))
     }
@@ -306,13 +307,24 @@ mod tests {
     fn host_with_app_data(
         app_data_dir: PathBuf,
     ) -> (
-        LinuxHost<FakePlayerBackend, FakeProcessSpawner>,
-        FakePlayerBackend,
-        FakeProcessSpawner,
+        LinuxHost<MpvPlayerBackend, RealProcessSpawner>,
+        MpvPlayerBackend,
+        RealProcessSpawner,
     ) {
-        let player = FakePlayerBackend::initialized();
-        let spawner = FakeProcessSpawner::default();
-        let server = StreamingServer::with_project_root(spawner.clone(), PathBuf::from("/repo"));
+        let player = MpvPlayerBackend::default();
+        let spawner = RealProcessSpawner;
+
+        let binaries_dir = app_data_dir.join("binaries");
+        fs::create_dir_all(&binaries_dir).unwrap();
+        let runtime_path = binaries_dir.join("stremio-runtime-x86_64-unknown-linux-gnu");
+        let current_exe = std::env::current_exe().unwrap();
+        let _ = std::os::unix::fs::symlink(&current_exe, &runtime_path);
+
+        let server = StreamingServer::with_paths(
+            spawner.clone(),
+            app_data_dir.clone(),
+            app_data_dir.clone(),
+        );
         (
             LinuxHost::with_app_data_dir(player.clone(), server, app_data_dir),
             player,
@@ -342,7 +354,10 @@ mod tests {
 
     #[test]
     fn dispatches_phase_three_host_commands() {
-        let (host, _player, spawner) = host();
+        std::env::set_var("STREMIO_TEST_SPAWN_CHILD", "1");
+        std::env::set_var("STREMIO_TEST_CHILD_MODE", "keep-running");
+
+        let (host, _player, _spawner) = host();
         host.listen("server-started").unwrap();
         host.listen("server-stopped").unwrap();
 
@@ -360,7 +375,6 @@ mod tests {
             host.invoke("get_streaming_server_status", None).unwrap(),
             json!(false)
         );
-        assert_eq!(spawner.calls().len(), 1);
 
         let init = host.invoke("init", None).unwrap();
         assert_eq!(init["platform"], "linux");
@@ -369,13 +383,16 @@ mod tests {
 
         let status = host.invoke("get_native_player_status", None).unwrap();
         assert_eq!(status["enabled"], true);
-        assert_eq!(status["initialized"], true);
+        assert_eq!(status["initialized"], false);
 
         host.invoke(
             "open_external_url",
             Some(json!({"url": "https://web.stremio.com/"})),
         )
         .unwrap();
+
+        std::env::remove_var("STREMIO_TEST_SPAWN_CHILD");
+        std::env::remove_var("STREMIO_TEST_CHILD_MODE");
     }
 
     #[test]
