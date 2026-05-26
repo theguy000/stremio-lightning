@@ -5,8 +5,8 @@ use crate::streaming_server::{ProcessSpawner, StreamingServer};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use stremio_lightning_core::host_api::{self, BaseHost, HostEventRecord, PlatformBridge};
 pub use stremio_lightning_core::host_api::SHELL_TRANSPORT_EVENT;
+use stremio_lightning_core::host_api::{self, BaseHost, HostEventRecord, PlatformBridge};
 use stremio_lightning_core::pip::PipState;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -220,7 +220,8 @@ where
         let Some(value) = intent.open_media_value() else {
             return Ok(());
         };
-        self.base.queue_transport_message(host_api::response_message(json!(["open-media", value])))?;
+        self.base
+            .queue_transport_message(host_api::response_message(json!(["open-media", value])))?;
         Ok(())
     }
 
@@ -249,7 +250,10 @@ where
 
     pub fn invoke(&self, command: &str, payload: Option<Value>) -> Result<Value, String> {
         let res = self.base.invoke(command, payload);
-        if matches!(command, "mpv-observe-prop" | "mpv-set-prop" | "mpv-command" | "native-player-stop") {
+        if matches!(
+            command,
+            "mpv-observe-prop" | "mpv-set-prop" | "mpv-command" | "native-player-stop"
+        ) {
             self.emit_drained_player_events().ok();
         }
         res
@@ -441,7 +445,7 @@ fn validate_external_url(url: &str) -> Result<(), String> {
     .any(|prefix| {
         trimmed
             .get(..prefix.len())
-            .map_or(false, |s| s.eq_ignore_ascii_case(prefix))
+            .is_some_and(|s| s.eq_ignore_ascii_case(prefix))
     });
 
     if allowed {
@@ -470,9 +474,9 @@ mod tests {
     use super::*;
     use crate::player::FakePlayerBackend;
     use crate::streaming_server::{FakeProcessSpawner, StreamingServer};
-    use stremio_lightning_core::mods;
     use std::fs;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use stremio_lightning_core::mods;
 
     static TEMP_ID: AtomicUsize = AtomicUsize::new(0);
 

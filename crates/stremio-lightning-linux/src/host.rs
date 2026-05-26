@@ -4,8 +4,10 @@ use crate::player::{
 use crate::streaming_server::{ProcessSpawner, StreamingServer};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
-use stremio_lightning_core::host_api::{self, BaseHost, HostEvent, HostEventRecord, PlatformBridge};
 pub use stremio_lightning_core::host_api::SHELL_TRANSPORT_EVENT;
+use stremio_lightning_core::host_api::{
+    self, BaseHost, HostEvent, HostEventRecord, PlatformBridge,
+};
 use stremio_lightning_core::pip::{
     serialize_picture_in_picture, PipRestoreSnapshot, PipState, PipWindowController,
 };
@@ -173,7 +175,8 @@ where
     }
 
     pub fn emit_transport_event(&self, args: Value) -> Result<(), String> {
-        self.base.queue_transport_message(host_api::response_message(args))
+        self.base
+            .queue_transport_message(host_api::response_message(args))
     }
 
     pub fn emit_native_player_property_changed(
@@ -229,20 +232,26 @@ where
     }
 
     pub fn emit_window_maximized_changed(&self, maximized: bool) -> Result<(), String> {
-        self.base.emit_host_event(HostEvent::WindowMaximizedChanged, json!(maximized))
+        self.base
+            .emit_host_event(HostEvent::WindowMaximizedChanged, json!(maximized))
     }
 
     pub fn emit_window_fullscreen_changed(&self, fullscreen: bool) -> Result<(), String> {
-        self.base.emit_host_event(HostEvent::WindowFullscreenChanged, json!(fullscreen))?;
-        self.base.emit_transport_message(host_api::response_message(host_api::serialize_window_visibility(true, fullscreen)))
+        self.base
+            .emit_host_event(HostEvent::WindowFullscreenChanged, json!(fullscreen))?;
+        self.base.emit_transport_message(host_api::response_message(
+            host_api::serialize_window_visibility(true, fullscreen),
+        ))
     }
 
     pub fn emit_server_started(&self) -> Result<(), String> {
-        self.base.emit_host_event(HostEvent::ServerStarted, Value::Null)
+        self.base
+            .emit_host_event(HostEvent::ServerStarted, Value::Null)
     }
 
     pub fn emit_server_stopped(&self) -> Result<(), String> {
-        self.base.emit_host_event(HostEvent::ServerStopped, Value::Null)
+        self.base
+            .emit_host_event(HostEvent::ServerStopped, Value::Null)
     }
 }
 
@@ -264,7 +273,7 @@ fn validate_external_url(url: &str) -> Result<(), String> {
     .any(|prefix| {
         trimmed
             .get(..prefix.len())
-            .map_or(false, |s| s.eq_ignore_ascii_case(prefix))
+            .is_some_and(|s| s.eq_ignore_ascii_case(prefix))
     });
 
     if allowed {
@@ -279,11 +288,11 @@ mod tests {
     use super::*;
     use crate::player::FakePlayerBackend;
     use crate::streaming_server::FakeProcessSpawner;
-    use stremio_lightning_core::mods;
     use serde_json::json;
     use std::fs;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use stremio_lightning_core::mods;
 
     static TEMP_ID: AtomicUsize = AtomicUsize::new(0);
 
@@ -499,11 +508,12 @@ console.log("sample");"#,
             json!(true)
         );
 
-        host.base.invoke(
-            "save_setting",
-            Some(json!({"pluginName": "sample", "key": "mode", "value": "plain text"})),
-        )
-        .unwrap();
+        host.base
+            .invoke(
+                "save_setting",
+                Some(json!({"pluginName": "sample", "key": "mode", "value": "plain text"})),
+            )
+            .unwrap();
         assert_eq!(
             host.invoke(
                 "get_setting",

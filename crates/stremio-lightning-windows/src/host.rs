@@ -46,7 +46,9 @@ impl WindowsBridge {
     }
 
     #[cfg(windows)]
-    fn lock_window_controller(&self) -> Result<std::sync::MutexGuard<'_, Option<NativeWindowController>>, String> {
+    fn lock_window_controller(
+        &self,
+    ) -> Result<std::sync::MutexGuard<'_, Option<NativeWindowController>>, String> {
         self.window_controller
             .lock()
             .map_err(|e| format!("Windows window controller lock poisoned: {e}"))
@@ -292,7 +294,8 @@ impl WindowsHost {
         let Some(value) = intent.open_media_value() else {
             return Ok(());
         };
-        self.base.queue_transport_message(host_api::response_message(json!(["open-media", value])))?;
+        self.base
+            .queue_transport_message(host_api::response_message(json!(["open-media", value])))?;
         Ok(())
     }
 
@@ -367,7 +370,8 @@ impl WindowsHost {
     }
 
     pub fn emit_media_key(&self, action: &str) -> Result<(), String> {
-        self.base.queue_transport_message(host_api::response_message(json!(["media-key", action])))?;
+        self.base
+            .queue_transport_message(host_api::response_message(json!(["media-key", action])))?;
         Ok(())
     }
 
@@ -383,7 +387,8 @@ impl WindowsHost {
             changed
         };
         if changed {
-            self.base.emit_event("window-focus-changed", json!(focused))?;
+            self.base
+                .emit_event("window-focus-changed", json!(focused))?;
         }
         Ok(())
     }
@@ -396,7 +401,8 @@ impl WindowsHost {
             changed
         };
         if changed {
-            self.base.emit_event("window-visible-changed", json!(visible))?;
+            self.base
+                .emit_event("window-visible-changed", json!(visible))?;
         }
         Ok(())
     }
@@ -467,22 +473,26 @@ impl WindowsHost {
     }
 
     pub fn emit_window_maximized_changed(&self, maximized: bool) -> Result<(), String> {
-        self.base.emit_host_event(HostEvent::WindowMaximizedChanged, json!(maximized))
+        self.base
+            .emit_host_event(HostEvent::WindowMaximizedChanged, json!(maximized))
     }
 
     pub fn emit_window_fullscreen_changed(&self, fullscreen: bool) -> Result<(), String> {
-        self.base.emit_host_event(HostEvent::WindowFullscreenChanged, json!(fullscreen))?;
+        self.base
+            .emit_host_event(HostEvent::WindowFullscreenChanged, json!(fullscreen))?;
         self.base.emit_transport_message(host_api::response_message(
             host_api::serialize_window_visibility(true, fullscreen),
         ))
     }
 
     pub fn emit_server_started(&self) -> Result<(), String> {
-        self.base.emit_host_event(HostEvent::ServerStarted, Value::Null)
+        self.base
+            .emit_host_event(HostEvent::ServerStarted, Value::Null)
     }
 
     pub fn emit_server_stopped(&self) -> Result<(), String> {
-        self.base.emit_host_event(HostEvent::ServerStopped, Value::Null)
+        self.base
+            .emit_host_event(HostEvent::ServerStopped, Value::Null)
     }
 
     fn drain_all_emitted_events(&self) -> Result<Vec<HostEventRecord>, String> {
@@ -499,15 +509,17 @@ impl WindowsHost {
             {
                 self.emit_picture_in_picture(false)?;
             }
-            self.base.emit_transport_message(host_api::response_message(event.transport_args()))?;
+            self.base
+                .emit_transport_message(host_api::response_message(event.transport_args()))?;
         }
         Ok(())
     }
 
     fn emit_picture_in_picture(&self, enabled: bool) -> Result<(), String> {
-        self.base.emit_transport_message(host_api::response_message(serialize_picture_in_picture(
-            enabled,
-        )))
+        self.base
+            .emit_transport_message(host_api::response_message(serialize_picture_in_picture(
+                enabled,
+            )))
     }
 
     pub fn toggle_picture_in_picture_window(&self) -> Result<bool, String> {
@@ -563,13 +575,11 @@ fn validate_external_url(url: &str) -> Result<(), String> {
         return Err("Rejected non-whitelisted open_external_url URL".to_string());
     }
 
-    let allowed = ["http://", "https://", "mailto:"]
-        .iter()
-        .any(|prefix| {
-            trimmed
-                .get(..prefix.len())
-                .map_or(false, |s| s.eq_ignore_ascii_case(prefix))
-        });
+    let allowed = ["http://", "https://", "mailto:"].iter().any(|prefix| {
+        trimmed
+            .get(..prefix.len())
+            .is_some_and(|s| s.eq_ignore_ascii_case(prefix))
+    });
 
     if allowed {
         Ok(())
@@ -1058,11 +1068,12 @@ console.log("sample");"#,
             json!(true)
         );
 
-        host.base.invoke(
-            "save_setting",
-            Some(json!({"pluginName": "sample", "key": "mode", "value": "plain text"})),
-        )
-        .unwrap();
+        host.base
+            .invoke(
+                "save_setting",
+                Some(json!({"pluginName": "sample", "key": "mode", "value": "plain text"})),
+            )
+            .unwrap();
         assert_eq!(
             host.invoke(
                 "get_setting",

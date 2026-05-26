@@ -179,8 +179,6 @@ pub fn serialize_window_visibility(visible: bool, is_fullscreen: bool) -> Value 
     ])
 }
 
-
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HostEventRecord {
     pub event: String,
@@ -232,32 +230,58 @@ pub trait PlatformBridge: Send + Sync {
     fn shell_name(&self) -> &'static str;
     fn native_player_status(&self) -> Value;
     fn is_streaming_server_running(&self) -> bool;
-    
+
     // Window methods
-    fn minimize_window(&self) -> Result<(), String> { Ok(()) }
-    fn focus_window(&self) -> Result<(), String> { Ok(()) }
-    fn toggle_window_maximize(&self) -> Result<bool, String> { Ok(false) }
-    fn close_window(&self) -> Result<(), String> { Ok(()) }
-    fn start_window_dragging(&self) -> Result<(), String> { Ok(()) }
-    fn is_window_maximized(&self) -> Result<bool, String> { Ok(false) }
-    fn is_window_fullscreen(&self) -> Result<bool, String> { Ok(false) }
-    fn set_window_fullscreen(&self, _fullscreen: bool) -> Result<(), String> { Ok(()) }
-    fn set_webview_zoom(&self, _level: f64) -> Result<(), String> { Ok(()) }
-    
+    fn minimize_window(&self) -> Result<(), String> {
+        Ok(())
+    }
+    fn focus_window(&self) -> Result<(), String> {
+        Ok(())
+    }
+    fn toggle_window_maximize(&self) -> Result<bool, String> {
+        Ok(false)
+    }
+    fn close_window(&self) -> Result<(), String> {
+        Ok(())
+    }
+    fn start_window_dragging(&self) -> Result<(), String> {
+        Ok(())
+    }
+    fn is_window_maximized(&self) -> Result<bool, String> {
+        Ok(false)
+    }
+    fn is_window_fullscreen(&self) -> Result<bool, String> {
+        Ok(false)
+    }
+    fn set_window_fullscreen(&self, _fullscreen: bool) -> Result<(), String> {
+        Ok(())
+    }
+    fn set_webview_zoom(&self, _level: f64) -> Result<(), String> {
+        Ok(())
+    }
+
     // Player/Pip methods
     fn toggle_picture_in_picture(&self) -> Result<bool, String>;
     fn is_pip_enabled(&self) -> Result<bool, String>;
-    
+
     // Custom platform controls
-    fn open_external_url(&self, _url: &str) -> Result<(), String> { Ok(()) }
+    fn open_external_url(&self, _url: &str) -> Result<(), String> {
+        Ok(())
+    }
     fn get_streaming_server_status(&self) -> Result<Value, String> {
         Ok(Value::Bool(self.is_streaming_server_running()))
     }
 
-    fn start_streaming_server(&self) -> Result<(), String> { Ok(()) }
-    fn stop_streaming_server(&self) -> Result<(), String> { Ok(()) }
-    fn restart_streaming_server(&self) -> Result<(), String> { Ok(()) }
-    
+    fn start_streaming_server(&self) -> Result<(), String> {
+        Ok(())
+    }
+    fn stop_streaming_server(&self) -> Result<(), String> {
+        Ok(())
+    }
+    fn restart_streaming_server(&self) -> Result<(), String> {
+        Ok(())
+    }
+
     // Transport commands delegator
     fn handle_custom_transport(&self, _method: &str, _data: Option<Value>) -> Result<(), String> {
         Ok(())
@@ -403,7 +427,10 @@ impl<P: PlatformBridge> BaseHost<P> {
                 let maximized = self.bridge.toggle_window_maximize()?;
                 match self.bridge.platform_name() {
                     "macos" => {
-                        self.emit_event("window-maximized-changed", json!({ "maximized": maximized }))?;
+                        self.emit_event(
+                            "window-maximized-changed",
+                            json!({ "maximized": maximized }),
+                        )?;
                     }
                     _ => {
                         self.emit_host_event(HostEvent::WindowMaximizedChanged, json!(maximized))?;
@@ -426,12 +453,22 @@ impl<P: PlatformBridge> BaseHost<P> {
                 self.bridge.set_window_fullscreen(payload.fullscreen)?;
                 match self.bridge.platform_name() {
                     "macos" => {
-                        self.emit_event("window-fullscreen-changed", json!({ "fullscreen": payload.fullscreen }))?;
-                        self.emit_transport_message(response_message(serialize_window_visibility(true, payload.fullscreen)))?;
+                        self.emit_event(
+                            "window-fullscreen-changed",
+                            json!({ "fullscreen": payload.fullscreen }),
+                        )?;
+                        self.emit_transport_message(response_message(
+                            serialize_window_visibility(true, payload.fullscreen),
+                        ))?;
                     }
                     _ => {
-                        self.emit_host_event(HostEvent::WindowFullscreenChanged, json!(payload.fullscreen))?;
-                        self.emit_transport_message(response_message(serialize_window_visibility(true, payload.fullscreen)))?;
+                        self.emit_host_event(
+                            HostEvent::WindowFullscreenChanged,
+                            json!(payload.fullscreen),
+                        )?;
+                        self.emit_transport_message(response_message(
+                            serialize_window_visibility(true, payload.fullscreen),
+                        ))?;
                     }
                 }
                 Ok(Value::Null)
@@ -613,8 +650,13 @@ impl<P: PlatformBridge> BaseHost<P> {
                 match self.bridge.platform_name() {
                     "macos" => {
                         let args = serialize_picture_in_picture(enabled);
-                        let values = args.as_array().ok_or_else(|| "Invalid macOS native player event args".to_string())?;
-                        let event_type = values.first().and_then(Value::as_str).ok_or_else(|| "Missing macOS native player event type".to_string())?;
+                        let values = args
+                            .as_array()
+                            .ok_or_else(|| "Invalid macOS native player event args".to_string())?;
+                        let event_type = values
+                            .first()
+                            .and_then(Value::as_str)
+                            .ok_or_else(|| "Missing macOS native player event type".to_string())?;
                         let payload = values.get(1).cloned().unwrap_or(Value::Null);
                         self.emit_event(
                             SHELL_TRANSPORT_EVENT,
@@ -625,7 +667,9 @@ impl<P: PlatformBridge> BaseHost<P> {
                         )?;
                     }
                     _ => {
-                        self.emit_transport_message(response_message(serialize_picture_in_picture(enabled)))?;
+                        self.emit_transport_message(response_message(
+                            serialize_picture_in_picture(enabled),
+                        ))?;
                     }
                 }
                 Ok(json!(enabled))
@@ -639,16 +683,19 @@ impl<P: PlatformBridge> BaseHost<P> {
             "get_auto_pause" => Ok(json!(self.shell_preferences.lock().unwrap().auto_pause)),
             "set_pip_disables_auto_pause" => {
                 let enabled = parse_optional_bool(payload).unwrap_or(true);
-                self.shell_preferences.lock().unwrap().pip_disables_auto_pause = enabled;
+                self.shell_preferences
+                    .lock()
+                    .unwrap()
+                    .pip_disables_auto_pause = enabled;
                 Ok(Value::Null)
             }
-            "get_pip_disables_auto_pause" => {
-                Ok(json!(self.shell_preferences.lock().unwrap().pip_disables_auto_pause))
-            }
-            "mpv-observe-prop"
-            | "mpv-set-prop"
-            | "mpv-command"
-            | "native-player-stop" => {
+            "get_pip_disables_auto_pause" => Ok(json!(
+                self.shell_preferences
+                    .lock()
+                    .unwrap()
+                    .pip_disables_auto_pause
+            )),
+            "mpv-observe-prop" | "mpv-set-prop" | "mpv-command" | "native-player-stop" => {
                 self.bridge.handle_custom_transport(command, payload)?;
                 Ok(Value::Null)
             }
@@ -663,7 +710,9 @@ impl<P: PlatformBridge> BaseHost<P> {
                     "macos" => "macOS",
                     other => other,
                 };
-                Err(format!("Unsupported {capitalized_platform} host command: {other}"))
+                Err(format!(
+                    "Unsupported {capitalized_platform} host command: {other}"
+                ))
             }
         }
     }
