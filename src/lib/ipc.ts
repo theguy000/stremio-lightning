@@ -1,8 +1,7 @@
-// src/lib/ipc.ts
 import { getHost } from './host/host-api';
 import type { InstalledMod, Registry, UpdateInfo } from './types';
 
-const host = () => getHost();
+const host = getHost;
 
 // ── Mod management ──
 
