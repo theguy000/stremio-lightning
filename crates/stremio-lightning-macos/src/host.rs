@@ -2,101 +2,12 @@ use crate::app_integration::{lifecycle_event_payload, AppLifecycleEvent, LaunchI
 use crate::diagnostics::{self, MacosDiagnosticsSnapshot};
 use crate::player::{self, NativePlayerStatus, PlayerBackend};
 use crate::streaming_server::{ProcessSpawner, StreamingServer};
-use serde::Deserialize;
 use serde_json::{json, Value};
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
-use stremio_lightning_core::{
-    app_update,
-    host_api::{self, ParsedRequest},
-    mods,
-    pip::{serialize_picture_in_picture, PipState},
-    settings,
-};
-
-pub const SHELL_TRANSPORT_EVENT: &str = "shell-transport-message";
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct HostEventRecord {
-    pub event: String,
-    pub payload: Value,
-}
-
-#[derive(Debug, Default)]
-struct ListenerRegistry {
-    next_id: u64,
-    listeners: HashMap<u64, String>,
-    emitted: Vec<HostEventRecord>,
-    bridge_ready: bool,
-    transport_ready: bool,
-    pending_open_media: Vec<String>,
-}
-
-impl ListenerRegistry {
-    fn listen(&mut self, event: impl Into<String>) -> u64 {
-        self.next_id += 1;
-        self.listeners.insert(self.next_id, event.into());
-        self.next_id
-    }
-
-    fn listen_with_id(&mut self, id: u64, event: impl Into<String>) {
-        self.next_id = self.next_id.max(id);
-        self.listeners.insert(id, event.into());
-        self.flush_queued_open_media();
-    }
-
-    fn unlisten(&mut self, id: u64) {
-        self.listeners.remove(&id);
-    }
-
-    fn emit(&mut self, event: impl Into<String>, payload: Value) {
-        let event = event.into();
-        if self.listeners.values().any(|listener| listener == &event) {
-            self.emitted.push(HostEventRecord { event, payload });
-        }
-    }
-
-    fn drain_emitted(&mut self) -> Vec<HostEventRecord> {
-        std::mem::take(&mut self.emitted)
-    }
-
-    fn mark_bridge_ready(&mut self) {
-        self.bridge_ready = true;
-        self.flush_queued_open_media();
-    }
-
-    fn mark_transport_ready(&mut self) {
-        self.transport_ready = true;
-        self.flush_queued_open_media();
-    }
-
-    fn queue_open_media(&mut self, value: String) {
-        self.pending_open_media.push(value);
-        self.flush_queued_open_media();
-    }
-
-    fn flush_queued_open_media(&mut self) {
-        if !(self.bridge_ready && self.transport_ready) {
-            return;
-        }
-        if !self
-            .listeners
-            .values()
-            .any(|listener| listener == SHELL_TRANSPORT_EVENT)
-        {
-            return;
-        }
-
-        let pending = std::mem::take(&mut self.pending_open_media);
-        for value in pending {
-            self.emitted.push(HostEventRecord {
-                event: SHELL_TRANSPORT_EVENT.to_string(),
-                payload: json!(host_api::response_message(json!(["open-media", value]))),
-            });
-        }
-    }
-}
+use std::sync::Mutex;
+use stremio_lightning_core::host_api::{self, BaseHost, HostEventRecord, PlatformBridge};
+pub use stremio_lightning_core::host_api::SHELL_TRANSPORT_EVENT;
+use stremio_lightning_core::pip::PipState;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct WindowRuntimeState {
@@ -107,52 +18,140 @@ pub struct WindowRuntimeState {
     pub close_to_hide: bool,
 }
 
+pub struct MacosBridge<B, P>
+where
+    B: PlayerBackend,
+    P: ProcessSpawner,
+{
+    pub player: B,
+    pub streaming_server: StreamingServer<P>,
+    pub window_state: Mutex<WindowRuntimeState>,
+    pub pip_state: PipState,
+}
+
+impl<B, P> MacosBridge<B, P>
+where
+    B: PlayerBackend,
+    P: ProcessSpawner,
+{
+    fn lock_window_state(&self) -> Result<std::sync::MutexGuard<'_, WindowRuntimeState>, String> {
+        self.window_state
+            .lock()
+            .map_err(|e| format!("macOS window state lock poisoned: {e}"))
+    }
+}
+
+impl<B, P> PlatformBridge for MacosBridge<B, P>
+where
+    B: PlayerBackend,
+    P: ProcessSpawner,
+{
+    fn platform_name(&self) -> &'static str {
+        "macos"
+    }
+
+    fn shell_name(&self) -> &'static str {
+        ""
+    }
+
+    fn native_player_status(&self) -> Value {
+        serde_json::to_value(self.player.status()).unwrap_or(Value::Null)
+    }
+
+    fn is_streaming_server_running(&self) -> bool {
+        self.streaming_server.is_running()
+    }
+
+    fn get_streaming_server_status(&self) -> Result<Value, String> {
+        serde_json::to_value(self.streaming_server.status())
+            .map_err(|e| format!("Failed to serialize macOS streaming server status: {e}"))
+    }
+
+    fn toggle_picture_in_picture(&self) -> Result<bool, String> {
+        self.pip_state.toggle()
+    }
+
+    fn is_pip_enabled(&self) -> Result<bool, String> {
+        self.pip_state.is_enabled()
+    }
+
+    fn open_external_url(&self, url: &str) -> Result<(), String> {
+        validate_external_url(url)?;
+        open_external_url(url)?;
+        Ok(())
+    }
+
+    fn minimize_window(&self) -> Result<(), String> {
+        self.lock_window_state()?.visible = false;
+        Ok(())
+    }
+
+    fn toggle_window_maximize(&self) -> Result<bool, String> {
+        let mut state = self.lock_window_state()?;
+        state.maximized = !state.maximized;
+        state.visible = true;
+        Ok(state.maximized)
+    }
+
+    fn close_window(&self) -> Result<(), String> {
+        let close_to_hide = self.lock_window_state()?.close_to_hide;
+        if close_to_hide {
+            self.lock_window_state()?.visible = false;
+        }
+        Ok(())
+    }
+
+    fn is_window_maximized(&self) -> Result<bool, String> {
+        Ok(self.lock_window_state()?.maximized)
+    }
+
+    fn is_window_fullscreen(&self) -> Result<bool, String> {
+        Ok(self.lock_window_state()?.fullscreen)
+    }
+
+    fn set_window_fullscreen(&self, fullscreen: bool) -> Result<(), String> {
+        self.lock_window_state()?.fullscreen = fullscreen;
+        Ok(())
+    }
+
+    fn handle_custom_transport(&self, method: &str, data: Option<Value>) -> Result<(), String> {
+        match method {
+            "mpv-observe-prop" | "mpv-set-prop" | "mpv-command" | "native-player-stop" => {
+                player::handle_transport(&self.player, method, data)?;
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
+
+    fn start_streaming_server(&self) -> Result<(), String> {
+        self.streaming_server.start()
+    }
+
+    fn stop_streaming_server(&self) -> Result<(), String> {
+        self.streaming_server.stop()
+    }
+
+    fn restart_streaming_server(&self) -> Result<(), String> {
+        self.streaming_server.restart()
+    }
+}
+
 pub struct MacosHost<B, P>
 where
     B: PlayerBackend,
     P: ProcessSpawner,
 {
-    player: B,
-    streaming_server: StreamingServer<P>,
-    app_data_dir: PathBuf,
-    settings: settings::SettingsState,
-    listeners: Mutex<ListenerRegistry>,
-    window_state: Mutex<WindowRuntimeState>,
-    shell_preferences: Mutex<ShellPreferenceState>,
-    pip_state: PipState,
+    pub base: BaseHost<MacosBridge<B, P>>,
 }
 
 pub type Host<B, P> = MacosHost<B, P>;
-
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-struct ShellPreferenceState {
-    auto_pause: bool,
-    pip_disables_auto_pause: bool,
-}
 
 impl<B, P> MacosHost<B, P>
 where
     B: PlayerBackend,
     P: ProcessSpawner,
 {
-    fn lock_listeners(&self) -> Result<std::sync::MutexGuard<'_, ListenerRegistry>, String> {
-        self.listeners
-            .lock()
-            .map_err(|e| format!("macOS listeners lock poisoned: {e}"))
-    }
-
-    fn lock_window_state(&self) -> Result<std::sync::MutexGuard<'_, WindowRuntimeState>, String> {
-        self.window_state
-            .lock()
-            .map_err(|e| format!("macOS window state lock poisoned: {e}"))
-    }
-
-    fn lock_shell_preferences(&self) -> Result<std::sync::MutexGuard<'_, ShellPreferenceState>, String> {
-        self.shell_preferences
-            .lock()
-            .map_err(|e| format!("macOS shell preferences lock poisoned: {e}"))
-    }
-
     pub fn new(player: B, streaming_server: StreamingServer<P>) -> Self {
         Self::with_app_data_dir(player, streaming_server, default_app_data_dir())
     }
@@ -162,38 +161,49 @@ where
         streaming_server: StreamingServer<P>,
         app_data_dir: impl Into<PathBuf>,
     ) -> Self {
-        Self {
+        let bridge = MacosBridge {
             player,
             streaming_server,
-            app_data_dir: app_data_dir.into(),
-            settings: settings::SettingsState::default(),
-            listeners: Mutex::default(),
             window_state: Mutex::new(WindowRuntimeState {
                 visible: true,
                 close_to_hide: true,
                 ..WindowRuntimeState::default()
             }),
-            shell_preferences: Mutex::default(),
             pip_state: PipState::new(),
+        };
+        Self {
+            base: BaseHost::new(bridge, app_data_dir.into(), env!("CARGO_PKG_VERSION")),
         }
     }
 
+    pub fn player(&self) -> &B {
+        &self.base.bridge.player
+    }
+
+    pub fn streaming_server(&self) -> &StreamingServer<P> {
+        &self.base.bridge.streaming_server
+    }
+
+    pub fn window_state(&self) -> Result<WindowRuntimeState, String> {
+        Ok(self.base.bridge.lock_window_state()?.clone())
+    }
+
     pub fn start_streaming_server(&self) -> Result<(), String> {
-        self.streaming_server.start()
+        self.streaming_server().start()
     }
 
     pub fn stop_streaming_server(&self) -> Result<(), String> {
-        self.streaming_server.stop()?;
+        self.streaming_server().stop()?;
         self.emit_server_stopped()
     }
 
     pub fn restart_streaming_server(&self) -> Result<(), String> {
-        let was_running = self.streaming_server.is_running();
-        self.streaming_server.restart()?;
+        let was_running = self.streaming_server().is_running();
+        self.streaming_server().restart()?;
         if was_running {
             self.emit_server_stopped()?;
         }
-        if self.streaming_server.is_running() {
+        if self.streaming_server().is_running() {
             self.emit_server_started()?;
         }
         Ok(())
@@ -201,8 +211,8 @@ where
 
     pub fn shutdown(&self) -> Result<(), String> {
         self.emit_lifecycle_event(AppLifecycleEvent::Shutdown).ok();
-        self.player.stop().ok();
-        self.streaming_server.stop()
+        self.player().stop().ok();
+        self.streaming_server().stop()
     }
 
     pub fn emit_launch_intent(&self, intent: LaunchIntent) -> Result<(), String> {
@@ -210,12 +220,12 @@ where
         let Some(value) = intent.open_media_value() else {
             return Ok(());
         };
-        self.lock_listeners()?.queue_open_media(value);
+        self.base.queue_transport_message(host_api::response_message(json!(["open-media", value])))?;
         Ok(())
     }
 
     pub fn native_player_status(&self) -> NativePlayerStatus {
-        self.player.status()
+        self.player().status()
     }
 
     pub fn diagnostics_snapshot(
@@ -224,7 +234,7 @@ where
         ipc_errors: Vec<String>,
         first_frame_timing: Option<std::time::Duration>,
     ) -> MacosDiagnosticsSnapshot {
-        let server = self.streaming_server.diagnostics();
+        let server = self.streaming_server().diagnostics();
         diagnostics::diagnostics_snapshot(
             load_state,
             ipc_errors,
@@ -238,271 +248,37 @@ where
     }
 
     pub fn invoke(&self, command: &str, payload: Option<Value>) -> Result<Value, String> {
-        match command {
-            "download_mod" | "get_registry" | "check_mod_updates" | "check_app_update" => {
-                let runtime = get_async_runtime();
-                runtime.block_on(self.invoke_async(command, payload))
-            }
-            _ => self.invoke_sync(command, payload),
+        let res = self.base.invoke(command, payload);
+        if matches!(command, "mpv-observe-prop" | "mpv-set-prop" | "mpv-command" | "native-player-stop") {
+            self.emit_drained_player_events().ok();
         }
-    }
-
-    pub async fn invoke_async(
-        &self,
-        command: &str,
-        payload: Option<Value>,
-    ) -> Result<Value, String> {
-        match command {
-            "download_mod" => {
-                let payload: DownloadModPayload = parse_payload(command, payload)?;
-                let mod_type = payload.mod_type.parse()?;
-                let filename =
-                    mods::download_mod(&self.app_data_dir, &payload.url, mod_type).await?;
-                Ok(json!(filename))
-            }
-            "get_registry" => Ok(serde_json::to_value(mods::fetch_registry().await?)
-                .map_err(|e| format!("Failed to serialize registry: {e}"))?),
-            "check_mod_updates" => {
-                let payload: ModTypePayload = parse_payload(command, payload)?;
-                let mod_type = payload.mod_type.parse()?;
-                Ok(serde_json::to_value(
-                    mods::check_mod_updates(&self.app_data_dir, mod_type).await?,
-                )
-                .map_err(|e| format!("Failed to serialize macOS update info: {e}"))?)
-            }
-            "check_app_update" => Ok(serde_json::to_value(
-                app_update::check_app_update(env!("CARGO_PKG_VERSION")).await?,
-            )
-            .map_err(|e| format!("Failed to serialize macOS app update info: {e}"))?),
-            _ => self.invoke_sync(command, payload),
-        }
-    }
-
-    fn invoke_sync(&self, command: &str, payload: Option<Value>) -> Result<Value, String> {
-        match command {
-            "init" => Ok(json!({
-                "platform": "macos",
-                "shellVersion": env!("CARGO_PKG_VERSION"),
-                "nativePlayer": self.native_player_status(),
-                "streamingServerRunning": self.streaming_server.is_running(),
-                "streamingServer": self.streaming_server.status(),
-            })),
-            "start_streaming_server" => {
-                self.start_streaming_server()?;
-                self.emit_server_started()?;
-                Ok(Value::Null)
-            }
-            "stop_streaming_server" => {
-                self.stop_streaming_server()?;
-                Ok(Value::Null)
-            }
-            "restart_streaming_server" => {
-                self.restart_streaming_server()?;
-                Ok(Value::Null)
-            }
-            "get_streaming_server_status" => Ok(serde_json::to_value(
-                self.streaming_server.status(),
-            )
-            .map_err(|e| format!("Failed to serialize macOS streaming server status: {e}"))?),
-            "open_external_url" => {
-                let url = payload
-                    .as_ref()
-                    .and_then(|value| value.get("url"))
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| "Missing open_external_url url".to_string())?;
-                validate_external_url(url)?;
-                open_external_url(url)?;
-                Ok(Value::Null)
-            }
-            "get_native_player_status" => Ok(serde_json::to_value(self.native_player_status())
-                .map_err(|e| format!("Failed to serialize macOS player status: {e}"))?),
-            "mpv-observe-prop" | "mpv-set-prop" | "mpv-command" | "native-player-stop" => {
-                player::handle_transport(&self.player, command, payload)?;
-                self.emit_drained_player_events()?;
-                Ok(Value::Null)
-            }
-            "shell_transport_send" => {
-                let message = payload
-                    .as_ref()
-                    .and_then(|value| value.get("message"))
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| "Missing shell_transport_send message".to_string())?;
-                self.handle_shell_transport_message(message)?;
-                Ok(Value::Null)
-            }
-            "get_plugins" => Ok(serde_json::to_value(mods::list_mods(
-                &self.app_data_dir,
-                mods::ModType::Plugin,
-            )?)
-            .map_err(|e| format!("Failed to serialize macOS plugins: {e}"))?),
-            "get_themes" => Ok(serde_json::to_value(mods::list_mods(
-                &self.app_data_dir,
-                mods::ModType::Theme,
-            )?)
-            .map_err(|e| format!("Failed to serialize macOS themes: {e}"))?),
-            "delete_mod" => {
-                let payload: ModFilePayload = parse_payload(command, payload)?;
-                let mod_type = payload.mod_type.parse()?;
-                mods::delete_mod(&self.app_data_dir, &payload.filename, mod_type)?;
-                Ok(Value::Null)
-            }
-            "get_mod_content" => {
-                let payload: ModFilePayload = parse_payload(command, payload)?;
-                let mod_type = payload.mod_type.parse()?;
-                Ok(json!(mods::read_mod_content(
-                    &self.app_data_dir,
-                    &payload.filename,
-                    mod_type
-                )?))
-            }
-            "get_setting" => {
-                let payload: SettingKeyPayload = parse_payload(command, payload)?;
-                Ok(settings::get_setting(
-                    &mods::mods_dir(&self.app_data_dir, mods::ModType::Plugin),
-                    &payload.plugin_name,
-                    &payload.key,
-                )?)
-            }
-            "save_setting" => {
-                let payload: SaveSettingPayload = parse_payload(command, payload)?;
-                let value = serde_json::from_str::<Value>(&payload.value)
-                    .unwrap_or(Value::String(payload.value));
-                let plugins_dir = mods::mods_dir(&self.app_data_dir, mods::ModType::Plugin);
-                std::fs::create_dir_all(&plugins_dir)
-                    .map_err(|e| format!("Failed to create macOS plugins dir: {e}"))?;
-                let _guard = self
-                    .settings
-                    .settings_lock
-                    .lock()
-                    .map_err(|e| e.to_string())?;
-                settings::save_setting(&plugins_dir, &payload.plugin_name, &payload.key, value)?;
-                Ok(Value::Null)
-            }
-            "register_settings" => {
-                let payload: RegisterSettingsPayload = parse_payload(command, payload)?;
-                mods::validate_filename(&payload.plugin_name)?;
-                let schema = serde_json::from_str::<Value>(&payload.schema)
-                    .map_err(|e| format!("Failed to parse macOS settings schema: {e}"))?;
-                settings::register_settings(
-                    &self.settings.registered_schemas,
-                    payload.plugin_name,
-                    schema,
-                )?;
-                Ok(Value::Null)
-            }
-            "get_registered_settings" => {
-                settings::get_registered_settings(&self.settings.registered_schemas)
-            }
-            "toggle_devtools"
-            | "start_discord_rpc"
-            | "stop_discord_rpc"
-            | "update_discord_activity" => Ok(Value::Null),
-            "set_auto_pause" => {
-                let enabled = parse_optional_bool(payload).unwrap_or(true);
-                self.lock_shell_preferences()?.auto_pause = enabled;
-                Ok(Value::Null)
-            }
-            "get_auto_pause" => Ok(json!(self.lock_shell_preferences()?.auto_pause)),
-            "set_pip_disables_auto_pause" => {
-                let enabled = parse_optional_bool(payload).unwrap_or(true);
-                self.lock_shell_preferences()?.pip_disables_auto_pause = enabled;
-                Ok(Value::Null)
-            }
-            "get_pip_disables_auto_pause" => {
-                Ok(json!(self.lock_shell_preferences()?.pip_disables_auto_pause))
-            }
-            "toggle_pip" => {
-                let enabled = self.pip_state.toggle()?;
-                self.emit_native_player_transport_args(serialize_picture_in_picture(enabled))?;
-                Ok(json!(enabled))
-            }
-            "get_pip_mode" => Ok(json!(self.pip_state.is_enabled()?)),
-            "shell_bridge_ready" => {
-                self.mark_bridge_ready()?;
-                Ok(Value::Null)
-            }
-            other => Err(format!("Unsupported macOS host command: {other}")),
-        }
-    }
-
-    fn handle_shell_transport_message(&self, message: &str) -> Result<(), String> {
-        match host_api::parse_request(message)? {
-            ParsedRequest::Handshake => self
-                .emit_transport_response(host_api::handshake_response(env!("CARGO_PKG_VERSION"))),
-            ParsedRequest::Command { method, data } => match method.as_str() {
-                "app-ready" | "app-error" => self.mark_transport_ready(),
-                "mpv-observe-prop" | "mpv-set-prop" | "mpv-command" | "native-player-stop" => {
-                    player::handle_transport(&self.player, &method, data)?;
-                    self.emit_drained_player_events()
-                }
-                other => Err(format!("Unsupported macOS shell transport method: {other}")),
-            },
-        }
+        res
     }
 
     pub fn dispatch_ipc(&self, kind: &str, payload: Option<Value>) -> Result<Value, String> {
         match kind {
-            "invoke" => {
-                let payload: InvokeIpcPayload = parse_payload(kind, payload)?;
-                self.invoke(&payload.command, payload.payload)
-            }
-            "listen" => {
-                let payload: ListenIpcPayload = parse_payload(kind, payload)?;
-                self.listen_with_id(payload.id, payload.event)?;
-                Ok(Value::Null)
-            }
-            "unlisten" => {
-                let payload: UnlistenIpcPayload = parse_payload(kind, payload)?;
-                self.unlisten(payload.id)?;
-                Ok(Value::Null)
-            }
-            "window.minimize" => {
-                self.minimize_window()?;
-                Ok(Value::Null)
-            }
-            "window.toggleMaximize" => {
-                self.toggle_window_maximize()?;
-                Ok(Value::Null)
-            }
             "window.close" => {
                 self.close_window()?;
                 Ok(Value::Null)
             }
-            "window.startDragging" => Ok(Value::Null),
-            "window.isMaximized" => Ok(json!(self.window_state()?.maximized)),
-            "window.isFullscreen" => Ok(json!(self.window_state()?.fullscreen)),
-            "window.setFullscreen" => {
-                let payload: FullscreenIpcPayload = parse_payload(kind, payload)?;
-                self.set_window_fullscreen(payload.fullscreen)?;
-                Ok(Value::Null)
-            }
-            "webview.setZoom" => {
-                let payload: ZoomIpcPayload = parse_payload(kind, payload)?;
-                if !payload.level.is_finite() || payload.level <= 0.0 {
-                    return Err("Invalid webview zoom level".to_string());
-                }
-                Ok(Value::Null)
-            }
-            other => Err(format!("Unsupported macOS IPC kind: {other}")),
+            other => self.base.dispatch_ipc(other, payload),
         }
     }
 
     pub fn listen(&self, event: impl Into<String>) -> Result<u64, String> {
-        Ok(self.lock_listeners()?.listen(event))
+        Ok(self.base.lock_listeners()?.listen(event))
     }
 
     pub fn listen_with_id(&self, id: u64, event: impl Into<String>) -> Result<(), String> {
-        self.lock_listeners()?.listen_with_id(id, event);
-        Ok(())
+        self.base.listen_with_id(id, event)
     }
 
     pub fn unlisten(&self, id: u64) -> Result<(), String> {
-        self.lock_listeners()?.unlisten(id);
-        Ok(())
+        self.base.unlisten(id)
     }
 
     pub fn emit_window_fullscreen_changed(&self, fullscreen: bool) -> Result<(), String> {
-        self.emit_event(
+        self.base.emit_event(
             "window-fullscreen-changed",
             json!({ "fullscreen": fullscreen }),
         )?;
@@ -512,7 +288,7 @@ where
     }
 
     pub fn emit_window_maximized_changed(&self, maximized: bool) -> Result<(), String> {
-        self.emit_event(
+        self.base.emit_event(
             "window-maximized-changed",
             json!({ "maximized": maximized }),
         )
@@ -527,20 +303,20 @@ where
             AppLifecycleEvent::WindowVisible(visible) => self.set_window_visible(visible)?,
             AppLifecycleEvent::Shutdown => {}
         }
-        self.emit_event(name, payload)
+        self.base.emit_event(name, payload)
     }
 
     pub fn emit_server_started(&self) -> Result<(), String> {
-        self.emit_event(
+        self.base.emit_event(
             "server-started",
-            json!({ "url": self.streaming_server.url() }),
+            json!({ "url": self.streaming_server().url() }),
         )
     }
 
     pub fn emit_server_stopped(&self) -> Result<(), String> {
-        self.emit_event(
+        self.base.emit_event(
             "server-stopped",
-            json!({ "url": self.streaming_server.url() }),
+            json!({ "url": self.streaming_server().url() }),
         )
     }
 
@@ -549,7 +325,7 @@ where
         name: impl Into<String>,
         data: Value,
     ) -> Result<(), String> {
-        self.emit_event(
+        self.base.emit_event(
             SHELL_TRANSPORT_EVENT,
             json!({
                 "type": "mpv-prop-change",
@@ -568,7 +344,7 @@ where
             .and_then(Value::as_str)
             .ok_or_else(|| "Missing macOS native player event type".to_string())?;
         let payload = values.get(1).cloned().unwrap_or(Value::Null);
-        self.emit_event(
+        self.base.emit_event(
             SHELL_TRANSPORT_EVENT,
             json!({
                 "type": event_type,
@@ -577,31 +353,17 @@ where
         )
     }
 
-    pub fn window_state(&self) -> Result<WindowRuntimeState, String> {
-        Ok(self.lock_window_state()?.clone())
-    }
-
-    fn mark_bridge_ready(&self) -> Result<(), String> {
-        self.lock_listeners()?.mark_bridge_ready();
-        Ok(())
-    }
-
-    fn mark_transport_ready(&self) -> Result<(), String> {
-        self.lock_listeners()?.mark_transport_ready();
-        Ok(())
-    }
-
     fn emit_transport_response(&self, message: String) -> Result<(), String> {
-        self.emit_event(SHELL_TRANSPORT_EVENT, json!(message))
+        self.base.emit_event(SHELL_TRANSPORT_EVENT, json!(message))
     }
 
-    fn minimize_window(&self) -> Result<(), String> {
+    pub fn minimize_window(&self) -> Result<(), String> {
         self.set_window_visible(false)
     }
 
-    fn toggle_window_maximize(&self) -> Result<(), String> {
+    pub fn toggle_window_maximize(&self) -> Result<(), String> {
         let maximized = {
-            let mut state = self.lock_window_state()?;
+            let mut state = self.base.bridge.lock_window_state()?;
             state.maximized = !state.maximized;
             state.visible = true;
             state.maximized
@@ -609,7 +371,7 @@ where
         self.emit_window_maximized_changed(maximized)
     }
 
-    fn close_window(&self) -> Result<(), String> {
+    pub fn close_window(&self) -> Result<(), String> {
         let close_to_hide = self.window_state()?.close_to_hide;
         if close_to_hide {
             self.set_window_visible(false)
@@ -618,28 +380,28 @@ where
         }
     }
 
-    fn focus_window(&self) -> Result<(), String> {
+    pub fn focus_window(&self) -> Result<(), String> {
         self.set_window_focus(true)?;
         self.set_window_visible(true)
     }
 
-    fn update_window_focus(&self, focused: bool) -> Result<(), String> {
+    pub fn update_window_focus(&self, focused: bool) -> Result<(), String> {
         self.set_window_focus(focused)
     }
 
-    fn set_window_focus(&self, focused: bool) -> Result<(), String> {
-        self.lock_window_state()?.focused = focused;
+    pub fn set_window_focus(&self, focused: bool) -> Result<(), String> {
+        self.base.bridge.lock_window_state()?.focused = focused;
         Ok(())
     }
 
-    fn set_window_visible(&self, visible: bool) -> Result<(), String> {
-        self.lock_window_state()?.visible = visible;
+    pub fn set_window_visible(&self, visible: bool) -> Result<(), String> {
+        self.base.bridge.lock_window_state()?.visible = visible;
         Ok(())
     }
 
-    fn set_window_fullscreen(&self, fullscreen: bool) -> Result<(), String> {
+    pub fn set_window_fullscreen(&self, fullscreen: bool) -> Result<(), String> {
         let changed = {
-            let mut state = self.lock_window_state()?;
+            let mut state = self.base.bridge.lock_window_state()?;
             let changed = state.fullscreen != fullscreen;
             state.fullscreen = fullscreen;
             state.visible = true;
@@ -652,7 +414,7 @@ where
     }
 
     pub fn emit_drained_player_events(&self) -> Result<(), String> {
-        for event in self.player.drain_events()? {
+        for event in self.player().drain_events()? {
             self.emit_native_player_transport_args(event.transport_args())?;
         }
         Ok(())
@@ -660,108 +422,8 @@ where
 
     pub fn drain_emitted_events(&self) -> Result<Vec<HostEventRecord>, String> {
         self.emit_drained_player_events()?;
-        Ok(self.lock_listeners()?.drain_emitted())
+        self.base.drain_emitted_events()
     }
-
-    fn emit_event(&self, event: impl Into<String>, payload: Value) -> Result<(), String> {
-        self.lock_listeners()?.emit(event, payload);
-        Ok(())
-    }
-}
-
-#[derive(Debug, Deserialize)]
-struct InvokeIpcPayload {
-    command: String,
-    payload: Option<Value>,
-}
-
-#[derive(Debug, Deserialize)]
-struct ListenIpcPayload {
-    id: u64,
-    event: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct UnlistenIpcPayload {
-    id: u64,
-}
-
-#[derive(Debug, Deserialize)]
-struct FullscreenIpcPayload {
-    fullscreen: bool,
-}
-
-#[derive(Debug, Deserialize)]
-struct ZoomIpcPayload {
-    level: f64,
-}
-
-#[derive(Debug, Deserialize)]
-struct DownloadModPayload {
-    url: String,
-    #[serde(rename = "type")]
-    mod_type: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct ModFilePayload {
-    filename: String,
-    #[serde(rename = "type")]
-    mod_type: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct ModTypePayload {
-    #[serde(rename = "type")]
-    mod_type: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct SettingKeyPayload {
-    #[serde(rename = "pluginName")]
-    plugin_name: String,
-    key: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct SaveSettingPayload {
-    #[serde(rename = "pluginName")]
-    plugin_name: String,
-    key: String,
-    value: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct RegisterSettingsPayload {
-    #[serde(rename = "pluginName")]
-    plugin_name: String,
-    schema: String,
-}
-
-fn get_async_runtime() -> &'static tokio::runtime::Runtime {
-    static TOKIO_RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
-    TOKIO_RUNTIME.get_or_init(|| {
-        tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .expect("Failed to create macOS async runtime")
-    })
-}
-
-fn parse_payload<T>(label: &str, payload: Option<Value>) -> Result<T, String>
-where
-    T: for<'de> Deserialize<'de>,
-{
-    serde_json::from_value(payload.unwrap_or(Value::Null))
-        .map_err(|e| format!("Invalid macOS IPC payload for {label}: {e}"))
-}
-
-fn parse_optional_bool(payload: Option<Value>) -> Option<bool> {
-    let value = payload?;
-    value
-        .as_bool()
-        .or_else(|| value.get("enabled").and_then(Value::as_bool))
-        .or_else(|| value.get("value").and_then(Value::as_bool))
 }
 
 fn default_app_data_dir() -> PathBuf {
@@ -808,6 +470,7 @@ mod tests {
     use super::*;
     use crate::player::FakePlayerBackend;
     use crate::streaming_server::{FakeProcessSpawner, StreamingServer};
+    use stremio_lightning_core::mods;
     use std::fs;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -856,7 +519,7 @@ mod tests {
         let error = host
             .dispatch_ipc("listen", Some(json!({"id": 1})))
             .unwrap_err();
-        assert!(error.contains("Invalid macOS IPC payload for listen"));
+        assert!(error.contains("Invalid listen payload:"));
     }
 
     #[test]
@@ -869,7 +532,7 @@ mod tests {
         );
         assert_eq!(
             host.dispatch_ipc("unknown.kind", None).unwrap_err(),
-            "Unsupported macOS IPC kind: unknown.kind"
+            "Unsupported IPC kind: unknown.kind"
         );
     }
 
@@ -914,16 +577,17 @@ mod tests {
         assert_eq!(plugins[0]["metadata"]["name"], "Cinema");
 
         let content = host
+            .base
             .invoke(
                 "get_mod_content",
-                Some(json!({"filename": "cinema.plugin.js", "type": "plugin"})),
+                Some(json!({"filename": "cinema.plugin.js", "modType": "plugin"})),
             )
             .unwrap();
         assert!(content.as_str().unwrap().contains("window.__cinema"));
 
         host.invoke(
             "delete_mod",
-            Some(json!({"filename": "cinema.plugin.js", "type": "plugin"})),
+            Some(json!({"filename": "cinema.plugin.js", "modType": "plugin"})),
         )
         .unwrap();
         assert!(host
@@ -948,7 +612,7 @@ mod tests {
         assert_eq!(
             host.invoke(
                 "get_setting",
-                Some(json!({"pluginName": "cinema", "key": "enabled"})),
+                Some(json!({"pluginName": "cinema", "key": "enabled"}))
             )
             .unwrap(),
             json!(true)
@@ -1022,9 +686,10 @@ mod tests {
             "night.theme.css"
         );
         assert!(host
+            .base
             .invoke(
                 "get_mod_content",
-                Some(json!({"filename": "night.theme.css", "type": "theme"})),
+                Some(json!({"filename": "night.theme.css", "modType": "theme"})),
             )
             .unwrap()
             .as_str()

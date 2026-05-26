@@ -2,66 +2,81 @@ use crate::player::{
     handle_transport, serialize_ended, serialize_property_change, NativePlayerStatus, PlayerBackend,
 };
 use crate::streaming_server::{ProcessSpawner, StreamingServer};
-use serde::Deserialize;
 use serde_json::{json, Value};
-use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
-use stremio_lightning_core::host_api::{self, HostEvent, ParsedRequest};
+use stremio_lightning_core::host_api::{self, BaseHost, HostEvent, HostEventRecord, PlatformBridge};
+pub use stremio_lightning_core::host_api::SHELL_TRANSPORT_EVENT;
 use stremio_lightning_core::pip::{
     serialize_picture_in_picture, PipRestoreSnapshot, PipState, PipWindowController,
 };
-use stremio_lightning_core::{app_update, mods, settings};
 
-pub const SHELL_TRANSPORT_EVENT: &str = "shell-transport-message";
-const MAX_PENDING_MESSAGES: usize = 512;
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct HostEventRecord {
-    pub event: String,
-    pub payload: Value,
+pub struct LinuxBridge<B, P>
+where
+    B: PlayerBackend,
+    P: ProcessSpawner,
+{
+    pub player: B,
+    pub streaming_server: StreamingServer<P>,
+    pub pip_state: PipState,
 }
 
-#[derive(Debug, Default)]
-struct ListenerRegistry {
-    next_id: u64,
-    listeners: HashMap<u64, String>,
-    emitted: Vec<HostEventRecord>,
-}
-
-impl ListenerRegistry {
-    fn listen(&mut self, event: impl Into<String>) -> u64 {
-        self.next_id += 1;
-        self.listeners.insert(self.next_id, event.into());
-        self.next_id
+impl<B, P> PlatformBridge for LinuxBridge<B, P>
+where
+    B: PlayerBackend,
+    P: ProcessSpawner,
+{
+    fn platform_name(&self) -> &'static str {
+        "linux"
     }
 
-    fn listen_with_id(&mut self, id: u64, event: impl Into<String>) {
-        self.next_id = self.next_id.max(id);
-        self.listeners.insert(id, event.into());
+    fn shell_name(&self) -> &'static str {
+        ""
     }
 
-    fn unlisten(&mut self, id: u64) {
-        self.listeners.remove(&id);
+    fn native_player_status(&self) -> Value {
+        serde_json::to_value(self.player.status()).unwrap_or(Value::Null)
     }
 
-    fn emit(&mut self, event: impl Into<String>, payload: Value) {
-        let event = event.into();
-        if self.listeners.values().any(|listener| listener == &event) {
-            self.emitted.push(HostEventRecord { event, payload });
+    fn is_streaming_server_running(&self) -> bool {
+        self.streaming_server.is_running()
+    }
+
+    fn toggle_picture_in_picture(&self) -> Result<bool, String> {
+        let enabled = !self.pip_state.is_enabled()?;
+        self.pip_state.set_mode(enabled, None)?;
+        Ok(enabled)
+    }
+
+    fn is_pip_enabled(&self) -> Result<bool, String> {
+        self.pip_state.is_enabled()
+    }
+
+    fn open_external_url(&self, url: &str) -> Result<(), String> {
+        validate_external_url(url)?;
+        Ok(())
+    }
+
+    fn start_streaming_server(&self) -> Result<(), String> {
+        self.streaming_server.start()
+    }
+
+    fn stop_streaming_server(&self) -> Result<(), String> {
+        self.streaming_server.stop()
+    }
+
+    fn restart_streaming_server(&self) -> Result<(), String> {
+        self.streaming_server.restart()
+    }
+
+    fn handle_custom_transport(&self, method: &str, data: Option<Value>) -> Result<(), String> {
+        match method {
+            "mpv-observe-prop" | "mpv-set-prop" | "mpv-command" | "native-player-stop" => {
+                handle_transport(&self.player, method, data)?;
+                Ok(())
+            }
+            _ => Ok(()),
         }
     }
-
-    fn drain_emitted(&mut self) -> Vec<HostEventRecord> {
-        std::mem::take(&mut self.emitted)
-    }
-}
-
-#[derive(Debug, Default)]
-struct TransportQueue {
-    bridge_ready: bool,
-    transport_ready: bool,
-    pending: VecDeque<String>,
 }
 
 pub struct LinuxHost<B, P>
@@ -69,13 +84,7 @@ where
     B: PlayerBackend,
     P: ProcessSpawner,
 {
-    player: B,
-    streaming_server: StreamingServer<P>,
-    app_data_dir: PathBuf,
-    settings: settings::SettingsState,
-    listeners: Mutex<ListenerRegistry>,
-    transport: Mutex<TransportQueue>,
-    pip_state: PipState,
+    pub base: BaseHost<LinuxBridge<B, P>>,
 }
 
 pub type Host<B, P> = LinuxHost<B, P>;
@@ -85,18 +94,6 @@ where
     B: PlayerBackend,
     P: ProcessSpawner,
 {
-    fn lock_listeners(&self) -> Result<std::sync::MutexGuard<'_, ListenerRegistry>, String> {
-        self.listeners
-            .lock()
-            .map_err(|e| format!("Linux listeners lock poisoned: {e}"))
-    }
-
-    fn lock_transport(&self) -> Result<std::sync::MutexGuard<'_, TransportQueue>, String> {
-        self.transport
-            .lock()
-            .map_err(|e| format!("Linux transport lock poisoned: {e}"))
-    }
-
     pub fn new(player: B, streaming_server: StreamingServer<P>) -> Self {
         Self::with_app_data_dir(player, streaming_server, default_app_data_dir())
     }
@@ -106,263 +103,77 @@ where
         streaming_server: StreamingServer<P>,
         app_data_dir: impl Into<PathBuf>,
     ) -> Self {
-        Self {
+        let bridge = LinuxBridge {
             player,
             streaming_server,
-            app_data_dir: app_data_dir.into(),
-            settings: settings::SettingsState::default(),
-            listeners: Mutex::default(),
-            transport: Mutex::default(),
             pip_state: PipState::new(),
+        };
+        Self {
+            base: BaseHost::new(bridge, app_data_dir.into(), env!("CARGO_PKG_VERSION")),
         }
     }
 
-    pub fn invoke(&self, command: &str, payload: Option<Value>) -> Result<Value, String> {
-        match command {
-            "download_mod" | "get_registry" | "check_mod_updates" | "check_app_update" => {
-                let runtime = get_async_runtime();
-                runtime.block_on(self.invoke_async(command, payload))
-            }
-            _ => self.invoke_sync(command, payload),
-        }
+    pub fn player(&self) -> &B {
+        &self.base.bridge.player
+    }
+
+    pub fn streaming_server(&self) -> &StreamingServer<P> {
+        &self.base.bridge.streaming_server
+    }
+
+    pub fn pip_state(&self) -> &PipState {
+        &self.base.bridge.pip_state
     }
 
     pub fn start_streaming_server(&self) -> Result<(), String> {
-        self.streaming_server.start()?;
+        self.streaming_server().start()?;
         self.emit_server_started()?;
         Ok(())
     }
 
     pub fn shutdown(&self) -> Result<(), String> {
-        self.player.stop().ok();
-        self.streaming_server.stop()
+        self.player().stop().ok();
+        self.streaming_server().stop()
     }
 
     pub fn dispatch_ipc(&self, kind: &str, payload: Option<Value>) -> Result<Value, String> {
-        match kind {
-            "invoke" => {
-                let payload: InvokeIpcPayload = parse_payload(kind, payload)?;
-                self.invoke(&payload.command, payload.payload)
-            }
-            "listen" => {
-                let payload: ListenIpcPayload = parse_payload(kind, payload)?;
-                self.listen_with_id(payload.id, payload.event)?;
-                Ok(Value::Null)
-            }
-            "unlisten" => {
-                let payload: UnlistenIpcPayload = parse_payload(kind, payload)?;
-                self.unlisten(payload.id)?;
-                Ok(Value::Null)
-            }
-            "window.minimize"
-            | "window.toggleMaximize"
-            | "window.close"
-            | "window.startDragging" => Ok(Value::Null),
-            "window.isMaximized" | "window.isFullscreen" => Ok(json!(false)),
-            "window.setFullscreen" => {
-                let payload: FullscreenIpcPayload = parse_payload(kind, payload)?;
-                self.emit_window_fullscreen_changed(payload.fullscreen)?;
-                Ok(Value::Null)
-            }
-            "webview.setZoom" => {
-                let payload: ZoomIpcPayload = parse_payload(kind, payload)?;
-                if !payload.level.is_finite() || payload.level <= 0.0 {
-                    return Err("Invalid webview zoom level".to_string());
-                }
-                Ok(Value::Null)
-            }
-            other => Err(format!("Unsupported Linux IPC kind: {other}")),
-        }
+        self.base.dispatch_ipc(kind, payload)
     }
 
     pub fn dispatch_linux_ipc(&self, kind: &str, payload: Option<Value>) -> Result<Value, String> {
         self.dispatch_ipc(kind, payload)
     }
 
-    pub async fn invoke_async(
-        &self,
-        command: &str,
-        payload: Option<Value>,
-    ) -> Result<Value, String> {
-        match command {
-            "download_mod" => {
-                let payload: DownloadModPayload = parse_payload(command, payload)?;
-                let mod_type = payload.mod_type.parse()?;
-                let filename =
-                    mods::download_mod(&self.app_data_dir, &payload.url, mod_type).await?;
-                Ok(json!(filename))
-            }
-            "get_registry" => Ok(serde_json::to_value(mods::fetch_registry().await?)
-                .map_err(|e| format!("Failed to serialize registry: {e}"))?),
-            "check_mod_updates" => {
-                let payload: ModTypePayload = parse_payload(command, payload)?;
-                let mod_type = payload.mod_type.parse()?;
-                Ok(serde_json::to_value(
-                    mods::check_mod_updates(&self.app_data_dir, mod_type).await?,
-                )
-                .map_err(|e| format!("Failed to serialize update info: {e}"))?)
-            }
-            "check_app_update" => Ok(serde_json::to_value(
-                app_update::check_app_update(env!("CARGO_PKG_VERSION")).await?,
-            )
-            .map_err(|e| format!("Failed to serialize app update info: {e}"))?),
-            _ => self.invoke_sync(command, payload),
-        }
-    }
-
-    fn invoke_sync(&self, command: &str, payload: Option<Value>) -> Result<Value, String> {
-        match command {
-            "init" => Ok(json!({
-                "platform": "linux",
-                "shellVersion": env!("CARGO_PKG_VERSION"),
-                "nativePlayer": self.native_player_status(),
-                "streamingServerRunning": self.streaming_server.is_running(),
-            })),
-            "open_external_url" => {
-                let url = payload
-                    .as_ref()
-                    .and_then(|value| value.get("url"))
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| "Missing open_external_url url".to_string())?;
-                validate_external_url(url)?;
-                Ok(Value::Null)
-            }
-            "start_streaming_server" => {
-                self.start_streaming_server()?;
-                Ok(Value::Null)
-            }
-            "stop_streaming_server" => {
-                self.streaming_server.stop()?;
-                self.emit_server_stopped()?;
-                Ok(Value::Null)
-            }
-            "restart_streaming_server" => {
-                let was_running = self.streaming_server.is_running();
-                self.streaming_server.restart()?;
-                if was_running {
-                    self.emit_server_stopped()?;
-                }
-                self.emit_server_started()?;
-                Ok(Value::Null)
-            }
-            "get_streaming_server_status" => Ok(json!(self.streaming_server.is_running())),
-            "shell_transport_send" => {
-                let message = payload
-                    .as_ref()
-                    .and_then(|value| value.get("message"))
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| "Missing shell_transport_send message".to_string())?;
-                self.handle_shell_transport_message(message)?;
-                Ok(Value::Null)
-            }
-            "shell_bridge_ready" => {
-                self.mark_bridge_ready()?;
-                Ok(Value::Null)
-            }
-            "get_native_player_status" => Ok(serde_json::to_value(self.native_player_status())
-                .map_err(|e| format!("Failed to serialize player status: {e}"))?),
-            "get_plugins" => Ok(serde_json::to_value(mods::list_mods(
-                &self.app_data_dir,
-                mods::ModType::Plugin,
-            )?)
-            .map_err(|e| format!("Failed to serialize plugins: {e}"))?),
-            "get_themes" => Ok(serde_json::to_value(mods::list_mods(
-                &self.app_data_dir,
-                mods::ModType::Theme,
-            )?)
-            .map_err(|e| format!("Failed to serialize themes: {e}"))?),
-            "delete_mod" => {
-                let payload: ModFilePayload = parse_payload(command, payload)?;
-                let mod_type = payload.mod_type.parse()?;
-                mods::delete_mod(&self.app_data_dir, &payload.filename, mod_type)?;
-                Ok(Value::Null)
-            }
-            "get_mod_content" => {
-                let payload: ModFilePayload = parse_payload(command, payload)?;
-                let mod_type = payload.mod_type.parse()?;
-                Ok(json!(mods::read_mod_content(
-                    &self.app_data_dir,
-                    &payload.filename,
-                    mod_type
-                )?))
-            }
-            "get_setting" => {
-                let payload: SettingKeyPayload = parse_payload(command, payload)?;
-                Ok(settings::get_setting(
-                    &mods::mods_dir(&self.app_data_dir, mods::ModType::Plugin),
-                    &payload.plugin_name,
-                    &payload.key,
-                )?)
-            }
-            "save_setting" => {
-                let payload: SaveSettingPayload = parse_payload(command, payload)?;
-                let value = serde_json::from_str::<Value>(&payload.value)
-                    .unwrap_or(Value::String(payload.value));
-                let plugins_dir = mods::mods_dir(&self.app_data_dir, mods::ModType::Plugin);
-                std::fs::create_dir_all(&plugins_dir)
-                    .map_err(|e| format!("Failed to create plugins dir: {e}"))?;
-                let _guard = self
-                    .settings
-                    .settings_lock
-                    .lock()
-                    .map_err(|e| e.to_string())?;
-                settings::save_setting(&plugins_dir, &payload.plugin_name, &payload.key, value)?;
-                Ok(Value::Null)
-            }
-            "register_settings" => {
-                let payload: RegisterSettingsPayload = parse_payload(command, payload)?;
-                mods::validate_filename(&payload.plugin_name)?;
-                let schema = serde_json::from_str::<Value>(&payload.schema)
-                    .map_err(|e| format!("Failed to parse settings schema: {e}"))?;
-                settings::register_settings(
-                    &self.settings.registered_schemas,
-                    payload.plugin_name,
-                    schema,
-                )?;
-                Ok(Value::Null)
-            }
-            "get_registered_settings" => {
-                settings::get_registered_settings(&self.settings.registered_schemas)
-            }
-            "toggle_pip" => {
-                let enabled = !self.pip_state.is_enabled()?;
-                self.set_picture_in_picture(enabled, None)?;
-                Ok(json!(enabled))
-            }
-            "toggle_pip_mode" | "toggle_devtools" => Ok(Value::Null),
-            "get_pip_mode" => Ok(json!(self.pip_state.is_enabled()?)),
-            other => Err(format!("Unsupported Linux host command: {other}")),
-        }
+    pub fn invoke(&self, command: &str, payload: Option<Value>) -> Result<Value, String> {
+        self.base.invoke(command, payload)
     }
 
     pub fn listen(&self, event: impl Into<String>) -> Result<u64, String> {
-        Ok(self.lock_listeners()?.listen(event))
+        Ok(self.base.lock_listeners()?.listen(event))
     }
 
     pub fn listen_with_id(&self, id: u64, event: impl Into<String>) -> Result<(), String> {
-        self.lock_listeners()?.listen_with_id(id, event);
-        Ok(())
+        self.base.listen_with_id(id, event)
     }
 
     pub fn unlisten(&self, id: u64) -> Result<(), String> {
-        self.lock_listeners()?.unlisten(id);
-        Ok(())
+        self.base.unlisten(id)
     }
 
     pub fn emitted_events(&self) -> Result<Vec<HostEventRecord>, String> {
-        Ok(self.lock_listeners()?.emitted.clone())
+        Ok(self.base.lock_listeners()?.emitted.clone())
     }
 
     pub fn drain_emitted_events(&self) -> Result<Vec<HostEventRecord>, String> {
-        Ok(self.lock_listeners()?.drain_emitted())
+        self.base.drain_emitted_events()
     }
 
     pub fn native_player_status(&self) -> NativePlayerStatus {
-        self.player.status()
+        self.player().status()
     }
 
     pub fn emit_transport_event(&self, args: Value) -> Result<(), String> {
-        self.queue_transport_message(host_api::response_message(args))
+        self.base.queue_transport_message(host_api::response_message(args))
     }
 
     pub fn emit_native_player_property_changed(
@@ -382,7 +193,7 @@ where
         enabled: bool,
         snapshot: Option<PipRestoreSnapshot>,
     ) -> Result<(), String> {
-        self.pip_state.set_mode(enabled, snapshot)?;
+        self.pip_state().set_mode(enabled, snapshot)?;
         self.emit_transport_event(serialize_picture_in_picture(enabled))
     }
 
@@ -390,7 +201,7 @@ where
         &self,
         controller: &mut impl PipWindowController,
     ) -> Result<bool, String> {
-        let enabled = self.pip_state.toggle_window_pip(controller)?;
+        let enabled = self.pip_state().toggle_window_pip(controller)?;
         self.emit_transport_event(serialize_picture_in_picture(enabled))?;
         Ok(enabled)
     }
@@ -399,7 +210,7 @@ where
         &self,
         controller: &mut impl PipWindowController,
     ) -> Result<bool, String> {
-        let changed = self.pip_state.exit_window_pip(controller)?;
+        let changed = self.pip_state().exit_window_pip(controller)?;
         self.emit_picture_in_picture_exit(changed)
     }
 
@@ -418,190 +229,21 @@ where
     }
 
     pub fn emit_window_maximized_changed(&self, maximized: bool) -> Result<(), String> {
-        self.emit_host_event(HostEvent::WindowMaximizedChanged, json!(maximized))
+        self.base.emit_host_event(HostEvent::WindowMaximizedChanged, json!(maximized))
     }
 
     pub fn emit_window_fullscreen_changed(&self, fullscreen: bool) -> Result<(), String> {
-        self.emit_host_event(HostEvent::WindowFullscreenChanged, json!(fullscreen))?;
-        self.emit_transport_event(host_api::serialize_window_visibility(true, fullscreen))
+        self.base.emit_host_event(HostEvent::WindowFullscreenChanged, json!(fullscreen))?;
+        self.base.emit_transport_message(host_api::response_message(host_api::serialize_window_visibility(true, fullscreen)))
     }
 
-    fn emit_server_started(&self) -> Result<(), String> {
-        self.emit_host_event(HostEvent::ServerStarted, Value::Null)
+    pub fn emit_server_started(&self) -> Result<(), String> {
+        self.base.emit_host_event(HostEvent::ServerStarted, Value::Null)
     }
 
-    fn emit_server_stopped(&self) -> Result<(), String> {
-        self.emit_host_event(HostEvent::ServerStopped, Value::Null)
+    pub fn emit_server_stopped(&self) -> Result<(), String> {
+        self.base.emit_host_event(HostEvent::ServerStopped, Value::Null)
     }
-
-    fn handle_shell_transport_message(&self, message: &str) -> Result<(), String> {
-        match host_api::parse_request(message)? {
-            ParsedRequest::Handshake => self.emit_transport_message_now(
-                host_api::handshake_response(env!("CARGO_PKG_VERSION")),
-            ),
-            ParsedRequest::Command { method, data } => match method.as_str() {
-                "app-ready" => {
-                    self.mark_transport_ready()?;
-                    self.flush_pending_transport_messages()
-                }
-                "app-error" => {
-                    self.mark_transport_ready()?;
-                    Ok(())
-                }
-                "mpv-observe-prop" | "mpv-set-prop" | "mpv-command" | "native-player-stop" => {
-                    handle_transport(&self.player, &method, data)
-                }
-                other => Err(format!("Unsupported shell transport method: {other}")),
-            },
-        }
-    }
-
-    fn mark_bridge_ready(&self) -> Result<(), String> {
-        self.lock_transport()?.bridge_ready = true;
-        Ok(())
-    }
-
-    fn mark_transport_ready(&self) -> Result<(), String> {
-        self.lock_transport()?.transport_ready = true;
-        Ok(())
-    }
-
-    fn queue_transport_message(&self, message: String) -> Result<(), String> {
-        let mut transport = self.lock_transport()?;
-        if transport.bridge_ready && transport.transport_ready {
-            drop(transport);
-            self.emit_transport_message(message)
-        } else {
-            if transport.pending.len() >= MAX_PENDING_MESSAGES {
-                transport.pending.pop_front();
-            }
-            transport.pending.push_back(message);
-            Ok(())
-        }
-    }
-
-    fn flush_pending_transport_messages(&self) -> Result<(), String> {
-        let mut transport = self.lock_transport()?;
-        if !transport.bridge_ready || !transport.transport_ready {
-            return Ok(());
-        }
-        let messages: Vec<String> = transport.pending.drain(..).collect();
-        drop(transport);
-
-        for message in messages {
-            self.emit_transport_message(message)?;
-        }
-        Ok(())
-    }
-
-    fn emit_transport_message_now(&self, message: String) -> Result<(), String> {
-        self.emit_transport_message(message)
-    }
-
-    fn emit_transport_message(&self, message: String) -> Result<(), String> {
-        self.emit_event(SHELL_TRANSPORT_EVENT, json!(message))
-    }
-
-    fn emit_host_event(&self, event: HostEvent, payload: Value) -> Result<(), String> {
-        let event = serde_json::to_value(event)
-            .map_err(|e| format!("Failed to serialize host event: {e}"))?
-            .as_str()
-            .ok_or_else(|| "Host event did not serialize to a string".to_string())?
-            .to_string();
-        self.emit_event(event, payload)
-    }
-
-    fn emit_event(&self, event: impl Into<String>, payload: Value) -> Result<(), String> {
-        self.lock_listeners()?.emit(event, payload);
-        Ok(())
-    }
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct DownloadModPayload {
-    url: String,
-    mod_type: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ModFilePayload {
-    filename: String,
-    mod_type: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ModTypePayload {
-    mod_type: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct SettingKeyPayload {
-    plugin_name: String,
-    key: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct SaveSettingPayload {
-    plugin_name: String,
-    key: String,
-    value: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct RegisterSettingsPayload {
-    plugin_name: String,
-    schema: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct InvokeIpcPayload {
-    command: String,
-    payload: Option<Value>,
-}
-
-#[derive(Debug, Deserialize)]
-struct ListenIpcPayload {
-    id: u64,
-    event: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct UnlistenIpcPayload {
-    id: u64,
-}
-
-#[derive(Debug, Deserialize)]
-struct FullscreenIpcPayload {
-    fullscreen: bool,
-}
-
-#[derive(Debug, Deserialize)]
-struct ZoomIpcPayload {
-    level: f64,
-}
-
-fn get_async_runtime() -> &'static tokio::runtime::Runtime {
-    static TOKIO_RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
-    TOKIO_RUNTIME.get_or_init(|| {
-        tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .expect("Failed to create Linux async runtime")
-    })
-}
-
-fn parse_payload<T>(command: &str, payload: Option<Value>) -> Result<T, String>
-where
-    T: for<'de> Deserialize<'de>,
-{
-    serde_json::from_value(payload.unwrap_or(Value::Null))
-        .map_err(|e| format!("Invalid {command} payload: {e}"))
 }
 
 fn default_app_data_dir() -> PathBuf {
@@ -635,8 +277,9 @@ fn validate_external_url(url: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::player::{FakePlayerBackend, PlayerAction};
+    use crate::player::FakePlayerBackend;
     use crate::streaming_server::FakeProcessSpawner;
+    use stremio_lightning_core::mods;
     use serde_json::json;
     use std::fs;
     use std::path::PathBuf;
@@ -777,6 +420,7 @@ console.log("sample");"#,
         assert_eq!(themes[0]["mod_type"], "theme");
 
         let content = host
+            .base
             .invoke(
                 "get_mod_content",
                 Some(json!({"filename": "sample.plugin.js", "modType": "plugin"})),
@@ -789,7 +433,7 @@ console.log("sample");"#,
             Some(json!({"filename": "sample.plugin.js", "modType": "plugin"})),
         )
         .unwrap();
-        assert_eq!(host.invoke("get_plugins", None).unwrap(), json!([]));
+        assert_eq!(host.base.invoke("get_plugins", None).unwrap(), json!([]));
         assert!(!mods::mods_dir(&root, mods::ModType::Plugin)
             .join("sample.plugin.json")
             .exists());
@@ -799,6 +443,7 @@ console.log("sample");"#,
     fn rejects_invalid_mod_payloads() {
         let (host, _player, _spawner) = host();
         let traversal = host
+            .base
             .invoke(
                 "get_mod_content",
                 Some(json!({"filename": "../evil.plugin.js", "modType": "plugin"})),
@@ -814,7 +459,7 @@ console.log("sample");"#,
             .unwrap_err();
         assert!(invalid_type.contains("Unknown mod type"));
 
-        let download_error = block_on(host.invoke_async(
+        let download_error = block_on(host.base.invoke_async(
             "download_mod",
             Some(json!({"url": "https://example.test/evil.theme.css", "modType": "plugin"})),
         ))
@@ -824,7 +469,8 @@ console.log("sample");"#,
 
     #[test]
     fn plugin_settings_round_trip_and_validate() {
-        let (host, _player, _spawner) = host();
+        let root = temp_dir("settings-contract");
+        let (host, _player, _spawner) = host_with_app_data(root.clone());
 
         host.invoke(
             "register_settings",
@@ -853,7 +499,7 @@ console.log("sample");"#,
             json!(true)
         );
 
-        host.invoke(
+        host.base.invoke(
             "save_setting",
             Some(json!({"pluginName": "sample", "key": "mode", "value": "plain text"})),
         )
@@ -874,173 +520,5 @@ console.log("sample");"#,
             )
             .unwrap_err();
         assert!(invalid_schema.contains("Failed to parse settings schema"));
-    }
-
-    #[test]
-    fn rejects_unsupported_command() {
-        let (host, _player, _spawner) = host();
-        let error = host.invoke("unknown_command", None).unwrap_err();
-        assert!(error.contains("Unsupported Linux host command"));
-    }
-
-    #[test]
-    fn queues_shell_transport_events_until_bridge_and_app_ready() {
-        let (host, _player, _spawner) = host();
-        host.listen(SHELL_TRANSPORT_EVENT).unwrap();
-
-        host.emit_native_player_property_changed("pause", json!(true))
-            .unwrap();
-        assert!(host.emitted_events().unwrap().is_empty());
-
-        host.invoke("shell_bridge_ready", None).unwrap();
-        assert!(host.emitted_events().unwrap().is_empty());
-
-        host.invoke(
-            "shell_transport_send",
-            Some(json!({"message": r#"{"id":1,"type":6,"args":["app-ready"]}"#})),
-        )
-        .unwrap();
-
-        let events = host.emitted_events().unwrap();
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].event, SHELL_TRANSPORT_EVENT);
-        assert!(events[0]
-            .payload
-            .as_str()
-            .unwrap()
-            .contains("mpv-prop-change"));
-    }
-
-    #[test]
-    fn dispatches_linux_js_ipc_roundtrip() {
-        let (host, _player, _spawner) = host();
-
-        assert_eq!(
-            host.dispatch_linux_ipc(
-                "invoke",
-                Some(json!({"command": "get_streaming_server_status"})),
-            )
-            .unwrap(),
-            json!(false)
-        );
-
-        host.dispatch_linux_ipc(
-            "listen",
-            Some(json!({"id": 77, "event": SHELL_TRANSPORT_EVENT})),
-        )
-        .unwrap();
-        host.dispatch_linux_ipc("invoke", Some(json!({"command": "shell_bridge_ready"})))
-            .unwrap();
-        host.emit_native_player_property_changed("pause", json!(true))
-            .unwrap();
-        host.dispatch_linux_ipc(
-            "invoke",
-            Some(json!({
-                "command": "shell_transport_send",
-                "payload": {"message": r#"{"id":1,"type":6,"args":["app-ready"]}"#}
-            })),
-        )
-        .unwrap();
-
-        assert_eq!(host.emitted_events().unwrap().len(), 1);
-        host.dispatch_linux_ipc("unlisten", Some(json!({"id": 77})))
-            .unwrap();
-        let _ = host.drain_emitted_events().unwrap();
-        host.emit_native_player_property_changed("pause", json!(false))
-            .unwrap();
-        assert!(host.emitted_events().unwrap().is_empty());
-    }
-
-    #[test]
-    fn emits_window_and_native_player_lifecycle_events() {
-        let (host, _player, _spawner) = host();
-        host.listen("window-maximized-changed").unwrap();
-        host.listen("window-fullscreen-changed").unwrap();
-        host.listen(SHELL_TRANSPORT_EVENT).unwrap();
-
-        host.emit_window_maximized_changed(true).unwrap();
-        host.emit_window_fullscreen_changed(false).unwrap();
-        host.invoke("shell_bridge_ready", None).unwrap();
-        host.invoke(
-            "shell_transport_send",
-            Some(json!({"message": r#"{"id":1,"type":6,"args":["app-ready"]}"#})),
-        )
-        .unwrap();
-        host.emit_native_player_ended("eof").unwrap();
-
-        let events = host.emitted_events().unwrap();
-        assert_eq!(events[0].event, "window-maximized-changed");
-        assert_eq!(events[0].payload, json!(true));
-        assert_eq!(events[1].event, "window-fullscreen-changed");
-        assert_eq!(events[1].payload, json!(false));
-        assert!(events[2]
-            .payload
-            .as_str()
-            .unwrap()
-            .contains("win-visibility-changed"));
-        assert!(events[3]
-            .payload
-            .as_str()
-            .unwrap()
-            .contains("mpv-event-ended"));
-    }
-
-    #[test]
-    fn shell_transport_maps_player_commands() {
-        let (host, player, _spawner) = host();
-        host.invoke(
-            "shell_transport_send",
-            Some(json!({"message": r#"{"id":7,"type":6,"args":["mpv-command",["loadfile","file:///tmp/a.mp4","replace"]]}"#})),
-        )
-        .unwrap();
-
-        assert_eq!(
-            player.actions(),
-            vec![PlayerAction::Command {
-                name: "loadfile".to_string(),
-                args: vec!["file:///tmp/a.mp4".to_string(), "replace".to_string()],
-            }]
-        );
-    }
-
-    #[test]
-    fn toggle_pip_emits_picture_in_picture_events() {
-        let (host, _player, _spawner) = host();
-        host.listen(SHELL_TRANSPORT_EVENT).unwrap();
-        host.invoke("shell_bridge_ready", None).unwrap();
-        host.invoke(
-            "shell_transport_send",
-            Some(json!({"message": r#"{"id":1,"type":6,"args":["app-ready"]}"#})),
-        )
-        .unwrap();
-
-        host.invoke("toggle_pip", None).unwrap();
-        assert_eq!(host.invoke("get_pip_mode", None).unwrap(), json!(true));
-        host.invoke("toggle_pip", None).unwrap();
-        assert_eq!(host.invoke("get_pip_mode", None).unwrap(), json!(false));
-
-        let events = host.emitted_events().unwrap();
-        assert!(events[0]
-            .payload
-            .as_str()
-            .unwrap()
-            .contains("showPictureInPicture"));
-        assert!(events[1]
-            .payload
-            .as_str()
-            .unwrap()
-            .contains("hidePictureInPicture"));
-    }
-
-    #[test]
-    fn shell_transport_reports_unsupported_methods() {
-        let (host, _player, _spawner) = host();
-        let error = host
-            .invoke(
-                "shell_transport_send",
-                Some(json!({"message": r#"{"id":7,"type":6,"args":["unknown-method"]}"#})),
-            )
-            .unwrap_err();
-        assert!(error.contains("Unsupported shell transport method"));
     }
 }
