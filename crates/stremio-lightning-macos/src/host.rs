@@ -75,6 +75,10 @@ where
         self.pip_state.is_enabled()
     }
 
+    fn set_pip_size(&self, width: i32, height: i32) -> Result<(), String> {
+        self.pip_state.set_size(width, height)
+    }
+
     fn open_external_url(&self, url: &str) -> Result<(), String> {
         validate_external_url(url)?;
         open_external_url(url)?;

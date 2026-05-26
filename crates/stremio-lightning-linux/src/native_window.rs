@@ -20,9 +20,7 @@ use std::rc::Rc;
 use std::sync::mpsc;
 use std::sync::OnceLock;
 use std::time::Duration;
-use stremio_lightning_core::pip::{
-    PipRestoreSnapshot, PipWindowController, PIP_WINDOW_HEIGHT, PIP_WINDOW_WIDTH,
-};
+use stremio_lightning_core::pip::{PipRestoreSnapshot, PipWindowController};
 use webkit::prelude::*;
 use webkit::{
     NavigationPolicyDecision, PolicyDecisionType, UserContentInjectedFrames, UserScript,
@@ -754,16 +752,16 @@ struct NativeWindowController<'a> {
 }
 
 impl PipWindowController for NativeWindowController<'_> {
-    fn enter_pip(&mut self) -> Result<PipRestoreSnapshot, String> {
+    fn enter_pip(&mut self, width: i32, height: i32) -> Result<PipRestoreSnapshot, String> {
         let was_fullscreen = self.fullscreen.get();
         let saved_size = if was_fullscreen {
             LAST_NORMAL_SIZE
                 .with(|cell| *cell.borrow())
                 .or(Some((DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)))
         } else {
-            let width = self.window.width();
-            let height = self.window.height();
-            (width > 0 && height > 0).then_some((width, height))
+            let curr_w = self.window.width();
+            let curr_h = self.window.height();
+            (curr_w > 0 && curr_h > 0).then_some((curr_w, curr_h))
         };
 
         if was_fullscreen {
@@ -777,13 +775,11 @@ impl PipWindowController for NativeWindowController<'_> {
         }
         self.window.unmaximize();
         self.window.set_modal(true);
-        self.window.set_resizable(false);
-        self.window
-            .set_size_request(PIP_WINDOW_WIDTH, PIP_WINDOW_HEIGHT);
+        self.window.set_resizable(true);
+        self.window.set_size_request(240, 135);
         self.window.set_decorated(false);
         request_window_above(self.window, true)?;
-        self.window
-            .set_default_size(PIP_WINDOW_WIDTH, PIP_WINDOW_HEIGHT);
+        self.window.set_default_size(width, height);
         self.window.present();
 
         Ok(PipRestoreSnapshot {
@@ -796,17 +792,11 @@ impl PipWindowController for NativeWindowController<'_> {
         request_window_above(self.window, false)?;
         self.window.set_decorated(true);
         self.window.set_modal(false);
+        self.window
+            .set_size_request(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT);
+        self.window.set_resizable(true);
+
         if snapshot.was_fullscreen {
-            if let Some((width, height)) = snapshot.saved_size {
-                self.window.set_resizable(false);
-                self.window
-                    .set_size_request(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT);
-                self.window.set_size_request(width, height);
-                self.window.set_default_size(width, height);
-            }
-            self.window
-                .set_size_request(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT);
-            self.window.set_resizable(true);
             set_window_fullscreen(
                 self.webview,
                 self.runtime,
@@ -815,20 +805,7 @@ impl PipWindowController for NativeWindowController<'_> {
                 true,
             );
         } else if let Some((width, height)) = snapshot.saved_size {
-            self.window.set_resizable(false);
-            self.window
-                .set_size_request(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT);
-            self.window.set_size_request(width, height);
             self.window.set_default_size(width, height);
-            let window = self.window.clone();
-            glib::timeout_add_local_once(Duration::from_millis(250), move || {
-                window.set_size_request(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT);
-                window.set_resizable(true);
-            });
-        } else {
-            self.window
-                .set_size_request(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT);
-            self.window.set_resizable(true);
         }
 
         self.window.present();

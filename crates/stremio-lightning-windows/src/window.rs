@@ -309,7 +309,7 @@ mod platform {
     }
 
     impl PipWindowController for NativeWindowController {
-        fn enter_pip(&mut self) -> Result<PipRestoreSnapshot, String> {
+        fn enter_pip(&mut self, width: i32, height: i32) -> Result<PipRestoreSnapshot, String> {
             let was_fullscreen = self.is_fullscreen();
             if was_fullscreen {
                 self.set_fullscreen(false)?;
@@ -346,8 +346,8 @@ mod platform {
                     Some(HWND_TOPMOST),
                     rect.left,
                     rect.top,
-                    PIP_WINDOW_WIDTH,
-                    PIP_WINDOW_HEIGHT,
+                    width,
+                    height,
                     SWP_NOOWNERZORDER | SWP_FRAMECHANGED,
                 )
                 .map_err(|error| format!("Failed to enter PiP: {error}"))?;

@@ -103,6 +103,11 @@ export function getPipMode(): Promise<boolean> {
   return host().invoke('get_pip_mode');
 }
 
+/** Set Picture-in-Picture window dimensions on the Rust side. */
+export function setPipSize(width: number, height: number): Promise<void> {
+  return host().invoke('set_pip_size', { width, height });
+}
+
 // ── Misc ──
 
 export function openExternalUrl(url: string): Promise<void> {

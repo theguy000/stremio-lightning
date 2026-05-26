@@ -1,5 +1,5 @@
 import { writable, get, type Writable } from 'svelte/store';
-import { startDiscordRpc, stopDiscordRpc, setAutoPause, getAutoPause, setPipDisablesAutoPause, getPipDisablesAutoPause, togglePip, getPipMode } from '../ipc';
+import { startDiscordRpc, stopDiscordRpc, setAutoPause, getAutoPause, setPipDisablesAutoPause, getPipDisablesAutoPause, togglePip, getPipMode, setPipSize } from '../ipc';
 
 // Discord RPC
 export const discordRpcEnabled = writable(localStorage.getItem('discordrichpresence') === 'true');
@@ -158,6 +158,12 @@ export function loadSettingsFromStorage(): void {
   getPipMode().then((active) => {
     pipModeActive.set(active);
   }).catch(() => {});
+
+  // PiP size preference: persisted to localStorage, controls size of PiP window
+  const pipSizeStored = localStorage.getItem('sl-pip-size') || 'small';
+  const dimensions = PIP_SIZES[pipSizeStored] || PIP_SIZES.small;
+  setPipSize(dimensions.width, dimensions.height).catch(() => {});
+  pipWindowSize.set(pipSizeStored);
 }
 
 export const pipFeatureEnabled = writable(true);
@@ -189,4 +195,24 @@ export async function togglePipActivation(): Promise<void> {
     console.warn('PiP toggle failed (player may not be active):', err);
     pipModeActive.set(false);
   }
+}
+
+export const PIP_SIZES: Record<string, { width: number; height: number }> = {
+  small: { width: 480, height: 270 },
+  medium: { width: 640, height: 360 },
+  large: { width: 800, height: 450 },
+  'extra-large': { width: 960, height: 540 }
+};
+
+export const pipWindowSize = writable('small');
+
+export async function togglePipWindowSize(size: string): Promise<void> {
+  const dimensions = PIP_SIZES[size] || PIP_SIZES.small;
+  try {
+    await setPipSize(dimensions.width, dimensions.height);
+  } catch (err) {
+    console.error('Failed to set PiP window size:', err);
+  }
+  localStorage.setItem('sl-pip-size', size);
+  pipWindowSize.set(size);
 }

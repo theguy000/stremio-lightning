@@ -42,6 +42,7 @@ pub enum HostCommand {
     GetPipDisablesAutoPause,
     TogglePip,
     GetPipMode,
+    SetPipSize,
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -263,6 +264,9 @@ pub trait PlatformBridge: Send + Sync {
     // Player/Pip methods
     fn toggle_picture_in_picture(&self) -> Result<bool, String>;
     fn is_pip_enabled(&self) -> Result<bool, String>;
+    fn set_pip_size(&self, _width: i32, _height: i32) -> Result<(), String> {
+        Ok(())
+    }
 
     // Custom platform controls
     fn open_external_url(&self, _url: &str) -> Result<(), String> {
@@ -776,6 +780,16 @@ impl<P: PlatformBridge> BaseHost<P> {
                 Ok(json!(enabled))
             }
             "get_pip_mode" => Ok(json!(self.bridge.is_pip_enabled()?)),
+            "set_pip_size" => {
+                #[derive(Deserialize)]
+                struct SizePayload {
+                    width: i32,
+                    height: i32,
+                }
+                let payload: SizePayload = parse_payload(command, payload)?;
+                self.bridge.set_pip_size(payload.width, payload.height)?;
+                Ok(Value::Null)
+            }
             "set_auto_pause" => {
                 let enabled = parse_optional_bool(payload).unwrap_or(true);
                 self.shell_preferences.lock().unwrap().auto_pause = enabled;
