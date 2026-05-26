@@ -1005,9 +1005,6 @@ impl NativeVideoState {
             init.set_property("vo", "libmpv")?;
             init.set_property("video-timing-offset", "0")?;
             init.set_property("terminal", "yes")?;
-            // Restrict MPV buffering in RAM to prevent memory bloat
-            init.set_property("demuxer-max-bytes", "33554432")?;
-            init.set_property("demuxer-max-back-bytes", "16777216")?;
             init.set_property("cache", "yes")?;
             init.set_property("hwdec", "yes")?;
             Ok(())
