@@ -10,31 +10,57 @@ pub fn run_validation() -> Result<()> {
     let mut warnings = Vec::new();
 
     println!("==> [1/5] Checking Rust formatting...");
-    let w1 = run_validation_step("cargo", ["fmt", "--all", "--", "--check"])?;
+    let w1 = run_validation_step("cargo", ["fmt", "--all", "--", "--check"]).map_err(|_| {
+        "Validation failed at step [1/5] (Checking Rust formatting).\n\n  \
+         \x1b[1;31mFormatting issues were detected in the codebase.\x1b[0m\n  \
+         To resolve this, automatically format your Rust files by running:\n\n  \
+         \x1b[1;36m    cargo fmt --all\x1b[0m\n"
+    })?;
     if w1 > 0 {
         warnings.push(("Checking Rust formatting", w1));
     }
 
     println!("==> [2/5] Running Rust clippy lints...");
-    let w2 = run_validation_step("cargo", ["clippy", "--workspace", "--all-targets"])?;
+    let w2 = run_validation_step("cargo", ["clippy", "--workspace", "--all-targets"]).map_err(|_| {
+        "Validation failed at step [2/5] (Running Rust clippy lints).\n\n  \
+         \x1b[1;31mClippy compiler lints or errors were detected.\x1b[0m\n  \
+         Please review the lint/compiler output above and resolve the issues.\n  \
+         To automatically apply safe clippy fixes, you can run:\n\n  \
+         \x1b[1;36m    cargo clippy --workspace --all-targets --fix --allow-dirty --allow-staged\x1b[0m\n"
+    })?;
     if w2 > 0 {
         warnings.push(("Running Rust clippy lints", w2));
     }
 
     println!("==> [3/5] Running Rust unit/integration tests...");
-    let w3 = run_validation_step("cargo", ["test", "--workspace"])?;
+    let w3 = run_validation_step("cargo", ["test", "--workspace"]).map_err(|_| {
+        "Validation failed at step [3/5] (Running Rust unit/integration tests).\n\n  \
+         \x1b[1;31mOne or more Rust unit or integration tests failed.\x1b[0m\n  \
+         Please review the test output above to locate the failures. You can re-run tests using:\n\n  \
+         \x1b[1;36m    cargo test --workspace\x1b[0m\n"
+    })?;
     if w3 > 0 {
         warnings.push(("Running Rust unit/integration tests", w3));
     }
 
     println!("==> [4/5] Running frontend tests...");
-    let w4 = run_validation_step_npm(&["run", "test:ui"])?;
+    let w4 = run_validation_step_npm(&["run", "test:ui"]).map_err(|_| {
+        "Validation failed at step [4/5] (Running frontend tests).\n\n  \
+         \x1b[1;31mOne or more Vitest UI tests failed.\x1b[0m\n  \
+         Please review the frontend test output above. You can run UI tests locally using:\n\n  \
+         \x1b[1;36m    npm run test:ui\x1b[0m\n"
+    })?;
     if w4 > 0 {
         warnings.push(("Running frontend tests", w4));
     }
 
     println!("==> [5/5] Building frontend UI bundle...");
-    let w5 = run_validation_step_npm(&["run", "build:ui"])?;
+    let w5 = run_validation_step_npm(&["run", "build:ui"]).map_err(|_| {
+        "Validation failed at step [5/5] (Building frontend UI bundle).\n\n  \
+         \x1b[1;31mThe frontend UI production build failed.\x1b[0m\n  \
+         Please review the build output/errors above. You can test building the frontend by running:\n\n  \
+         \x1b[1;36m    npm run build:ui\x1b[0m\n"
+    })?;
     if w5 > 0 {
         warnings.push(("Building frontend UI bundle", w5));
     }
