@@ -247,35 +247,43 @@ pub mod mpv_render_ffi {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::e2e_host::FakePlayerBackend;
     use serde_json::json;
 
     #[test]
     fn maps_observe_property() {
-        let backend = FakePlayerBackend::initialized();
+        let backend = MpvPlayerBackend::default();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        backend.attach(sender).unwrap();
+
         handle_transport(&backend, "mpv-observe-prop", Some(json!("pause"))).unwrap();
         assert_eq!(
-            backend.actions(),
-            vec![PlayerAction::ObserveProperty("pause".to_string())]
+            receiver.recv().unwrap(),
+            MpvBackendCommand::ObserveProperty("pause".to_string())
         );
     }
 
     #[test]
     fn maps_set_property() {
-        let backend = FakePlayerBackend::initialized();
+        let backend = MpvPlayerBackend::default();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        backend.attach(sender).unwrap();
+
         handle_transport(&backend, "mpv-set-prop", Some(json!(["pause", true]))).unwrap();
         assert_eq!(
-            backend.actions(),
-            vec![PlayerAction::SetProperty {
+            receiver.recv().unwrap(),
+            MpvBackendCommand::SetProperty {
                 name: "pause".to_string(),
                 value: json!(true),
-            }]
+            }
         );
     }
 
     #[test]
     fn maps_loadfile_command() {
-        let backend = FakePlayerBackend::initialized();
+        let backend = MpvPlayerBackend::default();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        backend.attach(sender).unwrap();
+
         handle_transport(
             &backend,
             "mpv-command",
@@ -283,19 +291,22 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            backend.actions(),
-            vec![PlayerAction::Command {
+            receiver.recv().unwrap(),
+            MpvBackendCommand::Command {
                 name: "loadfile".to_string(),
                 args: vec!["file:///tmp/sample.mp4".to_string(), "replace".to_string()],
-            }]
+            }
         );
     }
 
     #[test]
     fn maps_stop() {
-        let backend = FakePlayerBackend::initialized();
+        let backend = MpvPlayerBackend::default();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        backend.attach(sender).unwrap();
+
         handle_transport(&backend, "native-player-stop", None).unwrap();
-        assert_eq!(backend.actions(), vec![PlayerAction::Stop]);
+        assert_eq!(receiver.recv().unwrap(), MpvBackendCommand::Stop);
     }
 
     #[test]

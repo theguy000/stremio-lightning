@@ -299,9 +299,9 @@ fn validate_load_url(url: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::e2e_host::{FakePlayerBackend, FakeProcessSpawner};
     use crate::host::SHELL_TRANSPORT_EVENT;
-    use crate::streaming_server::StreamingServer;
+    use crate::player::MpvPlayerBackend;
+    use crate::streaming_server::{RealProcessSpawner, StreamingServer};
     use serde_json::json;
     use std::path::PathBuf;
 
@@ -334,11 +334,8 @@ mod tests {
     #[test]
     fn webview_runtime_loads_with_document_start_injection() {
         let host = Arc::new(Host::with_app_data_dir(
-            FakePlayerBackend::initialized(),
-            StreamingServer::with_project_root(
-                FakeProcessSpawner::default(),
-                PathBuf::from("/repo"),
-            ),
+            MpvPlayerBackend::default(),
+            StreamingServer::with_project_root(RealProcessSpawner, PathBuf::from("/repo")),
             std::env::temp_dir(),
         ));
         let mut runtime = WebviewRuntime::new(
@@ -375,11 +372,8 @@ mod tests {
     #[test]
     fn webview_runtime_dispatches_js_ipc_and_drains_events() {
         let host = Arc::new(Host::with_app_data_dir(
-            FakePlayerBackend::initialized(),
-            StreamingServer::with_project_root(
-                FakeProcessSpawner::default(),
-                PathBuf::from("/repo"),
-            ),
+            MpvPlayerBackend::default(),
+            StreamingServer::with_project_root(RealProcessSpawner, PathBuf::from("/repo")),
             std::env::temp_dir(),
         ));
         let runtime = WebviewRuntime::new(
