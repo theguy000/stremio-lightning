@@ -233,15 +233,43 @@ fn build_window(
     {
         let webview = webview.clone();
         let runtime = runtime.clone();
-        window.connect_notify_local(Some("is-active"), move |window, _| {
-            let active = window.is_active();
-            let event = if active { "focus" } else { "blur" };
-            let script = format!("window.dispatchEvent(new Event('{event}'));");
-            evaluate_javascript(&webview, &script);
+        let last_active = Rc::new(Cell::new(None::<bool>));
+        let current_timeout = Rc::new(RefCell::new(None::<glib::SourceId>));
 
-            runtime
-                .dispatch_ipc("window.focus_changed", Some(json!({"focused": active})))
-                .ok();
+        window.connect_notify_local(Some("is-active"), move |window, _| {
+            if let Some(source_id) = current_timeout.borrow_mut().take() {
+                source_id.remove();
+            }
+
+            let webview = webview.clone();
+            let runtime = runtime.clone();
+            let window_clone = window.clone();
+            let last_active = last_active.clone();
+            let current_timeout_clone = current_timeout.clone();
+
+            let source_id = glib::timeout_add_local(Duration::from_millis(100), move || {
+                *current_timeout_clone.borrow_mut() = None;
+
+                let stable_active = window_clone.is_active();
+                if last_active.get() != Some(stable_active) {
+                    last_active.set(Some(stable_active));
+
+                    let event = if stable_active { "focus" } else { "blur" };
+                    let script = format!("window.dispatchEvent(new Event('{event}'));");
+                    evaluate_javascript(&webview, &script);
+
+                    runtime
+                        .dispatch_ipc(
+                            "window.focus_changed",
+                            Some(json!({"focused": stable_active})),
+                        )
+                        .ok();
+                }
+
+                glib::ControlFlow::Break
+            });
+
+            *current_timeout.borrow_mut() = Some(source_id);
         });
     }
 
@@ -925,14 +953,7 @@ fn drain_host_events(
     webview: &WebKitWebView,
     runtime: &LinuxWebviewRuntime<MpvPlayerBackend, RealProcessSpawner>,
 ) {
-    match runtime.drain_event_dispatch_scripts() {
-        Ok(scripts) => {
-            for script in scripts {
-                evaluate_javascript(webview, &script);
-            }
-        }
-        Err(error) => eprintln!("[StremioLightning] Failed to drain host events: {error}"),
-    }
+    drain_runtime_events_to_webview(runtime, webview);
 }
 
 fn external_url_from_ipc_request(request: &WebkitIpcRequest) -> Option<String> {
