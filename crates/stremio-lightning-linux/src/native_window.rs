@@ -303,12 +303,20 @@ fn set_x11_window_icon(surface: &gtk::gdk::Surface) -> Result<(), String> {
     let width_usize = width as usize;
     let height_usize = height as usize;
     let channels_usize = channels as usize;
+
+    // Guard against potential out-of-bounds access if pixel data size is insufficient
+    let expected_min_len = (height_usize - 1) * rowstride + width_usize * channels_usize;
+    if pixels.len() < expected_min_len {
+        return Err("pixel buffer size is insufficient for icon dimensions".to_string());
+    }
+
     let mut icon_data = Vec::with_capacity(2 + width_usize * height_usize);
     icon_data.push(width as c_ulong);
     icon_data.push(height as c_ulong);
     for y in 0..height_usize {
+        let row_start = y * rowstride;
         for x in 0..width_usize {
-            let offset = y * rowstride + x * channels_usize;
+            let offset = row_start + x * channels_usize;
             let r = pixels[offset] as c_ulong;
             let g = pixels[offset + 1] as c_ulong;
             let b = pixels[offset + 2] as c_ulong;
@@ -322,20 +330,30 @@ fn set_x11_window_icon(surface: &gtk::gdk::Surface) -> Result<(), String> {
     }
 
     let display = surface.display();
+    // SAFETY: gdk_x11_display_get_xdisplay expects a valid GdkDisplay pointer.
+    // display.as_ptr() is guaranteed to be valid by GDK display handles.
     let xdisplay = unsafe { gdk_x11_display_get_xdisplay(display.as_ptr() as *mut c_void) };
     if xdisplay.is_null() {
         return Err("failed to read X11 display".to_string());
     }
+
+    // SAFETY: gdk_x11_surface_get_xid expects a valid GdkSurface pointer.
+    // surface.as_ptr() is guaranteed to be valid by GDK surface handles.
     let xid = unsafe { gdk_x11_surface_get_xid(surface.as_ptr() as *mut c_void) };
     if xid == 0 {
         return Err("failed to read X11 window id".to_string());
     }
+
+    // SAFETY: XInternAtom is standard Xlib FFI. xdisplay is verified non-null.
+    // String slices are null-terminated byte slices.
     let icon_atom = unsafe { XInternAtom(xdisplay, NET_WM_ICON.as_ptr().cast(), 0) };
     let cardinal_atom = unsafe { XInternAtom(xdisplay, CARDINAL.as_ptr().cast(), 0) };
     if icon_atom == 0 || cardinal_atom == 0 {
         return Err("failed to resolve X11 taskbar icon atoms".to_string());
     }
 
+    // SAFETY: XChangeProperty modifies window properties. Parameters are verified to be aligned
+    // and matched. icon_data has format 32 (long array). XFlush synchronizes display server buffers.
     unsafe {
         XChangeProperty(
             xdisplay,
@@ -619,18 +637,19 @@ impl NativeWindowIpc for LinuxWebviewRuntime<MpvPlayerBackend, RealProcessSpawne
 }
 
 fn start_window_dragging(window: &gtk::ApplicationWindow) -> Result<(), String> {
-    let surface = window
-        .surface()
-        .ok_or_else(|| "Cannot drag window before it has a surface".to_string())?;
-    let toplevel = surface
-        .clone()
-        .downcast::<gtk::gdk::Toplevel>()
-        .map_err(|_| "Window surface is not a draggable toplevel".to_string())?;
-    let pointer = surface
+    let Some(surface) = window.surface() else {
+        return Err("Cannot drag window before it has a surface".to_string());
+    };
+    let Ok(toplevel) = surface.clone().downcast::<gtk::gdk::Toplevel>() else {
+        return Err("Window surface is not a draggable toplevel".to_string());
+    };
+    let Some(pointer) = surface
         .display()
         .default_seat()
         .and_then(|seat| seat.pointer())
-        .ok_or_else(|| "No pointer device available for window dragging".to_string())?;
+    else {
+        return Err("No pointer device available for window dragging".to_string());
+    };
 
     let (x, y) = if let Some((px, py, _)) = surface.device_position(&pointer) {
         (px, py)
@@ -800,54 +819,56 @@ fn send_x11_window_state_above(surface: &gtk::gdk::Surface, above: bool) -> Resu
     const NET_WM_STATE_ABOVE: &[u8] = b"_NET_WM_STATE_ABOVE\0";
 
     let display = surface.display();
-    let xdisplay = unsafe { gdk_x11_display_get_xdisplay(display.as_ptr() as *mut c_void) };
-    if xdisplay.is_null() {
-        return Err("Failed to read X11 display for PiP window".to_string());
-    }
 
-    let xid = unsafe { gdk_x11_surface_get_xid(surface.as_ptr() as *mut c_void) };
-    if xid == 0 {
-        return Err("Failed to read X11 window id for PiP window".to_string());
-    }
+    // SAFETY: Standard X11 FFI operations with verified display, window, and atom handles.
+    unsafe {
+        let xdisplay = gdk_x11_display_get_xdisplay(display.as_ptr() as *mut c_void);
+        if xdisplay.is_null() {
+            return Err("Failed to read X11 display for PiP window".to_string());
+        }
 
-    let state_atom = unsafe { XInternAtom(xdisplay, NET_WM_STATE.as_ptr().cast(), 0) };
-    let above_atom = unsafe { XInternAtom(xdisplay, NET_WM_STATE_ABOVE.as_ptr().cast(), 0) };
-    if state_atom == 0 || above_atom == 0 {
-        return Err("Failed to resolve X11 PiP always-on-top atoms".to_string());
-    }
+        let xid = gdk_x11_surface_get_xid(surface.as_ptr() as *mut c_void);
+        if xid == 0 {
+            return Err("Failed to read X11 window id for PiP window".to_string());
+        }
 
-    let action = if above {
-        X11_PROP_MODE_ADD
-    } else {
-        X11_PROP_MODE_REMOVE
-    };
-    let mut event = XClientMessageEvent {
-        type_: X11_CLIENT_MESSAGE,
-        serial: 0,
-        send_event: 1,
-        display: xdisplay,
-        window: xid,
-        message_type: state_atom,
-        format: 32,
-        data: XClientMessageData {
-            l: [action, above_atom as c_long, 0, 1, 0],
-        },
-    };
+        let state_atom = XInternAtom(xdisplay, NET_WM_STATE.as_ptr().cast(), 0);
+        let above_atom = XInternAtom(xdisplay, NET_WM_STATE_ABOVE.as_ptr().cast(), 0);
+        if state_atom == 0 || above_atom == 0 {
+            return Err("Failed to resolve X11 PiP always-on-top atoms".to_string());
+        }
 
-    let root = unsafe { XDefaultRootWindow(xdisplay) };
-    let sent = unsafe {
-        XSendEvent(
+        let action = if above {
+            X11_PROP_MODE_ADD
+        } else {
+            X11_PROP_MODE_REMOVE
+        };
+        let mut event = XClientMessageEvent {
+            type_: X11_CLIENT_MESSAGE,
+            serial: 0,
+            send_event: 1,
+            display: xdisplay,
+            window: xid,
+            message_type: state_atom,
+            format: 32,
+            data: XClientMessageData {
+                l: [action, above_atom as c_long, 0, 1, 0],
+            },
+        };
+
+        let root = XDefaultRootWindow(xdisplay);
+
+        let sent = XSendEvent(
             xdisplay,
             root,
             0,
             X11_SUBSTRUCTURE_REDIRECT_MASK | X11_SUBSTRUCTURE_NOTIFY_MASK,
             &mut event,
-        )
-    };
-    if sent == 0 {
-        return Err("Failed to send X11 PiP always-on-top request".to_string());
-    }
-    unsafe {
+        );
+        if sent == 0 {
+            return Err("Failed to send X11 PiP always-on-top request".to_string());
+        }
+
         XFlush(xdisplay);
     }
 
@@ -905,6 +926,7 @@ fn external_url_from_ipc_request(request: &WebkitIpcRequest) -> Option<String> {
     }
 
     let payload = request.payload.as_ref()?;
+
     if payload.get("command").and_then(Value::as_str) != Some("open_external_url") {
         return None;
     }
@@ -945,11 +967,15 @@ fn load_epoxy() -> Result<(), String> {
 
     EPOXY_LOADED
         .get_or_init(|| {
+            // SAFETY: Loading the libepoxy.so.0 shared library from standard system paths is safe
+            // and expected in a GTK Linux desktop environment that runs OpenGL overlays.
             let library = unsafe { libloading::os::unix::Library::new("libepoxy.so.0") }
                 .map_err(|error| format!("Failed to load libepoxy: {error}"))?;
             let library = Box::leak(Box::new(library));
 
             epoxy::load_with(|name| {
+                // SAFETY: Retrieving a raw function symbol by its null-terminated name is safe
+                // as long as the shared library exists and is alive (guaranteed by Box::leak above).
                 unsafe { library.get::<*const c_void>(name.as_bytes()) }
                     .map(|symbol| *symbol)
                     .unwrap_or(ptr::null())
@@ -963,12 +989,14 @@ fn load_epoxy() -> Result<(), String> {
 struct NativeVideoState {
     mpv: RefCell<Mpv>,
     render_context: RefCell<Option<RenderContext>>,
-    fbo: Cell<u32>,
     shutting_down: Cell<bool>,
 }
 
 impl NativeVideoState {
     fn new() -> Result<Self, String> {
+        // SAFETY: Setting LC_NUMERIC to "C" is required so that libmpv parses float properties
+        // using standard decimals (e.g. `0.5`) regardless of the user's host OS system locale.
+        // This must be run during initialization before multiple worker threads run concurrently.
         unsafe {
             setlocale(LC_NUMERIC, c"C".as_ptr());
         }
@@ -991,7 +1019,6 @@ impl NativeVideoState {
         Ok(Self {
             mpv: RefCell::new(mpv),
             render_context: RefCell::default(),
-            fbo: Cell::default(),
             shutting_down: Cell::default(),
         })
     }
@@ -1007,16 +1034,12 @@ impl NativeVideoState {
     }
 
     fn current_fbo(&self) -> i32 {
-        let mut fbo = self.fbo.get();
-        if fbo == 0 {
-            let mut current_fbo = 0;
-            unsafe {
-                epoxy::GetIntegerv(epoxy::FRAMEBUFFER_BINDING, &mut current_fbo);
-            }
-            fbo = current_fbo as u32;
-            self.fbo.set(fbo);
+        let mut current_fbo = 0;
+        // SAFETY: epoxy::GetIntegerv is safe to invoke when a valid GL Context is active.
+        unsafe {
+            epoxy::GetIntegerv(epoxy::FRAMEBUFFER_BINDING, &mut current_fbo);
         }
-        fbo as i32
+        current_fbo
     }
 
     fn handle_command(&self, command: MpvBackendCommand) {
@@ -1129,6 +1152,8 @@ fn build_native_video(
 
             if let Some(context) = area.context() {
                 let mut mpv = state.mpv.borrow_mut();
+                // SAFETY: mpv.ctx is a valid, non-null raw pointer to the underlying mpv_handle
+                // managed securely by the libmpv2 Mpv instance, which remains alive and active.
                 let mpv_handle = unsafe { mpv.ctx.as_mut() };
                 let mut render_context = RenderContext::new(
                     mpv_handle,
