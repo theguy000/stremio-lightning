@@ -5,7 +5,7 @@ use crate::webview_runtime::{linux_host_adapter, InjectionBundle, MOD_UI_NAME};
 use serde_json::json;
 use std::path::PathBuf;
 
-pub fn run_local_smoke() -> Result<(), String> {
+pub fn run_local_e2e() -> Result<(), String> {
     let adapter = linux_host_adapter();
     if !adapter.contains("window.StremioLightningHost") {
         return Err("Linux host adapter did not expose StremioLightningHost".to_string());
@@ -18,12 +18,12 @@ pub fn run_local_smoke() -> Result<(), String> {
     let player = FakePlayerBackend::initialized();
     let spawner = FakeProcessSpawner::default();
     let app_data_dir = std::env::temp_dir().join(format!(
-        "stremio-lightning-linux-smoke-{}",
+        "stremio-lightning-linux-e2e-{}",
         std::process::id()
     ));
     let _ = std::fs::remove_dir_all(&app_data_dir);
     std::fs::create_dir_all(&app_data_dir)
-        .map_err(|e| format!("Failed to create smoke app data dir: {e}"))?;
+        .map_err(|e| format!("Failed to create e2e app data dir: {e}"))?;
 
     let host = LinuxHost::with_app_data_dir(
         player,
