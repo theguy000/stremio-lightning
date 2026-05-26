@@ -878,9 +878,7 @@ mod tests {
             .find(|script| script.name == BRIDGE_NAME)
             .unwrap();
 
-        assert!(bridge
-            .source
-            .contains("Stremio Lightning - Frontend Bridge"));
+        assert!(bridge.source.contains("Native player mode enabled"));
     }
 
     #[test]
