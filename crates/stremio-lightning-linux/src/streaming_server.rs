@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::fs::{self, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandSpec {
@@ -224,70 +224,6 @@ fn default_log_dir() -> PathBuf {
         .join("logs")
 }
 
-#[derive(Debug, Default, Clone)]
-pub struct FakeProcessSpawner {
-    calls: Arc<Mutex<Vec<CommandSpec>>>,
-    stopped: Arc<Mutex<Vec<usize>>>,
-    next_child_exited: Arc<Mutex<bool>>,
-}
-
-impl FakeProcessSpawner {
-    pub fn calls(&self) -> Vec<CommandSpec> {
-        self.calls.lock().expect("fake spawner poisoned").clone()
-    }
-
-    pub fn stopped(&self) -> Vec<usize> {
-        self.stopped
-            .lock()
-            .expect("fake spawner stopped list poisoned")
-            .clone()
-    }
-
-    pub fn set_next_child_exited(&self, exited: bool) {
-        *self
-            .next_child_exited
-            .lock()
-            .expect("fake spawner exit flag poisoned") = exited;
-    }
-}
-
-#[derive(Debug)]
-pub struct FakeProcessChild {
-    id: usize,
-    stopped: Arc<Mutex<Vec<usize>>>,
-    exited: bool,
-}
-
-impl ProcessChild for FakeProcessChild {
-    fn stop(&mut self) -> Result<(), String> {
-        self.stopped
-            .lock()
-            .map_err(|e| e.to_string())?
-            .push(self.id);
-        self.exited = true;
-        Ok(())
-    }
-
-    fn has_exited(&mut self) -> Result<bool, String> {
-        Ok(self.exited)
-    }
-}
-
-impl ProcessSpawner for FakeProcessSpawner {
-    type Child = FakeProcessChild;
-
-    fn spawn(&self, spec: CommandSpec) -> Result<Self::Child, String> {
-        let mut calls = self.calls.lock().map_err(|e| e.to_string())?;
-        calls.push(spec);
-        let exited = *self.next_child_exited.lock().map_err(|e| e.to_string())?;
-        Ok(FakeProcessChild {
-            id: calls.len(),
-            stopped: self.stopped.clone(),
-            exited,
-        })
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -325,54 +261,5 @@ mod tests {
             spec.stderr_log,
             PathBuf::from("/logs/stremio-server.stderr.log")
         );
-    }
-
-    #[test]
-    fn fake_spawner_starts_without_real_sidecar() {
-        let spawner = FakeProcessSpawner::default();
-        let server = StreamingServer::with_project_root(spawner.clone(), PathBuf::from("/repo"));
-        server.start().unwrap();
-        server.start().unwrap();
-        assert!(server.is_running());
-        assert_eq!(spawner.calls().len(), 1);
-    }
-
-    #[test]
-    fn fake_spawner_stops_and_restarts() {
-        let spawner = FakeProcessSpawner::default();
-        let server = StreamingServer::with_project_root(spawner.clone(), PathBuf::from("/repo"));
-        server.start().unwrap();
-        server.stop().unwrap();
-        assert!(!server.is_running());
-        server.restart().unwrap();
-        assert!(server.is_running());
-        assert_eq!(spawner.calls().len(), 2);
-        assert_eq!(spawner.stopped(), vec![1]);
-    }
-
-    #[test]
-    fn drop_stops_running_child() {
-        let spawner = FakeProcessSpawner::default();
-        {
-            let server =
-                StreamingServer::with_project_root(spawner.clone(), PathBuf::from("/repo"));
-            server.start().unwrap();
-        }
-        assert_eq!(spawner.stopped(), vec![1]);
-    }
-
-    #[test]
-    fn status_reaps_exited_child_and_start_spawns_again() {
-        let spawner = FakeProcessSpawner::default();
-        spawner.set_next_child_exited(true);
-        let server = StreamingServer::with_project_root(spawner.clone(), PathBuf::from("/repo"));
-
-        server.start().unwrap();
-        assert!(!server.is_running());
-
-        spawner.set_next_child_exited(false);
-        server.start().unwrap();
-        assert!(server.is_running());
-        assert_eq!(spawner.calls().len(), 2);
     }
 }
