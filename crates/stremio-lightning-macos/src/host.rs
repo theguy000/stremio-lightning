@@ -390,7 +390,8 @@ where
     }
 
     pub fn update_window_focus(&self, focused: bool) -> Result<(), String> {
-        self.set_window_focus(focused)
+        self.set_window_focus(focused)?;
+        self.base.update_window_focus(focused)
     }
 
     pub fn set_window_focus(&self, focused: bool) -> Result<(), String> {
