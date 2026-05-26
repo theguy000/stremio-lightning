@@ -1,6 +1,3 @@
-// Stremio Lightning - Frontend Bridge & Keyboard Shortcuts
-// Injected by the native Rust shell crates on every page load.
-
 var host = window.StremioLightningHost || null;
 
 if (!host) {
@@ -19,6 +16,8 @@ if (!host) {
   };
 
   console.info("[StremioLightning] Native player mode enabled (libmpv transport)");
+
+  onDomReady(initCoreStyles);
 
   initCastFallback();
   ctx.shellTransport = initShellTransport(ctx);
