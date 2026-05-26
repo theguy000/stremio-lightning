@@ -1,6 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -295,6 +295,7 @@ pub struct BaseHost<P: PlatformBridge> {
     pub app_data_dir: PathBuf,
     pub package_version: &'static str,
     pub shell_preferences: Mutex<ShellPreferenceState>,
+    pub discord_rpc: Arc<crate::discord_rpc::DiscordRpcState>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -325,6 +326,7 @@ impl<P: PlatformBridge> BaseHost<P> {
             app_data_dir,
             package_version,
             shell_preferences: Mutex::default(),
+            discord_rpc: Arc::new(crate::discord_rpc::DiscordRpcState::default()),
         }
     }
 
@@ -770,10 +772,27 @@ impl<P: PlatformBridge> BaseHost<P> {
                 self.bridge.handle_custom_transport(command, payload)?;
                 Ok(Value::Null)
             }
-            "toggle_devtools"
-            | "start_discord_rpc"
-            | "stop_discord_rpc"
-            | "update_discord_activity" => Ok(Value::Null),
+            "toggle_devtools" => Ok(Value::Null),
+            "start_discord_rpc" => {
+                self.discord_rpc.start()?;
+                Ok(Value::Null)
+            }
+            "stop_discord_rpc" => {
+                self.discord_rpc.stop()?;
+                Ok(Value::Null)
+            }
+            "update_discord_activity" => {
+                if payload.is_none() || payload == Some(Value::Null) {
+                    return Ok(Value::Null);
+                }
+                #[derive(Deserialize)]
+                struct WrappedActivity {
+                    activity: crate::discord_rpc::ActivityPayload,
+                }
+                let parsed: WrappedActivity = parse_payload(command, payload)?;
+                self.discord_rpc.update_activity(parsed.activity)?;
+                Ok(Value::Null)
+            }
             other => {
                 let capitalized_platform = match self.bridge.platform_name() {
                     "windows" => "Windows",
