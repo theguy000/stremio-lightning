@@ -16,10 +16,23 @@ pub struct PipState {
     inner: Mutex<PipStateInner>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct PipStateInner {
     enabled: bool,
     restore_snapshot: Option<PipRestoreSnapshot>,
+    width: i32,
+    height: i32,
+}
+
+impl Default for PipStateInner {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            restore_snapshot: None,
+            width: PIP_WINDOW_WIDTH,
+            height: PIP_WINDOW_HEIGHT,
+        }
+    }
 }
 
 impl PipState {
@@ -85,6 +98,20 @@ impl PipState {
         Ok(snapshot)
     }
 
+    pub fn set_size(&self, width: i32, height: i32) -> Result<(), String> {
+        let mut inner = self.inner.lock().map_err(|e| e.to_string())?;
+        if width > 0 && height > 0 {
+            inner.width = width;
+            inner.height = height;
+        }
+        Ok(())
+    }
+
+    pub fn get_size(&self) -> Result<(i32, i32), String> {
+        let inner = self.inner.lock().map_err(|e| e.to_string())?;
+        Ok((inner.width, inner.height))
+    }
+
     pub fn exit_window_pip(
         &self,
         controller: &mut impl PipWindowController,
@@ -121,7 +148,8 @@ impl PipState {
             self.exit_window_pip(controller)?;
             Ok(false)
         } else {
-            let snapshot = controller.enter_pip()?;
+            let (width, height) = self.get_size()?;
+            let snapshot = controller.enter_pip(width, height)?;
             self.set_mode(true, Some(snapshot))?;
             Ok(true)
         }
@@ -156,7 +184,7 @@ pub fn serialize_picture_in_picture(enabled: bool) -> Value {
 }
 
 pub trait PipWindowController {
-    fn enter_pip(&mut self) -> Result<PipRestoreSnapshot, String>;
+    fn enter_pip(&mut self, width: i32, height: i32) -> Result<PipRestoreSnapshot, String>;
     fn exit_pip(&mut self, snapshot: PipRestoreSnapshot) -> Result<(), String>;
 }
 
@@ -190,7 +218,7 @@ mod tests {
     }
 
     impl PipWindowController for TestPipController {
-        fn enter_pip(&mut self) -> Result<PipRestoreSnapshot, String> {
+        fn enter_pip(&mut self, _width: i32, _height: i32) -> Result<PipRestoreSnapshot, String> {
             self.entered += 1;
             Ok(PipRestoreSnapshot {
                 was_fullscreen: false,

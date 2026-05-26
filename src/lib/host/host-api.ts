@@ -41,6 +41,7 @@ type HostCommandMap = {
   get_pip_disables_auto_pause: { payload: undefined; result: boolean };
   toggle_pip: { payload: undefined; result: boolean };
   get_pip_mode: { payload: undefined; result: boolean };
+  set_pip_size: { payload: { width: number; height: number }; result: void };
 };
 
 export type HostCommand = keyof HostCommandMap;

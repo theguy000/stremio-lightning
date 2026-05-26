@@ -10,7 +10,9 @@
     pipFeatureEnabled,
     togglePipFeature,
     pipDisablesAutoPause,
-    togglePipDisablesAutoPause
+    togglePipDisablesAutoPause,
+    pipWindowSize,
+    togglePipWindowSize
   } from '../stores/settings';
 
   let discordOn = $state(false);
@@ -19,6 +21,7 @@
   let autoPauseOn = $state(true);
   let pipFeatureOn = $state(true);
   let pipDisablesAutoPauseOn = $state(true);
+  let currentPipSize = $state('medium');
 
   discordRpcEnabled.subscribe((v) => { discordOn = v; });
   blurEnabled.subscribe((v) => { blurOn = v; });
@@ -26,6 +29,7 @@
   autoPauseEnabled.subscribe((v) => { autoPauseOn = v; });
   pipFeatureEnabled.subscribe((v) => { pipFeatureOn = v; });
   pipDisablesAutoPause.subscribe((v) => { pipDisablesAutoPauseOn = v; });
+  pipWindowSize.subscribe((v) => { currentPipSize = v; });
 
   async function handleDiscordToggle(e: Event) {
     const checked = (e.target as HTMLInputElement).checked;
@@ -77,6 +81,15 @@
       pipDisablesAutoPause.set(!checked);
     }
   }
+
+  async function handlePipSizeChange(e: Event) {
+    const value = (e.target as HTMLSelectElement).value;
+    try {
+      await togglePipWindowSize(value);
+    } catch (err) {
+      console.error('Failed to change PiP size:', err);
+    }
+  }
 </script>
 
 <div style="max-width:35rem;">
@@ -114,6 +127,21 @@
         <input type="checkbox" checked={pipFeatureOn} onchange={handlePipFeatureToggle} />
         <div class="sl-toggle-track"><div class="sl-toggle-thumb"></div></div>
       </label>
+    </div>
+  </div>
+
+  <div class="sl-setting-row" style="{pipFeatureOn ? '' : 'opacity:0.4; pointer-events:none;'}">
+    <div class="sl-setting-label">
+      <div class="sl-setting-label-text">PiP Window Size</div>
+      <div class="sl-setting-label-desc">Select the default size for the Picture-in-Picture window</div>
+    </div>
+    <div class="sl-setting-control">
+      <select class="sl-setting-select" value={currentPipSize} onchange={handlePipSizeChange}>
+        <option value="small">Small (480x270)</option>
+        <option value="medium">Medium (640x360)</option>
+        <option value="large">Large (800x450)</option>
+        <option value="extra-large">Extra Large (960x540)</option>
+      </select>
     </div>
   </div>
 
