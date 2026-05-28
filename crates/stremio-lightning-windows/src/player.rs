@@ -10,6 +10,10 @@ use stremio_lightning_core::player_api::{
     PlayerCommand, PlayerEnded, PlayerEvent, PlayerPropertyChange,
 };
 
+const PRIMARY_SUBTITLE_PROPERTY: &str = "sid";
+const SECONDARY_SUBTITLE_PROPERTY: &str = "secondary-sid";
+const SUB_ADD_COMMAND: &str = "sub-add";
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct NativePlayerStatus {
     pub enabled: bool,
@@ -79,6 +83,26 @@ impl WindowsPlayer {
             other => return Err(format!("Unsupported Windows player command: {other}")),
         };
 
+        if matches!(&command, PlayerCommand::SetProperty(name, _) if name == PRIMARY_SUBTITLE_PROPERTY)
+        {
+            self.disable_secondary_subtitle()?;
+        }
+        let is_sub_add = matches!(&command, PlayerCommand::Command(values) if values.first().and_then(Value::as_str) == Some(SUB_ADD_COMMAND));
+        self.handle_command(command)?;
+        if is_sub_add {
+            self.disable_secondary_subtitle()?;
+        }
+        Ok(())
+    }
+
+    fn disable_secondary_subtitle(&mut self) -> Result<(), String> {
+        self.handle_command(PlayerCommand::SetProperty(
+            SECONDARY_SUBTITLE_PROPERTY.to_string(),
+            Value::from("no"),
+        ))
+    }
+
+    fn handle_command(&mut self, command: PlayerCommand) -> Result<(), String> {
         self.backend.handle_command(command.clone())?;
         self.commands.push(command);
         Ok(())
@@ -481,6 +505,45 @@ mod tests {
                 PlayerCommand::ObserveProperty("pause".to_string()),
                 PlayerCommand::SetProperty("pause".to_string(), json!(true)),
                 PlayerCommand::Command(vec![json!("loadfile"), json!("file:///video.mp4")]),
+            ]
+        );
+    }
+
+    #[test]
+    fn clears_secondary_subtitle_before_setting_sid() {
+        let mut player = WindowsPlayer::default();
+        player
+            .handle_transport("mpv-set-prop", Some(json!(["sid", 3])))
+            .unwrap();
+
+        assert_eq!(
+            player.commands(),
+            &[
+                PlayerCommand::SetProperty("secondary-sid".to_string(), json!("no")),
+                PlayerCommand::SetProperty("sid".to_string(), json!(3)),
+            ]
+        );
+    }
+
+    #[test]
+    fn clears_secondary_subtitle_after_sub_add() {
+        let mut player = WindowsPlayer::default();
+        player
+            .handle_transport(
+                "mpv-command",
+                Some(json!(["sub-add", "file:///tmp/sub.srt", "select"])),
+            )
+            .unwrap();
+
+        assert_eq!(
+            player.commands(),
+            &[
+                PlayerCommand::Command(vec![
+                    json!("sub-add"),
+                    json!("file:///tmp/sub.srt"),
+                    json!("select"),
+                ]),
+                PlayerCommand::SetProperty("secondary-sid".to_string(), json!("no")),
             ]
         );
     }

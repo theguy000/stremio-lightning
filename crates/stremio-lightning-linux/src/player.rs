@@ -6,6 +6,10 @@ use stremio_lightning_core::player_api::{
     PlayerCommand as TransportPlayerCommand, PlayerEnded, PlayerEvent, PlayerPropertyChange,
 };
 
+const PRIMARY_SUBTITLE_PROPERTY: &str = "sid";
+const SECONDARY_SUBTITLE_PROPERTY: &str = "secondary-sid";
+const SUB_ADD_COMMAND: &str = "sub-add";
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NativePlayerStatus {
     pub enabled: bool,
@@ -121,6 +125,9 @@ pub fn handle_transport<B: PlayerBackend>(
                 .get(1)
                 .cloned()
                 .ok_or_else(|| "Missing mpv-set-prop value".to_string())?;
+            if name == PRIMARY_SUBTITLE_PROPERTY {
+                disable_secondary_subtitle(backend)?;
+            }
             backend.set_property(name.to_string(), value)
         }
         "mpv-command" => {
@@ -140,11 +147,19 @@ pub fn handle_transport<B: PlayerBackend>(
                     other => other.to_string(),
                 })
                 .collect();
-            backend.command(name.to_string(), values)
+            backend.command(name.to_string(), values)?;
+            if name == SUB_ADD_COMMAND {
+                disable_secondary_subtitle(backend)?;
+            }
+            Ok(())
         }
         "native-player-stop" => backend.stop(),
         other => Err(format!("Unsupported MPV transport method: {other}")),
     }
+}
+
+fn disable_secondary_subtitle<B: PlayerBackend>(backend: &B) -> Result<(), String> {
+    backend.set_property(SECONDARY_SUBTITLE_PROPERTY.to_string(), Value::from("no"))
 }
 
 pub fn serialize_property_change(name: impl Into<String>, data: Value) -> Value {
@@ -279,6 +294,29 @@ mod tests {
     }
 
     #[test]
+    fn clears_secondary_subtitle_before_setting_sid() {
+        let backend = MpvPlayerBackend::default();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        backend.attach(sender).unwrap();
+
+        handle_transport(&backend, "mpv-set-prop", Some(json!(["sid", 3]))).unwrap();
+        assert_eq!(
+            receiver.recv().unwrap(),
+            MpvBackendCommand::SetProperty {
+                name: "secondary-sid".to_string(),
+                value: json!("no"),
+            }
+        );
+        assert_eq!(
+            receiver.recv().unwrap(),
+            MpvBackendCommand::SetProperty {
+                name: "sid".to_string(),
+                value: json!(3),
+            }
+        );
+    }
+
+    #[test]
     fn maps_loadfile_command() {
         let backend = MpvPlayerBackend::default();
         let (sender, receiver) = std::sync::mpsc::channel();
@@ -295,6 +333,34 @@ mod tests {
             MpvBackendCommand::Command {
                 name: "loadfile".to_string(),
                 args: vec!["file:///tmp/sample.mp4".to_string(), "replace".to_string()],
+            }
+        );
+    }
+
+    #[test]
+    fn clears_secondary_subtitle_after_sub_add() {
+        let backend = MpvPlayerBackend::default();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        backend.attach(sender).unwrap();
+
+        handle_transport(
+            &backend,
+            "mpv-command",
+            Some(json!(["sub-add", "file:///tmp/sub.srt", "select"])),
+        )
+        .unwrap();
+        assert_eq!(
+            receiver.recv().unwrap(),
+            MpvBackendCommand::Command {
+                name: "sub-add".to_string(),
+                args: vec!["file:///tmp/sub.srt".to_string(), "select".to_string()],
+            }
+        );
+        assert_eq!(
+            receiver.recv().unwrap(),
+            MpvBackendCommand::SetProperty {
+                name: "secondary-sid".to_string(),
+                value: json!("no"),
             }
         );
     }

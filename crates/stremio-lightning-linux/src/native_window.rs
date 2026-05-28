@@ -57,6 +57,7 @@ const MPV_FLOAT_PROPERTIES: &[&str] = &[
     "demuxer-cache-time",
     "panscan",
 ];
+const MPV_INT_PROPERTIES: &[&str] = &["aid", "vid", "sid", "secondary-sid"];
 const MPV_BOOL_PROPERTIES: &[&str] = &[
     "pause",
     "buffering",
@@ -1064,6 +1065,8 @@ impl NativeVideoState {
     fn observe_property(&self, name: &str) {
         let format = if MPV_BOOL_PROPERTIES.contains(&name) {
             Format::Flag
+        } else if MPV_INT_PROPERTIES.contains(&name) {
+            Format::Int64
         } else if MPV_FLOAT_PROPERTIES.contains(&name) {
             Format::Double
         } else {
@@ -1282,6 +1285,7 @@ fn property_data_to_json(change: PropertyData) -> Option<Value> {
             Some(serde_json::from_str(value).unwrap_or_else(|_| Value::String(value.to_string())))
         }
         PropertyData::Flag(value) => Some(Value::Bool(value)),
+        PropertyData::Int64(value) => Some(json!(value)),
         PropertyData::Double(value) => serde_json::Number::from_f64(value).map(Value::Number),
         _ => None,
     }
@@ -1380,7 +1384,19 @@ mod tests {
         assert!(MPV_BOOL_PROPERTIES.contains(&"seeking"));
         assert!(MPV_BOOL_PROPERTIES.contains(&"paused-for-cache"));
         assert!(MPV_BOOL_PROPERTIES.contains(&"eof-reached"));
+        assert!(MPV_INT_PROPERTIES.contains(&"aid"));
+        assert!(MPV_INT_PROPERTIES.contains(&"vid"));
+        assert!(MPV_INT_PROPERTIES.contains(&"sid"));
+        assert!(MPV_INT_PROPERTIES.contains(&"secondary-sid"));
         assert!(MPV_FLOAT_PROPERTIES.contains(&"cache-buffering-state"));
         assert!(MPV_FLOAT_PROPERTIES.contains(&"demuxer-cache-time"));
+    }
+
+    #[test]
+    fn serializes_integer_property_changes_as_json_numbers() {
+        assert_eq!(
+            property_data_to_json(PropertyData::Int64(7)),
+            Some(json!(7))
+        );
     }
 }
