@@ -34,7 +34,7 @@ pub use platform::{
 #[cfg(windows)]
 mod platform {
     use super::WindowConfig;
-    use std::ffi::c_void;
+    use std::{ffi::c_void, ptr::NonNull};
     use stremio_lightning_core::pip::{
         PipRestoreSnapshot, PipWindowController, PIP_WINDOW_HEIGHT, PIP_WINDOW_WIDTH,
     };
@@ -113,8 +113,8 @@ mod platform {
         pub(crate) hwnd: HWND,
     }
 
+    // SAFETY: Worker threads only use this HWND with `PostMessageW`.
     unsafe impl Send for UiThreadNotifier {}
-    unsafe impl Sync for UiThreadNotifier {}
 
     impl UiThreadNotifier {
         pub fn notify(self) -> Result<(), String> {
@@ -150,6 +150,7 @@ mod platform {
         pip: Option<PipWindowSnapshot>,
     }
 
+    // SAFETY: The host mutex serializes access to the HWND-backed controller state.
     unsafe impl Send for NativeWindowController {}
 
     impl NativeWindowController {
@@ -454,11 +455,10 @@ mod platform {
         }
 
         let title = to_wide_null(config.title);
-        let state = Box::new(WindowState {
+        let state_handle = WindowStateHandle::from_box(Box::new(WindowState {
             config,
             handler: Some(handler),
-        });
-        let state_ptr = Box::into_raw(state);
+        }));
 
         let hwnd = unsafe {
             CreateWindowExW(
@@ -468,29 +468,22 @@ mod platform {
                 WS_OVERLAPPEDWINDOW | WS_VISIBLE,
                 CW_USEDEFAULT,
                 CW_USEDEFAULT,
-                (*state_ptr).config.width,
-                (*state_ptr).config.height,
+                state_handle.with_ref(|state| state.config.width),
+                state_handle.with_ref(|state| state.config.height),
                 None,
                 None,
                 Some(instance.into()),
-                Some(state_ptr.cast::<c_void>()),
+                Some(state_handle.as_c_void()),
             )
         };
 
         match hwnd {
             Ok(hwnd) => {
-                let state = unsafe { window_state(hwnd) };
-                if !state.is_null() {
-                    if let Some(handler) = unsafe { (*state).handler.as_mut() } {
-                        handler.on_created(hwnd)?;
-                    }
-                }
+                with_handler(hwnd, |handler| handler.on_created(hwnd)).transpose()?;
                 Ok(hwnd)
             }
             Err(error) => {
-                unsafe {
-                    drop(Box::from_raw(state_ptr));
-                }
+                drop(state_handle.into_box());
                 Err(format!("Failed to create Windows window: {error}"))
             }
         }
@@ -517,109 +510,190 @@ mod platform {
         wparam: WPARAM,
         lparam: LPARAM,
     ) -> LRESULT {
-        unsafe {
-            match message {
-                WM_NCCREATE => {
-                    let create = lparam.0 as *const CREATESTRUCTW;
-                    let state = (*create).lpCreateParams.cast::<WindowState>();
-                    SetWindowLongPtrW(hwnd, GWLP_USERDATA, state as isize);
+        match message {
+            WM_NCCREATE => {
+                if let Some(state) = WindowStateHandle::from_create_params(lparam) {
+                    state.store(hwnd);
                     LRESULT(1)
-                }
-                WM_GETMINMAXINFO => {
-                    let state = window_state(hwnd);
-                    if !state.is_null() {
-                        let minmax = lparam.0 as *mut MINMAXINFO;
-                        (*minmax).ptMinTrackSize.x = (*state).config.min_width;
-                        (*minmax).ptMinTrackSize.y = (*state).config.min_height;
-                    }
+                } else {
                     LRESULT(0)
                 }
-                WM_SIZE => {
-                    let state = window_state(hwnd);
-                    if !state.is_null() {
-                        let visual_state = match wparam.0 as u32 {
-                            SIZE_MINIMIZED => Some(WindowVisualState::Minimized),
-                            SIZE_MAXIMIZED => Some(WindowVisualState::Maximized),
-                            SIZE_RESTORED => Some(WindowVisualState::Restored),
-                            _ => None,
-                        };
-                        let mut rect = RECT::default();
-                        let _ = GetClientRect(hwnd, &mut rect);
-                        if let Some(handler) = (*state).handler.as_mut() {
-                            let _ = handler.on_resized(hwnd, rect);
-                            if let Some(visual_state) = visual_state {
-                                let _ = handler.on_window_state_changed(hwnd, visual_state);
-                            }
+            }
+            WM_GETMINMAXINFO => {
+                if let (Some(state), Some(mut minmax)) = (
+                    WindowStateHandle::from_hwnd(hwnd),
+                    NonNull::new(lparam.0 as *mut MINMAXINFO),
+                ) {
+                    state.with_ref(|state| {
+                        let minmax = unsafe { minmax.as_mut() };
+                        minmax.ptMinTrackSize.x = state.config.min_width;
+                        minmax.ptMinTrackSize.y = state.config.min_height;
+                    });
+                }
+                LRESULT(0)
+            }
+            WM_SIZE => {
+                if WindowStateHandle::from_hwnd(hwnd).is_some() {
+                    let visual_state = window_visual_state(wparam);
+                    let mut rect = RECT::default();
+                    if let Err(error) = unsafe { GetClientRect(hwnd, &mut rect) } {
+                        eprintln!("[StremioLightning] Failed to read Windows client rect: {error}");
+                    } else {
+                        notify_handler(hwnd, "resize", |handler| handler.on_resized(hwnd, rect));
+                        if let Some(visual_state) = visual_state {
+                            notify_handler(hwnd, "state", |handler| {
+                                handler.on_window_state_changed(hwnd, visual_state)
+                            });
                         }
                     }
-                    LRESULT(0)
                 }
-                WM_SETFOCUS | WM_KILLFOCUS => {
-                    with_handler(hwnd, |handler| {
-                        let _ = handler.on_focus_changed(hwnd, message == WM_SETFOCUS);
+                LRESULT(0)
+            }
+            WM_SETFOCUS | WM_KILLFOCUS => {
+                notify_handler(hwnd, "focus", |handler| {
+                    handler.on_focus_changed(hwnd, message == WM_SETFOCUS)
+                });
+                default_window_proc(hwnd, message, wparam, lparam)
+            }
+            WM_APPCOMMAND => {
+                let command = ((lparam.0 >> 16) & 0x0fff) as u32;
+                let action = match command {
+                    11 => Some(MediaKeyAction::NextTrack),
+                    12 => Some(MediaKeyAction::PreviousTrack),
+                    14 | 46 | 47 => Some(MediaKeyAction::PlayPause),
+                    _ => None,
+                };
+                if let Some(action) = action {
+                    notify_handler(hwnd, "media-key", |handler| {
+                        handler.on_media_key(hwnd, action)
                     });
-                    DefWindowProcW(hwnd, message, wparam, lparam)
+                    return LRESULT(1);
                 }
-                WM_APPCOMMAND => {
-                    let command = ((lparam.0 >> 16) & 0x0fff) as u32;
-                    let action = match command {
-                        11 => Some(MediaKeyAction::NextTrack),
-                        12 => Some(MediaKeyAction::PreviousTrack),
-                        14 | 46 | 47 => Some(MediaKeyAction::PlayPause),
-                        _ => None,
-                    };
-                    if let Some(action) = action {
-                        with_handler(hwnd, |handler| {
-                            let _ = handler.on_media_key(hwnd, action);
-                        });
-                        return LRESULT(1);
-                    }
-                    DefWindowProcW(hwnd, message, wparam, lparam)
-                }
-                UI_THREAD_WAKE_MESSAGE => {
-                    with_handler(hwnd, |handler| {
-                        let _ = handler.on_ui_thread_wake(hwnd);
-                    });
-                    LRESULT(0)
-                }
-                WM_CLOSE => {
+                default_window_proc(hwnd, message, wparam, lparam)
+            }
+            UI_THREAD_WAKE_MESSAGE => {
+                notify_handler(hwnd, "ui-thread-wake", |handler| {
+                    handler.on_ui_thread_wake(hwnd)
+                });
+                LRESULT(0)
+            }
+            WM_CLOSE => {
+                unsafe {
                     let _ = DestroyWindow(hwnd);
-                    LRESULT(0)
                 }
-                WM_DESTROY => {
+                LRESULT(0)
+            }
+            WM_DESTROY => {
+                unsafe {
                     PostQuitMessage(0);
-                    LRESULT(0)
                 }
-                WM_NCDESTROY => {
-                    let state = window_state(hwnd);
-                    if !state.is_null() {
-                        if let Some(handler) = (*state).handler.as_mut() {
-                            handler.on_destroying(hwnd);
-                        }
-                        SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
-                        drop(Box::from_raw(state));
+                LRESULT(0)
+            }
+            WM_NCDESTROY => {
+                if let Some(mut state) = WindowStateHandle::take(hwnd) {
+                    if let Some(handler) = state.handler.as_mut() {
+                        handler.on_destroying(hwnd);
                     }
-                    DefWindowProcW(hwnd, message, wparam, lparam)
                 }
-                WM_ACTIVATE | WM_DPICHANGED => LRESULT(0),
-                _ => DefWindowProcW(hwnd, message, wparam, lparam),
+                default_window_proc(hwnd, message, wparam, lparam)
             }
+            WM_ACTIVATE | WM_DPICHANGED => LRESULT(0),
+            _ => default_window_proc(hwnd, message, wparam, lparam),
         }
     }
 
-    unsafe fn window_state(hwnd: HWND) -> *mut WindowState {
-        GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut WindowState
+    #[derive(Clone, Copy)]
+    struct WindowStateHandle {
+        ptr: NonNull<WindowState>,
     }
 
-    unsafe fn with_handler(hwnd: HWND, f: impl FnOnce(&mut dyn NativeWindowHandler)) -> bool {
-        let state = window_state(hwnd);
-        if !state.is_null() {
-            if let Some(handler) = (*state).handler.as_mut() {
-                f(handler.as_mut());
-                return true;
+    impl WindowStateHandle {
+        fn from_box(state: Box<WindowState>) -> Self {
+            Self {
+                ptr: NonNull::from(Box::leak(state)),
             }
         }
-        false
+
+        fn from_raw(ptr: *mut WindowState) -> Option<Self> {
+            NonNull::new(ptr).map(|ptr| Self { ptr })
+        }
+
+        fn from_create_params(lparam: LPARAM) -> Option<Self> {
+            let create = NonNull::new(lparam.0 as *mut CREATESTRUCTW)?;
+            // SAFETY: Windows sends a valid CREATESTRUCTW pointer with WM_NCCREATE.
+            // `lpCreateParams` is the boxed WindowState pointer supplied to CreateWindowExW.
+            let state = unsafe { create.as_ref().lpCreateParams.cast::<WindowState>() };
+            Self::from_raw(state)
+        }
+
+        fn from_hwnd(hwnd: HWND) -> Option<Self> {
+            let ptr = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut WindowState };
+            Self::from_raw(ptr)
+        }
+
+        fn as_c_void(self) -> *const c_void {
+            self.ptr.as_ptr().cast::<c_void>()
+        }
+
+        fn store(self, hwnd: HWND) {
+            unsafe {
+                SetWindowLongPtrW(hwnd, GWLP_USERDATA, self.ptr.as_ptr() as isize);
+            }
+        }
+
+        fn take(hwnd: HWND) -> Option<Box<WindowState>> {
+            let state = Self::from_hwnd(hwnd)?;
+            unsafe {
+                SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+                Some(Box::from_raw(state.ptr.as_ptr()))
+            }
+        }
+
+        fn into_box(self) -> Box<WindowState> {
+            unsafe { Box::from_raw(self.ptr.as_ptr()) }
+        }
+
+        fn with_ref<R>(self, f: impl FnOnce(&WindowState) -> R) -> R {
+            unsafe { f(&*self.ptr.as_ptr()) }
+        }
+
+        fn with_mut<R>(self, f: impl FnOnce(&mut WindowState) -> R) -> R {
+            unsafe { f(&mut *self.ptr.as_ptr()) }
+        }
+    }
+
+    fn window_visual_state(wparam: WPARAM) -> Option<WindowVisualState> {
+        match wparam.0 as u32 {
+            SIZE_MINIMIZED => Some(WindowVisualState::Minimized),
+            SIZE_MAXIMIZED => Some(WindowVisualState::Maximized),
+            SIZE_RESTORED => Some(WindowVisualState::Restored),
+            _ => None,
+        }
+    }
+
+    fn with_handler<R>(hwnd: HWND, f: impl FnOnce(&mut dyn NativeWindowHandler) -> R) -> Option<R> {
+        WindowStateHandle::from_hwnd(hwnd)?.with_mut(|state| {
+            let handler = state.handler.as_mut()?;
+            Some(f(handler.as_mut()))
+        })
+    }
+
+    fn notify_handler(
+        hwnd: HWND,
+        event: &'static str,
+        f: impl FnOnce(&mut dyn NativeWindowHandler) -> Result<(), String>,
+    ) {
+        let Some(result) = with_handler(hwnd, f) else {
+            return;
+        };
+
+        if let Err(error) = result {
+            eprintln!("[StremioLightning] Windows window {event} handler failed: {error}");
+        }
+    }
+
+    fn default_window_proc(hwnd: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+        unsafe { DefWindowProcW(hwnd, message, wparam, lparam) }
     }
 
     fn to_wide_null(value: &str) -> Vec<u16> {
