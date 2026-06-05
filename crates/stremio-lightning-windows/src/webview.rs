@@ -200,9 +200,36 @@ impl WindowsWebView2Shell {
     }
 }
 
+#[cfg(any(windows, test))]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+struct CleanupReport {
+    failures: Vec<String>,
+}
+
+#[cfg(any(windows, test))]
+impl CleanupReport {
+    fn record(&mut self, action: &'static str, result: Result<(), String>) {
+        if let Err(error) = result {
+            self.failures.push(format!("{action}: {error}"));
+        }
+    }
+
+    #[cfg(test)]
+    fn failures(&self) -> &[String] {
+        &self.failures
+    }
+
+    #[cfg(windows)]
+    fn log(self, context: &str) {
+        for failure in self.failures {
+            eprintln!("[StremioLightning] {context}: {failure}");
+        }
+    }
+}
+
 #[cfg(windows)]
 mod platform {
-    use super::{mpsc, Arc, Host, InjectionBundle, LaunchIntent, Mutex};
+    use super::{mpsc, Arc, CleanupReport, Host, InjectionBundle, LaunchIntent, Mutex};
     use crate::host::WindowsIpcOutbound;
     use crate::window::{
         focus_window, run_native_window_with_handler, MediaKeyAction, NativeWindowHandler,
@@ -219,6 +246,12 @@ mod platform {
     use windows::core::{Interface, PCWSTR, PWSTR};
     use windows::Win32::Foundation::{E_POINTER, HWND, RECT};
     use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
+
+    impl CleanupReport {
+        fn record_windows(&mut self, action: &'static str, result: windows::core::Result<()>) {
+            self.record(action, result.map_err(|error| error.to_string()));
+        }
+    }
 
     pub fn run_webview2_shell(
         url: &str,
@@ -252,12 +285,150 @@ mod platform {
         devtools: bool,
         injection: InjectionBundle,
         host: Arc<Host>,
-        controller: Option<ICoreWebView2Controller>,
-        webview: Option<ICoreWebView2>,
-        navigation_starting_token: Option<i64>,
-        navigation_completed_token: Option<i64>,
+        runtime: Option<WebView2Runtime>,
         launch_intents: mpsc::Receiver<LaunchIntent>,
         ui_notifier: Arc<Mutex<Option<UiThreadNotifier>>>,
+    }
+
+    #[derive(Default)]
+    struct WebView2EventTokens {
+        message_received: Option<i64>,
+        navigation_starting: Option<i64>,
+        navigation_completed: Option<i64>,
+    }
+
+    struct WebView2Runtime {
+        controller: Option<ICoreWebView2Controller>,
+        webview: Option<ICoreWebView2>,
+        event_tokens: WebView2EventTokens,
+    }
+
+    impl WebView2Runtime {
+        fn create(
+            hwnd: HWND,
+            devtools: bool,
+            injection: &InjectionBundle,
+            host: Arc<Host>,
+            url: &str,
+        ) -> Result<Self, String> {
+            let environment = create_environment()?;
+            let controller = create_controller(&environment, hwnd)?;
+            let mut runtime = Self {
+                controller: Some(controller),
+                webview: None,
+                event_tokens: WebView2EventTokens::default(),
+            };
+
+            runtime.configure_controller()?;
+            runtime.resize_to_client_rect(hwnd)?;
+            runtime.show()?;
+            runtime.configure_webview(devtools, injection, host, url)?;
+
+            Ok(runtime)
+        }
+
+        fn controller(&self) -> Result<&ICoreWebView2Controller, String> {
+            self.controller
+                .as_ref()
+                .ok_or_else(|| "WebView2 controller is not available".to_string())
+        }
+
+        fn configure_controller(&self) -> Result<(), String> {
+            configure_controller(self.controller()?)
+        }
+
+        fn resize_to_client_rect(&self, hwnd: HWND) -> Result<(), String> {
+            let mut rect = RECT::default();
+            unsafe {
+                windows::Win32::UI::WindowsAndMessaging::GetClientRect(hwnd, &mut rect)
+                    .map_err(|error| format!("Failed to read WebView2 host bounds: {error}"))?;
+                self.controller()?
+                    .SetBounds(rect)
+                    .map_err(|error| format!("Failed to resize WebView2 controller: {error}"))?;
+            }
+            Ok(())
+        }
+
+        fn show(&self) -> Result<(), String> {
+            unsafe {
+                self.controller()?
+                    .SetIsVisible(true)
+                    .map_err(|error| format!("Failed to show WebView2 controller: {error}"))?;
+            }
+            Ok(())
+        }
+
+        fn configure_webview(
+            &mut self,
+            devtools: bool,
+            injection: &InjectionBundle,
+            host: Arc<Host>,
+            url: &str,
+        ) -> Result<(), String> {
+            self.webview = Some(unsafe {
+                self.controller()?
+                    .CoreWebView2()
+                    .map_err(|error| format!("Failed to get WebView2 instance: {error}"))?
+            });
+            let webview = self
+                .webview
+                .as_ref()
+                .ok_or_else(|| "WebView2 instance is not available".to_string())?
+                .clone();
+
+            configure_webview(&webview, devtools)?;
+            add_injection_scripts(&webview, injection)?;
+            self.event_tokens.message_received = Some(add_message_handler(&webview, host.clone())?);
+            self.event_tokens.navigation_starting = Some(add_navigation_starting_handler(
+                &webview,
+                host,
+                url.to_string(),
+            )?);
+            self.event_tokens.navigation_completed =
+                Some(add_navigation_completed_handler(&webview)?);
+            navigate(&webview, url)
+        }
+
+        fn post_outbound_messages(&self, messages: Vec<WindowsIpcOutbound>) -> Result<(), String> {
+            let Some(webview) = self.webview.as_ref() else {
+                return Ok(());
+            };
+            post_outbound_messages(webview, messages)
+        }
+
+        fn cleanup(&mut self) {
+            let mut report = CleanupReport::default();
+
+            if let Some(webview) = self.webview.as_ref() {
+                if let Some(token) = self.event_tokens.message_received.take() {
+                    report.record_windows("remove WebView2 message handler", unsafe {
+                        webview.remove_WebMessageReceived(token)
+                    });
+                }
+                if let Some(token) = self.event_tokens.navigation_starting.take() {
+                    report.record_windows("remove WebView2 navigation starting handler", unsafe {
+                        webview.remove_NavigationStarting(token)
+                    });
+                }
+                if let Some(token) = self.event_tokens.navigation_completed.take() {
+                    report.record_windows("remove WebView2 navigation completed handler", unsafe {
+                        webview.remove_NavigationCompleted(token)
+                    });
+                }
+            }
+
+            if let Some(controller) = self.controller.take() {
+                report.record_windows("close WebView2 controller", unsafe { controller.Close() });
+            }
+            self.webview = None;
+            report.log("Windows WebView2 cleanup failed");
+        }
+    }
+
+    impl Drop for WebView2Runtime {
+        fn drop(&mut self) {
+            self.cleanup();
+        }
     }
 
     impl WebView2WindowHost {
@@ -274,78 +445,45 @@ mod platform {
                 devtools,
                 injection,
                 host,
-                controller: None,
-                webview: None,
-                navigation_starting_token: None,
-                navigation_completed_token: None,
+                runtime: None,
                 launch_intents,
                 ui_notifier,
             }
         }
 
         fn resize_to_client_rect(&self, hwnd: HWND) -> Result<(), String> {
-            let Some(controller) = self.controller.as_ref() else {
+            let Some(runtime) = self.runtime.as_ref() else {
                 return Ok(());
             };
-
-            let mut rect = RECT::default();
-            unsafe {
-                windows::Win32::UI::WindowsAndMessaging::GetClientRect(hwnd, &mut rect)
-                    .map_err(|error| format!("Failed to read WebView2 host bounds: {error}"))?;
-                controller
-                    .SetBounds(rect)
-                    .map_err(|error| format!("Failed to resize WebView2 controller: {error}"))?;
-            }
-            Ok(())
+            runtime.resize_to_client_rect(hwnd)
         }
 
         fn post_host_events(&self) -> Result<(), String> {
-            let Some(webview) = self.webview.as_ref() else {
+            let Some(runtime) = self.runtime.as_ref() else {
                 return Ok(());
             };
-            post_outbound_messages(webview, self.host.drain_ipc_events())
+            runtime.post_outbound_messages(self.host.drain_ipc_events())
+        }
+
+        fn start_host_runtime(&self, hwnd: HWND, notifier: UiThreadNotifier) -> Result<(), String> {
+            *self.ui_notifier.lock().map_err(|e| e.to_string())? = Some(notifier);
+            self.host.bind_native_window(hwnd)?;
+            self.host.initialize_native_player(hwnd, notifier)?;
+            self.host.start_streaming_server()
         }
     }
 
     impl NativeWindowHandler for WebView2WindowHost {
         fn on_created(&mut self, hwnd: HWND) -> Result<(), String> {
             let notifier = UiThreadNotifier { hwnd };
-            *self.ui_notifier.lock().map_err(|e| e.to_string())? = Some(notifier);
-            self.host.bind_native_window(hwnd)?;
-            self.host.initialize_native_player(hwnd, notifier)?;
-            self.host.start_streaming_server()?;
-
-            let environment = create_environment()?;
-            let controller = create_controller(&environment, hwnd)?;
-            configure_controller(&controller)?;
-
-            self.controller = Some(controller.clone());
-            self.resize_to_client_rect(hwnd)?;
-
-            unsafe {
-                controller
-                    .SetIsVisible(true)
-                    .map_err(|error| format!("Failed to show WebView2 controller: {error}"))?;
-            }
-
-            let webview = unsafe {
-                controller
-                    .CoreWebView2()
-                    .map_err(|error| format!("Failed to get WebView2 instance: {error}"))?
-            };
-
-            configure_webview(&webview, self.devtools)?;
-            add_injection_scripts(&webview, &self.injection)?;
-            add_message_handler(&webview, self.host.clone())?;
-            self.navigation_starting_token = Some(add_navigation_starting_handler(
-                &webview,
+            self.start_host_runtime(hwnd, notifier)?;
+            self.runtime = Some(WebView2Runtime::create(
+                hwnd,
+                self.devtools,
+                &self.injection,
                 self.host.clone(),
-                self.url.clone(),
+                &self.url,
             )?);
-            self.navigation_completed_token = Some(add_navigation_completed_handler(&webview)?);
-            navigate(&webview, &self.url)?;
-
-            self.webview = Some(webview);
             Ok(())
         }
 
@@ -392,11 +530,7 @@ mod platform {
                 focus_window(hwnd);
                 self.host.emit_launch_intent(intent)?;
             }
-
-            let Some(webview) = self.webview.as_ref() else {
-                return Ok(());
-            };
-            post_outbound_messages(webview, self.host.drain_ipc_events())
+            self.post_host_events()
         }
 
         fn on_destroying(&mut self, _hwnd: HWND) {
@@ -406,21 +540,9 @@ mod platform {
             if let Err(error) = self.host.shutdown() {
                 eprintln!("[StremioLightning] Failed to shut down Windows runtime: {error}");
             }
-            if let (Some(webview), Some(token)) =
-                (self.webview.as_ref(), self.navigation_starting_token.take())
-            {
-                let _ = unsafe { webview.remove_NavigationStarting(token) };
+            if let Some(mut runtime) = self.runtime.take() {
+                runtime.cleanup();
             }
-            if let (Some(webview), Some(token)) = (
-                self.webview.as_ref(),
-                self.navigation_completed_token.take(),
-            ) {
-                let _ = unsafe { webview.remove_NavigationCompleted(token) };
-            }
-            if let Some(controller) = self.controller.take() {
-                let _ = unsafe { controller.Close() };
-            }
-            self.webview = None;
         }
     }
 
@@ -447,7 +569,7 @@ mod platform {
             Box::new(move |error_code, environment| {
                 error_code?;
                 tx.send(environment.ok_or_else(|| windows::core::Error::from(E_POINTER)))
-                    .expect("send WebView2 environment");
+                    .map_err(|_| windows::core::Error::from(E_POINTER))?;
                 Ok(())
             }),
         )
@@ -473,7 +595,7 @@ mod platform {
             Box::new(move |error_code, controller| {
                 error_code?;
                 tx.send(controller.ok_or_else(|| windows::core::Error::from(E_POINTER)))
-                    .expect("send WebView2 controller");
+                    .map_err(|_| windows::core::Error::from(E_POINTER))?;
                 Ok(())
             }),
         )
@@ -512,14 +634,35 @@ mod platform {
                 .map_err(|error| format!("Failed to get WebView2 settings: {error}"))?
         };
         unsafe {
-            settings.SetIsStatusBarEnabled(false).ok();
-            settings.SetAreDevToolsEnabled(devtools).ok();
-            settings.SetIsZoomControlEnabled(false).ok();
-            settings.SetIsBuiltInErrorPageEnabled(false).ok();
-            settings.SetAreHostObjectsAllowed(false).ok();
-            settings.SetAreDefaultScriptDialogsEnabled(false).ok();
+            apply_webview_setting("disable status bar", settings.SetIsStatusBarEnabled(false));
+            apply_webview_setting(
+                "set devtools availability",
+                settings.SetAreDevToolsEnabled(devtools),
+            );
+            apply_webview_setting(
+                "disable zoom controls",
+                settings.SetIsZoomControlEnabled(false),
+            );
+            apply_webview_setting(
+                "disable built-in error page",
+                settings.SetIsBuiltInErrorPageEnabled(false),
+            );
+            apply_webview_setting(
+                "disable host objects",
+                settings.SetAreHostObjectsAllowed(false),
+            );
+            apply_webview_setting(
+                "disable default script dialogs",
+                settings.SetAreDefaultScriptDialogsEnabled(false),
+            );
         }
         Ok(())
+    }
+
+    fn apply_webview_setting(action: &'static str, result: windows::core::Result<()>) {
+        if let Err(error) = result {
+            eprintln!("[StremioLightning] Failed to {action}: {error}");
+        }
     }
 
     fn add_injection_scripts(
@@ -548,7 +691,7 @@ mod platform {
         Ok(())
     }
 
-    fn add_message_handler(webview: &ICoreWebView2, host: Arc<Host>) -> Result<(), String> {
+    fn add_message_handler(webview: &ICoreWebView2, host: Arc<Host>) -> Result<i64, String> {
         let mut token = 0;
         unsafe {
             webview
@@ -560,7 +703,11 @@ mod platform {
                                 let message = CoTaskMemPWSTR::from(message);
                                 let message = message.to_string();
                                 if is_toggle_devtools_message(&message) {
-                                    webview.OpenDevToolsWindow().ok();
+                                    if let Err(error) = webview.OpenDevToolsWindow() {
+                                        eprintln!(
+                                            "[StremioLightning] Failed to open WebView2 DevTools: {error}"
+                                        );
+                                    }
                                 }
                                 if let Err(error) = post_outbound_messages(
                                     &webview,
@@ -578,7 +725,7 @@ mod platform {
                 )
                 .map_err(|error| format!("Failed to attach WebView2 message handler: {error}"))?;
         }
-        Ok(())
+        Ok(token)
     }
 
     fn is_toggle_devtools_message(message: &str) -> bool {
@@ -619,10 +766,14 @@ mod platform {
                         let uri = uri.to_string();
                         if !super::is_allowed_webview_navigation(&app_url, &uri) {
                             args.SetCancel(true)?;
-                            let _ = host.invoke(
+                            if let Err(error) = host.invoke(
                                 "open_external_url",
                                 Some(serde_json::json!({ "url": uri })),
-                            );
+                            ) {
+                                eprintln!(
+                                    "[StremioLightning] Failed to open external navigation URL: {error}"
+                                );
+                            }
                         }
                         Ok(())
                     })),
@@ -928,5 +1079,25 @@ mod tests {
             app_url,
             "http://127.0.0.1:11470/"
         ));
+    }
+
+    #[test]
+    fn cleanup_report_records_all_failures_without_short_circuiting() {
+        let mut report = CleanupReport::default();
+
+        report.record(
+            "remove message handler",
+            Err("message token failed".to_string()),
+        );
+        report.record("remove navigation handler", Ok(()));
+        report.record("close controller", Err("close failed".to_string()));
+
+        assert_eq!(
+            report.failures(),
+            [
+                "remove message handler: message token failed",
+                "close controller: close failed"
+            ]
+        );
     }
 }
