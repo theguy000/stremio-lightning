@@ -340,6 +340,14 @@ impl<P: PlatformBridge> BaseHost<P> {
             .map_err(|e| format!("Listeners lock poisoned: {e}"))
     }
 
+    fn lock_shell_preferences(
+        &self,
+    ) -> Result<std::sync::MutexGuard<'_, ShellPreferenceState>, String> {
+        self.shell_preferences
+            .lock()
+            .map_err(|e| format!("Shell preferences lock poisoned: {e}"))
+    }
+
     pub fn listen_with_id(&self, id: u64, event: impl Into<String>) -> Result<(), String> {
         let mut registry = self.lock_listeners()?;
         registry.listen_with_id(id, event);
@@ -367,7 +375,7 @@ impl<P: PlatformBridge> BaseHost<P> {
     }
 
     pub fn queue_transport_message(&self, message: String) -> Result<(), String> {
-        self.update_player_paused_from_transport(&Value::String(message.clone()));
+        self.update_player_paused_from_transport(&Value::String(message.clone()))?;
         let mut registry = self.lock_listeners()?;
         if registry.pending_transport_messages.len() >= 512 {
             registry.pending_transport_messages.pop_front();
@@ -401,7 +409,7 @@ impl<P: PlatformBridge> BaseHost<P> {
         }
     }
 
-    fn update_player_paused_from_transport(&self, payload: &Value) {
+    fn update_player_paused_from_transport(&self, payload: &Value) -> Result<(), String> {
         // Case 1: Payload is a serialized JSON string (Linux/Windows queued/emitted message)
         if let Some(msg_str) = payload.as_str() {
             if let Ok(resp) = serde_json::from_str::<RpcResponse>(msg_str) {
@@ -417,11 +425,11 @@ impl<P: PlatformBridge> BaseHost<P> {
                             }
                             _ => (None, None),
                         };
-                        self.handle_player_event(event_type, name, data);
+                        self.handle_player_event(event_type, name, data)?;
                     }
                 }
             }
-            return;
+            return Ok(());
         }
 
         // Case 2: Payload is a raw JSON object (macOS native player event)
@@ -435,9 +443,11 @@ impl<P: PlatformBridge> BaseHost<P> {
                     }
                     _ => (None, None),
                 };
-                self.handle_player_event(event_type, name, data);
+                self.handle_player_event(event_type, name, data)?;
             }
         }
+
+        Ok(())
     }
 
     fn handle_player_event(
@@ -445,42 +455,45 @@ impl<P: PlatformBridge> BaseHost<P> {
         event_type: &str,
         prop_name: Option<&str>,
         prop_data: Option<&Value>,
-    ) {
+    ) -> Result<(), String> {
         match (event_type, prop_name) {
             ("mpv-prop-change", Some("pause")) => {
                 if let Some(paused) = prop_data.and_then(|v| v.as_bool()) {
-                    self.shell_preferences.lock().unwrap().player_paused = paused;
+                    let mut prefs = self.lock_shell_preferences()?;
+                    prefs.player_paused = paused;
                 }
             }
             ("mpv-event-ended", _) => {
-                let mut prefs = self.shell_preferences.lock().unwrap();
+                let mut prefs = self.lock_shell_preferences()?;
                 prefs.player_paused = true;
                 prefs.auto_paused = false;
             }
             _ => {}
         }
+        Ok(())
     }
 
-    fn update_player_paused_from_set_prop(&self, payload: &Option<Value>) {
+    fn update_player_paused_from_set_prop(&self, payload: &Option<Value>) -> Result<(), String> {
         let Some(args) = payload.as_ref().and_then(|v| v.as_array()) else {
-            return;
+            return Ok(());
         };
         if args.first().and_then(|v| v.as_str()) != Some("pause") {
-            return;
+            return Ok(());
         }
         let Some(paused) = args.get(1).and_then(|v| v.as_bool()) else {
-            return;
+            return Ok(());
         };
 
-        let mut prefs = self.shell_preferences.lock().unwrap();
+        let mut prefs = self.lock_shell_preferences()?;
         prefs.player_paused = paused;
         prefs.auto_paused = false;
+        Ok(())
     }
 
     pub fn emit_event(&self, event: impl Into<String>, payload: Value) -> Result<(), String> {
         let event = event.into();
         if event == SHELL_TRANSPORT_EVENT {
-            self.update_player_paused_from_transport(&payload);
+            self.update_player_paused_from_transport(&payload)?;
         }
         self.lock_listeners()?.emit(event, payload);
         Ok(())
@@ -792,27 +805,23 @@ impl<P: PlatformBridge> BaseHost<P> {
             }
             "set_auto_pause" => {
                 let enabled = parse_optional_bool(payload).unwrap_or(true);
-                self.shell_preferences.lock().unwrap().auto_pause = enabled;
+                let mut prefs = self.lock_shell_preferences()?;
+                prefs.auto_pause = enabled;
                 Ok(Value::Null)
             }
-            "get_auto_pause" => Ok(json!(self.shell_preferences.lock().unwrap().auto_pause)),
+            "get_auto_pause" => Ok(json!(self.lock_shell_preferences()?.auto_pause)),
             "set_pip_disables_auto_pause" => {
                 let enabled = parse_optional_bool(payload).unwrap_or(true);
-                self.shell_preferences
-                    .lock()
-                    .unwrap()
-                    .pip_disables_auto_pause = enabled;
+                let mut prefs = self.lock_shell_preferences()?;
+                prefs.pip_disables_auto_pause = enabled;
                 Ok(Value::Null)
             }
             "get_pip_disables_auto_pause" => Ok(json!(
-                self.shell_preferences
-                    .lock()
-                    .unwrap()
-                    .pip_disables_auto_pause
+                self.lock_shell_preferences()?.pip_disables_auto_pause
             )),
             "mpv-observe-prop" | "mpv-set-prop" | "mpv-command" | "native-player-stop" => {
                 if command == "mpv-set-prop" {
-                    self.update_player_paused_from_set_prop(&payload);
+                    self.update_player_paused_from_set_prop(&payload)?;
                 }
                 self.bridge.handle_custom_transport(command, payload)?;
                 Ok(Value::Null)
@@ -875,15 +884,13 @@ impl<P: PlatformBridge> BaseHost<P> {
 
         // Determine the action while holding the lock, then release before calling bridge
         let pause_action = {
-            let mut prefs = self.shell_preferences.lock().unwrap();
+            let prefs = self.lock_shell_preferences()?;
             if !prefs.auto_pause || (is_pip && prefs.pip_disables_auto_pause) {
                 return Ok(());
             }
             if focused && prefs.auto_paused {
-                prefs.auto_paused = false;
                 Some(false)
             } else if !focused && !prefs.player_paused {
-                prefs.auto_paused = true;
                 Some(true)
             } else {
                 None
@@ -892,8 +899,8 @@ impl<P: PlatformBridge> BaseHost<P> {
 
         if let Some(paused) = pause_action {
             self.bridge
-                .handle_custom_transport("mpv-set-prop", Some(json!(["pause", paused])))
-                .ok();
+                .handle_custom_transport("mpv-set-prop", Some(json!(["pause", paused])))?;
+            self.lock_shell_preferences()?.auto_paused = paused;
         }
 
         Ok(())
@@ -1010,7 +1017,57 @@ pub fn parse_optional_bool(payload: Option<Value>) -> Option<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
+
     use serde_json::{json, Value};
+
+    #[derive(Default)]
+    struct TestBridge {
+        pip_enabled: bool,
+        fail_custom_transport: bool,
+    }
+
+    impl PlatformBridge for TestBridge {
+        fn platform_name(&self) -> &'static str {
+            "test"
+        }
+
+        fn shell_name(&self) -> &'static str {
+            "test-shell"
+        }
+
+        fn native_player_status(&self) -> Value {
+            Value::Null
+        }
+
+        fn is_streaming_server_running(&self) -> bool {
+            false
+        }
+
+        fn toggle_picture_in_picture(&self) -> Result<bool, String> {
+            Ok(self.pip_enabled)
+        }
+
+        fn is_pip_enabled(&self) -> Result<bool, String> {
+            Ok(self.pip_enabled)
+        }
+
+        fn handle_custom_transport(
+            &self,
+            method: &str,
+            _data: Option<Value>,
+        ) -> Result<(), String> {
+            if self.fail_custom_transport {
+                Err(format!("transport failed for {method}"))
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    fn test_host(bridge: TestBridge) -> BaseHost<TestBridge> {
+        BaseHost::new(bridge, PathBuf::new(), "0.0.0")
+    }
 
     #[test]
     fn host_command_names_match_frontend() {
@@ -1109,5 +1166,33 @@ mod tests {
                 "isFullscreen": false
             }])
         );
+    }
+
+    #[test]
+    fn poisoned_shell_preferences_return_command_error() {
+        let host = test_host(TestBridge::default());
+
+        let poison_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = host.shell_preferences.lock().unwrap();
+            panic!("poison shell preferences");
+        }));
+        assert!(poison_result.is_err());
+
+        let error = host.invoke_sync("get_auto_pause", None).unwrap_err();
+        assert!(error.contains("Shell preferences lock poisoned"));
+    }
+
+    #[test]
+    fn update_window_focus_returns_auto_pause_transport_error() {
+        let host = test_host(TestBridge {
+            fail_custom_transport: true,
+            ..Default::default()
+        });
+
+        host.shell_preferences.lock().unwrap().player_paused = false;
+
+        let error = host.update_window_focus(false).unwrap_err();
+        assert_eq!(error, "transport failed for mpv-set-prop");
+        assert!(!host.shell_preferences.lock().unwrap().auto_paused);
     }
 }
