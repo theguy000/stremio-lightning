@@ -2,11 +2,10 @@ use crate::app::AppConfig;
 use crate::player::{MpvBackendCommand, MpvPlayerBackend};
 use crate::streaming_server::RealProcessSpawner;
 use crate::webview_runtime::LinuxWebviewRuntime;
-use gdk_pixbuf::Pixbuf;
 use gtk::gdk::{Display, GLContext, RGBA};
 use gtk::glib::{self, Propagation};
 use gtk::prelude::*;
-use libc::{c_char, c_int, c_long, c_uchar, c_ulong, setlocale, LC_NUMERIC};
+use libc::{setlocale, LC_NUMERIC};
 use libmpv2::events::{Event, PropertyData};
 use libmpv2::render::{OpenGLInitParams, RenderContext, RenderParam, RenderParamApiType};
 use libmpv2::{Format, Mpv};
@@ -27,6 +26,10 @@ use webkit::{
     UserScriptInjectionTime, WebView as WebKitWebView,
 };
 
+mod x11;
+
+use self::x11::{install_source_tree_window_icon, request_window_above};
+
 const IPC_HANDLER_NAME: &str = "ipc";
 const APP_ID: &str = "io.github.theguy000.StremioLightning";
 const APP_NAME: &str = "Stremio Lightning";
@@ -39,12 +42,6 @@ const MIN_WINDOW_HEIGHT: i32 = 600;
 thread_local! {
     static LAST_NORMAL_SIZE: RefCell<Option<(i32, i32)>> = const { RefCell::new(None) };
 }
-const X11_CLIENT_MESSAGE: c_int = 33;
-const X11_PROP_MODE_REPLACE: c_int = 0;
-const X11_PROP_MODE_REMOVE: c_long = 0;
-const X11_PROP_MODE_ADD: c_long = 1;
-const X11_SUBSTRUCTURE_NOTIFY_MASK: c_long = 1 << 19;
-const X11_SUBSTRUCTURE_REDIRECT_MASK: c_long = 1 << 20;
 const MPV_FLOAT_PROPERTIES: &[&str] = &[
     "time-pos",
     "duration",
@@ -83,58 +80,6 @@ struct ShellTransportMessage {
     #[serde(rename = "type")]
     message_type: u8,
     args: Option<Value>,
-}
-
-#[repr(C)]
-union XClientMessageData {
-    b: [c_char; 20],
-    s: [i16; 10],
-    l: [c_long; 5],
-}
-
-#[repr(C)]
-struct XClientMessageEvent {
-    type_: c_int,
-    serial: c_ulong,
-    send_event: c_int,
-    display: *mut c_void,
-    window: c_ulong,
-    message_type: c_ulong,
-    format: c_int,
-    data: XClientMessageData,
-}
-
-unsafe extern "C" {
-    fn gdk_x11_display_get_xdisplay(display: *mut c_void) -> *mut c_void;
-    fn gdk_x11_surface_get_xid(surface: *mut c_void) -> c_ulong;
-}
-
-#[link(name = "X11")]
-unsafe extern "C" {
-    fn XDefaultRootWindow(display: *mut c_void) -> c_ulong;
-    fn XFlush(display: *mut c_void) -> c_int;
-    fn XInternAtom(
-        display: *mut c_void,
-        atom_name: *const c_char,
-        only_if_exists: c_int,
-    ) -> c_ulong;
-    fn XChangeProperty(
-        display: *mut c_void,
-        window: c_ulong,
-        property: c_ulong,
-        type_: c_ulong,
-        format: c_int,
-        mode: c_int,
-        data: *const c_uchar,
-        nelements: c_int,
-    ) -> c_int;
-    fn XSendEvent(
-        display: *mut c_void,
-        window: c_ulong,
-        propagate: c_int,
-        event_mask: c_long,
-        event_send: *mut XClientMessageEvent,
-    ) -> c_int;
 }
 
 pub fn run_native_window(
@@ -304,113 +249,6 @@ fn configure_application_icon_name() -> &'static str {
 
 fn source_tree_icon_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../assets/icons")
-}
-
-fn install_source_tree_window_icon(window: &gtk::ApplicationWindow) {
-    let window = window.clone();
-    window.connect_realize(move |window| {
-        let Some(surface) = window.surface() else {
-            return;
-        };
-        if !is_x11_surface(&surface) {
-            return;
-        }
-        if let Err(error) = set_x11_window_icon(&surface) {
-            eprintln!("[StremioLightning] Failed to set Linux taskbar icon: {error}");
-        }
-    });
-}
-
-fn set_x11_window_icon(surface: &gtk::gdk::Surface) -> Result<(), String> {
-    const NET_WM_ICON: &[u8] = b"_NET_WM_ICON\0";
-    const CARDINAL: &[u8] = b"CARDINAL\0";
-
-    const ICON_BYTES: &[u8] = include_bytes!("../../../assets/icons/128x128.png");
-
-    let bytes = gtk::glib::Bytes::from(ICON_BYTES);
-    let stream = gtk::gio::MemoryInputStream::from_bytes(&bytes);
-    let pixbuf = Pixbuf::from_stream(&stream, None::<&gtk::gio::Cancellable>)
-        .map_err(|error| format!("failed to load icon from bytes: {error}"))?;
-
-    let width = pixbuf.width();
-    let height = pixbuf.height();
-    let channels = pixbuf.n_channels();
-    if width <= 0 || height <= 0 || channels < 3 {
-        return Err("invalid icon image".to_string());
-    }
-
-    let pixels = pixbuf.read_pixel_bytes();
-    let pixels = pixels.as_ref();
-    let rowstride = pixbuf.rowstride() as usize;
-    let width_usize = width as usize;
-    let height_usize = height as usize;
-    let channels_usize = channels as usize;
-
-    // Guard against potential out-of-bounds access if pixel data size is insufficient
-    let expected_min_len = (height_usize - 1) * rowstride + width_usize * channels_usize;
-    if pixels.len() < expected_min_len {
-        return Err("pixel buffer size is insufficient for icon dimensions".to_string());
-    }
-
-    let mut icon_data = Vec::with_capacity(2 + width_usize * height_usize);
-    icon_data.push(width as c_ulong);
-    icon_data.push(height as c_ulong);
-    for y in 0..height_usize {
-        let row_start = y * rowstride;
-        for x in 0..width_usize {
-            let offset = row_start + x * channels_usize;
-            let r = pixels[offset] as c_ulong;
-            let g = pixels[offset + 1] as c_ulong;
-            let b = pixels[offset + 2] as c_ulong;
-            let a = if channels_usize >= 4 {
-                pixels[offset + 3] as c_ulong
-            } else {
-                0xff
-            };
-            icon_data.push((a << 24) | (r << 16) | (g << 8) | b);
-        }
-    }
-
-    let display = surface.display();
-    // SAFETY: gdk_x11_display_get_xdisplay expects a valid GdkDisplay pointer.
-    // display.as_ptr() is guaranteed to be valid by GDK display handles.
-    let xdisplay = unsafe { gdk_x11_display_get_xdisplay(display.as_ptr() as *mut c_void) };
-    if xdisplay.is_null() {
-        return Err("failed to read X11 display".to_string());
-    }
-
-    // SAFETY: gdk_x11_surface_get_xid expects a valid GdkSurface pointer.
-    // surface.as_ptr() is guaranteed to be valid by GDK surface handles.
-    let xid = unsafe { gdk_x11_surface_get_xid(surface.as_ptr() as *mut c_void) };
-    if xid == 0 {
-        return Err("failed to read X11 window id".to_string());
-    }
-
-    // SAFETY: XInternAtom is standard Xlib FFI. xdisplay is verified non-null.
-    // String slices are null-terminated byte slices.
-    let icon_atom = unsafe { XInternAtom(xdisplay, NET_WM_ICON.as_ptr().cast(), 0) };
-    let cardinal_atom = unsafe { XInternAtom(xdisplay, CARDINAL.as_ptr().cast(), 0) };
-    if icon_atom == 0 || cardinal_atom == 0 {
-        return Err("failed to resolve X11 taskbar icon atoms".to_string());
-    }
-
-    // SAFETY: XChangeProperty modifies window properties. Parameters are verified to be aligned
-    // and matched. icon_data has format 32 (long array). XFlush synchronizes display server buffers.
-    unsafe {
-        XChangeProperty(
-            xdisplay,
-            xid,
-            icon_atom,
-            cardinal_atom,
-            32,
-            X11_PROP_MODE_REPLACE,
-            icon_data.as_ptr().cast::<c_uchar>(),
-            icon_data.len() as c_int,
-        );
-        XFlush(xdisplay);
-    }
-
-    Ok(())
 }
 
 fn build_webview(
@@ -814,88 +652,6 @@ impl PipWindowController for NativeWindowController<'_> {
     }
 }
 
-fn request_window_above(window: &gtk::ApplicationWindow, above: bool) -> Result<(), String> {
-    let surface = window
-        .surface()
-        .ok_or_else(|| "Cannot update PiP window stacking before it has a surface".to_string())?;
-
-    if !is_x11_surface(&surface) {
-        if above {
-            eprintln!(
-                "[StremioLightning] PiP always-on-top is only available on Linux X11 sessions"
-            );
-        }
-        return Ok(());
-    }
-
-    send_x11_window_state_above(&surface, above)
-}
-
-fn is_x11_surface(surface: &gtk::gdk::Surface) -> bool {
-    surface.type_().name().contains("X11")
-}
-
-fn send_x11_window_state_above(surface: &gtk::gdk::Surface, above: bool) -> Result<(), String> {
-    const NET_WM_STATE: &[u8] = b"_NET_WM_STATE\0";
-    const NET_WM_STATE_ABOVE: &[u8] = b"_NET_WM_STATE_ABOVE\0";
-
-    let display = surface.display();
-
-    // SAFETY: Standard X11 FFI operations with verified display, window, and atom handles.
-    unsafe {
-        let xdisplay = gdk_x11_display_get_xdisplay(display.as_ptr() as *mut c_void);
-        if xdisplay.is_null() {
-            return Err("Failed to read X11 display for PiP window".to_string());
-        }
-
-        let xid = gdk_x11_surface_get_xid(surface.as_ptr() as *mut c_void);
-        if xid == 0 {
-            return Err("Failed to read X11 window id for PiP window".to_string());
-        }
-
-        let state_atom = XInternAtom(xdisplay, NET_WM_STATE.as_ptr().cast(), 0);
-        let above_atom = XInternAtom(xdisplay, NET_WM_STATE_ABOVE.as_ptr().cast(), 0);
-        if state_atom == 0 || above_atom == 0 {
-            return Err("Failed to resolve X11 PiP always-on-top atoms".to_string());
-        }
-
-        let action = if above {
-            X11_PROP_MODE_ADD
-        } else {
-            X11_PROP_MODE_REMOVE
-        };
-        let mut event = XClientMessageEvent {
-            type_: X11_CLIENT_MESSAGE,
-            serial: 0,
-            send_event: 1,
-            display: xdisplay,
-            window: xid,
-            message_type: state_atom,
-            format: 32,
-            data: XClientMessageData {
-                l: [action, above_atom as c_long, 0, 1, 0],
-            },
-        };
-
-        let root = XDefaultRootWindow(xdisplay);
-
-        let sent = XSendEvent(
-            xdisplay,
-            root,
-            0,
-            X11_SUBSTRUCTURE_REDIRECT_MASK | X11_SUBSTRUCTURE_NOTIFY_MASK,
-            &mut event,
-        );
-        if sent == 0 {
-            return Err("Failed to send X11 PiP always-on-top request".to_string());
-        }
-
-        XFlush(xdisplay);
-    }
-
-    Ok(())
-}
-
 fn set_window_fullscreen(
     webview: &WebKitWebView,
     runtime: &LinuxWebviewRuntime<MpvPlayerBackend, RealProcessSpawner>,
@@ -1003,6 +759,7 @@ fn load_epoxy() -> Result<(), String> {
 struct NativeVideoState {
     mpv: RefCell<Mpv>,
     render_context: RefCell<Option<RenderContext>>,
+    render_error_logged: Cell<bool>,
     shutting_down: Cell<bool>,
 }
 
@@ -1030,6 +787,7 @@ impl NativeVideoState {
         Ok(Self {
             mpv: RefCell::new(mpv),
             render_context: RefCell::default(),
+            render_error_logged: Cell::default(),
             shutting_down: Cell::default(),
         })
     }
@@ -1168,7 +926,7 @@ fn build_native_video(
                 // SAFETY: mpv.ctx is a valid, non-null raw pointer to the underlying mpv_handle
                 // managed securely by the libmpv2 Mpv instance, which remains alive and active.
                 let mpv_handle = unsafe { mpv.ctx.as_mut() };
-                let mut render_context = RenderContext::new(
+                let mut render_context = match RenderContext::new(
                     mpv_handle,
                     vec![
                         RenderParam::ApiType(RenderParamApiType::OpenGl),
@@ -1178,8 +936,15 @@ fn build_native_video(
                         }),
                         RenderParam::BlockForTargetTime(false),
                     ],
-                )
-                .expect("Failed to create mpv render context");
+                ) {
+                    Ok(render_context) => render_context,
+                    Err(error) => {
+                        eprintln!(
+                            "[StremioLightning] Failed to create MPV render context: {error}"
+                        );
+                        return;
+                    }
+                };
 
                 // Safely request GLArea redrawing on the main GTK/GLib thread from the background MPV render thread.
                 let (glib_sender, mut glib_receiver) = tokio::sync::mpsc::unbounded_channel::<()>();
@@ -1219,14 +984,18 @@ fn build_native_video(
 
             if let Some(ref render_context) = *state.render_context.borrow() {
                 let scale = area.scale_factor();
-                render_context
-                    .render::<GLContext>(
-                        state.current_fbo(),
-                        area.width() * scale,
-                        area.height() * scale,
-                        true,
-                    )
-                    .expect("Failed to render mpv frame");
+                if let Err(error) = render_context.render::<GLContext>(
+                    state.current_fbo(),
+                    area.width() * scale,
+                    area.height() * scale,
+                    true,
+                ) {
+                    if !state.render_error_logged.replace(true) {
+                        eprintln!("[StremioLightning] Failed to render MPV frame: {error}");
+                    }
+                } else {
+                    state.render_error_logged.set(false);
+                }
             }
             Propagation::Stop
         });
