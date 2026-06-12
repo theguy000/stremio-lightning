@@ -100,13 +100,15 @@ The main xtask commands are:
 | `cargo xtask validate` | Run all formatting, linting, tests, and UI checks. |
 | `cargo xtask setup` | Download native dependencies for the current platform. |
 | `cargo xtask setup-linux` | Download Linux shell runtime dependencies. |
+| `cargo xtask setup-macos` | Download macOS shell runtime dependencies (accepts `--arch arm64` or `--arch x86_64`). |
 | `cargo xtask setup-windows` | Download Windows shell runtime dependencies. |
 | `cargo xtask build-ui` | Build the injected Svelte/Vite UI bundle. |
 | `cargo xtask test-ui` | Run frontend tests through Vitest. |
 | `cargo xtask package-linux-appimage` | Build the Linux AppImage. |
 | `cargo xtask package-linux-deb` | Build the Linux `.deb` package. |
 | `cargo xtask package-linux-flatpak` | Build the Linux Flatpak bundle. |
-| `cargo xtask package-macos` | Build the macOS `.app` bundle. |
+| `cargo xtask package-macos` | Build the macOS `.app` bundle (accepts `--arch arm64` or `--arch x86_64`). |
+| `cargo xtask package-macos-dmg` | Build the macOS `.app` bundle and DMG. |
 | `cargo xtask package-windows-portable` | Build the Windows portable zip. |
 | `cargo xtask package-windows-installer` | Build the Windows installer EXE. |
 
@@ -255,15 +257,32 @@ cargo macos
 
 Use this for local macOS development.
 
+Download the macOS runtime dependencies (Stremio service runtime, `server.cjs`,
+`ffmpeg`, `ffprobe`) for a specific architecture:
+
+```bash
+cargo xtask setup-macos --arch arm64
+cargo xtask setup-macos --arch x86_64
+```
+
+Omit `--arch` to target the host architecture. The setup command needs `gh`,
+`curl`, `tar`, `unzip`, and `shasum`, and every download is verified against a
+pinned SHA-256 checksum.
+
 Build the macOS app bundle on macOS:
 
 ```bash
-cargo xtask package-macos
+cargo xtask package-macos --arch arm64
 ```
 
-Use this when you need a packaged `.app` bundle under `dist/`.
+Build the app bundle and a distributable DMG:
 
-Before packaging, make sure these runtime files exist:
+```bash
+cargo xtask package-macos-dmg --arch arm64
+```
+
+Before packaging, make sure these runtime files exist (created by
+`cargo xtask setup-macos`):
 
 ```text
 crates/stremio-lightning-macos/binaries/stremio-runtime-macos
@@ -273,18 +292,32 @@ crates/stremio-lightning-macos/resources/ffprobe
 ```
 
 The package command also needs `libmpv.dylib`. It looks in `MPV_DIR`,
-`STREMIO_LIGHTNING_MPV_DIR`, `crates/stremio-lightning-macos/mpv-dev`, and
-Homebrew's `mpv` prefixes.
+`STREMIO_LIGHTNING_MPV_DIR`, `crates/stremio-lightning-macos/mpv-dev`, and the
+target architecture's Homebrew `mpv` prefix. libmpv and its non-system dylib
+dependencies are copied into `Contents/Frameworks` and rewritten to `@rpath`
+references, so the bundle is self-contained.
 
 macOS output:
 
 ```text
 dist/Stremio Lightning.app
+dist/Stremio_Lightning_macOS-<arch>.dmg
+```
+
+Bundles are ad-hoc signed by default. CI signs and notarizes the app when
+Developer ID secrets are configured; otherwise the published DMGs stay ad-hoc
+signed and need a one-time Gatekeeper override:
+
+```bash
+xattr -cr "/Applications/Stremio Lightning.app"
 ```
 
 The macOS package command must run on macOS because it uses host Apple tooling
-such as `install_name_tool` and `codesign`, and it needs platform-matching
-bundled libraries.
+such as `install_name_tool`, `codesign`, `otool`, `lipo`, and `hdiutil`, and it
+needs platform-matching bundled libraries.
+
+See [`macos-shell-gap-analysis.md`](macos-shell-gap-analysis.md) for the
+current state of the macOS shell and remaining gaps.
 
 ## Windows Workflow
 

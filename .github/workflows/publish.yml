@@ -50,7 +50,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
         run: |
-          TAG="${{ github.ref_name }}"
+          TAG="$ github.ref_name "
           VERSION="${TAG#v}"
           echo "Setting version to $VERSION"
           node scripts/bump-version.cjs "$VERSION"
@@ -76,7 +76,7 @@ jobs:
       - name: Download Linux shell dependencies
         run: cargo xtask setup-linux
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: $ secrets.GITHUB_TOKEN 
 
       - name: Download appimagetool
         run: |
@@ -140,7 +140,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
         run: |
-          TAG="${{ github.ref_name }}"
+          TAG="$ github.ref_name "
           VERSION="${TAG#v}"
           echo "Setting version to $VERSION"
           node scripts/bump-version.cjs "$VERSION"
@@ -166,7 +166,7 @@ jobs:
       - name: Download Windows shell dependencies
         run: cargo xtask setup-windows
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: $ secrets.GITHUB_TOKEN 
 
       - name: Package Windows portable artifact
         run: cargo xtask package-windows-portable
@@ -223,9 +223,223 @@ jobs:
           name: stremio-lightning-windows-setup.exe
           path: dist/stremio-lightning-windows-setup.exe
 
+  macos-arm64:
+    runs-on: macos-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: Set dynamic release version in files
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          TAG="$ github.ref_name "
+          VERSION="${TAG#v}"
+          echo "Setting version to $VERSION"
+          node scripts/bump-version.cjs "$VERSION"
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+
+      - name: Install mpv (libmpv)
+        run: brew install mpv
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: cargo xtask build-ui
+
+      - name: Download macOS shell dependencies (arm64)
+        run: cargo xtask setup-macos --arch arm64
+        env:
+          GH_TOKEN: $ secrets.GITHUB_TOKEN 
+
+      - name: Package macOS app bundle and DMG (arm64)
+        run: cargo xtask package-macos-dmg --arch arm64
+
+      - name: Sign and notarize (skipped unless signing secrets are configured)
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          MACOS_CERT_P12: $ secrets.MACOS_CERT_P12 
+          MACOS_CERT_PASSWORD: $ secrets.MACOS_CERT_PASSWORD 
+          APPLE_ID: $ secrets.APPLE_ID 
+          APPLE_TEAM_ID: $ secrets.APPLE_TEAM_ID 
+          NOTARIZATION_PWD: $ secrets.NOTARIZATION_PWD 
+        run: |
+          set -euo pipefail
+          if [ -z "${MACOS_CERT_P12:-}" ]; then
+            echo "Signing secrets not configured; shipping the ad-hoc signed build."
+            exit 0
+          fi
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          printf '%s' "$MACOS_CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/cert.p12" -P "$MACOS_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
+          IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN" | awk -F '\"' '/Developer ID Application/ {print $2; exit}')"
+          if [ -z "$IDENTITY" ]; then
+            echo "ERROR: no Developer ID Application identity found in imported certificate" >&2
+            exit 1
+          fi
+          APP="dist/Stremio Lightning.app"
+          codesign --force --deep --options runtime             --entitlements "$APP/Contents/Resources/entitlements.plist"             --sign "$IDENTITY" --keychain "$KEYCHAIN" "$APP"
+          if [ -n "${APPLE_ID:-}" ] && [ -n "${APPLE_TEAM_ID:-}" ] && [ -n "${NOTARIZATION_PWD:-}" ]; then
+            ditto -c -k --keepParent "$APP" "$RUNNER_TEMP/StremioLightning.zip"
+            xcrun notarytool submit "$RUNNER_TEMP/StremioLightning.zip"               --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID"               --password "$NOTARIZATION_PWD" --wait
+            xcrun stapler staple "$APP"
+          else
+            echo "Notarization secrets not configured; skipping notarization."
+          fi
+          STAGING="$RUNNER_TEMP/dmg-arm64"
+          rm -rf "$STAGING"
+          mkdir -p "$STAGING"
+          ditto "$APP" "$STAGING/Stremio Lightning.app"
+          ln -s /Applications "$STAGING/Applications"
+          rm -f "dist/Stremio_Lightning_macOS-arm64.dmg"
+          hdiutil create -volname "Stremio Lightning" -srcfolder "$STAGING" -ov -format UDZO "dist/Stremio_Lightning_macOS-arm64.dmg"
+          codesign --force --sign "$IDENTITY" --keychain "$KEYCHAIN" "dist/Stremio_Lightning_macOS-arm64.dmg"
+
+      - name: Verify macOS artifacts (arm64)
+        run: |
+          test -d "dist/Stremio Lightning.app"
+          test -x "dist/Stremio Lightning.app/Contents/MacOS/stremio-lightning-macos"
+          test -s "dist/Stremio_Lightning_macOS-arm64.dmg"
+
+      - name: Upload macOS DMG artifact (arm64)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Stremio_Lightning_macOS-arm64.dmg
+          path: dist/Stremio_Lightning_macOS-arm64.dmg
+
+  macos-x86_64:
+    runs-on: macos-15-intel
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: Set dynamic release version in files
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          TAG="$ github.ref_name "
+          VERSION="${TAG#v}"
+          echo "Setting version to $VERSION"
+          node scripts/bump-version.cjs "$VERSION"
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+
+      - name: Install mpv (libmpv)
+        run: brew install mpv
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: cargo xtask build-ui
+
+      - name: Download macOS shell dependencies (x86_64)
+        run: cargo xtask setup-macos --arch x86_64
+        env:
+          GH_TOKEN: $ secrets.GITHUB_TOKEN 
+
+      - name: Package macOS app bundle and DMG (x86_64)
+        run: cargo xtask package-macos-dmg --arch x86_64
+
+      - name: Sign and notarize (skipped unless signing secrets are configured)
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          MACOS_CERT_P12: $ secrets.MACOS_CERT_P12 
+          MACOS_CERT_PASSWORD: $ secrets.MACOS_CERT_PASSWORD 
+          APPLE_ID: $ secrets.APPLE_ID 
+          APPLE_TEAM_ID: $ secrets.APPLE_TEAM_ID 
+          NOTARIZATION_PWD: $ secrets.NOTARIZATION_PWD 
+        run: |
+          set -euo pipefail
+          if [ -z "${MACOS_CERT_P12:-}" ]; then
+            echo "Signing secrets not configured; shipping the ad-hoc signed build."
+            exit 0
+          fi
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          printf '%s' "$MACOS_CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/cert.p12" -P "$MACOS_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
+          IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN" | awk -F '\"' '/Developer ID Application/ {print $2; exit}')"
+          if [ -z "$IDENTITY" ]; then
+            echo "ERROR: no Developer ID Application identity found in imported certificate" >&2
+            exit 1
+          fi
+          APP="dist/Stremio Lightning.app"
+          codesign --force --deep --options runtime             --entitlements "$APP/Contents/Resources/entitlements.plist"             --sign "$IDENTITY" --keychain "$KEYCHAIN" "$APP"
+          if [ -n "${APPLE_ID:-}" ] && [ -n "${APPLE_TEAM_ID:-}" ] && [ -n "${NOTARIZATION_PWD:-}" ]; then
+            ditto -c -k --keepParent "$APP" "$RUNNER_TEMP/StremioLightning.zip"
+            xcrun notarytool submit "$RUNNER_TEMP/StremioLightning.zip"               --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID"               --password "$NOTARIZATION_PWD" --wait
+            xcrun stapler staple "$APP"
+          else
+            echo "Notarization secrets not configured; skipping notarization."
+          fi
+          STAGING="$RUNNER_TEMP/dmg-x86_64"
+          rm -rf "$STAGING"
+          mkdir -p "$STAGING"
+          ditto "$APP" "$STAGING/Stremio Lightning.app"
+          ln -s /Applications "$STAGING/Applications"
+          rm -f "dist/Stremio_Lightning_macOS-x86_64.dmg"
+          hdiutil create -volname "Stremio Lightning" -srcfolder "$STAGING" -ov -format UDZO "dist/Stremio_Lightning_macOS-x86_64.dmg"
+          codesign --force --sign "$IDENTITY" --keychain "$KEYCHAIN" "dist/Stremio_Lightning_macOS-x86_64.dmg"
+
+      - name: Verify macOS artifacts (x86_64)
+        run: |
+          test -d "dist/Stremio Lightning.app"
+          test -x "dist/Stremio Lightning.app/Contents/MacOS/stremio-lightning-macos"
+          test -s "dist/Stremio_Lightning_macOS-x86_64.dmg"
+
+      - name: Upload macOS DMG artifact (x86_64)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Stremio_Lightning_macOS-x86_64.dmg
+          path: dist/Stremio_Lightning_macOS-x86_64.dmg
+
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [linux, windows]
+    needs: [linux, windows, macos-arm64, macos-x86_64]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -261,10 +475,22 @@ jobs:
           name: stremio-lightning-windows-setup.exe
           path: release-assets
 
+      - name: Download macOS arm64 DMG artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Stremio_Lightning_macOS-arm64.dmg
+          path: release-assets
+
+      - name: Download macOS x86_64 DMG artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Stremio_Lightning_macOS-x86_64.dmg
+          path: release-assets
+
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: $ secrets.GITHUB_TOKEN 
         with:
           draft: true
           prerelease: false
@@ -274,3 +500,5 @@ jobs:
             release-assets/Stremio_Lightning_Linux-x86_64.flatpak
             release-assets/stremio-lightning-windows-portable.zip
             release-assets/stremio-lightning-windows-setup.exe
+            release-assets/Stremio_Lightning_macOS-arm64.dmg
+            release-assets/Stremio_Lightning_macOS-x86_64.dmg
