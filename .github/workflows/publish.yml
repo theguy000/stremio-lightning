@@ -50,7 +50,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
         run: |
-          TAG="$ github.ref_name "
+          TAG="$github.ref_name"
           VERSION="${TAG#v}"
           echo "Setting version to $VERSION"
           node scripts/bump-version.cjs "$VERSION"
@@ -76,7 +76,7 @@ jobs:
       - name: Download Linux shell dependencies
         run: cargo xtask setup-linux
         env:
-          GH_TOKEN: $ secrets.GITHUB_TOKEN 
+          GH_TOKEN: $secrets.GITHUB_TOKEN
 
       - name: Download appimagetool
         run: |
@@ -140,7 +140,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
         run: |
-          TAG="$ github.ref_name "
+          TAG="$github.ref_name"
           VERSION="${TAG#v}"
           echo "Setting version to $VERSION"
           node scripts/bump-version.cjs "$VERSION"
@@ -166,7 +166,7 @@ jobs:
       - name: Download Windows shell dependencies
         run: cargo xtask setup-windows
         env:
-          GH_TOKEN: $ secrets.GITHUB_TOKEN 
+          GH_TOKEN: $secrets.GITHUB_TOKEN
 
       - name: Package Windows portable artifact
         run: cargo xtask package-windows-portable
@@ -241,7 +241,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
         run: |
-          TAG="$ github.ref_name "
+          TAG="$github.ref_name"
           VERSION="${TAG#v}"
           echo "Setting version to $VERSION"
           node scripts/bump-version.cjs "$VERSION"
@@ -266,7 +266,7 @@ jobs:
       - name: Download macOS shell dependencies (arm64)
         run: cargo xtask setup-macos --arch arm64
         env:
-          GH_TOKEN: $ secrets.GITHUB_TOKEN 
+          GH_TOKEN: $secrets.GITHUB_TOKEN
 
       - name: Package macOS app bundle and DMG (arm64)
         run: cargo xtask package-macos-dmg --arch arm64
@@ -275,11 +275,11 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
         env:
-          MACOS_CERT_P12: $ secrets.MACOS_CERT_P12 
-          MACOS_CERT_PASSWORD: $ secrets.MACOS_CERT_PASSWORD 
-          APPLE_ID: $ secrets.APPLE_ID 
-          APPLE_TEAM_ID: $ secrets.APPLE_TEAM_ID 
-          NOTARIZATION_PWD: $ secrets.NOTARIZATION_PWD 
+          MACOS_CERT_P12: $secrets.MACOS_CERT_P12
+          MACOS_CERT_PASSWORD: $secrets.MACOS_CERT_PASSWORD
+          APPLE_ID: $secrets.APPLE_ID
+          APPLE_TEAM_ID: $secrets.APPLE_TEAM_ID
+          NOTARIZATION_PWD: $secrets.NOTARIZATION_PWD
         run: |
           set -euo pipefail
           if [ -z "${MACOS_CERT_P12:-}" ]; then
@@ -348,7 +348,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
         run: |
-          TAG="$ github.ref_name "
+          TAG="$github.ref_name"
           VERSION="${TAG#v}"
           echo "Setting version to $VERSION"
           node scripts/bump-version.cjs "$VERSION"
@@ -373,7 +373,7 @@ jobs:
       - name: Download macOS shell dependencies (x86_64)
         run: cargo xtask setup-macos --arch x86_64
         env:
-          GH_TOKEN: $ secrets.GITHUB_TOKEN 
+          GH_TOKEN: $secrets.GITHUB_TOKEN
 
       - name: Package macOS app bundle and DMG (x86_64)
         run: cargo xtask package-macos-dmg --arch x86_64
@@ -382,11 +382,11 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
         env:
-          MACOS_CERT_P12: $ secrets.MACOS_CERT_P12 
-          MACOS_CERT_PASSWORD: $ secrets.MACOS_CERT_PASSWORD 
-          APPLE_ID: $ secrets.APPLE_ID 
-          APPLE_TEAM_ID: $ secrets.APPLE_TEAM_ID 
-          NOTARIZATION_PWD: $ secrets.NOTARIZATION_PWD 
+          MACOS_CERT_P12: $secrets.MACOS_CERT_P12
+          MACOS_CERT_PASSWORD: $secrets.MACOS_CERT_PASSWORD
+          APPLE_ID: $secrets.APPLE_ID
+          APPLE_TEAM_ID: $secrets.APPLE_TEAM_ID
+          NOTARIZATION_PWD: $secrets.NOTARIZATION_PWD
         run: |
           set -euo pipefail
           if [ -z "${MACOS_CERT_P12:-}" ]; then
@@ -490,7 +490,7 @@ jobs:
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
         env:
-          GITHUB_TOKEN: $ secrets.GITHUB_TOKEN 
+          GITHUB_TOKEN: $secrets.GITHUB_TOKEN
         with:
           draft: true
           prerelease: false
