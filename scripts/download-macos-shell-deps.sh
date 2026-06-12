@@ -28,11 +28,11 @@ SERVICE_REPO="Stremio/stremio-service"
 SERVICE_ASSET="stremio-service-macos.zip"
 
 NODE_VERSION="v20.18.1"
-NODE_ARM64_URL="{{https://nodejs.org/dist/${NODE_VERSION}}}/node-${NODE_VERSION}-darwin-arm64.tar.gz"
+NODE_ARM64_URL="https://nodejs.org/dist/${NODE_VERSION}/node-${NODE_VERSION}-darwin-arm64.tar.gz"
 NODE_ARM64_SHA256="9e92ce1032455a9cc419fe71e908b27ae477799371b45a0844eedb02279922a4"
 
 JELLYFIN_FFMPEG_VERSION="7.1.4-3"
-JELLYFIN_FFMPEG_ARM64_URL="{{https://github.com/jellyfin/jellyfin-ffmpeg/releases/download/v${JELLYFIN_FFMPEG_VERSION}}}/jellyfin-ffmpeg_${JELLYFIN_FFMPEG_VERSION}_portable_macarm64-gpl.tar.xz"
+JELLYFIN_FFMPEG_ARM64_URL="https://github.com/jellyfin/jellyfin-ffmpeg/releases/download/v${JELLYFIN_FFMPEG_VERSION}/jellyfin-ffmpeg_${JELLYFIN_FFMPEG_VERSION}_portable_macarm64-gpl.tar.xz"
 JELLYFIN_FFMPEG_ARM64_SHA256="99d689816a41075574928a0b3059101fd454fc58f465c99105a73b5c415ac86d"
 
 ARCH="${1:-$(uname -m)}"

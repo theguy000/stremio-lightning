@@ -295,7 +295,7 @@ jobs:
           security import "$RUNNER_TEMP/cert.p12" -P "$MACOS_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
           security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
           security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
-          IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN" | awk -F '\"' '/Developer ID Application/ {print $2; exit}')"
+          IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN" | awk -F '"' '/Developer ID Application/ {print $2; exit}')"
           if [ -z "$IDENTITY" ]; then
             echo "ERROR: no Developer ID Application identity found in imported certificate" >&2
             exit 1
@@ -402,7 +402,7 @@ jobs:
           security import "$RUNNER_TEMP/cert.p12" -P "$MACOS_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
           security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
           security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
-          IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN" | awk -F '\"' '/Developer ID Application/ {print $2; exit}')"
+          IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN" | awk -F '"' '/Developer ID Application/ {print $2; exit}')"
           if [ -z "$IDENTITY" ]; then
             echo "ERROR: no Developer ID Application identity found in imported certificate" >&2
             exit 1
