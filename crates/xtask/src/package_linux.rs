@@ -12,7 +12,7 @@ use std::{
     collections::BTreeSet,
     env,
     ffi::{OsStr, OsString},
-    fs,
+    fmt, fs,
     path::{Path, PathBuf},
     process::Command,
 };
@@ -111,9 +111,7 @@ pub fn package_linux_deb() -> Result<()> {
 
     write_file(
         deb_root.join(format!("usr/bin/{APP_ID}")),
-        format!(
-            "#!/bin/sh\nset -eu\nexport LD_LIBRARY_PATH=\"/usr/lib/{APP_ID}/lib${{LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}}\"\nexport STREMIO_LIGHTNING_BUNDLE_DIR=\"/usr/lib/{APP_ID}\"\nexec \"/usr/lib/{APP_ID}/{LINUX_BIN}\" \"$@\"\n"
-        ),
+        linux_deb_launcher_script(),
     )?;
     chmod_executable(deb_root.join(format!("usr/bin/{APP_ID}")))?;
     chmod_executable(install_root.join(LINUX_BIN))?;
@@ -123,9 +121,7 @@ pub fn package_linux_deb() -> Result<()> {
 
     write_file(
         deb_root.join(format!("usr/share/applications/{LINUX_DESKTOP_ID}.desktop")),
-        format!(
-            "[Desktop Entry]\nType=Application\nName={APP_NAME}\nExec={APP_ID}\nIcon={LINUX_DESKTOP_ID}\nCategories=AudioVideo;Video;Player;\nTerminal=false\nStartupNotify=true\nStartupWMClass={LINUX_DESKTOP_ID}\n"
-        ),
+        linux_desktop_entry(APP_ID, LINUX_DESKTOP_ID, LINUX_DESKTOP_ID),
     )?;
     write_file(
         debian_dir.join("control"),
@@ -233,12 +229,7 @@ fn prepare_linux_flatpak_payload(appdir: &Path, payload_dir: &Path) -> Result<()
         appdir.join(format!("usr/bin/{LINUX_BIN}")),
         bin_dir.join(LINUX_BIN),
     )?;
-    write_file(
-        bin_dir.join(APP_ID),
-        format!(
-            "#!/bin/sh\nset -eu\nexport LD_LIBRARY_PATH=\"/app/lib${{LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}}\"\nexport STREMIO_LIGHTNING_BUNDLE_DIR=\"/app/lib/{APP_ID}\"\nexport WEBKIT_EXEC_PATH=\"/app/lib/webkitgtk-6.0\"\nexport WEBKIT_INJECTED_BUNDLE_PATH=\"/app/lib/webkitgtk-6.0/injected-bundle\"\nexec /app/bin/{LINUX_BIN} \"$@\"\n"
-        ),
-    )?;
+    write_file(bin_dir.join(APP_ID), linux_flatpak_launcher_script())?;
     chmod_executable(bin_dir.join(APP_ID))?;
     chmod_executable(bin_dir.join(LINUX_BIN))?;
     chmod_executable(files_dir.join(format!(
@@ -249,9 +240,7 @@ fn prepare_linux_flatpak_payload(appdir: &Path, payload_dir: &Path) -> Result<()
 
     write_file(
         applications_dir.join(format!("{LINUX_FLATPAK_ID}.desktop")),
-        format!(
-            "[Desktop Entry]\nType=Application\nName={APP_NAME}\nExec={APP_ID}\nIcon={LINUX_FLATPAK_ID}\nCategories=AudioVideo;Video;Player;\nTerminal=false\nStartupNotify=true\nStartupWMClass={LINUX_FLATPAK_ID}\n"
-        ),
+        linux_desktop_entry(APP_ID, LINUX_FLATPAK_ID, LINUX_FLATPAK_ID),
     )?;
     copy_file(
         appdir.join(format!("{LINUX_DESKTOP_ID}.png")),
@@ -304,13 +293,138 @@ fn current_date() -> String {
     chrono::Utc::now().format("%Y-%m-%d").to_string()
 }
 
+fn linux_desktop_entry(exec: &str, icon: &str, startup_wm_class: &str) -> String {
+    format!(
+        "[Desktop Entry]\nType=Application\nName={APP_NAME}\nExec={exec}\nIcon={icon}\nCategories=AudioVideo;Video;Player;\nTerminal=false\nStartupNotify=true\nStartupWMClass={startup_wm_class}\n"
+    )
+}
+
+fn linux_deb_launcher_script() -> String {
+    format!(
+        "#!/bin/sh\nset -eu\nexport LD_LIBRARY_PATH=\"/usr/lib/{APP_ID}/lib${{LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}}\"\nexport STREMIO_LIGHTNING_BUNDLE_DIR=\"/usr/lib/{APP_ID}\"\nexec \"/usr/lib/{APP_ID}/{LINUX_BIN}\" \"$@\"\n"
+    )
+}
+
+fn linux_flatpak_launcher_script() -> String {
+    format!(
+        "#!/bin/sh\nset -eu\nexport LD_LIBRARY_PATH=\"/app/lib${{LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}}\"\nexport STREMIO_LIGHTNING_BUNDLE_DIR=\"/app/lib/{APP_ID}\"\nexport WEBKIT_EXEC_PATH=\"/app/lib/webkitgtk-6.0\"\nexport WEBKIT_INJECTED_BUNDLE_PATH=\"/app/lib/webkitgtk-6.0/injected-bundle\"\nexec /app/bin/{LINUX_BIN} \"$@\"\n"
+    )
+}
+
+fn linux_appimage_launcher_script() -> String {
+    format!(
+        "#!/bin/bash\nset -euo pipefail\nHERE=$(dirname \"$(readlink -f \"$0\")\")\nexport LD_LIBRARY_PATH=\"$HERE/usr/lib${{LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}}\"\nexport STREMIO_LIGHTNING_BUNDLE_DIR=\"$HERE/usr/lib/{APP_ID}\"\nexport WEBKIT_EXEC_PATH=\"$HERE/usr/lib/webkitgtk-6.0\"\nexport WEBKIT_INJECTED_BUNDLE_PATH=\"$HERE/usr/lib/webkitgtk-6.0/injected-bundle\"\nexec \"$HERE/usr/bin/{LINUX_BIN}\" \"$@\"\n"
+    )
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+struct GlibcVersion {
+    major: u16,
+    minor: u16,
+    patch: u16,
+}
+
+impl GlibcVersion {
+    const fn new(major: u16, minor: u16, patch: u16) -> Self {
+        Self {
+            major,
+            minor,
+            patch,
+        }
+    }
+}
+
+impl fmt::Display for GlibcVersion {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.patch == 0 {
+            write!(f, "GLIBC_{}.{}", self.major, self.minor)
+        } else {
+            write!(f, "GLIBC_{}.{}.{}", self.major, self.minor, self.patch)
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct FlatpakGlibcPolicy {
+    max_supported: GlibcVersion,
+}
+
+fn current_flatpak_glibc_policy() -> Result<FlatpakGlibcPolicy> {
+    flatpak_glibc_policy(LINUX_FLATPAK_RUNTIME, LINUX_FLATPAK_RUNTIME_VERSION).ok_or_else(|| {
+        format!(
+            "missing GLIBC compatibility policy for Flatpak runtime {LINUX_FLATPAK_RUNTIME}//{LINUX_FLATPAK_RUNTIME_VERSION}; update xtask before packaging"
+        )
+        .into()
+    })
+}
+
+fn flatpak_glibc_policy(runtime: &str, runtime_version: &str) -> Option<FlatpakGlibcPolicy> {
+    match (runtime, runtime_version) {
+        ("org.gnome.Platform", "50") | ("org.freedesktop.Platform", "25.08") => {
+            Some(FlatpakGlibcPolicy {
+                max_supported: GlibcVersion::new(2, 42, 0),
+            })
+        }
+        _ => None,
+    }
+}
+
+fn glibc_symbols_newer_than(
+    readelf_version_info: &str,
+    policy: FlatpakGlibcPolicy,
+) -> Vec<GlibcVersion> {
+    let mut symbols = BTreeSet::new();
+    let mut remaining = readelf_version_info;
+
+    while let Some(index) = remaining.find("GLIBC_") {
+        let symbol_tail = &remaining[index + "GLIBC_".len()..];
+        let raw_version = symbol_tail
+            .split(|character: char| !(character.is_ascii_digit() || character == '.'))
+            .next()
+            .unwrap_or_default();
+
+        if let Some(version) = parse_glibc_version(raw_version)
+            && version > policy.max_supported
+        {
+            symbols.insert(version);
+        }
+
+        let consumed = raw_version.len().max(1).min(symbol_tail.len());
+        remaining = &symbol_tail[consumed..];
+    }
+
+    symbols.into_iter().collect()
+}
+
+fn parse_glibc_version(raw: &str) -> Option<GlibcVersion> {
+    let mut parts = raw.split('.');
+    let major = parts.next()?.parse().ok()?;
+    let minor = parts.next()?.parse().ok()?;
+    let patch = parts.next().map(str::parse).transpose().ok()?.unwrap_or(0);
+    if parts.next().is_some() {
+        return None;
+    }
+
+    Some(GlibcVersion::new(major, minor, patch))
+}
+
 fn validate_flatpak_glibc_symbols(payload_dir: &Path) -> Result<()> {
     if !program_exists("readelf") {
         return Err("missing readelf. Install binutils before packaging the Flatpak.".into());
     }
 
+    let files_dir = payload_dir.join("files");
+    if !files_dir.is_dir() {
+        return Err(format!(
+            "Flatpak payload is missing files directory for GLIBC validation: {}",
+            files_dir.display()
+        )
+        .into());
+    }
+
+    let policy = current_flatpak_glibc_policy()?;
     let mut offenders = Vec::new();
-    collect_flatpak_glibc_symbol_offenders(&payload_dir.join("files"), &mut offenders)?;
+    collect_flatpak_glibc_symbol_offenders(&files_dir, policy, &mut offenders)?;
 
     if offenders.is_empty() {
         return Ok(());
@@ -322,16 +436,21 @@ fn validate_flatpak_glibc_symbols(payload_dir: &Path) -> Result<()> {
     }
 
     Err(format!(
-        "Flatpak payload contains libraries requiring GLIBC newer than {LINUX_FLATPAK_RUNTIME}//{LINUX_FLATPAK_RUNTIME_VERSION}:\n       {}\n       Build the Linux payload with a distro/SDK whose GLIBC is compatible with the target Flatpak runtime.",
+        "Flatpak payload contains libraries requiring GLIBC newer than {LINUX_FLATPAK_RUNTIME}//{LINUX_FLATPAK_RUNTIME_VERSION} (maximum supported symbol: {}):\n       {}\n       Build the Linux payload with a distro/SDK whose GLIBC is compatible with the target Flatpak runtime.",
+        policy.max_supported,
         offenders.join("\n       ")
     )
     .into())
 }
 
-fn collect_flatpak_glibc_symbol_offenders(path: &Path, offenders: &mut Vec<String>) -> Result<()> {
+fn collect_flatpak_glibc_symbol_offenders(
+    path: &Path,
+    policy: FlatpakGlibcPolicy,
+    offenders: &mut Vec<String>,
+) -> Result<()> {
     if path.is_dir() {
         for entry in fs::read_dir(path)? {
-            collect_flatpak_glibc_symbol_offenders(&entry?.path(), offenders)?;
+            collect_flatpak_glibc_symbol_offenders(&entry?.path(), policy, offenders)?;
         }
         return Ok(());
     }
@@ -349,8 +468,14 @@ fn collect_flatpak_glibc_symbol_offenders(path: &Path, offenders: &mut Vec<Strin
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    if LINUX_FLATPAK_RUNTIME_VERSION == "25.08" && stdout.contains("GLIBC_2.43") {
-        offenders.push(format!("{} requires GLIBC_2.43", path.display()));
+    let newer_symbols = glibc_symbols_newer_than(&stdout, policy);
+    if !newer_symbols.is_empty() {
+        let symbols = newer_symbols
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(", ");
+        offenders.push(format!("{} requires {symbols}", path.display()));
     }
 
     Ok(())
@@ -415,20 +540,13 @@ fn prepare_linux_appdir() -> Result<PathBuf> {
 
     write_file(
         &desktop_file,
-        format!(
-            "[Desktop Entry]\nType=Application\nName={APP_NAME}\nExec={LINUX_BIN}\nIcon={LINUX_DESKTOP_ID}\nCategories=AudioVideo;Video;Player;\nTerminal=false\nStartupNotify=true\nStartupWMClass={LINUX_DESKTOP_ID}\n"
-        ),
+        linux_desktop_entry(LINUX_BIN, LINUX_DESKTOP_ID, LINUX_DESKTOP_ID),
     )?;
     copy_file(
         &desktop_file,
         appdir.join(format!("usr/share/applications/{LINUX_DESKTOP_ID}.desktop")),
     )?;
-    write_file(
-        appdir.join("AppRun"),
-        format!(
-            "#!/bin/bash\nset -euo pipefail\nHERE=$(dirname \"$(readlink -f \"$0\")\")\nexport LD_LIBRARY_PATH=\"$HERE/usr/lib${{LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}}\"\nexport STREMIO_LIGHTNING_BUNDLE_DIR=\"$HERE/usr/lib/{APP_ID}\"\nexport WEBKIT_EXEC_PATH=\"$HERE/usr/lib/webkitgtk-6.0\"\nexport WEBKIT_INJECTED_BUNDLE_PATH=\"$HERE/usr/lib/webkitgtk-6.0/injected-bundle\"\nexec \"$HERE/usr/bin/{LINUX_BIN}\" \"$@\"\n"
-        ),
-    )?;
+    write_file(appdir.join("AppRun"), linux_appimage_launcher_script())?;
 
     chmod_executable(appdir.join("AppRun"))?;
     chmod_executable(appdir.join(format!("usr/bin/{LINUX_BIN}")))?;
@@ -606,32 +724,40 @@ fn patch_file_absolute_needed_paths(file_path: &Path) -> Result<()> {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     for line in stdout.lines().map(str::trim).filter(|l| !l.is_empty()) {
-        if line.starts_with('/') {
-            let needed_path = Path::new(line);
-            if let Some(filename) = needed_path.file_name().and_then(|n| n.to_str()) {
-                println!(
-                    "    Fixing absolute dependency in {}: {} -> {}",
+        if let Some(filename) = absolute_needed_filename(line) {
+            println!(
+                "    Fixing absolute dependency in {}: {} -> {}",
+                file_path.display(),
+                line,
+                filename
+            );
+            let status = Command::new("patchelf")
+                .arg("--replace-needed")
+                .arg(line)
+                .arg(filename)
+                .arg(file_path)
+                .status()?;
+            if !status.success() {
+                return Err(format!(
+                    "patchelf failed to replace required absolute dependency in {}: {} -> {} (status: {status})",
                     file_path.display(),
                     line,
                     filename
-                );
-                let status = Command::new("patchelf")
-                    .arg("--replace-needed")
-                    .arg(line)
-                    .arg(filename)
-                    .arg(file_path)
-                    .status()?;
-                if !status.success() {
-                    println!(
-                        "WARNING: patchelf failed to replace needed path in {}",
-                        file_path.display()
-                    );
-                }
+                )
+                .into());
             }
         }
     }
 
     Ok(())
+}
+
+fn absolute_needed_filename(needed: &str) -> Option<&str> {
+    if !needed.starts_with('/') {
+        return None;
+    }
+
+    Path::new(needed).file_name().and_then(|name| name.to_str())
 }
 
 fn resolved_ldd_path(line: &str) -> Option<PathBuf> {
@@ -654,19 +780,20 @@ fn should_bundle_linux_library(path: &Path) -> bool {
         return false;
     };
 
-    !matches!(
-        name,
-        "ld-linux-x86-64.so.2"
-            | "libc.so.6"
-            | "libdl.so.2"
-            | "libgcc_s.so.1"
-            | "libm.so.6"
-            | "libpthread.so.0"
-            | "libresolv.so.2"
-            | "librt.so.1"
-            | "libstdc++.so.6"
-    )
+    !LINUX_SYSTEM_LIBRARY_DENYLIST.contains(&name)
 }
+
+const LINUX_SYSTEM_LIBRARY_DENYLIST: &[&str] = &[
+    "ld-linux-x86-64.so.2",
+    "libc.so.6",
+    "libdl.so.2",
+    "libgcc_s.so.1",
+    "libm.so.6",
+    "libpthread.so.0",
+    "libresolv.so.2",
+    "librt.so.1",
+    "libstdc++.so.6",
+];
 
 fn appimage_tool_path() -> Result<PathBuf> {
     if let Some(path) = env::var_os("APPIMAGE_TOOL") {
@@ -712,6 +839,8 @@ pub fn package_linux_flatpak_builder() -> Result<()> {
         ],
     )?;
 
+    validate_flatpak_glibc_symbols(&build_dir)?;
+
     println!("==> Exporting Flatpak bundle...");
     remove_file_if_exists(&output)?;
     run_program(
@@ -729,4 +858,115 @@ pub fn package_linux_flatpak_builder() -> Result<()> {
         output.strip_prefix(&root).unwrap_or(&output).display()
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolved_ldd_path_handles_common_formats() {
+        assert_eq!(
+            resolved_ldd_path("libgtk-4.so.1 => /lib/x86_64-linux-gnu/libgtk-4.so.1 (0x00007f00)"),
+            Some(PathBuf::from("/lib/x86_64-linux-gnu/libgtk-4.so.1"))
+        );
+        assert_eq!(
+            resolved_ldd_path("/lib64/ld-linux-x86-64.so.2 (0x00007f00)"),
+            Some(PathBuf::from("/lib64/ld-linux-x86-64.so.2"))
+        );
+        assert_eq!(resolved_ldd_path("libmissing.so => not found"), None);
+        assert_eq!(resolved_ldd_path("linux-vdso.so.1 (0x00007fff)"), None);
+    }
+
+    #[test]
+    fn should_bundle_linux_library_excludes_system_runtime_libraries() {
+        for name in LINUX_SYSTEM_LIBRARY_DENYLIST {
+            assert!(!should_bundle_linux_library(&PathBuf::from(format!(
+                "/lib/x86_64-linux-gnu/{name}"
+            ))));
+        }
+
+        assert!(should_bundle_linux_library(Path::new(
+            "/lib/x86_64-linux-gnu/libwebkitgtk-6.0.so.4"
+        )));
+        assert!(should_bundle_linux_library(Path::new(
+            "/usr/lib/x86_64-linux-gnu/libmpv.so.2"
+        )));
+    }
+
+    #[test]
+    fn current_flatpak_runtime_has_glibc_policy() {
+        let policy = flatpak_glibc_policy(LINUX_FLATPAK_RUNTIME, LINUX_FLATPAK_RUNTIME_VERSION)
+            .expect("current Flatpak runtime must have a GLIBC policy");
+
+        assert_eq!(policy.max_supported, GlibcVersion::new(2, 42, 0));
+    }
+
+    #[test]
+    fn glibc_policy_reports_symbols_newer_than_runtime_limit() {
+        let policy = FlatpakGlibcPolicy {
+            max_supported: GlibcVersion::new(2, 42, 0),
+        };
+        let symbols = glibc_symbols_newer_than(
+            "Name: GLIBC_2.34\n0x00 0x00 4 (GLIBC_2.43)\nName: GLIBC_2.2.5\nName: GLIBC_2.44\n",
+            policy,
+        );
+
+        assert_eq!(
+            symbols,
+            vec![GlibcVersion::new(2, 43, 0), GlibcVersion::new(2, 44, 0)]
+        );
+    }
+
+    #[test]
+    fn launcher_scripts_include_required_environment() {
+        let appimage = linux_appimage_launcher_script();
+        assert!(appimage.contains("set -euo pipefail"));
+        assert!(appimage.contains("WEBKIT_EXEC_PATH"));
+        assert!(appimage.contains(LINUX_BIN));
+
+        let flatpak = linux_flatpak_launcher_script();
+        assert!(flatpak.contains("STREMIO_LIGHTNING_BUNDLE_DIR=\"/app/lib/stremio-lightning\""));
+        assert!(flatpak.contains("${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"));
+        assert!(!flatpak.contains("$LD_LIBRARY_PATH}}"));
+
+        let deb = linux_deb_launcher_script();
+        assert!(deb.contains("/usr/lib/stremio-lightning/lib"));
+        assert!(deb.contains("exec \"/usr/lib/stremio-lightning/stremio-lightning-linux\""));
+    }
+
+    #[test]
+    fn desktop_entry_uses_requested_identifiers() {
+        assert_eq!(
+            linux_desktop_entry("stremio-lightning", LINUX_DESKTOP_ID, LINUX_DESKTOP_ID),
+            format!(
+                "[Desktop Entry]\nType=Application\nName={APP_NAME}\nExec=stremio-lightning\nIcon={LINUX_DESKTOP_ID}\nCategories=AudioVideo;Video;Player;\nTerminal=false\nStartupNotify=true\nStartupWMClass={LINUX_DESKTOP_ID}\n"
+            )
+        );
+    }
+
+    #[test]
+    fn absolute_needed_filename_only_rewrites_absolute_paths() {
+        assert_eq!(
+            absolute_needed_filename("/usr/lib/x86_64-linux-gnu/libfoo.so.1"),
+            Some("libfoo.so.1")
+        );
+        assert_eq!(absolute_needed_filename("libfoo.so.1"), None);
+        assert_eq!(absolute_needed_filename("/"), None);
+    }
+
+    #[test]
+    fn flatpak_builder_manifest_runtime_matches_xtask_constants() {
+        let manifest = std::fs::read_to_string(
+            root().join("flatpak/io.github.theguy000.StremioLightning.json"),
+        )
+        .expect("Flatpak Builder manifest should be readable");
+
+        assert!(manifest.contains(&format!("\"runtime\": \"{LINUX_FLATPAK_RUNTIME}\"")));
+        assert!(manifest.contains(&format!(
+            "\"runtime-version\": \"{LINUX_FLATPAK_RUNTIME_VERSION}\""
+        )));
+        assert!(manifest.contains(&format!("\"sdk\": \"{LINUX_FLATPAK_SDK}\"")));
+        assert!(!manifest.contains("LD_LIBRARY_PATH}}"));
+    }
 }
