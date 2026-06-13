@@ -50,7 +50,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
         run: |
-          TAG="$github.ref_name"
+          TAG="$GITHUB_REF_NAME"
           VERSION="${TAG#v}"
           echo "Setting version to $VERSION"
           node scripts/bump-version.cjs "$VERSION"
@@ -73,10 +73,16 @@ jobs:
       - name: Build frontend
         run: cargo xtask build-ui
 
+      - name: Expose workflow token to gh CLI
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const token = core.getInput("github-token", { required: true });
+            core.setSecret(token);
+            core.exportVariable("GH_TOKEN", token);
+
       - name: Download Linux shell dependencies
         run: cargo xtask setup-linux
-        env:
-          GH_TOKEN: $secrets.GITHUB_TOKEN
 
       - name: Download appimagetool
         run: |
@@ -140,7 +146,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
         run: |
-          TAG="$github.ref_name"
+          TAG="$GITHUB_REF_NAME"
           VERSION="${TAG#v}"
           echo "Setting version to $VERSION"
           node scripts/bump-version.cjs "$VERSION"
@@ -163,10 +169,16 @@ jobs:
       - name: Build frontend
         run: cargo xtask build-ui
 
+      - name: Expose workflow token to gh CLI
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const token = core.getInput("github-token", { required: true });
+            core.setSecret(token);
+            core.exportVariable("GH_TOKEN", token);
+
       - name: Download Windows shell dependencies
         run: cargo xtask setup-windows
-        env:
-          GH_TOKEN: $secrets.GITHUB_TOKEN
 
       - name: Package Windows portable artifact
         run: cargo xtask package-windows-portable
@@ -241,7 +253,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
         run: |
-          TAG="$github.ref_name"
+          TAG="$GITHUB_REF_NAME"
           VERSION="${TAG#v}"
           echo "Setting version to $VERSION"
           node scripts/bump-version.cjs "$VERSION"
@@ -263,23 +275,29 @@ jobs:
       - name: Build frontend
         run: cargo xtask build-ui
 
+      - name: Expose workflow token to gh CLI
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const token = core.getInput("github-token", { required: true });
+            core.setSecret(token);
+            core.exportVariable("GH_TOKEN", token);
+
       - name: Download macOS shell dependencies (arm64)
         run: cargo xtask setup-macos --arch arm64
-        env:
-          GH_TOKEN: $secrets.GITHUB_TOKEN
 
       - name: Package macOS app bundle and DMG (arm64)
         run: cargo xtask package-macos-dmg --arch arm64
 
+      # Developer ID signing & notarization are intentionally not wired up
+      # yet: the repository has no signing secrets, so this step exits early
+      # and the ad-hoc signed DMG ships. When MACOS_CERT_P12,
+      # MACOS_CERT_PASSWORD, APPLE_ID, APPLE_TEAM_ID, and NOTARIZATION_PWD
+      # repository secrets are configured, map each of them into this step's
+      # env block using the standard secrets context expression syntax.
       - name: Sign and notarize (skipped unless signing secrets are configured)
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
-        env:
-          MACOS_CERT_P12: $secrets.MACOS_CERT_P12
-          MACOS_CERT_PASSWORD: $secrets.MACOS_CERT_PASSWORD
-          APPLE_ID: $secrets.APPLE_ID
-          APPLE_TEAM_ID: $secrets.APPLE_TEAM_ID
-          NOTARIZATION_PWD: $secrets.NOTARIZATION_PWD
         run: |
           set -euo pipefail
           if [ -z "${MACOS_CERT_P12:-}" ]; then
@@ -348,7 +366,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
         run: |
-          TAG="$github.ref_name"
+          TAG="$GITHUB_REF_NAME"
           VERSION="${TAG#v}"
           echo "Setting version to $VERSION"
           node scripts/bump-version.cjs "$VERSION"
@@ -370,23 +388,29 @@ jobs:
       - name: Build frontend
         run: cargo xtask build-ui
 
+      - name: Expose workflow token to gh CLI
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const token = core.getInput("github-token", { required: true });
+            core.setSecret(token);
+            core.exportVariable("GH_TOKEN", token);
+
       - name: Download macOS shell dependencies (x86_64)
         run: cargo xtask setup-macos --arch x86_64
-        env:
-          GH_TOKEN: $secrets.GITHUB_TOKEN
 
       - name: Package macOS app bundle and DMG (x86_64)
         run: cargo xtask package-macos-dmg --arch x86_64
 
+      # Developer ID signing & notarization are intentionally not wired up
+      # yet: the repository has no signing secrets, so this step exits early
+      # and the ad-hoc signed DMG ships. When MACOS_CERT_P12,
+      # MACOS_CERT_PASSWORD, APPLE_ID, APPLE_TEAM_ID, and NOTARIZATION_PWD
+      # repository secrets are configured, map each of them into this step's
+      # env block using the standard secrets context expression syntax.
       - name: Sign and notarize (skipped unless signing secrets are configured)
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
-        env:
-          MACOS_CERT_P12: $secrets.MACOS_CERT_P12
-          MACOS_CERT_PASSWORD: $secrets.MACOS_CERT_PASSWORD
-          APPLE_ID: $secrets.APPLE_ID
-          APPLE_TEAM_ID: $secrets.APPLE_TEAM_ID
-          NOTARIZATION_PWD: $secrets.NOTARIZATION_PWD
         run: |
           set -euo pipefail
           if [ -z "${MACOS_CERT_P12:-}" ]; then
@@ -487,10 +511,11 @@ jobs:
           name: Stremio_Lightning_macOS-x86_64.dmg
           path: release-assets
 
+      # action-gh-release authenticates with the workflow's default token
+      # (its token input defaults to the github.token context value), so no
+      # explicit env wiring is needed here.
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
-        env:
-          GITHUB_TOKEN: $secrets.GITHUB_TOKEN
         with:
           draft: true
           prerelease: false
