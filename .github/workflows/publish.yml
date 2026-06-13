@@ -57,6 +57,8 @@ jobs:
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
@@ -153,7 +155,6 @@ jobs:
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
-
         with:
           targets: x86_64-pc-windows-msvc
 
@@ -266,8 +267,11 @@ jobs:
       - name: Rust cache
         uses: swatinem/rust-cache@v2
 
-      - name: Install mpv (libmpv)
-        run: brew install mpv
+      - name: Install mpv (libmpv) and unzip
+        run: |
+          brew install mpv
+          brew install unzip
+          echo "$(brew --prefix)/opt/unzip/bin" >> "$GITHUB_PATH"
 
       - name: Install frontend dependencies
         run: npm ci
@@ -319,10 +323,10 @@ jobs:
             exit 1
           fi
           APP="dist/Stremio Lightning.app"
-          codesign --force --deep --options runtime             --entitlements "$APP/Contents/Resources/entitlements.plist"             --sign "$IDENTITY" --keychain "$KEYCHAIN" "$APP"
+          codesign --force --deep --options runtime --entitlements "$APP/Contents/Resources/entitlements.plist" --sign "$IDENTITY" --keychain "$KEYCHAIN" "$APP"
           if [ -n "${APPLE_ID:-}" ] && [ -n "${APPLE_TEAM_ID:-}" ] && [ -n "${NOTARIZATION_PWD:-}" ]; then
             ditto -c -k --keepParent "$APP" "$RUNNER_TEMP/StremioLightning.zip"
-            xcrun notarytool submit "$RUNNER_TEMP/StremioLightning.zip"               --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID"               --password "$NOTARIZATION_PWD" --wait
+            xcrun notarytool submit "$RUNNER_TEMP/StremioLightning.zip" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$NOTARIZATION_PWD" --wait
             xcrun stapler staple "$APP"
           else
             echo "Notarization secrets not configured; skipping notarization."
@@ -379,8 +383,11 @@ jobs:
       - name: Rust cache
         uses: swatinem/rust-cache@v2
 
-      - name: Install mpv (libmpv)
-        run: brew install mpv
+      - name: Install mpv (libmpv) and unzip
+        run: |
+          brew install mpv
+          brew install unzip
+          echo "$(brew --prefix)/opt/unzip/bin" >> "$GITHUB_PATH"
 
       - name: Install frontend dependencies
         run: npm ci
@@ -432,10 +439,10 @@ jobs:
             exit 1
           fi
           APP="dist/Stremio Lightning.app"
-          codesign --force --deep --options runtime             --entitlements "$APP/Contents/Resources/entitlements.plist"             --sign "$IDENTITY" --keychain "$KEYCHAIN" "$APP"
+          codesign --force --deep --options runtime --entitlements "$APP/Contents/Resources/entitlements.plist" --sign "$IDENTITY" --keychain "$KEYCHAIN" "$APP"
           if [ -n "${APPLE_ID:-}" ] && [ -n "${APPLE_TEAM_ID:-}" ] && [ -n "${NOTARIZATION_PWD:-}" ]; then
             ditto -c -k --keepParent "$APP" "$RUNNER_TEMP/StremioLightning.zip"
-            xcrun notarytool submit "$RUNNER_TEMP/StremioLightning.zip"               --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID"               --password "$NOTARIZATION_PWD" --wait
+            xcrun notarytool submit "$RUNNER_TEMP/StremioLightning.zip" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$NOTARIZATION_PWD" --wait
             xcrun stapler staple "$APP"
           else
             echo "Notarization secrets not configured; skipping notarization."
