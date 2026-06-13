@@ -27,8 +27,8 @@
 
 - **Frontend:** Svelte 5, TypeScript, Vite
 - **Backend:** Rust native shell crates
-- **Media Player:** libmpv2 (Windows/Linux)
-- **Native WebViews:** WebView2 (Windows), GTK4 & WebKitGTK 6 (Linux)
+- **Media Player:** libmpv2 (Windows/Linux/macOS)
+- **Native WebViews:** WebView2 (Windows), GTK4 & WebKitGTK 6 (Linux), WKWebView (macOS)
 
 
 ## Getting Started
@@ -45,6 +45,13 @@
   ```
   *(Debian `.deb` and AppImage packages are also available in the [latest release](https://github.com/theguy000/stremio-lightning/releases/latest).)*
 
+- **macOS (DMG)**
+  Download the DMG for your Mac (`arm64` for Apple Silicon, `x86_64` for Intel) from the [latest release](https://github.com/theguy000/stremio-lightning/releases/latest) and drag **Stremio Lightning** into Applications.
+  Builds are ad-hoc signed unless notarization is configured, so on first launch you may need to clear the quarantine flag:
+  ```bash
+  xattr -cr "/Applications/Stremio Lightning.app"
+  ```
+
 
 ## Development
 
@@ -55,7 +62,7 @@ Developer guide, build instructions, and plugin API documentation are located in
 
 - **Windows:** Supported (Installer & Portable `.zip`)
 - **Linux:** Supported (Flatpak, AppImage, & Debian `.deb`)
-- **macOS:** *In Development* (No release available yet)
+- **macOS:** Supported (DMG for Apple Silicon `arm64` and Intel `x86_64`)
 
 
 ## License

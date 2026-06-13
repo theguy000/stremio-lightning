@@ -45,6 +45,9 @@ fn run() -> Result<()> {
         "help" | "--help" | "-h" => print_help(),
         "setup" => setup::setup_current_platform()?,
         "setup-linux" | "setup:linux" | "setup-linux-shell" => setup::setup_linux()?,
+        "setup-macos" | "setup:macos" | "setup-macos-shell" => {
+            setup::setup_macos(parse_macos_arch(&mut args)?)?
+        }
         "setup-windows" | "setup:windows" | "setup-windows-shell" => setup::setup_windows()?,
         "build-ui" => run_npm(&["run", "build:ui"])?,
         "test-ui" => run_npm(&["run", "test:ui"])?,
@@ -53,7 +56,8 @@ fn run() -> Result<()> {
         "package-linux-deb" => package_linux::package_linux_deb()?,
         "package-linux-flatpak" => package_linux::package_linux_flatpak()?,
         "package-linux-flatpak-builder" => package_linux::package_linux_flatpak_builder()?,
-        "package-macos" => package_macos::package_macos()?,
+        "package-macos" => package_macos::package_macos(parse_macos_arch(&mut args)?)?,
+        "package-macos-dmg" => package_macos::package_macos_dmg(parse_macos_arch(&mut args)?)?,
         "package-windows-portable" => package_windows::package_windows()?,
         "package-windows-installer" => package_windows::package_windows_installer()?,
         other => {
@@ -67,12 +71,28 @@ fn run() -> Result<()> {
     Ok(())
 }
 
+fn parse_macos_arch(args: &mut impl Iterator<Item = String>) -> Result<package_macos::MacosArch> {
+    match args.next() {
+        None => package_macos::MacosArch::host(),
+        Some(flag) if flag == "--arch" => {
+            let value = args
+                .next()
+                .ok_or("--arch requires a value: arm64 or x86_64")?;
+            package_macos::MacosArch::parse(&value)
+        }
+        Some(other) => {
+            Err(format!("unknown argument '{other}'. Supported: --arch arm64|x86_64").into())
+        }
+    }
+}
+
 fn print_help() {
     println!(
         "Stremio Lightning xtask\n\n\
 Usage:\n\
   cargo xtask setup                       Download native shell dependencies for this OS\n\
   cargo xtask setup-linux                 Download Linux shell dependencies\n\
+  cargo xtask setup-macos [--arch ARCH]   Download macOS shell dependencies (arm64 or x86_64)\n\
   cargo xtask setup-windows               Download Windows shell dependencies\n\
   cargo xtask build-ui                    Build the Svelte/Vite UI bundle\n\
   cargo xtask test-ui                     Run frontend tests\n\
@@ -81,7 +101,8 @@ Usage:\n\
   cargo xtask package-linux-deb           Build dist/{LINUX_DEB}\n\
   cargo xtask package-linux-flatpak       Build dist/{LINUX_FLATPAK} (Fast-Host bundling)\n\
   cargo xtask package-linux-flatpak-builder Build dist/{LINUX_FLATPAK} (Hermetic flatpak-builder)\n\
-  cargo xtask package-macos               Build dist/{MACOS_APP_BUNDLE}\n\
+  cargo xtask package-macos [--arch ARCH] Build dist/{MACOS_APP_BUNDLE}\n\
+  cargo xtask package-macos-dmg [--arch ARCH] Build dist/Stremio_Lightning_macOS-ARCH.dmg\n\
   cargo xtask package-windows-portable    Build dist/{WINDOWS_ZIP}\n\
   cargo xtask package-windows-installer   Build dist/{WINDOWS_INSTALLER}\n"
     );
