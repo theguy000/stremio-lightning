@@ -66,14 +66,14 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Build frontend
+        run: cargo xtask build-ui
+
       - name: Validate Rust before packaging
         run: |
           cargo fmt --all -- --check
           cargo clippy --workspace --all-targets
           cargo test --workspace
-
-      - name: Build frontend
-        run: cargo xtask build-ui
 
       - name: Expose workflow token to gh CLI
         uses: actions/github-script@v7
