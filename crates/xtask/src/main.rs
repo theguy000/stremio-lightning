@@ -80,10 +80,9 @@ fn parse_macos_arch(args: &mut impl Iterator<Item = String>) -> Result<package_m
                 .ok_or("--arch requires a value: arm64 or x86_64")?;
             package_macos::MacosArch::parse(&value)
         }
-        Some(other) => Err(format!(
-            "unknown argument '{other}'. Supported: --arch arm64|x86_64"
-        )
-        .into()),
+        Some(other) => {
+            Err(format!("unknown argument '{other}'. Supported: --arch arm64|x86_64").into())
+        }
     }
 }
 

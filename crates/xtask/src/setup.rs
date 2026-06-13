@@ -39,7 +39,10 @@ pub fn setup_macos(arch: MacosArch) -> Result<()> {
     )?;
     require_program("curl", "install curl, then rerun: cargo xtask setup-macos")?;
     require_program("tar", "install tar, then rerun: cargo xtask setup-macos")?;
-    require_program("unzip", "install unzip, then rerun: cargo xtask setup-macos")?;
+    require_program(
+        "unzip",
+        "install unzip, then rerun: cargo xtask setup-macos",
+    )?;
 
     run_program(
         bash_program(),

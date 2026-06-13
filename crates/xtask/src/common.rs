@@ -62,14 +62,15 @@ pub fn require_program(program: &str, setup_hint: &str) -> Result<()> {
 }
 
 pub fn program_exists(program: &str) -> bool {
+    // `unzip --version` and some other tools exit non-zero, so treat a program
+    // as present whenever the OS can spawn it at all.
     Command::new(program)
         .arg("--version")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
-        .map(|status| status.success())
-        .unwrap_or(false)
+        .is_ok()
 }
 
 pub fn is_executable_file(path: &Path) -> bool {
