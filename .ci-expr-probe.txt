@@ -1,0 +1,4 @@
+line1: $ secrets.GITHUB_TOKEN 
+line2: $ github.ref_name 
+line3: $secrets.MACOS_CERT_P12
+line4: $X{Y}{Z}
