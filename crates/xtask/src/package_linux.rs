@@ -926,12 +926,27 @@ mod tests {
             "\"runtime-version\": \"{LINUX_FLATPAK_RUNTIME_VERSION}\""
         )));
         assert!(manifest.contains(&format!("\"sdk\": \"{LINUX_FLATPAK_SDK}\"")));
+        assert!(manifest.contains("org.freedesktop.Sdk.Extension.node22"));
+        assert!(manifest.contains("cargo --offline build --release"));
+        assert!(manifest.contains("\"cargo-sources.json\""));
+        assert!(!manifest.contains("\"build-args\""));
         assert!(manifest.contains(&format!(
             "install -Dm644 assets/{LINUX_FLATPAK_ID}.desktop /app/share/applications/{LINUX_FLATPAK_ID}.desktop"
         )));
         assert!(manifest.contains(&format!(
             "install -Dm644 assets/{LINUX_FLATPAK_ID}.metainfo.xml /app/share/metainfo/{LINUX_FLATPAK_ID}.metainfo.xml"
         )));
+        assert!(manifest.contains("install -Dm755 /usr/lib/sdk/node22/bin/node"));
+        assert!(manifest.contains("ln -s /usr/bin/ffmpeg"));
+        assert!(manifest.contains("ln -s /usr/bin/ffprobe"));
+        assert!(manifest.contains("mkdir -p /app/lib/codecs-extra"));
+        assert!(manifest.contains("mkdir -p /app/lib/intel-vaapi-driver"));
+        assert!(
+            !manifest.contains("install -Dm755 crates/stremio-lightning-linux/resources/ffmpeg")
+        );
+        assert!(
+            !manifest.contains("install -Dm755 crates/stremio-lightning-linux/resources/ffprobe")
+        );
         assert!(!manifest.contains("LD_LIBRARY_PATH}}"));
     }
 }
