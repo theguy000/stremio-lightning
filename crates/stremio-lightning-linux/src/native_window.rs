@@ -91,7 +91,7 @@ pub fn run_native_window(
 
     let _state = runtime.load()?;
     glib::set_application_name(APP_NAME);
-    glib::set_prgname(Some(APP_ID));
+    glib::set_prgname(Some(APP_NAME));
     let app = gtk::Application::new(Some(APP_ID), gtk::gio::ApplicationFlags::NON_UNIQUE);
     let runtime = Rc::new(runtime);
     let startup_error: Rc<RefCell<Option<String>>> = Rc::default();
