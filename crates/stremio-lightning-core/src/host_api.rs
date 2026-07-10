@@ -1114,7 +1114,7 @@ mod tests {
 
     #[test]
     fn serializes_handshake_shape() {
-        let payload: Value = serde_json::from_str(&handshake_response("0.0.0")).unwrap();
+        let payload: Value = serde_json::from_str(&handshake_response("0.1.4")).unwrap();
         assert_eq!(
             payload,
             json!({
@@ -1123,7 +1123,7 @@ mod tests {
                 "type": 3,
                 "data": {
                     "transport": {
-                        "properties": [[], ["", "shellVersion", "", "0.0.0"]],
+                        "properties": [[], ["", "shellVersion", "", "0.1.4"]],
                         "signals": [],
                         "methods": [["onEvent"]]
                     }
