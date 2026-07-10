@@ -228,7 +228,7 @@ Install and run a local Flatpak bundle:
 
 ```bash
 flatpak install --user --bundle dist/Stremio_Lightning_Linux-x86_64.flatpak
-flatpak run io.github.theguy000.StremioLightning
+flatpak run io.github.theguy000.stremio-lightning
 ```
 
 If `appimagetool` is missing, place it at the default cache path:

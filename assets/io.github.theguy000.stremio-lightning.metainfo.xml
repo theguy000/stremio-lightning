@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>io.github.theguy000.StremioLightning</id>
+  <id>io.github.theguy000.stremio-lightning</id>
   <name>Stremio Lightning</name>
   <summary>Lightweight native Stremio shell</summary>
   <metadata_license>CC0-1.0</metadata_license>
@@ -15,7 +15,7 @@
       Discord Rich Presence, and a native media player powered by libmpv.
     </p>
   </description>
-  <launchable type="desktop-id">io.github.theguy000.StremioLightning.desktop</launchable>
+  <launchable type="desktop-id">io.github.theguy000.stremio-lightning.desktop</launchable>
   <url type="homepage">https://github.com/theguy000/stremio-lightning</url>
   <url type="bugtracker">https://github.com/theguy000/stremio-lightning/issues</url>
   <url type="vcs-browser">https://github.com/theguy000/stremio-lightning</url>

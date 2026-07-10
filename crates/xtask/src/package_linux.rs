@@ -789,7 +789,7 @@ pub fn package_linux_flatpak_builder() -> Result<()> {
     let output = dist_dir.join(LINUX_FLATPAK);
     let build_dir = root.join("target/flatpak-builder-build");
     let repo_dir = root.join("target/flatpak-builder-repo");
-    let manifest = root.join("flatpak/io.github.theguy000.StremioLightning.json");
+    let manifest = root.join(format!("flatpak/{LINUX_FLATPAK_ID}.json"));
 
     println!("==> Cleaning previous Flatpak Builder directories...");
     remove_dir_if_exists(&build_dir)?;
@@ -917,10 +917,9 @@ mod tests {
 
     #[test]
     fn flatpak_builder_manifest_matches_xtask_constants_and_assets() {
-        let manifest = std::fs::read_to_string(
-            root().join("flatpak/io.github.theguy000.StremioLightning.json"),
-        )
-        .expect("Flatpak Builder manifest should be readable");
+        let manifest =
+            std::fs::read_to_string(root().join(format!("flatpak/{LINUX_FLATPAK_ID}.json")))
+                .expect("Flatpak Builder manifest should be readable");
 
         assert!(manifest.contains(&format!("\"runtime\": \"{LINUX_FLATPAK_RUNTIME}\"")));
         assert!(manifest.contains(&format!(

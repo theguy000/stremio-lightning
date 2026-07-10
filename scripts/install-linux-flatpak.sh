@@ -201,4 +201,4 @@ update-desktop-database ~/.local/share/flatpak/exports/share/applications/ 2>/de
 
 echo -e "\n${GREEN}${BOLD}Stremio Lightning has been successfully installed!${NC}"
 echo -e "You can launch it from your application menu or by running:"
-echo -e "  ${CYAN}flatpak run io.github.theguy000.StremioLightning${NC}\n"
+echo -e "  ${CYAN}flatpak run io.github.theguy000.stremio-lightning${NC}\n"
