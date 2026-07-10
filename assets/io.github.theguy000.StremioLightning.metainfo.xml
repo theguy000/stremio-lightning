@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.theguy000.StremioLightning</id>
+  <name>Stremio Lightning</name>
+  <summary>Lightweight native Stremio shell</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <developer id="io.github.theguy000">
+    <name>Stremio Lightning Developers</name>
+  </developer>
+  <description>
+    <p>
+      Stremio Lightning is a fast, lightweight, and modern desktop wrapper for
+      Stremio. It features community plugin management, downloadable themes,
+      Discord Rich Presence, and a native media player powered by libmpv.
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.theguy000.StremioLightning.desktop</launchable>
+  <url type="homepage">https://github.com/theguy000/stremio-lightning</url>
+  <url type="bugtracker">https://github.com/theguy000/stremio-lightning/issues</url>
+  <url type="vcs-browser">https://github.com/theguy000/stremio-lightning</url>
+  <categories>
+    <category>AudioVideo</category>
+    <category>Video</category>
+    <category>Player</category>
+  </categories>
+  <screenshots>
+    <screenshot type="default">
+      <caption>Configure player and integration settings</caption>
+      <image>https://raw.githubusercontent.com/theguy000/stremio-lightning/master/assets/screenshots/stremioL1.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Manage plugins in Stremio Lightning</caption>
+      <image>https://raw.githubusercontent.com/theguy000/stremio-lightning/master/assets/screenshots/stremioL2.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Apply custom themes in Stremio Lightning</caption>
+      <image>https://raw.githubusercontent.com/theguy000/stremio-lightning/master/assets/screenshots/stremioL3.png</image>
+    </screenshot>
+  </screenshots>
+  <content_rating type="oars-1.1" />
+  <releases>
+    <release version="0.1.3" date="2026-05-25">
+      <url>https://github.com/theguy000/stremio-lightning/releases/tag/v0.1.3</url>
+      <description>
+        <p>This release includes the following updates:</p>
+        <ul>
+          <li>Added plugin, theme, and settings integration on Windows</li>
+          <li>Reduced IPC overhead when checking mod updates and loading settings</li>
+          <li>Improved picture-in-picture behavior and window dragging on Linux</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.1.2" date="2026-05-22">
+      <url>https://github.com/theguy000/stremio-lightning/releases/tag/v0.1.2</url>
+      <description>
+        <p>This release features performance improvements and packaging refinements:</p>
+        <ul>
+          <li>Reduced Linux memory and CPU usage</li>
+          <li>Refined Linux packaging code and documentation</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.1.1" date="2026-05-22">
+      <url>https://github.com/theguy000/stremio-lightning/releases/tag/v0.1.1</url>
+      <description>
+        <p>This release introduces Flatpak GNOME 50 runtime upgrades and performance enhancements:</p>
+        <ul>
+          <li>Upgraded Flatpak packaging to the GNOME 50 runtime</li>
+          <li>Improved startup performance with concurrent plugin loading and registry caching</li>
+          <li>Improved release automation and packaging reliability</li>
+        </ul>
+      </description>
+    </release>
+  </releases>
+</component>
