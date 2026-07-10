@@ -4,7 +4,7 @@ use crate::common::{
     required_file, root, run_command, run_program, write_file,
 };
 use crate::{
-    APP_ID, APP_NAME, LINUX_APPIMAGE, LINUX_BIN, LINUX_DEB, LINUX_DESKTOP_ID, LINUX_FLATPAK,
+    APP_ID, LINUX_APPIMAGE, LINUX_BIN, LINUX_DEB, LINUX_DESKTOP_ID, LINUX_FLATPAK,
     LINUX_FLATPAK_ID, LINUX_FLATPAK_RUNTIME, LINUX_FLATPAK_RUNTIME_VERSION, LINUX_FLATPAK_SDK,
     LINUX_TARGET,
 };
@@ -119,9 +119,9 @@ pub fn package_linux_deb() -> Result<()> {
     chmod_executable(install_root.join("resources/ffmpeg"))?;
     chmod_executable(install_root.join("resources/ffprobe"))?;
 
-    write_file(
+    copy_file(
+        root.join(format!("assets/{LINUX_DESKTOP_ID}.desktop")),
         deb_root.join(format!("usr/share/applications/{LINUX_DESKTOP_ID}.desktop")),
-        linux_desktop_entry(APP_ID, LINUX_DESKTOP_ID, LINUX_DESKTOP_ID),
     )?;
     write_file(
         debian_dir.join("control"),
@@ -213,6 +213,7 @@ pub fn package_linux_flatpak() -> Result<()> {
 }
 
 fn prepare_linux_flatpak_payload(appdir: &Path, payload_dir: &Path) -> Result<()> {
+    let root = root();
     let files_dir = payload_dir.join("files");
     let bin_dir = files_dir.join("bin");
     let applications_dir = files_dir.join("share/applications");
@@ -238,17 +239,17 @@ fn prepare_linux_flatpak_payload(appdir: &Path, payload_dir: &Path) -> Result<()
     chmod_executable(files_dir.join(format!("lib/{APP_ID}/resources/ffmpeg")))?;
     chmod_executable(files_dir.join(format!("lib/{APP_ID}/resources/ffprobe")))?;
 
-    write_file(
+    copy_file(
+        root.join(format!("assets/{LINUX_FLATPAK_ID}.desktop")),
         applications_dir.join(format!("{LINUX_FLATPAK_ID}.desktop")),
-        linux_desktop_entry(APP_ID, LINUX_FLATPAK_ID, LINUX_FLATPAK_ID),
     )?;
     copy_file(
         appdir.join(format!("{LINUX_DESKTOP_ID}.png")),
         icons_dir.join(format!("{LINUX_FLATPAK_ID}.png")),
     )?;
-    write_file(
+    copy_file(
+        root.join(format!("assets/{LINUX_FLATPAK_ID}.metainfo.xml")),
         metainfo_dir.join(format!("{LINUX_FLATPAK_ID}.metainfo.xml")),
-        linux_flatpak_metainfo(),
     )?;
 
     Ok(())
@@ -257,45 +258,6 @@ fn prepare_linux_flatpak_payload(appdir: &Path, payload_dir: &Path) -> Result<()
 fn linux_flatpak_metadata() -> String {
     format!(
         "[Application]\nname={LINUX_FLATPAK_ID}\nruntime={LINUX_FLATPAK_RUNTIME}/x86_64/{LINUX_FLATPAK_RUNTIME_VERSION}\nsdk={LINUX_FLATPAK_SDK}/x86_64/{LINUX_FLATPAK_RUNTIME_VERSION}\ncommand={APP_ID}\n\n[Context]\nshared=ipc;network;\nsockets=x11;pulseaudio;\ndevices=dri;\n\n[Session Bus Policy]\norg.freedesktop.Notifications=talk\n{LINUX_FLATPAK_ID}=own\n"
-    )
-}
-
-fn linux_flatpak_metainfo() -> String {
-    let date = current_date();
-    format!(
-        r#"<?xml version="1.0" encoding="UTF-8"?>
-<component type="desktop-application">
-  <id>{LINUX_FLATPAK_ID}</id>
-  <name>{APP_NAME}</name>
-  <summary>Lightweight native Stremio shell</summary>
-  <metadata_license>MIT</metadata_license>
-  <project_license>MIT</project_license>
-  <description>
-    <p>Stremio Lightning packages a native Linux shell with plugin management, theme support, and MPV-powered playback.</p>
-  </description>
-  <launchable type="desktop-id">{LINUX_FLATPAK_ID}.desktop</launchable>
-  <categories>
-    <category>AudioVideo</category>
-    <category>Video</category>
-    <category>Player</category>
-  </categories>
-  <releases>
-    <release version="{}" date="{}" />
-  </releases>
-</component>
-"#,
-        package_version().unwrap_or_else(|_| "0.0.0".to_string()),
-        date
-    )
-}
-
-fn current_date() -> String {
-    chrono::Utc::now().format("%Y-%m-%d").to_string()
-}
-
-fn linux_desktop_entry(exec: &str, icon: &str, startup_wm_class: &str) -> String {
-    format!(
-        "[Desktop Entry]\nType=Application\nName={APP_NAME}\nExec={exec}\nIcon={icon}\nCategories=AudioVideo;Video;Player;\nTerminal=false\nStartupNotify=true\nStartupWMClass={startup_wm_class}\n"
     )
 }
 
@@ -496,6 +458,7 @@ fn prepare_linux_appdir() -> Result<PathBuf> {
     let ffmpeg = linux_dir.join("resources/ffmpeg");
     let ffprobe = linux_dir.join("resources/ffprobe");
     let icon = root.join("assets/icons/128x128.png");
+    let desktop_source = root.join(format!("assets/{LINUX_DESKTOP_ID}.desktop"));
     let app_resources = appdir.join(format!("usr/lib/{APP_ID}/resources"));
     let app_binaries = appdir.join(format!("usr/lib/{APP_ID}/binaries"));
     let app_lib = appdir.join("usr/lib");
@@ -506,6 +469,7 @@ fn prepare_linux_appdir() -> Result<PathBuf> {
     required_executable_file(&ffmpeg, "cargo xtask setup-linux")?;
     required_executable_file(&ffprobe, "cargo xtask setup-linux")?;
     required_file(&icon, "restore assets/icons/128x128.png")?;
+    required_file(&desktop_source, "restore the Linux desktop asset")?;
 
     println!("==> Building native Linux shell crate...");
     run_program("cargo", ["build", "-p", LINUX_BIN, "--release"])?;
@@ -538,9 +502,15 @@ fn prepare_linux_appdir() -> Result<PathBuf> {
         )),
     )?;
 
+    let desktop_entry = fs::read_to_string(&desktop_source)?;
+    let installed_exec = format!("Exec={APP_ID}");
+    let appimage_exec = format!("Exec={LINUX_BIN}");
+    if !desktop_entry.lines().any(|line| line == installed_exec) {
+        return Err(format!("{} must contain {installed_exec}", desktop_source.display()).into());
+    }
     write_file(
         &desktop_file,
-        linux_desktop_entry(LINUX_BIN, LINUX_DESKTOP_ID, LINUX_DESKTOP_ID),
+        desktop_entry.replacen(&installed_exec, &appimage_exec, 1),
     )?;
     copy_file(
         &desktop_file,
@@ -936,16 +906,6 @@ mod tests {
     }
 
     #[test]
-    fn desktop_entry_uses_requested_identifiers() {
-        assert_eq!(
-            linux_desktop_entry("stremio-lightning", LINUX_DESKTOP_ID, LINUX_DESKTOP_ID),
-            format!(
-                "[Desktop Entry]\nType=Application\nName={APP_NAME}\nExec=stremio-lightning\nIcon={LINUX_DESKTOP_ID}\nCategories=AudioVideo;Video;Player;\nTerminal=false\nStartupNotify=true\nStartupWMClass={LINUX_DESKTOP_ID}\n"
-            )
-        );
-    }
-
-    #[test]
     fn absolute_needed_filename_only_rewrites_absolute_paths() {
         assert_eq!(
             absolute_needed_filename("/usr/lib/x86_64-linux-gnu/libfoo.so.1"),
@@ -956,7 +916,7 @@ mod tests {
     }
 
     #[test]
-    fn flatpak_builder_manifest_runtime_matches_xtask_constants() {
+    fn flatpak_builder_manifest_matches_xtask_constants_and_assets() {
         let manifest = std::fs::read_to_string(
             root().join("flatpak/io.github.theguy000.StremioLightning.json"),
         )
@@ -967,6 +927,12 @@ mod tests {
             "\"runtime-version\": \"{LINUX_FLATPAK_RUNTIME_VERSION}\""
         )));
         assert!(manifest.contains(&format!("\"sdk\": \"{LINUX_FLATPAK_SDK}\"")));
+        assert!(manifest.contains(&format!(
+            "install -Dm644 assets/{LINUX_FLATPAK_ID}.desktop /app/share/applications/{LINUX_FLATPAK_ID}.desktop"
+        )));
+        assert!(manifest.contains(&format!(
+            "install -Dm644 assets/{LINUX_FLATPAK_ID}.metainfo.xml /app/share/metainfo/{LINUX_FLATPAK_ID}.metainfo.xml"
+        )));
         assert!(!manifest.contains("LD_LIBRARY_PATH}}"));
     }
 }

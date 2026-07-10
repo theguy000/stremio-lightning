@@ -1,0 +1,33 @@
+TODO: Flatpak AppStream Metadata Parity
+
+Static assets
+[x] Add assets/io.github.theguy000.StremioLightning.desktop.
+[x] Include Comment=Lightweight native Stremio shell in the desktop entry.
+[x] Add assets/io.github.theguy000.StremioLightning.metainfo.xml.
+[x] Add homepage, bug tracker, and source repository URLs.
+[x] Add developer information.
+[x] Add OARS 1.1 content rating information.
+[x] Add maintained release and changelog information.
+[x] Add a real application screenshot that meets Flathub size and quality rules.
+[x] Do not use assets/icons/128x128.png as the screenshot.
+
+Packaging integration
+[x] Replace the Flatpak manifest's inline desktop and metainfo echo commands with static file installation.
+[x] Update prepare_linux_flatpak_payload() to copy both static files.
+[x] Update package_linux_deb() to copy the static desktop file.
+[x] Update prepare_linux_appdir() to use the static desktop file with Exec=stremio-lightning-linux.
+[x] Remove linux_flatpak_metainfo().
+[x] Remove desktop metadata generation that becomes unused.
+[x] Ensure the manifest and xtask Flatpak paths install identical metadata.
+
+Validation
+[ ] Run appstreamcli validate on the static metainfo file with zero errors and warnings.
+[x] Run desktop-file-validate on the static desktop file.
+[ ] Add both metadata validation commands to CI.
+[ ] Build the hermetic flatpak-builder package and inspect its exported metadata.
+[ ] Build the xtask Flatpak, Debian, and AppImage packages and verify their desktop entries.
+
+Maintenance
+[ ] Define how release versions and dates are updated for each tagged release.
+[ ] Keep metadata_license appropriate for the metadata file, such as CC0-1.0.
+[ ] Keep project_license synchronized with the project's actual license.
