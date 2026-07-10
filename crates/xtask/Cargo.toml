@@ -3,6 +3,3 @@ name = "xtask"
 version = "0.0.0"
 edition = "2024"
 publish = false
-
-[dependencies]
-chrono = "0.4"
