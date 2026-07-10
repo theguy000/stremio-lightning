@@ -1,5 +1,5 @@
 {
-    "app-id": "io.github.theguy000.StremioLightning",
+    "app-id": "io.github.theguy000.stremio-lightning",
     "runtime": "org.gnome.Platform",
     "runtime-version": "50",
     "sdk": "org.gnome.Sdk",
@@ -30,10 +30,7 @@
         "--device=dri",
         "--persist=.stremio-lightning",
         "--filesystem=xdg-download",
-        "--filesystem=xdg-data/icons:ro",
-        "--filesystem=~/.icons:ro",
-        "--talk-name=org.kde.StatusNotifierWatcher",
-        "--own-name=io.github.theguy000.StremioLightning"
+        "--talk-name=org.kde.StatusNotifierWatcher"
     ],
     "build-options": {
         "append-path": "/usr/lib/sdk/rust-stable/bin"
@@ -53,7 +50,8 @@
                 {
                     "type": "git",
                     "url": "https://github.com/haasn/libplacebo.git",
-                    "tag": "v7.360.1"
+                    "tag": "v7.360.1",
+                    "commit": "719cc95244a1f1d648dd72459822e026e6530f22"
                 }
             ]
         },
@@ -117,9 +115,9 @@
                 "install -Dm644 crates/stremio-lightning-linux/resources/server.cjs -t /app/lib/stremio-lightning/resources/",
                 "install -Dm755 crates/stremio-lightning-linux/resources/ffmpeg -t /app/lib/stremio-lightning/resources/",
                 "install -Dm755 crates/stremio-lightning-linux/resources/ffprobe -t /app/lib/stremio-lightning/resources/",
-                "install -Dm644 assets/icons/128x128.png /app/share/icons/hicolor/128x128/apps/io.github.theguy000.StremioLightning.png",
-                "install -Dm644 assets/io.github.theguy000.StremioLightning.desktop /app/share/applications/io.github.theguy000.StremioLightning.desktop",
-                "install -Dm644 assets/io.github.theguy000.StremioLightning.metainfo.xml /app/share/metainfo/io.github.theguy000.StremioLightning.metainfo.xml",
+                "install -Dm644 assets/icons/128x128.png /app/share/icons/hicolor/128x128/apps/io.github.theguy000.stremio-lightning.png",
+                "install -Dm644 assets/io.github.theguy000.stremio-lightning.desktop /app/share/applications/io.github.theguy000.stremio-lightning.desktop",
+                "install -Dm644 assets/io.github.theguy000.stremio-lightning.metainfo.xml /app/share/metainfo/io.github.theguy000.stremio-lightning.metainfo.xml",
                 "echo '#!/bin/sh' > /app/bin/stremio-lightning",
                 "echo 'set -eu' >> /app/bin/stremio-lightning",
                 "echo 'export LD_LIBRARY_PATH=\"/app/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}\"' >> /app/bin/stremio-lightning",

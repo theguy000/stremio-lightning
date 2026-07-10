@@ -31,7 +31,7 @@ mod x11;
 use self::x11::{install_source_tree_window_icon, request_window_above};
 
 const IPC_HANDLER_NAME: &str = "ipc";
-const APP_ID: &str = "io.github.theguy000.StremioLightning";
+const APP_ID: &str = "io.github.theguy000.stremio-lightning";
 const APP_NAME: &str = "Stremio Lightning";
 const DEV_ICON_NAME: &str = "128x128";
 const DEFAULT_WINDOW_WIDTH: i32 = 1500;

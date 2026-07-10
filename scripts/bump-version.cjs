@@ -18,13 +18,13 @@ const oldVersion = packageJson.version;
 
 console.log(`Bumping version from ${oldVersion} to ${newVersion}...`);
 
-const metainfoPath = path.join(__dirname, '../assets/io.github.theguy000.StremioLightning.metainfo.xml');
+const metainfoPath = path.join(__dirname, '../assets/io.github.theguy000.stremio-lightning.metainfo.xml');
 const metainfo = fs.readFileSync(metainfoPath, 'utf8');
 const escapedVersion = newVersion.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const releasePattern = new RegExp(`<release\\s+version="${escapedVersion}"\\s+date="\\d{4}-\\d{2}-\\d{2}"[^>]*>`);
 
 if (!releasePattern.test(metainfo)) {
-  console.error(`Missing dated AppStream release ${newVersion}. Add it to assets/io.github.theguy000.StremioLightning.metainfo.xml before tagging.`);
+  console.error(`Missing dated AppStream release ${newVersion}. Add it to assets/io.github.theguy000.stremio-lightning.metainfo.xml before tagging.`);
   process.exit(1);
 }
 

@@ -1,9 +1,9 @@
 TODO: Flatpak AppStream Metadata Parity
 
 Static assets
-[x] Add assets/io.github.theguy000.StremioLightning.desktop.
+[x] Add assets/io.github.theguy000.stremio-lightning.desktop.
 [x] Include Comment=Lightweight native Stremio shell in the desktop entry.
-[x] Add assets/io.github.theguy000.StremioLightning.metainfo.xml.
+[x] Add assets/io.github.theguy000.stremio-lightning.metainfo.xml.
 [x] Add homepage, bug tracker, and source repository URLs.
 [x] Add developer information.
 [x] Add OARS 1.1 content rating information.
