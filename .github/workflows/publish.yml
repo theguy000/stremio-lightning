@@ -21,10 +21,12 @@ jobs:
         run: |
           apt-get update
           apt-get install -y \
+            appstream \
             build-essential \
             ca-certificates \
             clang \
             curl \
+            desktop-file-utils \
             flatpak \
             flatpak-builder \
             gh \
@@ -35,6 +37,7 @@ jobs:
             libwebkitgtk-6.0-dev \
             mold \
             nodejs \
+            ostree \
             patchelf \
             pkg-config
 
@@ -63,6 +66,11 @@ jobs:
 
       - name: Install frontend dependencies
         run: npm ci
+
+      - name: Validate Linux metadata
+        run: |
+          desktop-file-validate assets/io.github.theguy000.StremioLightning.desktop
+          appstreamcli validate --strict --no-net assets/io.github.theguy000.StremioLightning.metainfo.xml
 
       - name: Validate Rust before packaging
         run: |
@@ -98,11 +106,36 @@ jobs:
       - name: Build Linux Flatpak bundle
         run: cargo xtask package-linux-flatpak-builder
 
-      - name: Verify Linux artifact
+      - name: Verify Linux artifacts and metadata
         run: |
+          set -euo pipefail
+          APP_ID="io.github.theguy000.StremioLightning"
+          INSPECT_ROOT="$(mktemp -d)"
+          trap 'rm -rf "$INSPECT_ROOT"' EXIT
+
           test -s dist/Stremio_Lightning_Linux-x86_64.AppImage
           test -s dist/stremio-lightning-linux-amd64.deb
           test -s dist/Stremio_Lightning_Linux-x86_64.flatpak
+
+          desktop-file-validate "target/appimage/stremio-lightning.AppDir/usr/share/applications/$APP_ID.desktop"
+          grep -Fxq "Exec=stremio-lightning-linux" "target/appimage/stremio-lightning.AppDir/usr/share/applications/$APP_ID.desktop"
+
+          mkdir -p "$INSPECT_ROOT/deb"
+          dpkg-deb --extract dist/stremio-lightning-linux-amd64.deb "$INSPECT_ROOT/deb"
+          desktop-file-validate "$INSPECT_ROOT/deb/usr/share/applications/$APP_ID.desktop"
+          cmp assets/$APP_ID.desktop "$INSPECT_ROOT/deb/usr/share/applications/$APP_ID.desktop"
+
+          desktop-file-validate "target/flatpak-builder-build/files/share/applications/$APP_ID.desktop"
+          appstreamcli validate --strict --no-net "target/flatpak-builder-build/files/share/metainfo/$APP_ID.metainfo.xml"
+          cmp assets/$APP_ID.desktop "target/flatpak-builder-build/files/share/applications/$APP_ID.desktop"
+          cmp assets/$APP_ID.metainfo.xml "target/flatpak-builder-build/files/share/metainfo/$APP_ID.metainfo.xml"
+
+          ostree --repo=target/flatpak-builder-repo cat appstream2/x86_64 /appstream.xml \
+            > "$INSPECT_ROOT/flatpak-appstream.xml"
+          appstreamcli validate --no-net "$INSPECT_ROOT/flatpak-appstream.xml"
+          grep -Fq "<id>$APP_ID</id>" "$INSPECT_ROOT/flatpak-appstream.xml"
+          grep -Fq "<name>Stremio Lightning</name>" "$INSPECT_ROOT/flatpak-appstream.xml"
+          grep -Fq "<summary>Lightweight native Stremio shell</summary>" "$INSPECT_ROOT/flatpak-appstream.xml"
 
       - name: Upload Linux portable artifact
         uses: actions/upload-artifact@v4

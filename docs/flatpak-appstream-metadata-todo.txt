@@ -21,13 +21,13 @@ Packaging integration
 [x] Ensure the manifest and xtask Flatpak paths install identical metadata.
 
 Validation
-[ ] Run appstreamcli validate on the static metainfo file with zero errors and warnings.
+[x] Run appstreamcli validate on the static metainfo file with zero errors and warnings.
 [x] Run desktop-file-validate on the static desktop file.
-[ ] Add both metadata validation commands to CI.
-[ ] Build the hermetic flatpak-builder package and inspect its exported metadata.
-[ ] Build the xtask Flatpak, Debian, and AppImage packages and verify their desktop entries.
+[x] Add both metadata validation commands to CI.
+[x] Build the hermetic flatpak-builder package and inspect its exported metadata.
+[x] Build the xtask Flatpak, Debian, and AppImage packages and verify their desktop entries.
 
 Maintenance
-[ ] Define how release versions and dates are updated for each tagged release.
-[ ] Keep metadata_license appropriate for the metadata file, such as CC0-1.0.
-[ ] Keep project_license synchronized with the project's actual license.
+[x] Define how release versions and dates are updated for each tagged release.
+[x] Keep metadata_license appropriate for the metadata file, such as CC0-1.0.
+[x] Keep project_license synchronized with the project's actual license.
