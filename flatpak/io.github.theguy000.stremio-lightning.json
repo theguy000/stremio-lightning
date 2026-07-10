@@ -4,12 +4,13 @@
     "runtime-version": "50",
     "sdk": "org.gnome.Sdk",
     "sdk-extensions": [
-        "org.freedesktop.Sdk.Extension.rust-stable"
+        "org.freedesktop.Sdk.Extension.rust-stable",
+        "org.freedesktop.Sdk.Extension.node22"
     ],
     "add-extensions": {
-        "org.freedesktop.Platform.ffmpeg-full": {
-            "version": "25.08",
-            "directory": "lib/ffmpeg",
+        "org.freedesktop.Platform.codecs-extra": {
+            "version": "25.08-extra",
+            "directory": "lib/codecs-extra",
             "add-ld-path": "."
         },
         "org.freedesktop.Platform.VAAPI.Intel": {
@@ -95,9 +96,6 @@
             "name": "stremio-lightning",
             "buildsystem": "simple",
             "build-options": {
-                "build-args": [
-                    "--share=network"
-                ],
                 "env": {
                     "CARGO_HOME": "/run/build/stremio-lightning/cargo",
                     "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER": "/usr/bin/gcc",
@@ -105,16 +103,18 @@
                 }
             },
             "build-commands": [
-                "cargo build --release -p stremio-lightning-linux"
+                "cargo --offline build --release -p stremio-lightning-linux"
             ],
             "post-install": [
                 "install -Dm755 target/release/stremio-lightning-linux /app/bin/stremio-lightning-linux",
                 "mkdir -p /app/lib/stremio-lightning/binaries",
                 "mkdir -p /app/lib/stremio-lightning/resources",
-                "install -Dm755 crates/stremio-lightning-linux/binaries/stremio-runtime-x86_64-unknown-linux-gnu -t /app/lib/stremio-lightning/binaries/",
+                "mkdir -p /app/lib/codecs-extra",
+                "mkdir -p /app/lib/intel-vaapi-driver",
+                "install -Dm755 /usr/lib/sdk/node22/bin/node /app/lib/stremio-lightning/binaries/stremio-runtime-x86_64-unknown-linux-gnu",
                 "install -Dm644 crates/stremio-lightning-linux/resources/server.cjs -t /app/lib/stremio-lightning/resources/",
-                "install -Dm755 crates/stremio-lightning-linux/resources/ffmpeg -t /app/lib/stremio-lightning/resources/",
-                "install -Dm755 crates/stremio-lightning-linux/resources/ffprobe -t /app/lib/stremio-lightning/resources/",
+                "ln -s /usr/bin/ffmpeg /app/lib/stremio-lightning/resources/ffmpeg",
+                "ln -s /usr/bin/ffprobe /app/lib/stremio-lightning/resources/ffprobe",
                 "install -Dm644 assets/icons/128x128.png /app/share/icons/hicolor/128x128/apps/io.github.theguy000.stremio-lightning.png",
                 "install -Dm644 assets/io.github.theguy000.stremio-lightning.desktop /app/share/applications/io.github.theguy000.stremio-lightning.desktop",
                 "install -Dm644 assets/io.github.theguy000.stremio-lightning.metainfo.xml /app/share/metainfo/io.github.theguy000.stremio-lightning.metainfo.xml",
@@ -129,7 +129,8 @@
                 {
                     "type": "dir",
                     "path": "../"
-                }
+                },
+                "cargo-sources.json"
             ]
         }
     ]
