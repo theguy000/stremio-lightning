@@ -1898,7 +1898,7 @@ checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 
 [[package]]
 name = "stremio-lightning-core"
-version = "0.0.0"
+version = "0.1.4"
 dependencies = [
  "discord-rich-presence",
  "futures",
@@ -1911,7 +1911,7 @@ dependencies = [
 
 [[package]]
 name = "stremio-lightning-linux"
-version = "0.0.0"
+version = "0.1.4"
 dependencies = [
  "epoxy",
  "gdk-pixbuf",
@@ -1929,7 +1929,7 @@ dependencies = [
 
 [[package]]
 name = "stremio-lightning-macos"
-version = "0.0.0"
+version = "0.1.4"
 dependencies = [
  "block2",
  "libmpv2",
@@ -1946,7 +1946,7 @@ dependencies = [
 
 [[package]]
 name = "stremio-lightning-windows"
-version = "0.0.0"
+version = "0.1.4"
 dependencies = [
  "embed-resource",
  "libmpv2",
@@ -2863,7 +2863,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "0.0.0"
+version = "0.1.4"
 
 [[package]]
 name = "yoke"
