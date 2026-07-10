@@ -3,7 +3,7 @@ const path = require('path');
 
 const newVersion = process.argv[2];
 if (!newVersion) {
-  console.error("Please provide the version as an argument, e.g. node scripts/bump-version.cjs 0.1.1");
+  console.error("Usage: node scripts/bump-version.cjs <version>");
   process.exit(1);
 }
 
@@ -12,15 +12,24 @@ if (!/^\d+\.\d+\.\d+(?:-[\w.]+)?$/.test(newVersion)) {
   console.error(`Invalid version format: ${newVersion}. Must be semver like X.Y.Z`);
   process.exit(1);
 }
-
 const packageJsonPath = path.join(__dirname, '../package.json');
 const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
 const oldVersion = packageJson.version;
 
 console.log(`Bumping version from ${oldVersion} to ${newVersion}...`);
 
+const metainfoPath = path.join(__dirname, '../assets/io.github.theguy000.StremioLightning.metainfo.xml');
+const metainfo = fs.readFileSync(metainfoPath, 'utf8');
+const escapedVersion = newVersion.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const releasePattern = new RegExp(`<release\\s+version="${escapedVersion}"\\s+date="\\d{4}-\\d{2}-\\d{2}"[^>]*>`);
+
+if (!releasePattern.test(metainfo)) {
+  console.error(`Missing dated AppStream release ${newVersion}. Add it to assets/io.github.theguy000.StremioLightning.metainfo.xml before tagging.`);
+  process.exit(1);
+}
+
 if (oldVersion === newVersion) {
-  console.log("Old version is equal to new version. Nothing to do.");
+  console.log("Package version is already current.");
   process.exit(0);
 }
 
