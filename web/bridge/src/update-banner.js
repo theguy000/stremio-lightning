@@ -1,4 +1,5 @@
 function initUpdateBanner(ctx) {
+  var log = window.StremioLightningLogger.bind("bridge.update-banner");
   var host = ctx.host;
 
   function injectUpdateBannerStyles() {
@@ -69,7 +70,7 @@ function initUpdateBanner(ctx) {
     downloadBtn.textContent = "Download Update";
     downloadBtn.addEventListener("click", function () {
       host.invoke("open_external_url", { url: info.releaseUrl }).catch(function (e) {
-        console.error("[AppUpdater] Failed to open release URL:", e);
+        log.error("[AppUpdater] Failed to open release URL:", e);
       });
     });
 
@@ -120,7 +121,7 @@ function initUpdateBanner(ctx) {
           showUpdateBanner(info);
         })
         .catch(function (e) {
-          console.error("[AppUpdater] Failed to check for updates:", e);
+          log.error("[AppUpdater] Failed to check for updates:", e);
         });
     }, 5000);
   };

@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::pip::serialize_picture_in_picture;
-use crate::{app_update, mods, settings};
+use crate::{app_update, logging, mods, settings};
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -43,6 +43,7 @@ pub enum HostCommand {
     TogglePip,
     GetPipMode,
     SetPipSize,
+    GetLogs,
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -624,6 +625,10 @@ impl<P: PlatformBridge> BaseHost<P> {
                 let mod_type = payload.mod_type.parse()?;
                 let filename =
                     mods::download_mod(&self.app_data_dir, &payload.url, mod_type).await?;
+                logging::info(
+                    "native.mods",
+                    format!("Downloaded {} mod {filename}", mod_type.as_str()),
+                );
                 Ok(json!(filename))
             }
             "get_registry" => Ok(serde_json::to_value(mods::fetch_registry().await?)
@@ -646,6 +651,11 @@ impl<P: PlatformBridge> BaseHost<P> {
 
     pub fn invoke_sync(&self, command: &str, payload: Option<Value>) -> Result<Value, String> {
         match command {
+            "get_logs" => {
+                let payload: GetLogsPayload = parse_payload(command, payload)?;
+                serde_json::to_value(logging::snapshot_after(payload.after_id))
+                    .map_err(|error| format!("Failed to serialize logs: {error}"))
+            }
             "init" => Ok(json!({
                 "platform": self.bridge.platform_name(),
                 "shell": self.bridge.shell_name(),
@@ -678,20 +688,41 @@ impl<P: PlatformBridge> BaseHost<P> {
                 Ok(Value::Null)
             }
             "start_streaming_server" => {
-                self.bridge.start_streaming_server()?;
+                self.bridge.start_streaming_server().map_err(|error| {
+                    logging::error(
+                        "native.streaming-server",
+                        format!("Failed to start streaming server: {error}"),
+                    );
+                    error
+                })?;
+                logging::info("native.streaming-server", "Streaming server started");
                 if self.bridge.is_streaming_server_running() {
                     self.emit_host_event(HostEvent::ServerStarted, Value::Null)?;
                 }
                 Ok(Value::Null)
             }
             "stop_streaming_server" => {
-                self.bridge.stop_streaming_server()?;
+                self.bridge.stop_streaming_server().map_err(|error| {
+                    logging::error(
+                        "native.streaming-server",
+                        format!("Failed to stop streaming server: {error}"),
+                    );
+                    error
+                })?;
+                logging::info("native.streaming-server", "Streaming server stopped");
                 self.emit_host_event(HostEvent::ServerStopped, Value::Null)?;
                 Ok(Value::Null)
             }
             "restart_streaming_server" => {
                 let was_running = self.bridge.is_streaming_server_running();
-                self.bridge.restart_streaming_server()?;
+                self.bridge.restart_streaming_server().map_err(|error| {
+                    logging::error(
+                        "native.streaming-server",
+                        format!("Failed to restart streaming server: {error}"),
+                    );
+                    error
+                })?;
+                logging::info("native.streaming-server", "Streaming server restarted");
                 if was_running {
                     self.emit_host_event(HostEvent::ServerStopped, Value::Null)?;
                 }
@@ -714,6 +745,10 @@ impl<P: PlatformBridge> BaseHost<P> {
                 let payload: ModFilePayload = parse_payload(command, payload)?;
                 let mod_type = payload.mod_type.parse()?;
                 mods::delete_mod(&self.app_data_dir, &payload.filename, mod_type)?;
+                logging::info(
+                    "native.mods",
+                    format!("Deleted {} mod {}", mod_type.as_str(), payload.filename),
+                );
                 Ok(Value::Null)
             }
             "get_mod_content" => {
@@ -916,6 +951,13 @@ pub struct DownloadModPayload {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct GetLogsPayload {
+    #[serde(default)]
+    pub after_id: u64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ModFilePayload {
     pub filename: String,
     pub mod_type: String,
@@ -1079,6 +1121,10 @@ mod tests {
             serde_json::to_value(HostCommand::SetPipDisablesAutoPause).unwrap(),
             json!("set_pip_disables_auto_pause")
         );
+        assert_eq!(
+            serde_json::to_value(HostCommand::GetLogs).unwrap(),
+            json!("get_logs")
+        );
     }
 
     #[test]
@@ -1180,6 +1226,17 @@ mod tests {
 
         let error = host.invoke_sync("get_auto_pause", None).unwrap_err();
         assert!(error.contains("Shell preferences lock poisoned"));
+    }
+
+    #[test]
+    fn get_logs_uses_camel_case_cursor_without_generating_records() {
+        let host = test_host(TestBridge::default());
+
+        let result = host
+            .invoke_sync("get_logs", Some(json!({ "afterId": u64::MAX })))
+            .unwrap();
+
+        assert_eq!(result, json!([]));
     }
 
     #[test]

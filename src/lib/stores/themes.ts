@@ -1,9 +1,11 @@
 import { writable } from 'svelte/store';
 import { getThemes, getModContent } from '../ipc';
+import { createLogger } from '../logging';
 import type { InstalledMod } from '../types';
 
 export const themes = writable<InstalledMod[]>([]);
 export const currentTheme = writable<string>(localStorage.getItem('currentTheme') || '');
+const logger = createLogger('ui.themes');
 
 // Track which CSS properties we set so we only remove ours on theme change.
 // Shared with plugin-api.ts via window.__slThemeInlineProps so both modules
@@ -66,6 +68,6 @@ export async function applyTheme(filename: string): Promise<void> {
 export function loadThemeFromStorage(): void {
   const stored = localStorage.getItem('currentTheme');
   if (stored) {
-    applyTheme(stored).catch(console.error);
+    applyTheme(stored).catch((error) => logger.error('Failed to restore theme:', error));
   }
 }

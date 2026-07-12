@@ -1,5 +1,6 @@
 import { writable, get } from 'svelte/store';
 import { getRegistry, getPlugins, getThemes, downloadMod, deleteMod } from '../ipc';
+import { createLogger } from '../logging';
 import type { Registry, RegistryEntry, InstalledMod } from '../types';
 import { refreshPlugins } from './plugins';
 import { refreshThemes } from './themes';
@@ -9,6 +10,7 @@ export const installedPlugins = writable<InstalledMod[]>([]);
 export const installedThemes = writable<InstalledMod[]>([]);
 export const marketplaceLoading = writable(true);
 export const searchQuery = writable('');
+const logger = createLogger('ui.marketplace');
 
 export async function refreshMarketplace(): Promise<void> {
   const currentReg = get(registry);
@@ -25,7 +27,7 @@ export async function refreshMarketplace(): Promise<void> {
     installedPlugins.set(plugins);
     installedThemes.set(themes);
   } catch (e) {
-    console.error('Failed to load marketplace:', e);
+    logger.error('Failed to load marketplace:', e);
   } finally {
     marketplaceLoading.set(false);
   }

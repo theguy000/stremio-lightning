@@ -14,6 +14,9 @@
     pipWindowSize,
     togglePipWindowSize
   } from '../stores/settings';
+  import { createLogger } from '../logging';
+
+  const logger = createLogger('ui.settings');
 
   let discordOn = $state(false);
   let blurOn = $state(true);
@@ -36,7 +39,7 @@
     try {
       await toggleDiscordRpc(checked);
     } catch (err) {
-      console.error('Failed to toggle Discord RPC:', err);
+      logger.error('Failed to toggle Discord RPC:', err);
       // Revert on failure
       discordRpcEnabled.set(!checked);
     }
@@ -62,7 +65,7 @@
     try {
       await toggleAutoPause(checked);
     } catch (err) {
-      console.error('Failed to toggle auto-pause:', err);
+      logger.error('Failed to toggle auto-pause:', err);
       autoPauseEnabled.set(!checked);
     }
   }
@@ -77,7 +80,7 @@
     try {
       await togglePipDisablesAutoPause(checked);
     } catch (err) {
-      console.error('Failed to toggle PiP disables auto-pause:', err);
+      logger.error('Failed to toggle PiP disables auto-pause:', err);
       pipDisablesAutoPause.set(!checked);
     }
   }
@@ -87,7 +90,7 @@
     try {
       await togglePipWindowSize(value);
     } catch (err) {
-      console.error('Failed to change PiP size:', err);
+      logger.error('Failed to change PiP size:', err);
     }
   }
 </script>

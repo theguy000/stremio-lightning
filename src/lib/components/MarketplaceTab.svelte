@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { registry, installedPlugins, installedThemes, marketplaceLoading, refreshMarketplace, installMod, uninstallMod, isInstalled } from '../stores/marketplace';
   import { ICONS } from '../icons';
+  import { createLogger } from '../logging';
   import type { Registry, RegistryEntry, InstalledMod } from '../types';
 
   let reg: Registry | null = $state(null);
@@ -9,6 +10,7 @@
   let instThemes: InstalledMod[] = $state([]);
   let loading = $state(true);
   let searchFilter = $state('');
+  const logger = createLogger('ui.marketplace');
 
   // Track install/uninstall in-progress
   let actionInProgress: Record<string, string> = $state({});
@@ -39,7 +41,7 @@
       try {
         await uninstallMod(match.filename, type);
       } catch (e) {
-        console.error('Uninstall failed:', e);
+        logger.error('Uninstall failed:', e);
       }
     } else {
       actionInProgress[key] = 'Installing...';
@@ -47,7 +49,7 @@
       try {
         await installMod(entry, type);
       } catch (e) {
-        console.error('Install failed:', e);
+        logger.error('Install failed:', e);
       }
     }
     delete actionInProgress[key];

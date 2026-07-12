@@ -1,4 +1,5 @@
 function initDiscordRpcTracker(ctx) {
+  var log = window.StremioLightningLogger.bind("bridge.discord-rpc");
   var host = ctx.host;
   var shellTransport = ctx.shellTransport;
   var mpvState = shellTransport.mpvState;
@@ -133,13 +134,13 @@ function initDiscordRpcTracker(ctx) {
       if (trackerActive) return;
       trackerActive = true;
       shellTransport.observeMpvProperties();
-      console.info("[DiscordRPC] Tracker initialized, current hash:", location.hash);
+      log.info("[DiscordRPC] Tracker initialized");
       window.addEventListener("hashchange", discordTracker.handleNavigation);
       discordTracker.handleNavigation();
     },
 
     stop: function () {
-      console.info("[DiscordRPC] Tracker stopped");
+      log.info("[DiscordRPC] Tracker stopped");
       trackerActive = false;
       discordTracker._stopMpvPoll();
       window.removeEventListener("hashchange", discordTracker.handleNavigation);
@@ -172,7 +173,7 @@ function initDiscordRpcTracker(ctx) {
 
       waitForPlayerState().then(function (playerReady) {
         if (!playerReady) {
-          console.warn("[DiscordRPC] Could not get player state");
+          log.warn("[DiscordRPC] Could not get player state");
           return;
         }
 
@@ -205,12 +206,12 @@ function initDiscordRpcTracker(ctx) {
 
               host.invoke("update_discord_activity", { activity: activity }).catch(
                 function (e) {
-                  console.error("[DiscordRPC] update failed:", e);
+                  log.error("[DiscordRPC] update failed:", e);
                 },
               );
             })
             .catch(function (e) {
-              console.error("[DiscordRPC] pollAndUpdate error:", e);
+              log.error("[DiscordRPC] pollAndUpdate error:", e);
             });
         }
 
@@ -224,7 +225,7 @@ function initDiscordRpcTracker(ctx) {
 
       getMetaDetails().then(function (meta) {
         if (!meta) {
-          console.warn("[DiscordRPC] Could not get meta details");
+          log.warn("[DiscordRPC] Could not get meta details");
           return;
         }
         host.invoke("update_discord_activity", {
@@ -238,7 +239,7 @@ function initDiscordRpcTracker(ctx) {
             activityType: 3,
           },
         }).catch(function (e) {
-          console.error("[DiscordRPC] update failed:", e);
+          log.error("[DiscordRPC] update failed:", e);
         });
       });
     },
@@ -269,7 +270,7 @@ function initDiscordRpcTracker(ctx) {
           activityType: 3,
         },
       }).catch(function (e) {
-        console.error("[DiscordRPC] update failed:", e);
+        log.error("[DiscordRPC] update failed:", e);
       });
     },
   };
@@ -301,7 +302,7 @@ function initDiscordRpcTracker(ctx) {
           activityType: 3,
         },
       }).catch(function (error) {
-        console.error("[DiscordRPC] update failed:", error);
+        log.error("[DiscordRPC] update failed:", error);
       });
     } else {
       discordTracker.handleNavigation();
@@ -314,10 +315,10 @@ function initDiscordRpcTracker(ctx) {
       host.invoke("start_discord_rpc")
         .then(function () {
           discordTracker.init();
-          console.info("[StremioLightning] Discord RPC started");
+          log.info("[StremioLightning] Discord RPC started");
         })
         .catch(function (e) {
-          console.error("[StremioLightning] Failed to start Discord RPC:", e);
+          log.error("[StremioLightning] Failed to start Discord RPC:", e);
         });
     }
   };

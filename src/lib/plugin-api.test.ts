@@ -4,6 +4,7 @@ import type { HostCommand, HostEvent, StremioLightningHost } from './host/host-a
 let invoke: ReturnType<typeof vi.fn>;
 let listen: ReturnType<typeof vi.fn>;
 let hostWindow: StremioLightningHost['window'];
+let browserLogger: StremioLightningLogger;
 
 type PluginApi = Record<string, unknown> & {
   StremioLightningHost?: unknown;
@@ -75,10 +76,30 @@ beforeEach(() => {
       setZoom: vi.fn().mockResolvedValue(undefined),
     },
   };
+  const methods = {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  };
+  browserLogger = {
+    ...methods,
+    bind: vi.fn((source: string) => ({
+      debug: (...values: unknown[]) => methods.debug(source, ...values),
+      info: (...values: unknown[]) => methods.info(source, ...values),
+      warn: (...values: unknown[]) => methods.warn(source, ...values),
+      error: (...values: unknown[]) => methods.error(source, ...values),
+    })),
+    entries: vi.fn(() => []),
+    subscribe: vi.fn(() => () => {}),
+  };
+  window.StremioLightningLogger = browserLogger;
+  document.body.innerHTML = '';
 });
 
 afterEach(() => {
   delete window.StremioLightningHost;
+  delete window.StremioLightningLogger;
   delete (window as unknown as { StremioEnhancedAPI?: unknown }).StremioEnhancedAPI;
   vi.resetModules();
 });
@@ -107,6 +128,7 @@ describe('plugin API contract', () => {
         "checkAppUpdate",
         "checkModUpdates",
         "closeWindow",
+        "debug",
         "deleteMod",
         "downloadMod",
         "dragWindow",
@@ -150,6 +172,47 @@ describe('plugin API contract', () => {
     } else {
       expect(invoke).toHaveBeenCalledWith(command);
     }
+  });
+
+  it.each(['debug', 'info', 'warn', 'error'] as const)(
+    '%s writes through the structured logger',
+    async (level) => {
+      const api = await initApi();
+
+      await callApiMethod(api, level, ['message', { detail: true }]);
+
+      expect(browserLogger[level]).toHaveBeenCalledWith(
+        'ui.plugin-api',
+        'message',
+        { detail: true },
+      );
+    },
+  );
+
+  it('binds plugin logging to the plugin source', async () => {
+    await initApi();
+    invoke.mockImplementation((command: HostCommand) => {
+      if (command === 'get_mod_content') {
+        return Promise.resolve(`
+          StremioEnhancedAPI.debug('loaded');
+          StremioEnhancedAPI.logger.error('failed');
+        `);
+      }
+      return Promise.resolve('ok');
+    });
+    const { loadPlugin } = await import('./stores/plugins');
+    let wrappedPlugin = '';
+    const appendChild = vi.spyOn(document.body, 'appendChild').mockImplementation((node) => {
+      wrappedPlugin = (node as HTMLScriptElement).textContent || '';
+      return node;
+    });
+
+    await loadPlugin('sample.plugin.js');
+    appendChild.mockRestore();
+    window.eval(wrappedPlugin);
+
+    expect(browserLogger.debug).toHaveBeenCalledWith('plugin.sample', 'loaded');
+    expect(browserLogger.error).toHaveBeenCalledWith('plugin.sample', 'failed');
   });
 
   it('stringifies settings values and schemas before invoking native commands', async () => {

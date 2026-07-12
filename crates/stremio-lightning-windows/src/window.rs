@@ -537,7 +537,12 @@ mod platform {
                     let visual_state = window_visual_state(wparam);
                     let mut rect = RECT::default();
                     if let Err(error) = unsafe { GetClientRect(hwnd, &mut rect) } {
-                        eprintln!("[StremioLightning] Failed to read Windows client rect: {error}");
+                        stremio_lightning_core::logging::error(
+                            "native.window",
+                            format!(
+                                "[StremioLightning] Failed to read Windows client rect: {error}"
+                            ),
+                        );
                     } else {
                         notify_handler(hwnd, "resize", |handler| handler.on_resized(hwnd, rect));
                         if let Some(visual_state) = visual_state {
@@ -688,7 +693,10 @@ mod platform {
         };
 
         if let Err(error) = result {
-            eprintln!("[StremioLightning] Windows window {event} handler failed: {error}");
+            stremio_lightning_core::logging::error(
+                "native.window",
+                format!("[StremioLightning] Windows window {event} handler failed: {error}"),
+            );
         }
     }
 

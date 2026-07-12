@@ -1,4 +1,5 @@
 function initShellDetection() {
+  var log = window.StremioLightningLogger.bind("bridge.shell-detection");
   try {
     var originalUA = navigator.userAgent;
     Object.defineProperty(Navigator.prototype, "userAgent", {
@@ -8,6 +9,6 @@ function initShellDetection() {
       configurable: true,
     });
   } catch (e) {
-    console.warn("[StremioLightning] Could not override userAgent:", e);
+    log.warn("[StremioLightning] Could not override userAgent:", e);
   }
 }

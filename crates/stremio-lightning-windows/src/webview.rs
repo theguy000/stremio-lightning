@@ -7,6 +7,7 @@ use std::sync::{mpsc, Arc};
 
 pub const WINDOWS_HOST_ADAPTER_NAME: &str = "windows-host-adapter";
 pub const HOST_ADAPTER_NAME: &str = WINDOWS_HOST_ADAPTER_NAME;
+pub const BRIDGE_LOGGING_NAME: &str = "bridge/logging.js";
 pub const BRIDGE_UTILS_NAME: &str = "bridge/utils.js";
 pub const BRIDGE_CAST_FALLBACK_NAME: &str = "bridge/cast-fallback.js";
 pub const BRIDGE_SHELL_TRANSPORT_NAME: &str = "bridge/shell-transport.js";
@@ -59,6 +60,10 @@ impl InjectionBundle {
 
 fn bridge_module_scripts() -> Vec<InjectionScript> {
     vec![
+        InjectionScript {
+            name: BRIDGE_LOGGING_NAME,
+            source: include_str!("../../../web/bridge/src/logging.js").to_string(),
+        },
         InjectionScript {
             name: BRIDGE_UTILS_NAME,
             source: include_str!("../../../web/bridge/src/utils.js").to_string(),
@@ -222,7 +227,10 @@ impl CleanupReport {
     #[cfg(windows)]
     fn log(self, context: &str) {
         for failure in self.failures {
-            eprintln!("[StremioLightning] {context}: {failure}");
+            stremio_lightning_core::logging::error(
+                "native.webview.windows",
+                format!("{context}: {failure}"),
+            );
         }
     }
 }
@@ -538,7 +546,10 @@ mod platform {
                 *notifier = None;
             }
             if let Err(error) = self.host.shutdown() {
-                eprintln!("[StremioLightning] Failed to shut down Windows runtime: {error}");
+                stremio_lightning_core::logging::error(
+                    "native.webview.windows",
+                    format!("Failed to shut down Windows runtime: {error}"),
+                );
             }
             if let Some(mut runtime) = self.runtime.take() {
                 runtime.cleanup();
@@ -661,7 +672,10 @@ mod platform {
 
     fn apply_webview_setting(action: &'static str, result: windows::core::Result<()>) {
         if let Err(error) = result {
-            eprintln!("[StremioLightning] Failed to {action}: {error}");
+            stremio_lightning_core::logging::error(
+                "native.webview.windows",
+                format!("Failed to {action}: {error}"),
+            );
         }
     }
 
@@ -704,8 +718,9 @@ mod platform {
                                 let message = message.to_string();
                                 if is_toggle_devtools_message(&message) {
                                     if let Err(error) = webview.OpenDevToolsWindow() {
-                                        eprintln!(
-                                            "[StremioLightning] Failed to open WebView2 DevTools: {error}"
+                                        stremio_lightning_core::logging::error(
+                                            "native.webview.windows",
+                                            format!("Failed to open WebView2 DevTools: {error}"),
                                         );
                                     }
                                 }
@@ -713,8 +728,9 @@ mod platform {
                                     &webview,
                                     host.dispatch_ipc_message(&message),
                                 ) {
-                                    eprintln!(
-                                        "[StremioLightning] Failed to post WebView2 IPC response: {error}"
+                                    stremio_lightning_core::logging::error(
+                                        "native.webview.windows",
+                                        format!("Failed to post WebView2 IPC response: {error}"),
                                     );
                                 }
                             }
@@ -770,8 +786,9 @@ mod platform {
                                 "open_external_url",
                                 Some(serde_json::json!({ "url": uri })),
                             ) {
-                                eprintln!(
-                                    "[StremioLightning] Failed to open external navigation URL: {error}"
+                                stremio_lightning_core::logging::error(
+                                    "native.webview.windows",
+                                    format!("Failed to open external navigation URL: {error}"),
                                 );
                             }
                         }
@@ -903,6 +920,14 @@ pub fn host_adapter() -> String {
   var nextListenerId = 1;
   var pending = {};
   var listeners = {};
+  function logError() {
+    var logger = window.StremioLightningLogger;
+    if (logger) {
+      logger.error.apply(logger, ["bridge.host-adapter.windows"].concat(Array.prototype.slice.call(arguments)));
+    } else {
+      console.error.apply(console, arguments);
+    }
+  }
 
   function post(kind, payload) {
     if (!window.chrome || !window.chrome.webview) {
@@ -938,7 +963,7 @@ pub fn host_adapter() -> String {
       try {
         listener.callback({ event: message.event, payload: message.payload });
       } catch (error) {
-        console.error("[StremioLightning] Windows listener failed:", error);
+        logError("[StremioLightning] Windows listener failed:", error);
       }
     });
   }
@@ -1004,6 +1029,7 @@ mod tests {
             shell.document_start_script_names(),
             vec![
                 WINDOWS_HOST_ADAPTER_NAME,
+                BRIDGE_LOGGING_NAME,
                 BRIDGE_UTILS_NAME,
                 BRIDGE_CAST_FALLBACK_NAME,
                 BRIDGE_SHELL_TRANSPORT_NAME,
@@ -1041,7 +1067,16 @@ mod tests {
             .find(|script| script.name == MOD_UI_NAME)
             .unwrap();
 
-        assert!(mod_ui.source.contains("[SL-Svelte]"));
+        assert!(mod_ui.source.contains("Mods UI initialized"));
+    }
+
+    #[test]
+    fn windows_adapter_resolves_structured_logger_when_an_error_occurs() {
+        let adapter = host_adapter();
+
+        assert!(adapter.contains("function logError()"));
+        assert!(adapter.contains("var logger = window.StremioLightningLogger"));
+        assert!(adapter.contains("bridge.host-adapter.windows"));
     }
 
     #[test]

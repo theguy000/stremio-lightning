@@ -77,7 +77,10 @@ pub(super) fn install_source_tree_window_icon(window: &gtk::ApplicationWindow) {
             return;
         }
         if let Err(error) = set_window_icon(&surface) {
-            eprintln!("[StremioLightning] Failed to set Linux taskbar icon: {error}");
+            stremio_lightning_core::logging::error(
+                "native.window",
+                format!("[StremioLightning] Failed to set Linux taskbar icon: {error}"),
+            );
         }
     });
 }
@@ -92,8 +95,9 @@ pub(super) fn request_window_above(
 
     if !is_x11_surface(&surface) {
         if above {
-            eprintln!(
-                "[StremioLightning] PiP always-on-top is only available on Linux X11 sessions"
+            stremio_lightning_core::logging::warn(
+                "native.pip",
+                "[StremioLightning] PiP always-on-top is only available on Linux X11 sessions",
             );
         }
         return Ok(());

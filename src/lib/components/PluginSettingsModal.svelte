@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { getSetting, saveSetting } from '../ipc';
   import { ICONS } from '../icons';
+  import { createLogger } from '../logging';
   import type { SettingSchema } from '../types';
 
   interface Props {
@@ -15,6 +16,7 @@
   let baseName = $derived(pluginName.replace('.plugin.js', ''));
   let currentValues: Record<string, unknown> = $state({});
   let loaded = $state(false);
+  const logger = createLogger('ui.plugin-settings');
 
   async function loadCurrentValues() {
     const values: Record<string, unknown> = {};
@@ -38,7 +40,7 @@
         try {
           await saveSetting(baseName, setting.key, JSON.stringify(value));
         } catch (e) {
-          console.error(`Failed to save setting ${setting.key}:`, e);
+          logger.error(`Failed to save setting ${setting.key}:`, e);
         }
       }
     }

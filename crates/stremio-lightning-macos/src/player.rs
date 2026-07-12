@@ -359,7 +359,10 @@ mod macos_mpv {
                 }
                 Ok(command) => {
                     if let Err(error) = handle_mpv_command(mpv, command) {
-                        eprintln!("[StremioLightning] macOS MPV command failed: {error}");
+                        stremio_lightning_core::logging::error(
+                            "native.player",
+                            format!("[StremioLightning] macOS MPV command failed: {error}"),
+                        );
                     }
                 }
                 Err(TryRecvError::Empty) => return false,

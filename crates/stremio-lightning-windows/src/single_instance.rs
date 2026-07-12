@@ -128,9 +128,10 @@ mod platform {
                             let _ = notifier.notify();
                         }
                     }
-                    Err(error) => {
-                        eprintln!("[StremioLightning] Single-instance pipe failed: {error}")
-                    }
+                    Err(error) => stremio_lightning_core::logging::error(
+                        "native.single-instance",
+                        format!("[StremioLightning] Single-instance pipe failed: {error}"),
+                    ),
                 }
             });
             rx

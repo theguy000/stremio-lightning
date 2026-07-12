@@ -2,6 +2,7 @@
 pub mod app_update;
 pub mod discord_rpc;
 pub mod host_api;
+pub mod logging;
 #[cfg(feature = "mods")]
 pub mod mods;
 pub mod pip;

@@ -412,7 +412,11 @@ Plugins have access to the global `window.StremioEnhancedAPI` object, which expo
 - **Mod management** - list, download, delete, and update plugins & themes
 - **Settings** - get, save, and register plugin-specific settings
 - **Events** - subscribe to fullscreen, maximize, and server state changes
-- **Logging** - `info`, `warn`, `error` helpers
+- **Logging** - `debug`, `info`, `warn`, and `error` helpers
+
+Plugin log calls are tagged as `plugin.<name>` and appear in the Mods panel's
+Logs tab as well as the browser developer console. Logs are retained in bounded
+session memory only and are not persisted across application restarts.
 
 ---
 

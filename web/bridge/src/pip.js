@@ -1,4 +1,5 @@
 function initPictureInPicture(ctx) {
+  var log = window.StremioLightningLogger.bind("bridge.pip");
   var host = ctx.host;
   var appWindow = ctx.appWindow;
   var pipBtnInjected = false;
@@ -48,7 +49,7 @@ function initPictureInPicture(ctx) {
     });
     btn.addEventListener("click", function () {
       host.invoke("toggle_pip").catch(function (err) {
-        console.error("[StremioLightning] PiP toggle failed:", err);
+        log.error("[StremioLightning] PiP toggle failed:", err);
       });
       btn.blur();
     });

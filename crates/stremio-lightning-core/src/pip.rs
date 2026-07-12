@@ -158,18 +158,30 @@ impl PipState {
 
 fn log_snapshot_saved(snapshot: &PipRestoreSnapshot) {
     if snapshot.was_fullscreen {
-        eprintln!("[StremioLightning] Captured PiP restore state: fullscreen");
+        crate::logging::info(
+            "native.pip",
+            "[StremioLightning] Captured PiP restore state: fullscreen",
+        );
     } else if let Some((width, height)) = snapshot.saved_size {
-        eprintln!("[StremioLightning] Captured PiP restore size: {width}x{height}");
+        crate::logging::info(
+            "native.pip",
+            format!("[StremioLightning] Captured PiP restore size: {width}x{height}"),
+        );
     }
 }
 
 fn log_snapshot_restored(snapshot: Option<&PipRestoreSnapshot>) {
     if let Some(snapshot) = snapshot {
         if snapshot.was_fullscreen {
-            eprintln!("[StremioLightning] Restoring PiP fullscreen state");
+            crate::logging::info(
+                "native.pip",
+                "[StremioLightning] Restoring PiP fullscreen state",
+            );
         } else if let Some((width, height)) = snapshot.saved_size {
-            eprintln!("[StremioLightning] Restoring PiP size: {width}x{height}");
+            crate::logging::info(
+                "native.pip",
+                format!("[StremioLightning] Restoring PiP size: {width}x{height}"),
+            );
         }
     }
 }

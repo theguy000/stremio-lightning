@@ -42,6 +42,7 @@ type HostCommandMap = {
   toggle_pip: { payload: undefined; result: boolean };
   get_pip_mode: { payload: undefined; result: boolean };
   set_pip_size: { payload: { width: number; height: number }; result: void };
+  get_logs: { payload: { afterId: number }; result: StremioLightningLogEntry[] };
 };
 
 export type HostCommand = keyof HostCommandMap;
@@ -106,7 +107,12 @@ let missingHostLogged = false;
 function logMissingHost(): void {
   if (missingHostLogged) return;
   missingHostLogged = true;
-  console.error('[StremioLightning] host adapter not available');
+  const message = 'Host adapter not available';
+  if (typeof window !== 'undefined' && window.StremioLightningLogger) {
+    window.StremioLightningLogger.error('ui.host', message);
+  } else {
+    globalThis.console?.error(`[StremioLightning] ${message.toLowerCase()}`);
+  }
 }
 
 export function hasHost(): boolean {
