@@ -1,7 +1,8 @@
 var host = window.StremioLightningHost || null;
+var log = window.StremioLightningLogger.bind("bridge.main");
 
 if (!host) {
-  console.error(
+  log.error(
     "[StremioLightning] host adapter not available - bridge not loaded",
   );
 } else {
@@ -15,7 +16,7 @@ if (!host) {
     initUpdateChecker: function () {},
   };
 
-  console.info("[StremioLightning] Native player mode enabled (libmpv transport)");
+  log.info("[StremioLightning] Native player mode enabled (libmpv transport)");
 
   onDomReady(initCoreStyles);
 

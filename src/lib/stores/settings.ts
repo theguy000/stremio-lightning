@@ -1,5 +1,8 @@
 import { writable, get, type Writable } from 'svelte/store';
 import { startDiscordRpc, stopDiscordRpc, setAutoPause, getAutoPause, setPipDisablesAutoPause, getPipDisablesAutoPause, togglePip, getPipMode, setPipSize } from '../ipc';
+import { createLogger } from '../logging';
+
+const logger = createLogger('ui.settings');
 
 // Discord RPC
 export const discordRpcEnabled = writable(localStorage.getItem('discordrichpresence') === 'true');
@@ -192,7 +195,7 @@ export async function togglePipActivation(): Promise<void> {
     const newState = await togglePip();
     pipModeActive.set(newState);
   } catch (err) {
-    console.warn('PiP toggle failed (player may not be active):', err);
+    logger.warn('PiP toggle failed; the player may not be active:', err);
     pipModeActive.set(false);
   }
 }
@@ -211,7 +214,7 @@ export async function togglePipWindowSize(size: string): Promise<void> {
   try {
     await setPipSize(dimensions.width, dimensions.height);
   } catch (err) {
-    console.error('Failed to set PiP window size:', err);
+    logger.error('Failed to set PiP window size:', err);
   }
   localStorage.setItem('sl-pip-size', size);
   pipWindowSize.set(size);

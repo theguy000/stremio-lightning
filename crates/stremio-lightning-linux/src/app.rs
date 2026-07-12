@@ -62,13 +62,17 @@ fn normalize_startup_url(url: &str) -> String {
 }
 
 pub fn run(config: AppConfig) -> Result<(), String> {
+    stremio_lightning_core::logging::info("native.application", "Starting Linux shell");
     let player = MpvPlayerBackend::default();
     let host = Arc::new(Host::new(
         player.clone(),
         StreamingServer::new(RealProcessSpawner),
     ));
     if let Err(error) = host.start_streaming_server() {
-        eprintln!("[StreamingServer] Failed to start Linux sidecar: {error}");
+        stremio_lightning_core::logging::error(
+            "native.streaming-server",
+            format!("[StreamingServer] Failed to start Linux sidecar: {error}"),
+        );
     }
 
     let injection = InjectionBundle::load()?;
@@ -98,7 +102,10 @@ fn setup_signal_handler() {
                 _ = sigint.recv() => "SIGINT (Ctrl+C)",
                 _ = sigterm.recv() => "SIGTERM",
             };
-            eprintln!("[StremioLightning] Received {signal_name}, shutting down...");
+            stremio_lightning_core::logging::info(
+                "native.application",
+                format!("[StremioLightning] Received {signal_name}, shutting down..."),
+            );
             glib::idle_add_once(request_gtk_shutdown);
         });
     });

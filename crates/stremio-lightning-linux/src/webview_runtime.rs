@@ -7,6 +7,7 @@ use stremio_lightning_core::pip::PipWindowController;
 
 pub const LINUX_HOST_ADAPTER_NAME: &str = "linux-host-adapter";
 pub const HOST_ADAPTER_NAME: &str = LINUX_HOST_ADAPTER_NAME;
+pub const BRIDGE_LOGGING_NAME: &str = "bridge/logging.js";
 pub const BRIDGE_UTILS_NAME: &str = "bridge/utils.js";
 pub const BRIDGE_CAST_FALLBACK_NAME: &str = "bridge/cast-fallback.js";
 pub const BRIDGE_SHELL_TRANSPORT_NAME: &str = "bridge/shell-transport.js";
@@ -63,6 +64,10 @@ impl InjectionBundle {
 
 fn bridge_module_scripts() -> Vec<InjectionScript> {
     vec![
+        InjectionScript {
+            name: BRIDGE_LOGGING_NAME,
+            source: include_str!("../../../web/bridge/src/logging.js").to_string(),
+        },
         InjectionScript {
             name: BRIDGE_UTILS_NAME,
             source: include_str!("../../../web/bridge/src/utils.js").to_string(),
@@ -312,6 +317,7 @@ mod tests {
             bundle.script_names(),
             vec![
                 LINUX_HOST_ADAPTER_NAME,
+                BRIDGE_LOGGING_NAME,
                 BRIDGE_UTILS_NAME,
                 BRIDGE_CAST_FALLBACK_NAME,
                 BRIDGE_SHELL_TRANSPORT_NAME,
@@ -352,6 +358,7 @@ mod tests {
             state.document_start_scripts,
             vec![
                 LINUX_HOST_ADAPTER_NAME,
+                BRIDGE_LOGGING_NAME,
                 BRIDGE_UTILS_NAME,
                 BRIDGE_CAST_FALLBACK_NAME,
                 BRIDGE_SHELL_TRANSPORT_NAME,

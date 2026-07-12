@@ -109,6 +109,10 @@ export function setPipSize(width: number, height: number): Promise<void> {
 
 // ── Misc ──
 
+export function getLogs(afterId: number): Promise<StremioLightningLogEntry[]> {
+  return host().invoke('get_logs', { afterId });
+}
+
 export function openExternalUrl(url: string): Promise<void> {
   return host().invoke('open_external_url', { url });
 }

@@ -152,8 +152,9 @@ mod appkit_shell {
         _runtime: MacosWebviewRuntime<MpvPlayerBackend, RealProcessSpawner>,
         _player: MpvPlayerBackend,
     ) -> Result<(), String> {
-        eprintln!(
-            "native macOS AppKit/WKWebView shell prepared; launch on macOS to exercise the window loop"
+        stremio_lightning_core::logging::info(
+            "native.window",
+            "native macOS AppKit/WKWebView shell prepared; launch on macOS to exercise the window loop",
         );
         Ok(())
     }

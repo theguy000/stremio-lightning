@@ -6,6 +6,7 @@
   import ThemesTab from './ThemesTab.svelte';
   import MarketplaceTab from './MarketplaceTab.svelte';
   import SettingsTab from './SettingsTab.svelte';
+  import LogsTab from './LogsTab.svelte';
   import AboutTab from './AboutTab.svelte';
 
   interface Props {
@@ -22,6 +23,7 @@
     { id: 'themes', label: 'Themes', icon: ICONS.theme },
     { id: 'marketplace', label: 'Marketplace', icon: ICONS.marketplace },
     { id: 'settings', label: 'Settings', icon: ICONS.wrench },
+    { id: 'logs', label: 'Logs', icon: ICONS.logs },
     { id: 'about', label: 'About', icon: ICONS.info },
   ];
 
@@ -84,34 +86,42 @@
 <div id="sl-mod-panel" class:sl-open={open} onclick={handleLinkClick}>
   <div class="sl-sidebar">
     <div class="sl-sidebar-title">Mods</div>
-    {#each tabs as tab}
-      <div
-        class="sl-tab"
-        class:sl-active={activeTab === tab.id}
-        onclick={() => switchTab(tab.id)}
-        role="tab"
-        tabindex="0"
-        onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') switchTab(tab.id); }}
-      >
-        {@html tab.icon}
-        {tab.label}
-      </div>
-    {/each}
+    <div class="sl-tab-list" role="tablist" aria-label="Mods sections">
+      {#each tabs as tab}
+        <div
+          id={`sl-tab-${tab.id}`}
+          class="sl-tab"
+          class:sl-active={activeTab === tab.id}
+          onclick={() => switchTab(tab.id)}
+          role="tab"
+          aria-selected={activeTab === tab.id}
+          aria-controls={`sl-panel-${tab.id}`}
+          tabindex="0"
+          onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') switchTab(tab.id); }}
+        >
+          {@html tab.icon}
+          {tab.label}
+        </div>
+      {/each}
+    </div>
   </div>
   <div class="sl-content">
-    <div class="sl-tab-content" class:sl-visible={activeTab === 'plugins'}>
+    <div id="sl-panel-plugins" class="sl-tab-content" class:sl-visible={activeTab === 'plugins'} role="tabpanel" aria-labelledby="sl-tab-plugins">
       <PluginsTab />
     </div>
-    <div class="sl-tab-content" class:sl-visible={activeTab === 'themes'}>
+    <div id="sl-panel-themes" class="sl-tab-content" class:sl-visible={activeTab === 'themes'} role="tabpanel" aria-labelledby="sl-tab-themes">
       <ThemesTab />
     </div>
-    <div class="sl-tab-content" class:sl-visible={activeTab === 'marketplace'}>
+    <div id="sl-panel-marketplace" class="sl-tab-content" class:sl-visible={activeTab === 'marketplace'} role="tabpanel" aria-labelledby="sl-tab-marketplace">
       <MarketplaceTab />
     </div>
-    <div class="sl-tab-content" class:sl-visible={activeTab === 'settings'}>
+    <div id="sl-panel-settings" class="sl-tab-content" class:sl-visible={activeTab === 'settings'} role="tabpanel" aria-labelledby="sl-tab-settings">
       <SettingsTab />
     </div>
-    <div class="sl-tab-content" class:sl-visible={activeTab === 'about'}>
+    <div id="sl-panel-logs" class="sl-tab-content" class:sl-visible={activeTab === 'logs'} role="tabpanel" aria-labelledby="sl-tab-logs">
+      <LogsTab active={open && activeTab === 'logs'} />
+    </div>
+    <div id="sl-panel-about" class="sl-tab-content" class:sl-visible={activeTab === 'about'} role="tabpanel" aria-labelledby="sl-tab-about">
       <AboutTab />
     </div>
   </div>

@@ -26,6 +26,7 @@ const ipcTestCases: IpcTestCase[] = [
   ['getPipDisablesAutoPause', 'get_pip_disables_auto_pause', []],
   ['togglePip', 'toggle_pip', []],
   ['getPipMode', 'get_pip_mode', []],
+  ['getLogs', 'get_logs', [42]],
   ['openExternalUrl', 'open_external_url', ['https://example.test']],
 ];
 
@@ -40,6 +41,7 @@ function expectedPayload(command: HostCommand, args: unknown[]): unknown {
     register_settings: { pluginName: args[0], schema: args[1] },
     set_auto_pause: { enabled: args[0] },
     set_pip_disables_auto_pause: { enabled: args[0] },
+    get_logs: { afterId: args[0] },
     open_external_url: { url: args[0] },
   };
 

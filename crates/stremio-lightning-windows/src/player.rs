@@ -290,7 +290,10 @@ mod platform {
                     let event = match event {
                         Ok(event) => event,
                         Err(error) => {
-                            eprintln!("[StremioLightning] MPV event error: {error:?}");
+                            stremio_lightning_core::logging::error(
+                                "native.player",
+                                format!("[StremioLightning] MPV event error: {error:?}"),
+                            );
                             continue;
                         }
                     };
@@ -320,7 +323,10 @@ mod platform {
             match command_receiver.try_recv() {
                 Ok(BackendCommand::Player(command)) => {
                     if let Err(error) = handle_mpv_command(mpv, command) {
-                        eprintln!("[StremioLightning] MPV command failed: {error}");
+                        stremio_lightning_core::logging::error(
+                            "native.player",
+                            format!("[StremioLightning] MPV command failed: {error}"),
+                        );
                     }
                 }
                 Ok(BackendCommand::Shutdown) => {

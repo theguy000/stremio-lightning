@@ -66,7 +66,10 @@ impl DiscordRpcState {
                 Ok(())
             }
             Err(e) => {
-                eprintln!("[DiscordRPC] Failed to connect: {e}");
+                crate::logging::warn(
+                    "native.discord-rpc",
+                    format!("[DiscordRPC] Failed to connect: {e}"),
+                );
                 // Store the client even if connection failed — we'll reconnect
                 *client_guard = Some(client);
                 self.enabled.store(true, Ordering::SeqCst);
@@ -106,7 +109,10 @@ impl DiscordRpcState {
         match client.set_activity(act) {
             Ok(()) => Ok(()),
             Err(e) => {
-                eprintln!("[DiscordRPC] Failed to set activity: {e}");
+                crate::logging::warn(
+                    "native.discord-rpc",
+                    format!("[DiscordRPC] Failed to set activity: {e}"),
+                );
                 drop(client_guard);
                 self.spawn_reconnect();
                 Err(format!("Failed to set Discord activity: {e}"))
@@ -221,7 +227,10 @@ impl DiscordRpcState {
                         return;
                     }
                     Err(e) => {
-                        eprintln!("[DiscordRPC] Reconnect failed: {e}");
+                        crate::logging::warn(
+                            "native.discord-rpc",
+                            format!("[DiscordRPC] Reconnect failed: {e}"),
+                        );
                     }
                 }
             }

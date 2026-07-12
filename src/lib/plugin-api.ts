@@ -1,10 +1,12 @@
 // src/lib/plugin-api.ts
 import { getHost, type HostUnlistenFn } from './host/host-api';
+import { createLogger } from './logging';
 import { applyTheme } from './stores/themes';
 
 type SettingsCallback = (values: Record<string, unknown>) => void;
 
 const _settingsCallbacks: Record<string, SettingsCallback> = {};
+const logger = createLogger('ui.plugin-api');
 
 function registerSettingsCallback(pluginName: string, cb: SettingsCallback): void {
   _settingsCallbacks[pluginName] = cb;
@@ -66,9 +68,10 @@ export function initPluginAPI(): void {
     checkAppUpdate: (): Promise<unknown> => host.invoke('check_app_update'),
 
     // ── Logging ──
-    info: (...args: unknown[]) => console.info('[StremioEnhanced]', ...args),
-    warn: (...args: unknown[]) => console.warn('[StremioEnhanced]', ...args),
-    error: (...args: unknown[]) => console.error('[StremioEnhanced]', ...args),
+    debug: (...args: unknown[]) => logger.debug(...args),
+    info: (...args: unknown[]) => logger.info(...args),
+    warn: (...args: unknown[]) => logger.warn(...args),
+    error: (...args: unknown[]) => logger.error(...args),
 
     // ── Event subscriptions ──
     onMaximizedChange: (cb: (maximized: boolean) => void): Promise<HostUnlistenFn> =>

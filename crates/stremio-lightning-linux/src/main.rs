@@ -6,7 +6,7 @@ fn main() {
     std::env::set_var("MALLOC_TRIM_THRESHOLD_", "131072");
 
     if let Err(error) = run(parse_args(std::env::args())) {
-        eprintln!("{error}");
+        stremio_lightning_core::logging::error("native.application", error);
         std::process::exit(1);
     }
 }

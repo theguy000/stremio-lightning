@@ -6,6 +6,7 @@ import type { StremioLightningHost } from './host-api';
 
 const testDir = dirname(fileURLToPath(import.meta.url));
 const bridgeModuleNames = [
+  'logging.js',
   'utils.js',
   'cast-fallback.js',
   'shell-transport.js',
@@ -58,6 +59,7 @@ afterEach(() => {
   delete (window as typeof window & { StremioEnhancedAPI?: unknown }).StremioEnhancedAPI;
   delete (window as typeof window & { qt?: unknown }).qt;
   delete (window as typeof window & { chrome?: unknown }).chrome;
+  delete (window as typeof window & { StremioLightningLogger?: unknown }).StremioLightningLogger;
 });
 
 describe('bridge host bootstrap', () => {
@@ -112,6 +114,96 @@ describe('bridge host bootstrap', () => {
       '[StremioLightning] host adapter not available - bridge not loaded',
     );
     expect(error).toHaveBeenCalledTimes(1);
+  });
+
+  it('retains formatted records in order and caps retention', () => {
+    window.eval(bridgeModuleSources[0]);
+    const logger = (window as any).StremioLightningLogger;
+    const circular: { self?: unknown } = {};
+    circular.self = circular;
+    let initialEntries: unknown[] | undefined;
+    let incrementalSnapshots = 0;
+    const unsubscribe = logger.subscribe((entry: unknown, entries?: unknown[]) => {
+      if (entry === null) initialEntries = entries;
+      else if (entries) incrementalSnapshots++;
+    });
+
+    logger.info('bridge.test', new Error('boom'), circular, 1n);
+    expect(logger.entries()[0].message).toContain('boom');
+    expect(logger.entries()[0].message).toContain('[Circular]');
+    expect(logger.entries()[0].message).toContain('1n');
+    for (let index = 0; index < 2000; index++) {
+      logger.debug('bridge.test', index);
+    }
+    unsubscribe();
+
+    const entries = logger.entries();
+    expect(entries).toHaveLength(2000);
+    expect(entries[0]).toMatchObject({ id: 2, level: 'debug', source: 'bridge.test' });
+    expect(entries.at(-1)).toMatchObject({ id: 2001, message: '1999' });
+    expect(initialEntries).toEqual([]);
+    expect(incrementalSnapshots).toBe(0);
+    expect(logger.entries()[0].message).not.toContain('[Circular]');
+  });
+
+  it('formats circular values and mirrors through the original console method', () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    window.eval(bridgeModuleSources[0]);
+    const circular: { self?: unknown } = {};
+    circular.self = circular;
+
+    (window as any).StremioLightningLogger.info('bridge.test', circular);
+
+    expect((window as any).StremioLightningLogger.entries()[0]).toMatchObject({
+      source: 'bridge.test',
+      message: '{self: [Circular]}',
+    });
+    expect(info).toHaveBeenCalledWith(circular);
+  });
+
+  it('bounds retained message size and object traversal', () => {
+    vi.spyOn(console, 'info').mockImplementation(() => {});
+    window.eval(bridgeModuleSources[0]);
+    const logger = (window as any).StremioLightningLogger;
+    let nested: Record<string, unknown> = {};
+    for (let index = 0; index < 10; index++) nested = { nested };
+
+    logger.info('bridge.test', 'x'.repeat(20_000));
+    logger.info('bridge.test', nested);
+
+    expect(logger.entries()[0].message).toHaveLength(16_384);
+    expect(logger.entries()[0].message.endsWith('... [truncated]')).toBe(true);
+    expect(logger.entries()[1].message).toContain('[Max depth]');
+  });
+
+  it('does not retain transport payloads or external URLs in failure logs', async () => {
+    const nativeShellHost = {
+      invoke: vi.fn().mockImplementation((command: string) => {
+        if (command === 'shell_transport_send' || command === 'open_external_url') {
+          return Promise.reject(new Error('denied'));
+        }
+        return Promise.resolve(undefined);
+      }),
+      listen: vi.fn().mockResolvedValue(() => {}),
+      window: appWindow,
+      webview,
+    };
+    window.StremioLightningHost = nativeShellHost as unknown as StremioLightningHost;
+    runBridge();
+
+    const secretPayload = 'https://media.example.test/video?token=secret';
+    await (window as any).qt.webChannelTransport.send(secretPayload);
+    window.open('https://external.example.test/?token=secret');
+    await vi.waitFor(() => {
+      expect(window.StremioLightningLogger?.entries().filter(
+        (entry) => entry.source === 'bridge.external-links',
+      )).toHaveLength(1);
+    });
+
+    const messages = window.StremioLightningLogger?.entries().map((entry) => entry.message) || [];
+    expect(messages.join('\n')).not.toContain('media.example.test');
+    expect(messages.join('\n')).not.toContain('external.example.test');
+    expect(messages.join('\n')).not.toContain('token=secret');
   });
 
   it('installs desktop shell transport compatibility shims', async () => {

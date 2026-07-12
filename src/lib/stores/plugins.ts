@@ -30,23 +30,30 @@ export function saveEnabledToStorage(enabled: string[]) {
 export async function loadPlugin(pluginName: string): Promise<void> {
   const content = await getModContent(pluginName, 'plugin');
   const baseName = pluginName.replace('.plugin.js', '');
+  const pluginKey = JSON.stringify(baseName);
+  const pluginSource = JSON.stringify(`plugin.${baseName}`);
 
   // Wrap in IIFE with scoped API — mirrors current bridge.js plugin loading
   const wrapped = `(function() {
     var _api = window.StremioEnhancedAPI;
+    var _logger = window.StremioLightningLogger
+      ? window.StremioLightningLogger.bind(${pluginSource})
+      : {
+          debug: function() { _api.debug.apply(_api, arguments); },
+          info: function() { _api.info.apply(_api, arguments); },
+          warn: function() { _api.warn.apply(_api, arguments); },
+          error: function() { _api.error.apply(_api, arguments); }
+        };
     var StremioEnhancedAPI = {
-      logger: {
-        info: function(m) { _api.info('${baseName}', m); },
-        warn: function(m) { _api.warn('${baseName}', m); },
-        error: function(m) { _api.error('${baseName}', m); }
-      },
-      info: function() { _api.info.apply(_api, arguments); },
-      warn: function() { _api.warn.apply(_api, arguments); },
-      error: function() { _api.error.apply(_api, arguments); },
-      getSetting: function(key) { return _api.getSetting('${baseName}', key); },
-      saveSetting: function(key, val) { return _api.saveSetting('${baseName}', key, val); },
-      registerSettings: function(schema) { return _api.registerSettings('${baseName}', schema); },
-      onSettingsSaved: function(cb) { _api._registerSettingsCallback('${baseName}', cb); },
+      logger: _logger,
+      debug: function() { return _logger.debug.apply(_logger, arguments); },
+      info: function() { return _logger.info.apply(_logger, arguments); },
+      warn: function() { return _logger.warn.apply(_logger, arguments); },
+      error: function() { return _logger.error.apply(_logger, arguments); },
+      getSetting: function(key) { return _api.getSetting(${pluginKey}, key); },
+      saveSetting: function(key, val) { return _api.saveSetting(${pluginKey}, key, val); },
+      registerSettings: function(schema) { return _api.registerSettings(${pluginKey}, schema); },
+      onSettingsSaved: function(cb) { _api._registerSettingsCallback(${pluginKey}, cb); },
       minimizeWindow: function() { return _api.minimizeWindow(); },
       maximizeWindow: function() { return _api.maximizeWindow(); },
       closeWindow: function() { return _api.closeWindow(); },
@@ -72,7 +79,7 @@ export async function loadPlugin(pluginName: string): Promise<void> {
     try {
       ${content}
     } catch(e) {
-      console.error('[${baseName}] Plugin error:', e);
+      _logger.error('Plugin execution failed:', e);
     }
   })();`;
 

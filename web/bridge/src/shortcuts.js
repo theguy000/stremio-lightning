@@ -1,4 +1,5 @@
 function initShortcuts(ctx) {
+  var log = window.StremioLightningLogger.bind("bridge.shortcuts");
   var host = ctx.host;
   var appWindow = ctx.appWindow;
   var webview = ctx.webview;
@@ -65,7 +66,7 @@ function initShortcuts(ctx) {
       if (isPlayerRoute() && ctx.pipFeatureOn) {
         e.preventDefault();
         host.invoke("toggle_pip").catch(function (err) {
-          console.error("[StremioLightning] PiP toggle failed:", err);
+          log.error("[StremioLightning] PiP toggle failed:", err);
         });
       }
       return;

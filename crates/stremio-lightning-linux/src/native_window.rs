@@ -167,7 +167,10 @@ fn build_window(
         window.connect_close_request(move |_| {
             video_state.shutdown();
             if let Err(error) = runtime.shutdown() {
-                eprintln!("[StremioLightning] Failed to shut down Linux runtime: {error}");
+                stremio_lightning_core::logging::error(
+                    "native.window",
+                    format!("[StremioLightning] Failed to shut down Linux runtime: {error}"),
+                );
             }
             app.quit();
             Propagation::Proceed
@@ -223,8 +226,9 @@ fn build_window(
 
 fn configure_application_icon_name() -> &'static str {
     let Some(display) = Display::default() else {
-        eprintln!(
-            "[StremioLightning] Unable to resolve Linux window icon: no GTK display available"
+        stremio_lightning_core::logging::warn(
+            "native.window",
+            "[StremioLightning] Unable to resolve Linux window icon: no GTK display available",
         );
         return APP_ID;
     };
@@ -240,9 +244,9 @@ fn configure_application_icon_name() -> &'static str {
     } else if icon_theme.has_icon(DEV_ICON_NAME) {
         DEV_ICON_NAME
     } else {
-        eprintln!(
+        stremio_lightning_core::logging::warn("native.window", format!(
             "[StremioLightning] Unable to resolve Linux window icon: missing {APP_ID} or {DEV_ICON_NAME} in GTK icon theme"
-        );
+        ));
         APP_ID
     }
 }
@@ -326,7 +330,10 @@ fn build_webview(
                 .and_then(|request| request.uri())
             {
                 if let Err(error) = open_external_uri(uri.as_str()) {
-                    eprintln!("[StremioLightning] Failed to open external URL {uri}: {error}");
+                    stremio_lightning_core::logging::error(
+                        "native.window",
+                        format!("[StremioLightning] Failed to open external URL: {error}"),
+                    );
                 }
             }
             decision.ignore();
@@ -418,7 +425,10 @@ fn handle_ipc_message(
         Ok((id, Err(error))) => {
             evaluate_javascript(webview, &resolve_ipc_script(id, false, json!(error)))
         }
-        Err(error) => eprintln!("[StremioLightning] {error}"),
+        Err(error) => stremio_lightning_core::logging::error(
+            "native.ipc",
+            format!("[StremioLightning] {error}"),
+        ),
     }
 
     drain_host_events(webview, runtime);
@@ -677,7 +687,10 @@ fn set_window_fullscreen(
             "window.setFullscreen",
             Some(json!({ "fullscreen": fullscreen_value })),
         ) {
-            eprintln!("[StremioLightning] Failed to emit fullscreen state: {error}");
+            stremio_lightning_core::logging::error(
+                "native.window",
+                format!("[StremioLightning] Failed to emit fullscreen state: {error}"),
+            );
         }
         drain_host_events(webview, runtime);
     }
@@ -723,7 +736,10 @@ fn resolve_ipc_script(id: u64, ok: bool, value: Value) -> String {
 fn evaluate_javascript(webview: &WebKitWebView, script: &str) {
     webview.evaluate_javascript(script, None, None, gtk::gio::Cancellable::NONE, |result| {
         if let Err(error) = result {
-            eprintln!("[StremioLightning] Failed to run webview JavaScript: {error}");
+            stremio_lightning_core::logging::error(
+                "native.webview",
+                format!("[StremioLightning] Failed to run webview JavaScript: {error}"),
+            );
         }
     });
 }
@@ -832,7 +848,10 @@ impl NativeVideoState {
         };
 
         if let Err(error) = self.mpv.borrow().observe_property(name, format, 0) {
-            eprintln!("[StremioLightning] Failed to observe MPV property {name}: {error}");
+            stremio_lightning_core::logging::error(
+                "native.player",
+                format!("[StremioLightning] Failed to observe MPV property {name}: {error}"),
+            );
         }
     }
 
@@ -851,14 +870,20 @@ impl NativeVideoState {
         };
 
         if let Err(error) = result {
-            eprintln!("[StremioLightning] Failed to set MPV property {name}: {error}");
+            stremio_lightning_core::logging::error(
+                "native.player",
+                format!("[StremioLightning] Failed to set MPV property {name}: {error}"),
+            );
         }
     }
 
     fn command(&self, name: &str, args: &[String]) {
         let args: Vec<&str> = args.iter().map(String::as_str).collect();
         if let Err(error) = self.mpv.borrow().command(name, &args) {
-            eprintln!("[StremioLightning] Failed to run MPV command {name}: {error}");
+            stremio_lightning_core::logging::error(
+                "native.player",
+                format!("[StremioLightning] Failed to run MPV command {name}: {error}"),
+            );
         }
     }
 
@@ -870,7 +895,10 @@ impl NativeVideoState {
 
         match result {
             Ok(event) => callback(event),
-            Err(error) => eprintln!("[StremioLightning] Failed to read MPV event: {error}"),
+            Err(error) => stremio_lightning_core::logging::error(
+                "native.player",
+                format!("[StremioLightning] Failed to read MPV event: {error}"),
+            ),
         }
 
         true
@@ -939,8 +967,11 @@ fn build_native_video(
                 ) {
                     Ok(render_context) => render_context,
                     Err(error) => {
-                        eprintln!(
-                            "[StremioLightning] Failed to create MPV render context: {error}"
+                        stremio_lightning_core::logging::error(
+                            "native.player",
+                            format!(
+                                "[StremioLightning] Failed to create MPV render context: {error}"
+                            ),
                         );
                         return;
                     }
@@ -991,7 +1022,10 @@ fn build_native_video(
                     true,
                 ) {
                     if !state.render_error_logged.replace(true) {
-                        eprintln!("[StremioLightning] Failed to render MPV frame: {error}");
+                        stremio_lightning_core::logging::error(
+                            "native.player",
+                            format!("[StremioLightning] Failed to render MPV frame: {error}"),
+                        );
                     }
                 } else {
                     state.render_error_logged.set(false);
@@ -1021,7 +1055,12 @@ fn install_mpv_event_drain(
             Event::PropertyChange { name, change, .. } => {
                 if let Some(value) = property_data_to_json(change) {
                     if let Err(error) = runtime.emit_native_player_property_changed(name, value) {
-                        eprintln!("[StremioLightning] Failed to emit MPV property change: {error}");
+                        stremio_lightning_core::logging::error(
+                            "native.player",
+                            format!(
+                                "[StremioLightning] Failed to emit MPV property change: {error}"
+                            ),
+                        );
                     }
                 }
             }
@@ -1034,10 +1073,16 @@ fn install_mpv_event_drain(
                 };
                 if let Err(error) = runtime.exit_picture_in_picture_for_player_end(&mut controller)
                 {
-                    eprintln!("[StremioLightning] Failed to exit PiP after MPV ended: {error}");
+                    stremio_lightning_core::logging::error(
+                        "native.pip",
+                        format!("[StremioLightning] Failed to exit PiP after MPV ended: {error}"),
+                    );
                 }
                 if let Err(error) = runtime.emit_native_player_ended("eof") {
-                    eprintln!("[StremioLightning] Failed to emit MPV ended event: {error}");
+                    stremio_lightning_core::logging::error(
+                        "native.player",
+                        format!("[StremioLightning] Failed to emit MPV ended event: {error}"),
+                    );
                 }
             }
             _ => {}
@@ -1070,7 +1115,10 @@ fn drain_runtime_events_to_webview(
                 evaluate_javascript(webview, &script);
             }
         }
-        Err(error) => eprintln!("[StremioLightning] Failed to drain host events: {error}"),
+        Err(error) => stremio_lightning_core::logging::error(
+            "native.ipc",
+            format!("[StremioLightning] Failed to drain host events: {error}"),
+        ),
     }
 }
 

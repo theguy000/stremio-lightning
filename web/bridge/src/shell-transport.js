@@ -19,6 +19,7 @@ function parseTransportPayload(payload) {
 }
 
 function initShellTransport(ctx) {
+  var log = window.StremioLightningLogger.bind("bridge.shell-transport");
   var host = ctx.host;
   var shellMessageListeners = [];
   var nativeChromeWebview = null;
@@ -28,7 +29,7 @@ function initShellTransport(ctx) {
     nativeChromeWebview =
       window.chrome && window.chrome.webview ? window.chrome.webview : null;
   } catch (error) {
-    console.warn(
+    log.warn(
       "[StremioLightning] Could not access native chrome.webview:",
       error,
     );
@@ -87,7 +88,7 @@ function initShellTransport(ctx) {
         window.qt.webChannelTransport.onmessage(event);
       }
     } catch (error) {
-      console.error(
+      log.error(
         "[StremioLightning] qt.webChannelTransport handler failed:",
         error,
       );
@@ -103,7 +104,7 @@ function initShellTransport(ctx) {
         );
       }
     } catch (error) {
-      console.error(
+      log.error(
         "[StremioLightning] native chrome.webview dispatch failed:",
         error,
       );
@@ -113,7 +114,7 @@ function initShellTransport(ctx) {
       try {
         listener(event);
       } catch (error) {
-        console.error(
+        log.error(
           "[StremioLightning] chrome.webview message listener failed:",
           error,
         );
@@ -126,10 +127,11 @@ function initShellTransport(ctx) {
       typeof payload === "string" ? payload : JSON.stringify(payload);
     return host.invoke("shell_transport_send", { message: serialized }).catch(
       function (error) {
-        console.error(
+        log.error(
           "[StremioLightning] shell transport send failed:",
           error,
-          serialized,
+          "message length:",
+          serialized.length,
         );
       },
     );
@@ -137,7 +139,7 @@ function initShellTransport(ctx) {
 
   function notifyShellBridgeReady() {
     host.invoke("shell_bridge_ready").catch(function (error) {
-      console.error("[StremioLightning] shell bridge ready failed:", error);
+      log.error("[StremioLightning] shell bridge ready failed:", error);
     });
   }
 
