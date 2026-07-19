@@ -55,6 +55,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   delete window.StremioLightningHost;
   delete (window as typeof window & { StremioEnhancedAPI?: unknown }).StremioEnhancedAPI;
   delete (window as typeof window & { qt?: unknown }).qt;
@@ -176,6 +177,168 @@ describe('bridge host bootstrap', () => {
     expect(logger.entries()[1].message).toContain('[Max depth]');
   });
 
+  it('retains uncaught errors, promise rejections, and code resource failures', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    window.eval(bridgeModuleSources[0]);
+
+    window.dispatchEvent(new ErrorEvent('error', {
+      message: 'browse failed https://media.example.test/video?token=secret',
+      error: new Error('browse failed https://media.example.test/video?token=secret'),
+    }));
+    const rejection = new Event('unhandledrejection');
+    Object.defineProperty(rejection, 'reason', {
+      value: { message: 'play failed', accessToken: 'secret-value' },
+    });
+    window.dispatchEvent(rejection);
+    const image = document.createElement('img');
+    document.body.appendChild(image);
+    image.dispatchEvent(new Event('error'));
+    const script = document.createElement('script');
+    document.body.appendChild(script);
+    script.dispatchEvent(new Event('error'));
+    const stylesheet = document.createElement('link');
+    stylesheet.rel = 'stylesheet';
+    document.body.appendChild(stylesheet);
+    stylesheet.dispatchEvent(new Event('error'));
+
+    const entries = (window as any).StremioLightningLogger.entries();
+    expect(entries).toHaveLength(4);
+    expect(entries[0]).toMatchObject({
+      level: 'error',
+      source: 'bridge.browser',
+    });
+    expect(entries[0].message).toContain('browse failed');
+    expect(entries[1].message).toContain('play failed');
+    expect(entries[2].message).toContain('script');
+    expect(entries[3].message).toContain('stylesheet');
+    expect(entries.map((entry: { message: string }) => entry.message).join('\n'))
+      .not.toMatch(/media\.example\.test|token=secret|secret-value/);
+  });
+
+  it('retains failed addon requests without request details', async () => {
+    const frame = document.createElement('iframe');
+    document.body.appendChild(frame);
+    const frameWindow = frame.contentWindow as Window & typeof globalThis;
+    const failedFetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 503,
+      statusText: 'Service Unavailable',
+      url: 'https://addon.example.test/stream?token=secret',
+    });
+    Object.defineProperty(frameWindow, 'fetch', {
+      configurable: true,
+      value: failedFetch,
+      writable: true,
+    });
+    vi.spyOn(frameWindow.console, 'info').mockImplementation(() => {});
+    vi.spyOn(frameWindow.console, 'error').mockImplementation(() => {});
+    frameWindow.eval(bridgeModuleSources[0]);
+
+    await frameWindow.fetch('https://addon.example.test/stream?token=secret');
+
+    const entries = (frameWindow as any).StremioLightningLogger.entries();
+    expect(entries).toHaveLength(2);
+    expect(entries[0]).toMatchObject({
+      level: 'info',
+      source: 'bridge.network',
+      message: expect.stringContaining(
+        'Stream request #1 started: GET stream discovery via fetch from addon #1',
+      ),
+    });
+    expect(entries[1]).toMatchObject({
+      level: 'error',
+      source: 'bridge.network',
+      message: expect.stringContaining(
+        'request #1 failed: GET stream discovery via fetch from addon #1 -> HTTP 503 Service Unavailable after',
+      ),
+    });
+    expect(entries.map((entry: { message: string }) => entry.message).join('\n'))
+      .not.toMatch(/addon\.example\.test|token=secret/);
+  });
+
+  it('retains successful stream discovery without logging other successes', async () => {
+    const frame = document.createElement('iframe');
+    document.body.appendChild(frame);
+    const frameWindow = frame.contentWindow as Window & typeof globalThis;
+    Object.defineProperty(frameWindow, 'fetch', {
+      configurable: true,
+      value: vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+      }),
+      writable: true,
+    });
+    vi.spyOn(frameWindow.console, 'info').mockImplementation(() => {});
+    frameWindow.eval(bridgeModuleSources[0]);
+
+    await frameWindow.fetch(
+      'https://addon.example.test/stream/movie/tt-secret.json?token=secret',
+    );
+
+    const entries = (frameWindow as any).StremioLightningLogger.entries();
+    expect(entries).toHaveLength(2);
+    expect(entries[0].message).toContain('Stream request #1 started');
+    expect(entries[1].message).toMatch(
+      /Stream request #1 completed: GET stream discovery \(movie\) via fetch from addon #1 -> HTTP 200 OK in \d+ ms/,
+    );
+    expect(entries.map((entry: { message: string }) => entry.message).join('\n'))
+      .not.toMatch(/addon\.example\.test|tt-secret|token=secret/);
+  });
+
+  it('warns when stream discovery remains pending', async () => {
+    vi.useFakeTimers();
+    const frame = document.createElement('iframe');
+    document.body.appendChild(frame);
+    const frameWindow = frame.contentWindow as Window & typeof globalThis;
+    Object.defineProperty(frameWindow, 'fetch', {
+      configurable: true,
+      value: vi.fn().mockReturnValue(new Promise(() => {})),
+      writable: true,
+    });
+    vi.spyOn(frameWindow.console, 'info').mockImplementation(() => {});
+    vi.spyOn(frameWindow.console, 'warn').mockImplementation(() => {});
+    frameWindow.eval(bridgeModuleSources[0]);
+
+    void frameWindow.fetch('https://addon.example.test/stream/movie/tt-secret.json');
+    await vi.advanceTimersByTimeAsync(15_000);
+
+    const entries = (frameWindow as any).StremioLightningLogger.entries();
+    expect(entries).toHaveLength(2);
+    expect(entries[1]).toMatchObject({
+      level: 'warn',
+      source: 'bridge.network',
+      message: expect.stringContaining(
+        'Stream request #1 is still pending after 15000 ms',
+      ),
+    });
+  });
+
+  it('does not retain successful addon requests or route changes', async () => {
+    const frame = document.createElement('iframe');
+    document.body.appendChild(frame);
+    const frameWindow = frame.contentWindow as Window & typeof globalThis;
+    Object.defineProperty(frameWindow, 'fetch', {
+      configurable: true,
+      value: vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+      }),
+      writable: true,
+    });
+    vi.spyOn(frameWindow.console, 'info').mockImplementation(() => {});
+    frameWindow.eval(bridgeModuleSources[0]);
+
+    await frameWindow.fetch('https://addon.example.test/meta/movie/tt-secret.json?token=secret');
+    frameWindow.location.hash = '#/detail/movie/tt-secret/secret-title';
+    frameWindow.dispatchEvent(new frameWindow.HashChangeEvent('hashchange'));
+    frameWindow.location.hash = '#/unknown/secret-value';
+    frameWindow.dispatchEvent(new frameWindow.HashChangeEvent('hashchange'));
+
+    expect((frameWindow as any).StremioLightningLogger.entries()).toEqual([]);
+  });
+
   it('does not retain transport payloads or external URLs in failure logs', async () => {
     const nativeShellHost = {
       invoke: vi.fn().mockImplementation((command: string) => {
@@ -230,10 +393,32 @@ describe('bridge host bootstrap', () => {
     expect((window as any).qt.webChannelTransport.send).toEqual(expect.any(Function));
     expect((window as any).chrome.webview.postMessage).toEqual(expect.any(Function));
 
+    const observedProperties = nativeShellHost.invoke.mock.calls
+      .filter(([command]) => command === 'shell_transport_send')
+      .map(([, payload]) => JSON.parse(payload.message).args)
+      .filter(([method]) => method === 'mpv-observe-prop')
+      .map(([, name]) => name);
+    expect(observedProperties).toEqual([
+      'time-pos',
+      'duration',
+      'pause',
+      'paused-for-cache',
+      'seeking',
+      'eof-reached',
+      'cache-buffering-state',
+      'demuxer-cache-time',
+    ]);
+
     await (window as any).qt.webChannelTransport.send({
       id: 10,
       type: 6,
       args: ['mpv-observe-prop', 'pause'],
+    });
+
+    await (window as any).qt.webChannelTransport.send({
+      id: 11,
+      type: 6,
+      args: ['mpv-command', ['loadfile', 'https://media.example.test/?token=secret']],
     });
 
     expect(nativeShellHost.invoke).toHaveBeenCalledWith('shell_transport_send', {
@@ -243,6 +428,12 @@ describe('bridge host bootstrap', () => {
         args: ['mpv-observe-prop', 'pause'],
       }),
     });
+    const playbackMessages = window.StremioLightningLogger?.entries()
+      .filter((entry) => entry.source === 'bridge.shell-transport')
+      .map((entry) => entry.message)
+      .join('\n') || '';
+    expect(playbackMessages).toContain('Forwarding MPV loadfile command');
+    expect(playbackMessages).not.toMatch(/media\.example\.test|token=secret/);
     expect(shellTransportCallback).toEqual(expect.any(Function));
   });
 
@@ -280,6 +471,7 @@ describe('bridge host bootstrap', () => {
     expect(messages).toContain('Forwarding MPV loadfile command');
     expect(messages).not.toMatch(/media\.example\.test|token=secret/);
   });
+
   it('dispatches shell transport messages to Qt, chrome listeners, and PiP events', () => {
     let shellTransportCallback:
       | ((event: { event: 'shell-transport-message'; payload: string }) => void)

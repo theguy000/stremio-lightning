@@ -5,6 +5,7 @@ function createMpvState() {
     duration: 0,
     pause: false,
     pausedForCache: false,
+    seeking: false,
   };
 }
 
@@ -52,12 +53,15 @@ function initShellTransport(ctx) {
         mpvState.pause = !!eventPayload.data;
       } else if (eventPayload.name === "paused-for-cache") {
         mpvState.pausedForCache = !!eventPayload.data;
+      } else if (eventPayload.name === "seeking") {
+        mpvState.seeking = !!eventPayload.data;
       }
     } else if (eventName === "mpv-event-ended") {
       mpvState.timePos = 0;
       mpvState.duration = 0;
       mpvState.pause = false;
       mpvState.pausedForCache = false;
+      mpvState.seeking = false;
     }
   }
 
@@ -123,6 +127,19 @@ function initShellTransport(ctx) {
   }
 
   function sendShellTransportMessage(payload) {
+    var parsed = parseTransportPayload(payload);
+    var args = parsed && parsed.args;
+    var command = Array.isArray(args) ? args[1] : null;
+    if (
+      args &&
+      args[0] === "mpv-command" &&
+      Array.isArray(command) &&
+      command[0] === "loadfile"
+    ) {
+      log.info(
+        "[StremioLightning] Forwarding MPV loadfile command (arguments redacted)",
+      );
+    }
     var serialized =
       typeof payload === "string" ? payload : JSON.stringify(payload);
     return host.invoke("shell_transport_send", { message: serialized }).catch(
@@ -147,7 +164,16 @@ function initShellTransport(ctx) {
     if (mpvState.observed) return;
     mpvState.observed = true;
 
-    ["time-pos", "duration", "pause", "paused-for-cache"].forEach(
+    [
+      "time-pos",
+      "duration",
+      "pause",
+      "paused-for-cache",
+      "seeking",
+      "eof-reached",
+      "cache-buffering-state",
+      "demuxer-cache-time",
+    ].forEach(
       function (name, index) {
         sendShellTransportMessage({
           id: 9000 + index,

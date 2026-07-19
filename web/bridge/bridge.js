@@ -48,6 +48,7 @@
 
     initCastFallback();
     ctx.shellTransport = initShellTransport(ctx);
+    ctx.shellTransport.observeMpvProperties();
 
     window.StremioEnhancedAPI = window.StremioEnhancedAPI || {};
 
