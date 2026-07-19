@@ -169,26 +169,37 @@ function initShellTransport(ctx) {
     window.qt.webChannelTransport = window.qt.webChannelTransport || {};
     window.qt.webChannelTransport.send = sendShellTransportMessage;
 
-    if (!nativeChromeWebview) {
+    var chromeWebviewShim = {
+      postMessage: sendShellTransportMessage,
+      addEventListener: function (name, listener) {
+        if (name !== "message") {
+          throw new Error("Unsupported event: " + name);
+        }
+        shellMessageListeners.push(listener);
+      },
+      removeEventListener: function (name, listener) {
+        if (name !== "message") {
+          throw new Error("Unsupported event: " + name);
+        }
+        shellMessageListeners = shellMessageListeners.filter(function (item) {
+          return item !== listener;
+        });
+      },
+    };
+    try {
       window.chrome = window.chrome || {};
-      window.chrome.webview = {
-        postMessage: sendShellTransportMessage,
-        addEventListener: function (name, listener) {
-          if (name !== "message") {
-            throw new Error("Unsupported event: " + name);
-          }
-          shellMessageListeners.push(listener);
-        },
-        removeEventListener: function (name, listener) {
-          if (name !== "message") {
-            throw new Error("Unsupported event: " + name);
-          }
-          shellMessageListeners = shellMessageListeners.filter(function (item) {
-            return item !== listener;
-          });
-        },
-      };
-      nativeChromeWebview = window.chrome.webview;
+      window.chrome.webview = chromeWebviewShim;
+      if (window.chrome.webview !== chromeWebviewShim) {
+        Object.defineProperty(window.chrome, "webview", {
+          configurable: true,
+          value: chromeWebviewShim,
+        });
+      }
+    } catch (error) {
+      log.error(
+        "[StremioLightning] Could not install chrome.webview transport shim:",
+        error,
+      );
     }
   }
 

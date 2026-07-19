@@ -107,7 +107,9 @@ pub fn parse_request(message: &str) -> Result<ParsedRequest, String> {
     let request: RpcRequest = serde_json::from_str(message)
         .map_err(|e| format!("Failed to parse shell transport message: {e}"))?;
 
-    if request.id == 0 || request.request_type == Some(RPC_TYPE_INIT) {
+    if request.request_type == Some(RPC_TYPE_INIT)
+        || (request.id == 0 && request.request_type.is_none() && request.args.is_none())
+    {
         return Ok(ParsedRequest::Handshake);
     }
 
@@ -1145,6 +1147,10 @@ mod tests {
             parse_request(r#"{"id":0,"type":3}"#).unwrap(),
             ParsedRequest::Handshake
         );
+        assert_eq!(
+            parse_request(r#"{"id":0}"#).unwrap(),
+            ParsedRequest::Handshake
+        );
     }
 
     #[test]
@@ -1154,6 +1160,20 @@ mod tests {
             ParsedRequest::Command {
                 method: "mpv-command".to_string(),
                 data: Some(json!(["stop"])),
+            }
+        );
+    }
+
+    #[test]
+    fn parses_current_stremio_command_with_zero_id() {
+        assert_eq!(
+            parse_request(
+                r#"{"id":0,"type":6,"args":["mpv-command",["loadfile","https://example.test/video"]]}"#
+            )
+            .unwrap(),
+            ParsedRequest::Command {
+                method: "mpv-command".to_string(),
+                data: Some(json!(["loadfile", "https://example.test/video"])),
             }
         );
     }
