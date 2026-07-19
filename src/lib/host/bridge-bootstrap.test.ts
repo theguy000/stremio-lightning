@@ -246,6 +246,40 @@ describe('bridge host bootstrap', () => {
     expect(shellTransportCallback).toEqual(expect.any(Function));
   });
 
+  it('routes a pre-existing native chrome transport through the host adapter', async () => {
+    const nativePostMessage = vi.fn();
+    const nativeChromeWebview = {
+      postMessage: nativePostMessage,
+      addEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    };
+    const nativeShellHost = {
+      invoke: vi.fn().mockResolvedValue(undefined),
+      listen: vi.fn().mockResolvedValue(() => {}),
+      window: appWindow,
+      webview,
+    };
+    window.StremioLightningHost = nativeShellHost as unknown as StremioLightningHost;
+    (window as any).chrome = { webview: nativeChromeWebview };
+
+    runBridge();
+    const payload = {
+      id: 12,
+      type: 6,
+      args: ['mpv-command', ['loadfile', 'https://media.example.test/?token=secret']],
+    };
+    await (window as any).chrome.webview.postMessage(payload);
+
+    expect(nativePostMessage).not.toHaveBeenCalled();
+    expect(nativeShellHost.invoke).toHaveBeenCalledWith('shell_transport_send', {
+      message: JSON.stringify(payload),
+    });
+    const messages = window.StremioLightningLogger?.entries()
+      .map((entry) => entry.message)
+      .join('\n') || '';
+    expect(messages).toContain('Forwarding MPV loadfile command');
+    expect(messages).not.toMatch(/media\.example\.test|token=secret/);
+  });
   it('dispatches shell transport messages to Qt, chrome listeners, and PiP events', () => {
     let shellTransportCallback:
       | ((event: { event: 'shell-transport-message'; payload: string }) => void)

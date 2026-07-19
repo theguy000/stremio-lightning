@@ -916,6 +916,10 @@ pub fn host_adapter() -> String {
 
   if (window.StremioLightningHost) return;
 
+  var nativeWebview = window.chrome && window.chrome.webview;
+  var nativePostMessage = nativeWebview && typeof nativeWebview.postMessage === "function"
+    ? nativeWebview.postMessage.bind(nativeWebview)
+    : null;
   var nextRequestId = 1;
   var nextListenerId = 1;
   var pending = {};
@@ -930,13 +934,13 @@ pub fn host_adapter() -> String {
   }
 
   function post(kind, payload) {
-    if (!window.chrome || !window.chrome.webview) {
+    if (!nativePostMessage) {
       return Promise.reject(new Error("WebView2 host bridge is not available"));
     }
     return new Promise(function (resolve, reject) {
       var id = nextRequestId++;
       pending[id] = { resolve: resolve, reject: reject };
-      window.chrome.webview.postMessage({
+      nativePostMessage({
         id: id,
         kind: kind,
         payload: payload || null
@@ -1075,6 +1079,8 @@ mod tests {
         let adapter = host_adapter();
 
         assert!(adapter.contains("function logError()"));
+        assert!(adapter.contains("nativeWebview.postMessage.bind(nativeWebview)"));
+        assert!(adapter.contains("nativePostMessage({"));
         assert!(adapter.contains("var logger = window.StremioLightningLogger"));
         assert!(adapter.contains("bridge.host-adapter.windows"));
     }
