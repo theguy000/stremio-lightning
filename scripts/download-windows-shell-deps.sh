@@ -42,13 +42,16 @@ extract_7z() {
         7z x "$archive" -o"$destination" -y
     elif command -v 7zz &>/dev/null; then
         7zz x "$archive" -o"$destination" -y
+    elif [[ -x "/c/Program Files/7-Zip/7z.exe" ]]; then
+        "/c/Program Files/7-Zip/7z.exe" x "$archive" -o"$destination" -y
+    elif [[ -x "C:/Program Files/7-Zip/7z.exe" ]]; then
+        "C:/Program Files/7-Zip/7z.exe" x "$archive" -o"$destination" -y
     else
         echo "ERROR: 7z or 7zz not found. Install 7-Zip/p7zip." >&2
         exit 1
     fi
 }
 
-require_command gh
 require_command curl
 require_command unzip
 
@@ -56,7 +59,12 @@ rm -rf "$WINDOWS_DIR/resources" "$WINDOWS_DIR/mpv-dev"
 mkdir -p "$WINDOWS_DIR/resources" "$WINDOWS_DIR/mpv-dev"
 
 echo "==> Downloading stremio-service $SERVICE_VERSION (Windows)..."
-gh release download "$SERVICE_VERSION" --repo "$SERVICE_REPO" --pattern "stremio-service-windows.zip" --dir "$TEMP_DIR"
+if command -v gh &>/dev/null; then
+    gh release download "$SERVICE_VERSION" --repo "$SERVICE_REPO" --pattern "stremio-service-windows.zip" --dir "$TEMP_DIR"
+else
+    echo "Notice: gh CLI not found, using direct curl download..."
+    curl -fsSL "https://github.com/$SERVICE_REPO/releases/download/$SERVICE_VERSION/stremio-service-windows.zip" -o "$TEMP_DIR/stremio-service-windows.zip"
+fi
 unzip -o "$TEMP_DIR/stremio-service-windows.zip" -d "$TEMP_DIR/service"
 
 STREMIO_RUNTIME_EXE=$(first_match "$TEMP_DIR/service" "stremio-runtime.exe")

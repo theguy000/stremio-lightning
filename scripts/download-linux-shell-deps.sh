@@ -17,7 +17,12 @@ trap cleanup EXIT
 mkdir -p "$LINUX_DIR/binaries" "$LINUX_DIR/resources"
 
 echo "==> Downloading stremio-service $SERVICE_VERSION (Linux)..."
-gh release download "$SERVICE_VERSION" --repo "$SERVICE_REPO" --pattern "stremio-service_amd64.deb" --dir "$TEMP_DIR"
+if command -v gh &>/dev/null; then
+    gh release download "$SERVICE_VERSION" --repo "$SERVICE_REPO" --pattern "stremio-service_amd64.deb" --dir "$TEMP_DIR"
+else
+    echo "Notice: gh CLI not found, using direct curl download..."
+    curl -fsSL "https://github.com/$SERVICE_REPO/releases/download/$SERVICE_VERSION/stremio-service_amd64.deb" -o "$TEMP_DIR/stremio-service_amd64.deb"
+fi
 
 mkdir -p "$TEMP_DIR/deb-extracted"
 dpkg-deb -x "$TEMP_DIR/stremio-service_amd64.deb" "$TEMP_DIR/deb-extracted"
