@@ -3,6 +3,8 @@ use serde::Serialize;
 use serde_json::json;
 use serde_json::Value;
 #[cfg(windows)]
+use std::ffi::CString;
+#[cfg(windows)]
 use std::sync::mpsc::{Receiver, Sender};
 #[cfg(windows)]
 use stremio_lightning_core::player_api::PlayerEndedError;
@@ -13,6 +15,7 @@ use stremio_lightning_core::player_api::{
 const PRIMARY_SUBTITLE_PROPERTY: &str = "sid";
 const SECONDARY_SUBTITLE_PROPERTY: &str = "secondary-sid";
 const SUB_ADD_COMMAND: &str = "sub-add";
+const MAX_MPV_LOG_MESSAGE_LENGTH: usize = 2_048;
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct NativePlayerStatus {
@@ -83,6 +86,8 @@ impl WindowsPlayer {
             other => return Err(format!("Unsupported Windows player command: {other}")),
         };
 
+        log_player_command(&command);
+
         if matches!(&command, PlayerCommand::SetProperty(name, _) if name == PRIMARY_SUBTITLE_PROPERTY)
         {
             self.disable_secondary_subtitle()?;
@@ -136,6 +141,59 @@ impl WindowsPlayer {
     pub fn shutdown(&mut self) {
         self.backend.shutdown();
     }
+}
+
+fn log_player_command(command: &PlayerCommand) {
+    match command {
+        PlayerCommand::Command(values) => {
+            let Some(name) = values.first().and_then(Value::as_str) else {
+                return;
+            };
+            let message =
+                format!("[StremioLightning] MPV command received: {name} (arguments redacted)");
+            if name == "loadfile" {
+                stremio_lightning_core::logging::info("native.player", message);
+            } else {
+                stremio_lightning_core::logging::debug("native.player", message);
+            }
+        }
+        PlayerCommand::Stop => stremio_lightning_core::logging::info(
+            "native.player",
+            "[StremioLightning] MPV stop requested",
+        ),
+        PlayerCommand::ObserveProperty(_) | PlayerCommand::SetProperty(_, _) => {}
+    }
+}
+
+fn redact_mpv_log_message(message: &str) -> String {
+    const SENSITIVE_SCHEMES: [&str; 4] = ["https://", "http://", "magnet:?", "file://"];
+    let mut redacted = message.trim().to_string();
+
+    loop {
+        let lowercase = redacted.to_ascii_lowercase();
+        let next = SENSITIVE_SCHEMES
+            .iter()
+            .filter_map(|scheme| lowercase.find(scheme))
+            .min();
+        let Some(start) = next else {
+            break;
+        };
+        let end = redacted[start..]
+            .find(char::is_whitespace)
+            .map(|offset| start + offset)
+            .unwrap_or(redacted.len());
+        redacted.replace_range(start..end, "[redacted URL]");
+    }
+
+    if redacted.len() > MAX_MPV_LOG_MESSAGE_LENGTH {
+        let mut boundary = MAX_MPV_LOG_MESSAGE_LENGTH;
+        while !redacted.is_char_boundary(boundary) {
+            boundary -= 1;
+        }
+        redacted.truncate(boundary);
+        redacted.push_str("... [truncated]");
+    }
+    redacted
 }
 
 #[cfg(any(windows, test))]
@@ -208,6 +266,10 @@ mod platform {
             self.sender = Some(command_sender);
             self.receiver = Some(event_receiver);
             self.initialized = true;
+            stremio_lightning_core::logging::info(
+                "native.player",
+                "[StremioLightning] Windows MPV backend initialized",
+            );
             Ok(())
         }
 
@@ -251,7 +313,7 @@ mod platform {
     }
 
     fn create_mpv(hwnd: HWND) -> Result<Mpv, String> {
-        Mpv::with_initializer(|initializer| {
+        let mpv = Mpv::with_initializer(|initializer| {
             initializer.set_property("wid", hwnd.0 as i64)?;
             initializer.set_property("title", crate::APP_NAME)?;
             initializer.set_property("audio-client-name", crate::APP_NAME)?;
@@ -269,7 +331,23 @@ mod platform {
             initializer.set_property("audio-fallback-to-null", "yes")?;
             Ok(())
         })
-        .map_err(|error| format!("Failed to initialize Windows MPV backend: {error}"))
+        .map_err(|error| format!("Failed to initialize Windows MPV backend: {error}"))?;
+        if let Err(error) = request_mpv_log_messages(&mpv) {
+            stremio_lightning_core::logging::warn("native.player", error);
+        }
+        Ok(mpv)
+    }
+
+    fn request_mpv_log_messages(mpv: &Mpv) -> Result<(), String> {
+        let level = CString::new("warn").expect("static MPV log level must not contain NUL");
+        let result =
+            unsafe { libmpv2_sys::mpv_request_log_messages(mpv.ctx.as_ptr(), level.as_ptr()) };
+        if result < 0 {
+            return Err(format!(
+                "Failed to enable Windows MPV diagnostics (error code {result})"
+            ));
+        }
+        Ok(())
     }
 
     fn spawn_player_thread(
@@ -342,16 +420,103 @@ mod platform {
     fn player_event_from_mpv_event(event: Event<'_>) -> MpvEventAction {
         match event {
             Event::PropertyChange { name, change, .. } => {
+                log_diagnostic_property_change(name, &change);
                 MpvEventAction::Emit(PlayerEvent::PropertyChange(PlayerPropertyChange {
                     name: name.to_string(),
                     data: property_data_to_json(name, change),
                 }))
             }
             Event::EndFile(reason) => {
+                log_end_file(reason);
                 MpvEventAction::Emit(PlayerEvent::Ended(end_file_reason(reason)))
+            }
+            Event::StartFile => {
+                stremio_lightning_core::logging::info(
+                    "native.player",
+                    "[StremioLightning] MPV started opening media",
+                );
+                MpvEventAction::Continue
+            }
+            Event::FileLoaded => {
+                stremio_lightning_core::logging::info(
+                    "native.player",
+                    "[StremioLightning] MPV media loaded",
+                );
+                MpvEventAction::Continue
+            }
+            Event::PlaybackRestart => {
+                stremio_lightning_core::logging::info(
+                    "native.player",
+                    "[StremioLightning] MPV playback started or resumed",
+                );
+                MpvEventAction::Continue
+            }
+            Event::LogMessage {
+                prefix,
+                level,
+                text,
+                ..
+            } => {
+                log_mpv_message(prefix, level, text);
+                MpvEventAction::Continue
+            }
+            Event::QueueOverflow => {
+                stremio_lightning_core::logging::warn(
+                    "native.player",
+                    "[StremioLightning] MPV event queue overflowed",
+                );
+                MpvEventAction::Continue
             }
             Event::Shutdown => MpvEventAction::Shutdown,
             _ => MpvEventAction::Continue,
+        }
+    }
+
+    fn log_diagnostic_property_change(name: &str, change: &PropertyData<'_>) {
+        let PropertyData::Flag(value) = change else {
+            return;
+        };
+        let message = match name {
+            "paused-for-cache" if *value => "[StremioLightning] MPV buffering: waiting for cache",
+            "paused-for-cache" => "[StremioLightning] MPV buffering ended",
+            "seeking" if *value => "[StremioLightning] MPV seek started",
+            "seeking" => "[StremioLightning] MPV seek ended",
+            _ => return,
+        };
+        if name == "paused-for-cache" && *value {
+            stremio_lightning_core::logging::warn("native.player", message);
+        } else {
+            stremio_lightning_core::logging::info("native.player", message);
+        }
+    }
+
+    fn log_end_file(reason: libmpv2::EndFileReason) {
+        let reason_name = match reason {
+            mpv_end_file_reason::Eof => "eof",
+            mpv_end_file_reason::Stop => "stop",
+            mpv_end_file_reason::Quit => "quit",
+            mpv_end_file_reason::Error => "error",
+            mpv_end_file_reason::Redirect => "redirect",
+            _ => "unknown",
+        };
+        let message = format!("[StremioLightning] MPV playback ended: {reason_name}");
+        if reason == mpv_end_file_reason::Error {
+            stremio_lightning_core::logging::error("native.player", message);
+        } else {
+            stremio_lightning_core::logging::info("native.player", message);
+        }
+    }
+
+    fn log_mpv_message(prefix: &str, level: &str, text: &str) {
+        let text = redact_mpv_log_message(text);
+        if text.is_empty() {
+            return;
+        }
+        let message = format!("[StremioLightning] MPV {prefix}: {text}");
+        match level {
+            "fatal" | "error" => stremio_lightning_core::logging::error("native.player", message),
+            "warn" => stremio_lightning_core::logging::warn("native.player", message),
+            _ => stremio_lightning_core::logging::debug("native.player", message),
         }
     }
 
@@ -564,5 +729,17 @@ mod tests {
                 vec!["file:///video.mp4".to_string(), "true".to_string()]
             )
         );
+    }
+
+    #[test]
+    fn redacts_urls_and_bounds_mpv_diagnostics() {
+        let redacted = redact_mpv_log_message(
+            "Failed HTTPS://media.example/video?token=secret and magnet:?xt=secret",
+        );
+        assert_eq!(redacted, "Failed [redacted URL] and [redacted URL]");
+
+        let long = redact_mpv_log_message(&"x".repeat(MAX_MPV_LOG_MESSAGE_LENGTH + 1));
+        assert!(long.starts_with(&"x".repeat(MAX_MPV_LOG_MESSAGE_LENGTH)));
+        assert!(long.ends_with("... [truncated]"));
     }
 }

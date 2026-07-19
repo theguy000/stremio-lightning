@@ -23,6 +23,16 @@
       : value.slice(0, maxLength - suffix.length) + suffix;
   }
 
+  function redactSensitiveDetails(value) {
+    return value
+      .replace(/\b(?:https?|file):\/\/[^\s"'<>]+/gi, "[redacted URL]")
+      .replace(/\bmagnet:\?[^\s"'<>]+/gi, "[redacted URL]")
+      .replace(
+        /\b(authorization|cookie|set-cookie|token|access[_-]?token|refresh[_-]?token|api[_-]?key|password|secret)\b(\s*[:=]\s*)[^}\]\r\n]+/gi,
+        "$1$2[redacted]",
+      );
+  }
+
   function format(value, seen, depth) {
     if (value instanceof Error) {
       try {
@@ -87,7 +97,10 @@
       timestamp: Date.now(),
       level: level,
       source: truncate(String(source), maxSourceLength),
-      message: truncate(formattedValues.join(" "), maxMessageLength),
+      message: truncate(
+        redactSensitiveDetails(formattedValues.join(" ")),
+        maxMessageLength,
+      ),
     };
     entries.push(entry);
     if (entries.length > capacity) entries.shift();
@@ -127,4 +140,283 @@
   };
 
   window.StremioLightningLogger = logger;
+
+  var nextNetworkRequestId = 1;
+  var nextAddonSourceId = 1;
+  var addonSourceIds = Object.create(null);
+  var streamRequestStallThresholdMs = 15000;
+
+  function requestUrl(input) {
+    if (typeof input === "string") return input;
+    if (input && typeof input.url === "string") return input.url;
+    if (input && typeof input.href === "string") return input.href;
+    return null;
+  }
+
+  function classifyRequest(input) {
+    var rawUrl = requestUrl(input);
+    if (!rawUrl) return null;
+
+    var parsedUrl;
+    try {
+      parsedUrl = new URL(rawUrl, window.location.href);
+    } catch (_) {
+      return null;
+    }
+    var match = parsedUrl.pathname.toLowerCase().match(
+      /\/(manifest|catalog|meta|stream|subtitles)(?:\/([^/.?#]+))?(?:\/|\.json|$)/,
+    );
+    if (!match) return null;
+    var kind = {
+      manifest: "addon manifest",
+      catalog: "catalog",
+      meta: "metadata",
+      stream: "stream discovery",
+      subtitles: "subtitles",
+    }[match[1]];
+    var mediaTypes = {
+      anime: "anime",
+      channel: "channel",
+      movie: "movie",
+      series: "series",
+      tv: "TV",
+    };
+    var source = parsedUrl.protocol + "//" + parsedUrl.host;
+    if (!addonSourceIds[source]) addonSourceIds[source] = nextAddonSourceId++;
+    return {
+      kind: kind,
+      mediaType: mediaTypes[match[2]] || null,
+      sourceId: addonSourceIds[source],
+    };
+  }
+
+  function classifyStreamRequest(input) {
+    var rawUrl = requestUrl(input);
+    if (!rawUrl || !/(?:^|\/)stream(?:\/|\.json|[?#]|$)/i.test(rawUrl)) {
+      return null;
+    }
+    var classification = classifyRequest(rawUrl);
+    return classification && classification.kind === "stream discovery"
+      ? classification
+      : null;
+  }
+
+  function networkStatus(status, statusText) {
+    return status
+      ? String(status) + (statusText ? " " + statusText : "")
+      : "network error";
+  }
+
+  function sanitizeMethod(method) {
+    method = typeof method === "string" ? method.toUpperCase() : "GET";
+    return /^[A-Z]{1,16}$/.test(method) ? method : "UNKNOWN";
+  }
+
+  function createNetworkRequest(input, method, transport) {
+    var classification = classifyStreamRequest(input);
+    var request = {
+      id: classification ? nextNetworkRequestId++ : null,
+      input: input,
+      classification: classification,
+      method: method,
+      startedAt: Date.now(),
+      stallTimer: null,
+      transport: transport,
+    };
+    if (classification) {
+      logNetworkStarted(request);
+      request.stallTimer = window.setTimeout(function () {
+        logNetworkStalled(request);
+      }, streamRequestStallThresholdMs);
+    }
+    return request;
+  }
+
+  function networkRequestSummary(request, classification) {
+    return sanitizeMethod(request.method) + " " + classification.kind +
+      (classification.mediaType ? " (" + classification.mediaType + ")" : "") +
+      " via " + request.transport + " from addon #" + classification.sourceId;
+  }
+
+  function logNetworkStarted(request) {
+    var currentLogger = window.StremioLightningLogger;
+    if (!currentLogger || !request.classification) return;
+    currentLogger.info(
+      "bridge.network",
+      "[StremioLightning] Stream request #" + request.id + " started:",
+      networkRequestSummary(request, request.classification),
+      "(request details redacted)",
+    );
+  }
+
+  function logNetworkStalled(request) {
+    var currentLogger = window.StremioLightningLogger;
+    if (!currentLogger || !request.classification) return;
+    currentLogger.warn(
+      "bridge.network",
+      "[StremioLightning] Stream request #" + request.id +
+        " is still pending after " + streamRequestStallThresholdMs + " ms:",
+      networkRequestSummary(request, request.classification),
+      "(request details redacted)",
+    );
+  }
+
+  function finishNetworkRequest(request) {
+    if (request.stallTimer !== null) {
+      window.clearTimeout(request.stallTimer);
+      request.stallTimer = null;
+    }
+  }
+
+  function logNetworkCompleted(request, status, statusText) {
+    finishNetworkRequest(request);
+    var currentLogger = window.StremioLightningLogger;
+    if (!currentLogger || !request.classification) return;
+    currentLogger.info(
+      "bridge.network",
+      "[StremioLightning] Stream request #" + request.id + " completed:",
+      networkRequestSummary(request, request.classification),
+      "-> HTTP " + networkStatus(status, statusText),
+      "in " + (Date.now() - request.startedAt) + " ms",
+    );
+  }
+
+  function logNetworkFailure(request, status, statusText, error) {
+    finishNetworkRequest(request);
+    var currentLogger = window.StremioLightningLogger;
+    var classification = request.classification || classifyRequest(request.input);
+    if (!currentLogger || !classification) return;
+    var requestId = request.id || nextNetworkRequestId++;
+    currentLogger.error(
+      "bridge.network",
+      "[StremioLightning] Browser request #" + requestId + " failed:",
+      networkRequestSummary(request, classification),
+      "-> " + (status ? "HTTP " : "") + networkStatus(status, statusText),
+      "after " + (Date.now() - request.startedAt) + " ms",
+      error || "",
+    );
+  }
+
+  if (!window.__stremioLightningNetworkDiagnosticsInstalled) {
+    window.__stremioLightningNetworkDiagnosticsInstalled = true;
+
+    if (typeof window.fetch === "function") {
+      var originalFetch = window.fetch;
+      window.fetch = function () {
+        var input = arguments[0];
+        var options = arguments[1];
+        var method = options && options.method || input && input.method;
+        var request = createNetworkRequest(input, method, "fetch");
+        return originalFetch.apply(this, arguments).then(
+          function (response) {
+            if (response && response.ok === false) {
+              logNetworkFailure(request, response.status, response.statusText);
+            } else if (response) {
+              logNetworkCompleted(request, response.status, response.statusText);
+            }
+            return response;
+          },
+          function (error) {
+            logNetworkFailure(request, 0, "", error);
+            throw error;
+          },
+        );
+      };
+    }
+
+    if (typeof window.XMLHttpRequest === "function") {
+      var originalXhrOpen = window.XMLHttpRequest.prototype.open;
+      var originalXhrSend = window.XMLHttpRequest.prototype.send;
+      window.XMLHttpRequest.prototype.open = function () {
+        this.__stremioLightningRequestInput = arguments[1];
+        this.__stremioLightningRequestMethod = arguments[0];
+        return originalXhrOpen.apply(this, arguments);
+      };
+      window.XMLHttpRequest.prototype.send = function () {
+        var request = createNetworkRequest(
+          this.__stremioLightningRequestInput,
+          this.__stremioLightningRequestMethod,
+          "XHR",
+        );
+        this.__stremioLightningNetworkRequest = request;
+        if (!this.__stremioLightningDiagnosticsAttached) {
+          this.__stremioLightningDiagnosticsAttached = true;
+          this.addEventListener("load", function () {
+            var activeRequest = this.__stremioLightningNetworkRequest;
+            if (this.status >= 400) {
+              logNetworkFailure(activeRequest, this.status, this.statusText);
+            } else if (this.status > 0) {
+              logNetworkCompleted(activeRequest, this.status, this.statusText);
+            }
+          });
+          this.addEventListener("error", function () {
+            logNetworkFailure(
+              this.__stremioLightningNetworkRequest,
+              this.status,
+              this.statusText,
+            );
+          });
+          this.addEventListener("timeout", function () {
+            logNetworkFailure(
+              this.__stremioLightningNetworkRequest,
+              this.status,
+              this.statusText,
+              "request timed out",
+            );
+          });
+          this.addEventListener("abort", function () {
+            logNetworkFailure(
+              this.__stremioLightningNetworkRequest,
+              this.status,
+              this.statusText,
+              "request aborted",
+            );
+          });
+        }
+        try {
+          return originalXhrSend.apply(this, arguments);
+        } catch (error) {
+          logNetworkFailure(request, 0, "", error);
+          throw error;
+        }
+      };
+    }
+  }
+
+  if (!window.__stremioLightningErrorHandlersInstalled) {
+    window.__stremioLightningErrorHandlersInstalled = true;
+    window.addEventListener("error", function (event) {
+      var currentLogger = window.StremioLightningLogger;
+      if (!currentLogger) return;
+
+      if (event.error || event.message) {
+        currentLogger.error(
+          "bridge.browser",
+          "[StremioLightning] Uncaught browser error:",
+          event.error || event.message,
+        );
+        return;
+      }
+
+      var target = event.target;
+      var tagName = target && target.tagName;
+      var isStylesheet = tagName === "LINK" &&
+        String(target.rel || "").toLowerCase() === "stylesheet";
+      if (tagName !== "SCRIPT" && !isStylesheet) return;
+      currentLogger.error(
+        "bridge.browser",
+        "[StremioLightning] Browser resource failed to load:",
+        isStylesheet ? "stylesheet" : "script",
+      );
+    }, true);
+    window.addEventListener("unhandledrejection", function (event) {
+      var currentLogger = window.StremioLightningLogger;
+      if (!currentLogger) return;
+      currentLogger.error(
+        "bridge.browser",
+        "[StremioLightning] Unhandled promise rejection:",
+        event.reason,
+      );
+    });
+  }
 })();
