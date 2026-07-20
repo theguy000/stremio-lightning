@@ -328,9 +328,10 @@ mod platform {
             };
 
             runtime.configure_controller()?;
+            runtime.configure_webview(devtools, injection, host, url)?;
             runtime.resize_to_client_rect(hwnd)?;
             runtime.show()?;
-            runtime.configure_webview(devtools, injection, host, url)?;
+            runtime.focus()?;
 
             Ok(runtime)
         }
@@ -362,6 +363,15 @@ mod platform {
                 self.controller()?
                     .SetIsVisible(true)
                     .map_err(|error| format!("Failed to show WebView2 controller: {error}"))?;
+            }
+            Ok(())
+        }
+
+        fn focus(&self) -> Result<(), String> {
+            unsafe {
+                self.controller()?
+                    .MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC)
+                    .map_err(|error| format!("Failed to focus WebView2 controller: {error}"))?;
             }
             Ok(())
         }
@@ -519,6 +529,11 @@ mod platform {
         }
 
         fn on_focus_changed(&mut self, _hwnd: HWND, focused: bool) -> Result<(), String> {
+            if focused {
+                if let Some(runtime) = self.runtime.as_ref() {
+                    runtime.focus()?;
+                }
+            }
             self.host.update_window_focus(focused)?;
             self.post_host_events()
         }

@@ -59,8 +59,8 @@ mod platform {
         SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE,
         SW_SHOWDEFAULT, WINDOWPLACEMENT, WINDOW_EX_STYLE, WM_ACTIVATE, WM_APP, WM_APPCOMMAND,
         WM_CLOSE, WM_DESTROY, WM_DPICHANGED, WM_GETMINMAXINFO, WM_KILLFOCUS, WM_NCCREATE,
-        WM_NCDESTROY, WM_NCLBUTTONDOWN, WM_SETFOCUS, WM_SIZE, WNDCLASSW, WS_EX_TOPMOST,
-        WS_OVERLAPPEDWINDOW, WS_POPUP, WS_VISIBLE,
+        WM_NCDESTROY, WM_NCLBUTTONDOWN, WM_SETFOCUS, WM_SIZE, WNDCLASSW, WS_CLIPCHILDREN,
+        WS_EX_TOPMOST, WS_OVERLAPPEDWINDOW, WS_POPUP, WS_VISIBLE,
     };
 
     pub const UI_THREAD_WAKE_MESSAGE: u32 = WM_APP + 1;
@@ -465,7 +465,7 @@ mod platform {
                 WINDOW_EX_STYLE::default(),
                 class_name,
                 PCWSTR(title.as_ptr()),
-                WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+                WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN | WS_VISIBLE,
                 CW_USEDEFAULT,
                 CW_USEDEFAULT,
                 state_handle.with_ref(|state| state.config.width),
@@ -602,7 +602,7 @@ mod platform {
                 }
                 default_window_proc(hwnd, message, wparam, lparam)
             }
-            WM_ACTIVATE | WM_DPICHANGED => LRESULT(0),
+            WM_ACTIVATE | WM_DPICHANGED => default_window_proc(hwnd, message, wparam, lparam),
             _ => default_window_proc(hwnd, message, wparam, lparam),
         }
     }
