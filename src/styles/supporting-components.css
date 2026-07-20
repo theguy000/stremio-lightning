@@ -1,0 +1,59 @@
+/* ── Card logos ── */
+.sl-card-logo {
+  width: 5rem;
+  height: 5rem;
+  padding: 0.5rem;
+  border-radius: var(--border-radius, 1rem);
+  object-fit: cover;
+  flex: none;
+  background-color: rgba(255, 255, 255, 0.03);
+}
+
+.sl-card-logo-placeholder {
+  width: 5rem;
+  height: 5rem;
+  padding: 0.75rem;
+  border-radius: var(--border-radius, 1rem);
+  background-color: rgba(255, 255, 255, 0.03);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--primary-foreground-color, #f2f2f2);
+  opacity: 0.35;
+  flex: none;
+  box-sizing: border-box;
+}
+
+.sl-card-logo-placeholder svg {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100%;
+  max-height: 100%;
+}
+
+/* ── Reload warning ── */
+.sl-reload-warning {
+  margin: 0 0 1.5rem;
+  padding: 1rem 1.25rem;
+  border-radius: var(--border-radius, 1rem);
+  background-color: rgba(255, 196, 80, 0.12);
+  color: var(--primary-foreground-color, #f2f2f2);
+}
+
+.sl-reload-warning a {
+  color: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+/* ── Links ── */
+.sl-link {
+  color: var(--secondary-accent-color, var(--primary-accent-color, #7b5bf5));
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.sl-link:hover {
+  text-decoration: underline;
+}
