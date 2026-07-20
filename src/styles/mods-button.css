@@ -1,0 +1,220 @@
+/* ── Mods Button ── */
+#sl-mods-btn {
+  pointer-events: auto;
+  position: fixed;
+  left: 1rem;
+  bottom: 1rem;
+  z-index: 2147483647;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  min-height: 3.5rem;
+  padding: 0.85rem 1rem;
+  border-radius: 0.9rem;
+  background: rgba(12, 11, 17, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.78);
+  cursor: pointer;
+  user-select: none;
+  box-sizing: border-box;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(var(--sl-blur, 14px));
+  -webkit-backdrop-filter: blur(var(--sl-blur, 14px));
+  transition: background 0.15s, color 0.15s, border-color 0.15s, transform 0.15s, opacity 0.15s;
+}
+
+#sl-mods-btn[data-sl-ready="false"] {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+#sl-mods-btn .sl-mods-icon-wrap {
+  position: relative;
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+}
+
+#sl-mods-btn .sl-mods-icon-main {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  color: currentColor;
+}
+
+#sl-mods-btn .sl-mods-icon-glyph {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#sl-mods-btn .sl-mods-icon-main svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+#sl-mods-btn .sl-mods-icon-filled {
+  opacity: 0;
+}
+
+#sl-mods-btn[data-sl-active] .sl-mods-icon-outline {
+  opacity: 0;
+}
+
+#sl-mods-btn[data-sl-active] .sl-mods-icon-filled {
+  opacity: 1;
+}
+
+#sl-mods-btn .sl-mods-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.01em;
+}
+
+#sl-mods-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: white;
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+#sl-mods-btn:focus-visible {
+  outline: 2px solid var(--primary-accent-color, #7b5bf5);
+  outline-offset: 2px;
+}
+
+/* Nav-anchored mode */
+#sl-mods-btn[data-sl-anchor="nav"] {
+  position: fixed;
+  left: 1rem;
+  top: 1rem;
+  bottom: auto;
+  width: calc(var(--sl-nav-width, 94px) - 1.2rem);
+  height: calc(var(--sl-nav-width, 94px) - 1.2rem);
+  min-width: 0;
+  min-height: 3.5rem;
+  padding: 0;
+  flex-direction: column;
+  gap: 0;
+  border: none;
+  box-shadow: none;
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-radius: 0.75rem;
+  color: var(--primary-foreground-color, rgba(255, 255, 255, 0.9));
+}
+
+#sl-mods-btn[data-sl-anchor="nav"] .sl-mods-icon-wrap {
+  width: 2.2rem;
+  height: 2.2rem;
+  margin-bottom: 0.5rem;
+}
+
+#sl-mods-btn[data-sl-anchor="nav"] .sl-mods-icon-main {
+  opacity: 0.35;
+  transition: opacity 0.15s;
+}
+
+#sl-mods-btn[data-sl-anchor="nav"] .sl-mods-label {
+  font-size: 0.8rem;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0.01rem;
+  opacity: 0;
+  color: var(--primary-foreground-color, rgba(255, 255, 255, 0.9));
+  transition: none;
+}
+
+#sl-mods-btn[data-sl-anchor="nav"]:hover {
+  background: var(--overlay-color, rgba(255, 255, 255, 0.05));
+  color: var(--primary-foreground-color, rgba(255, 255, 255, 0.9));
+  border-color: transparent;
+}
+
+#sl-mods-btn[data-sl-anchor="nav"]:hover .sl-mods-label {
+  opacity: 0.6;
+  color: var(--primary-foreground-color, rgba(255, 255, 255, 0.9));
+}
+
+#sl-mods-btn[data-sl-active] {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--primary-accent-color, rgb(123, 91, 245));
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+#sl-mods-btn[data-sl-active] .sl-mods-icon-main {
+  color: inherit;
+  opacity: 1;
+}
+
+#sl-mods-btn[data-sl-active] .sl-mods-label {
+  color: inherit;
+  opacity: 0;
+}
+
+#sl-mods-btn[data-sl-anchor="nav"][data-sl-active] {
+  background: transparent;
+  color: var(--primary-accent-color, rgb(123, 91, 245));
+}
+
+#sl-mods-btn[data-sl-anchor="nav"][data-sl-active]:hover {
+  background: var(--overlay-color, rgba(255, 255, 255, 0.05));
+}
+
+#sl-mods-btn[data-sl-anchor="nav"][data-sl-active] .sl-mods-label {
+  opacity: 0;
+  color: var(--primary-accent-color, rgb(123, 91, 245));
+}
+
+#sl-mods-btn[data-sl-anchor="nav"][data-sl-active]:hover .sl-mods-label {
+  opacity: 1;
+  color: var(--primary-accent-color, rgb(123, 91, 245));
+}
+
+/* Nav muting: dim the native selected nav item when Mods panel is open */
+nav[data-sl-mods-muted] .selected:not(:hover):not(:focus):not(:focus-visible):not(:focus-within) {
+  background: transparent !important;
+}
+
+nav[data-sl-mods-muted] .selected:not(:hover):not(:focus):not(:focus-visible):not(:focus-within) .icon,
+nav[data-sl-mods-muted] .selected:not(:hover):not(:focus):not(:focus-visible):not(:focus-within) svg {
+  color: var(--primary-foreground-color, rgba(255, 255, 255, 0.9)) !important;
+  opacity: 0.35 !important;
+}
+
+nav[data-sl-mods-muted] .selected:not(:hover):not(:focus):not(:focus-visible):not(:focus-within) .label {
+  color: var(--primary-foreground-color, rgba(255, 255, 255, 0.9)) !important;
+  opacity: 0 !important;
+}
+
+/* Floating mode */
+#sl-mods-btn[data-sl-anchor="floating"] {
+  padding: 0.85rem;
+  background: rgba(12, 11, 17, 0.38);
+  backdrop-filter: blur(22px) saturate(140%);
+  -webkit-backdrop-filter: blur(22px) saturate(140%);
+  border-radius: 50%;
+}
+
+#sl-mods-btn[data-sl-anchor="floating"] .sl-mods-label {
+  display: none;
+}
+
+#sl-mods-btn[data-sl-anchor="floating"]:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+@media only screen and (max-width: 768px) {
+  #sl-mods-btn[data-sl-anchor="floating"] {
+    left: auto;
+    right: 0.75rem;
+    bottom: 0.75rem;
+  }
+}
