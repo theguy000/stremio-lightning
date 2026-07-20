@@ -14,7 +14,7 @@
     "value": {
       "platform": "windows",
       "shell": "webview2",
-      "shellVersion": "0.1.7",
+      "shellVersion": "0.1.4",
       "nativePlayer": {
         "enabled": false,
         "initialized": false,

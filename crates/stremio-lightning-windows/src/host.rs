@@ -648,7 +648,7 @@ mod tests {
 
     #[test]
     fn handles_shell_transport_handshake() {
-        let host = WindowsHost::new("0.1.7");
+        let host = WindowsHost::new("0.1.4");
         host.dispatch_windows_ipc(
             "listen",
             Some(json!({ "id": 7, "event": "shell-transport-message" })),
