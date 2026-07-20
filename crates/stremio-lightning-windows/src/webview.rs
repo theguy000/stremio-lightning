@@ -243,7 +243,7 @@ mod platform {
         focus_window, run_native_window_with_handler, MediaKeyAction, NativeWindowHandler,
         UiThreadNotifier, WindowConfig, WindowVisualState,
     };
-    use std::ptr;
+    use std::{path::PathBuf, ptr};
     use webview2_com::{
         AddScriptToExecuteOnDocumentCreatedCompletedHandler, CoTaskMemPWSTR,
         CoreWebView2EnvironmentOptions, CreateCoreWebView2ControllerCompletedHandler,
@@ -559,6 +559,17 @@ mod platform {
 
     fn create_environment() -> Result<ICoreWebView2Environment, String> {
         let (tx, rx) = std::sync::mpsc::channel();
+        let user_data_dir = webview2_user_data_dir()?;
+        std::fs::create_dir_all(&user_data_dir).map_err(|error| {
+            format!(
+                "Failed to create WebView2 user data directory '{}': {error}",
+                user_data_dir.display()
+            )
+        })?;
+        let user_data_dir = user_data_dir
+            .to_str()
+            .ok_or_else(|| "WebView2 user data directory is not valid Unicode".to_string())?;
+        let user_data_dir = windows::core::HSTRING::from(user_data_dir);
         let options = CoreWebView2EnvironmentOptions::default();
         unsafe {
             options.set_additional_browser_arguments(
@@ -571,7 +582,7 @@ mod platform {
             Box::new(move |handler| unsafe {
                 CreateCoreWebView2EnvironmentWithOptions(
                     PCWSTR::null(),
-                    PCWSTR::null(),
+                    PCWSTR(user_data_dir.as_ptr()),
                     &options,
                     &handler,
                 )
@@ -589,6 +600,13 @@ mod platform {
         rx.recv()
             .map_err(|_| "WebView2 environment callback did not return".to_string())?
             .map_err(|error| format!("WebView2 environment creation failed: {error}"))
+    }
+
+    fn webview2_user_data_dir() -> Result<PathBuf, String> {
+        std::env::var_os("LOCALAPPDATA")
+            .map(PathBuf::from)
+            .map(|path| path.join("stremio-lightning").join("WebView2"))
+            .ok_or_else(|| "LOCALAPPDATA is not available for WebView2 user data".to_string())
     }
 
     fn create_controller(
