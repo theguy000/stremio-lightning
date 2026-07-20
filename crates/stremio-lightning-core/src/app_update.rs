@@ -114,7 +114,7 @@ mod tests {
     fn serializes_banner_shape_as_camel_case() {
         let info = AppUpdateInfo {
             has_update: true,
-            current_version: "0.1.4".to_string(),
+            current_version: "0.1.6".to_string(),
             new_version: Some("0.2.0".to_string()),
             release_url: Some(
                 "https://github.com/theguy000/stremio-lightning/releases/tag/v0.2.0".to_string(),
@@ -125,7 +125,7 @@ mod tests {
             serde_json::to_value(info).unwrap(),
             json!({
                 "hasUpdate": true,
-                "currentVersion": "0.1.4",
+                "currentVersion": "0.1.6",
                 "newVersion": "0.2.0",
                 "releaseUrl": "https://github.com/theguy000/stremio-lightning/releases/tag/v0.2.0"
             })
