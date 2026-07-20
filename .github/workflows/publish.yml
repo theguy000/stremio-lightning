@@ -74,14 +74,14 @@ jobs:
           desktop-file-validate assets/io.github.theguy000.stremio-lightning.desktop
           appstreamcli validate --strict --no-net assets/io.github.theguy000.stremio-lightning.metainfo.xml
 
+      - name: Build frontend
+        run: cargo xtask build-ui
+
       - name: Validate Rust before packaging
         run: |
           cargo fmt --all -- --check
           cargo clippy --workspace --all-targets
           cargo test --workspace
-
-      - name: Build frontend
-        run: cargo xtask build-ui
 
       - name: Download Linux shell dependencies
         run: cargo xtask setup-linux
