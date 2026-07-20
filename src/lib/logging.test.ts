@@ -117,6 +117,32 @@ describe('frontend logging adapter', () => {
     });
   });
 
+  it('publishes a new record snapshot for every live entry', async () => {
+    const { createLogger, logRecords } = await import('./logging');
+    const snapshots: Array<ReturnType<typeof get<typeof logRecords>>> = [];
+    const unsubscribe = logRecords.subscribe((records) => snapshots.push(records));
+
+    createLogger('ui.test').info('first');
+    createLogger('ui.test').info('second');
+    unsubscribe();
+
+    expect(snapshots.at(-2)).not.toBe(snapshots.at(-1));
+    expect(snapshots.at(-2)).toHaveLength(1);
+    expect(snapshots.at(-1)).toHaveLength(2);
+  });
+
+  it('clears displayed records without disconnecting future entries', async () => {
+    const { clearLogRecords, createLogger, logRecords } = await import('./logging');
+
+    createLogger('ui.test').info('before clear');
+    clearLogRecords();
+    expect(get(logRecords)).toEqual([]);
+
+    createLogger('ui.test').info('after clear');
+    expect(get(logRecords)).toHaveLength(1);
+    expect(get(logRecords)[0]).toMatchObject({ message: 'after clear' });
+  });
+
   it('polls incrementally and deduplicates repeated native snapshots', async () => {
     vi.useFakeTimers();
     getLogs.mockResolvedValue([{

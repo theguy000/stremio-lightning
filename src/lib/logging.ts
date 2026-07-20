@@ -104,6 +104,12 @@ function trimRecords(): void {
   }
 }
 
+export function clearLogRecords(): void {
+  records.clear();
+  orderedRecords.length = 0;
+  logRecords.set([]);
+}
+
 function ingest(origin: LogOrigin, entries: StremioLightningLogEntry[]): void {
   const additions: LogRecord[] = [];
   for (const entry of entries) {
@@ -122,7 +128,7 @@ function ingest(origin: LogOrigin, entries: StremioLightningLogEntry[]): void {
     orderedRecords.sort(compareRecords);
   }
   trimRecords();
-  logRecords.set(orderedRecords);
+  logRecords.set([...orderedRecords]);
 }
 
 function connectBrowserLogger(): void {
