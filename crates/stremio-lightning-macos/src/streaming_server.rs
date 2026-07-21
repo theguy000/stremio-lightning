@@ -1,9 +1,11 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::fs::{self, OpenOptions};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Command};
 use std::sync::{Arc, Mutex};
+use stremio_lightning_core::streaming_logs::{
+    ManagedChild, StreamingLogFiles, StreamingLogPaths, StreamingLogTails,
+};
 
 pub const DEFAULT_SERVER_URL: &str = "http://127.0.0.1:11470";
 
@@ -101,38 +103,30 @@ impl ProcessChild for Child {
     }
 }
 
+impl ProcessChild for ManagedChild {
+    fn stop(&mut self) -> Result<(), String> {
+        ManagedChild::stop(self)
+    }
+
+    fn has_exited(&mut self) -> Result<bool, String> {
+        ManagedChild::has_exited(self)
+    }
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct RealProcessSpawner;
 
 impl ProcessSpawner for RealProcessSpawner {
-    type Child = Child;
+    type Child = ManagedChild;
 
     fn spawn(&self, spec: CommandSpec) -> Result<Self::Child, String> {
-        ensure_log_parent_exists(&spec.stdout_log)?;
-        ensure_log_parent_exists(&spec.stderr_log)?;
-
-        let stdout = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&spec.stdout_log)
-            .map_err(|e| format!("Failed to open macOS streaming server stdout log: {e}"))?;
-        let stderr = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&spec.stderr_log)
-            .map_err(|e| format!("Failed to open macOS streaming server stderr log: {e}"))?;
-
         let mut command = Command::new(&spec.program);
         command.args(&spec.args);
         command.envs(&spec.env);
-        command.stdout(Stdio::from(stdout));
-        command.stderr(Stdio::from(stderr));
-        command.spawn().map_err(|e| {
-            format!(
-                "Failed to start macOS streaming server sidecar {}: {e}",
-                spec.program.display()
-            )
-        })
+        ManagedChild::spawn(
+            &mut command,
+            StreamingLogFiles::new(spec.stdout_log, spec.stderr_log),
+        )
     }
 }
 
@@ -226,6 +220,7 @@ pub struct StreamingServer<P: ProcessSpawner> {
     spawner: P,
     child: Mutex<Option<P::Child>>,
     config: StreamingServerConfig,
+    log_files: StreamingLogFiles,
 }
 
 impl<P: ProcessSpawner> StreamingServer<P> {
@@ -241,10 +236,15 @@ impl<P: ProcessSpawner> StreamingServer<P> {
     }
 
     pub fn with_config(spawner: P, config: StreamingServerConfig) -> Self {
+        let log_files = StreamingLogFiles::new(
+            config.log_dir.join("stremio-server.stdout.log"),
+            config.log_dir.join("stremio-server.stderr.log"),
+        );
         Self {
             spawner,
             child: Mutex::new(None),
             config,
+            log_files,
         }
     }
 
@@ -318,12 +318,28 @@ impl<P: ProcessSpawner> StreamingServer<P> {
     }
 
     pub fn diagnostics(&self) -> StreamingServerDiagnostics {
-        let spec = command_spec(&self.config);
+        let paths = self.log_paths();
         StreamingServerDiagnostics {
             status: self.status(),
-            stdout_log: spec.stdout_log,
-            stderr_log: spec.stderr_log,
+            stdout_log: paths.stdout,
+            stderr_log: paths.stderr,
         }
+    }
+
+    pub fn log_paths(&self) -> StreamingLogPaths {
+        self.log_files.paths()
+    }
+
+    pub fn log_tails(&self, max_bytes_per_stream: usize) -> Result<StreamingLogTails, String> {
+        self.log_files
+            .tails(max_bytes_per_stream)
+            .map_err(|error| format!("Failed to read macOS streaming server log tails: {error}"))
+    }
+
+    pub fn clear_logs(&self) -> Result<(), String> {
+        self.log_files
+            .clear()
+            .map_err(|error| format!("Failed to clear macOS streaming server logs: {error}"))
     }
 }
 
@@ -358,13 +374,6 @@ fn runtime_path(project_root: &Path) -> PathBuf {
     project_root.join("binaries").join("stremio-runtime-macos")
 }
 
-fn ensure_log_parent_exists(path: &Path) -> Result<(), String> {
-    let Some(parent) = path.parent() else {
-        return Ok(());
-    };
-    fs::create_dir_all(parent).map_err(|e| format!("Failed to create macOS server log dir: {e}"))
-}
-
 fn default_project_root() -> PathBuf {
     if let Some(path) = std::env::var_os("STREMIO_LIGHTNING_BUNDLE_DIR") {
         return PathBuf::from(path);
@@ -391,8 +400,9 @@ fn default_log_dir() -> PathBuf {
     if let Some(home) = std::env::var_os("HOME") {
         return Path::new(&home)
             .join("Library")
-            .join("Logs")
-            .join("Stremio Lightning");
+            .join("Application Support")
+            .join("stremio-lightning")
+            .join("logs");
     }
 
     std::env::current_dir()
@@ -432,11 +442,17 @@ mod tests {
         assert_eq!(spec.env.get("NO_CORS").unwrap(), "1");
         assert_eq!(
             spec.env.get("FFMPEG_BIN").unwrap(),
-            "/repo/resources/ffmpeg"
+            &PathBuf::from("/repo")
+                .join("resources")
+                .join("ffmpeg")
+                .to_string_lossy()
         );
         assert_eq!(
             spec.env.get("FFPROBE_BIN").unwrap(),
-            "/repo/resources/ffprobe"
+            &PathBuf::from("/repo")
+                .join("resources")
+                .join("ffprobe")
+                .to_string_lossy()
         );
         assert_eq!(
             spec.stdout_log,

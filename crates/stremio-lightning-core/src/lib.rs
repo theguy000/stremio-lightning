@@ -8,4 +8,5 @@ pub mod mods;
 pub mod pip;
 pub mod player_api;
 pub mod settings;
+pub mod streaming_logs;
 pub mod validation;

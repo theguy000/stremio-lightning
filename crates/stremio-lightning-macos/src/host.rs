@@ -8,6 +8,7 @@ use std::sync::Mutex;
 pub use stremio_lightning_core::host_api::SHELL_TRANSPORT_EVENT;
 use stremio_lightning_core::host_api::{self, BaseHost, HostEventRecord, PlatformBridge};
 use stremio_lightning_core::pip::PipState;
+use stremio_lightning_core::streaming_logs::StreamingLogTails;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct WindowRuntimeState {
@@ -138,6 +139,23 @@ where
 
     fn restart_streaming_server(&self) -> Result<(), String> {
         self.streaming_server.restart()
+    }
+
+    fn diagnostics_webview_engine(&self) -> &'static str {
+        "WKWebView (native hooks deferred)"
+    }
+
+    fn streaming_log_tails(
+        &self,
+        max_bytes_per_stream: usize,
+    ) -> Result<Option<StreamingLogTails>, String> {
+        self.streaming_server
+            .log_tails(max_bytes_per_stream)
+            .map(Some)
+    }
+
+    fn clear_streaming_logs(&self) -> Result<(), String> {
+        self.streaming_server.clear_logs()
     }
 }
 
@@ -435,7 +453,7 @@ where
     }
 }
 
-fn default_app_data_dir() -> PathBuf {
+pub(crate) fn default_app_data_dir() -> PathBuf {
     std::env::var_os("HOME")
         .map(|home| Path::new(&home).join("Library").join("Application Support"))
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))

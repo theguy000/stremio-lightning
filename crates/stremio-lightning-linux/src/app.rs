@@ -62,6 +62,15 @@ fn normalize_startup_url(url: &str) -> String {
 }
 
 pub fn run(config: AppConfig) -> Result<(), String> {
+    let _ = stremio_lightning_core::logging::initialize(
+        stremio_lightning_core::logging::LoggingConfig::new(
+            stremio_lightning_core::logging::diagnostics_dir_for_platform("linux"),
+            env!("CARGO_PKG_VERSION"),
+            "linux",
+            "webkitgtk",
+            "WebKitGTK",
+        ),
+    );
     stremio_lightning_core::logging::info("native.application", "Starting Linux shell");
     let player = MpvPlayerBackend::default();
     let host = Arc::new(Host::new(

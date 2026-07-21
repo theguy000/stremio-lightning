@@ -165,35 +165,18 @@ fn log_player_command(command: &PlayerCommand) {
     }
 }
 
-fn redact_mpv_log_message(message: &str) -> String {
-    const SENSITIVE_SCHEMES: [&str; 4] = ["https://", "http://", "magnet:?", "file://"];
-    let mut redacted = message.trim().to_string();
+fn sanitize_mpv_log_message(message: &str) -> String {
+    let mut sanitized = stremio_lightning_core::logging::sanitize_text(message.trim());
 
-    loop {
-        let lowercase = redacted.to_ascii_lowercase();
-        let next = SENSITIVE_SCHEMES
-            .iter()
-            .filter_map(|scheme| lowercase.find(scheme))
-            .min();
-        let Some(start) = next else {
-            break;
-        };
-        let end = redacted[start..]
-            .find(char::is_whitespace)
-            .map(|offset| start + offset)
-            .unwrap_or(redacted.len());
-        redacted.replace_range(start..end, "[redacted URL]");
-    }
-
-    if redacted.len() > MAX_MPV_LOG_MESSAGE_LENGTH {
+    if sanitized.len() > MAX_MPV_LOG_MESSAGE_LENGTH {
         let mut boundary = MAX_MPV_LOG_MESSAGE_LENGTH;
-        while !redacted.is_char_boundary(boundary) {
+        while !sanitized.is_char_boundary(boundary) {
             boundary -= 1;
         }
-        redacted.truncate(boundary);
-        redacted.push_str("... [truncated]");
+        sanitized.truncate(boundary);
+        sanitized.push_str("... [truncated]");
     }
-    redacted
+    sanitized
 }
 
 #[cfg(any(windows, test))]
@@ -508,7 +491,7 @@ mod platform {
     }
 
     fn log_mpv_message(prefix: &str, level: &str, text: &str) {
-        let text = redact_mpv_log_message(text);
+        let text = sanitize_mpv_log_message(text);
         if text.is_empty() {
             return;
         }
@@ -732,13 +715,16 @@ mod tests {
     }
 
     #[test]
-    fn redacts_urls_and_bounds_mpv_diagnostics() {
-        let redacted = redact_mpv_log_message(
+    fn preserves_urls_redacts_secrets_and_bounds_mpv_diagnostics() {
+        let sanitized = sanitize_mpv_log_message(
             "Failed HTTPS://media.example/video?token=secret and magnet:?xt=secret",
         );
-        assert_eq!(redacted, "Failed [redacted URL] and [redacted URL]");
+        assert_eq!(
+            sanitized,
+            "Failed HTTPS://media.example/video?token=[redacted] and magnet:?xt=secret"
+        );
 
-        let long = redact_mpv_log_message(&"x".repeat(MAX_MPV_LOG_MESSAGE_LENGTH + 1));
+        let long = sanitize_mpv_log_message(&"x".repeat(MAX_MPV_LOG_MESSAGE_LENGTH + 1));
         assert!(long.starts_with(&"x".repeat(MAX_MPV_LOG_MESSAGE_LENGTH)));
         assert!(long.ends_with("... [truncated]"));
     }

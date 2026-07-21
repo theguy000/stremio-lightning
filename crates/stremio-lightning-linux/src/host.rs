@@ -11,6 +11,7 @@ use stremio_lightning_core::host_api::{
 use stremio_lightning_core::pip::{
     serialize_picture_in_picture, PipRestoreSnapshot, PipState, PipWindowController,
 };
+use stremio_lightning_core::streaming_logs::StreamingLogTails;
 
 pub struct LinuxBridge<B, P>
 where
@@ -72,6 +73,31 @@ where
 
     fn restart_streaming_server(&self) -> Result<(), String> {
         self.streaming_server.restart()
+    }
+
+    fn diagnostics_webview_engine(&self) -> &'static str {
+        "WebKitGTK"
+    }
+
+    fn native_http_diagnostics(&self) -> bool {
+        true
+    }
+
+    fn native_network_failure_diagnostics(&self) -> bool {
+        true
+    }
+
+    fn streaming_log_tails(
+        &self,
+        max_bytes_per_stream: usize,
+    ) -> Result<Option<StreamingLogTails>, String> {
+        self.streaming_server
+            .log_tails(max_bytes_per_stream)
+            .map(Some)
+    }
+
+    fn clear_streaming_logs(&self) -> Result<(), String> {
+        self.streaming_server.clear_logs()
     }
 
     fn handle_custom_transport(&self, method: &str, data: Option<Value>) -> Result<(), String> {
@@ -259,7 +285,7 @@ where
     }
 }
 
-fn default_app_data_dir() -> PathBuf {
+pub(crate) fn default_app_data_dir() -> PathBuf {
     std::env::var_os("XDG_DATA_HOME")
         .map(PathBuf::from)
         .or_else(|| {

@@ -9,6 +9,7 @@ app-updates = ["dep:reqwest"]
 mods = ["dep:reqwest"]
 
 [dependencies]
+getrandom = "0.3"
 regex = "1"
 reqwest = { version = "0.13.2", features = ["json"], optional = true }
 serde = { version = "1", features = ["derive"] }

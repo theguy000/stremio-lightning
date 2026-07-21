@@ -16,6 +16,15 @@ pub fn run() -> Result<(), String> {
 #[cfg(windows)]
 mod platform {
     pub fn run() -> Result<(), String> {
+        let _ = stremio_lightning_core::logging::initialize(
+            stremio_lightning_core::logging::LoggingConfig::new(
+                stremio_lightning_core::logging::diagnostics_dir_for_platform("windows"),
+                env!("CARGO_PKG_VERSION"),
+                "windows",
+                "webview2",
+                "WebView2",
+            ),
+        );
         stremio_lightning_core::logging::info("native.application", "Starting Windows shell");
         let args = std::env::args().skip(1).collect::<Vec<_>>();
         let intent = crate::single_instance::launch_intent_from_args(&args);

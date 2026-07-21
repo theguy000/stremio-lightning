@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::pip::serialize_picture_in_picture;
+use crate::streaming_logs::StreamingLogTails;
 use crate::{app_update, logging, mods, settings};
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -44,6 +45,10 @@ pub enum HostCommand {
     GetPipMode,
     SetPipSize,
     GetLogs,
+    SubmitDiagnosticLogs,
+    SetExtendedDiagnostics,
+    GetDiagnosticReport,
+    ClearDiagnostics,
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -286,6 +291,33 @@ pub trait PlatformBridge: Send + Sync {
         Ok(())
     }
     fn restart_streaming_server(&self) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn diagnostics_webview_engine(&self) -> &'static str {
+        self.shell_name()
+    }
+
+    fn diagnostics_webview_version(&self) -> Option<String> {
+        None
+    }
+
+    fn native_http_diagnostics(&self) -> bool {
+        false
+    }
+
+    fn native_network_failure_diagnostics(&self) -> bool {
+        false
+    }
+
+    fn streaming_log_tails(
+        &self,
+        _max_bytes_per_stream: usize,
+    ) -> Result<Option<StreamingLogTails>, String> {
+        Ok(None)
+    }
+
+    fn clear_streaming_logs(&self) -> Result<(), String> {
         Ok(())
     }
 
@@ -658,13 +690,73 @@ impl<P: PlatformBridge> BaseHost<P> {
                 serde_json::to_value(logging::snapshot_after(payload.after_id))
                     .map_err(|error| format!("Failed to serialize logs: {error}"))
             }
-            "init" => Ok(json!({
-                "platform": self.bridge.platform_name(),
-                "shell": self.bridge.shell_name(),
-                "shellVersion": self.package_version,
-                "nativePlayer": self.bridge.native_player_status(),
-                "streamingServerRunning": self.bridge.is_streaming_server_running(),
-            })),
+            "submit_diagnostic_logs" => {
+                if payload
+                    .as_ref()
+                    .and_then(|value| serde_json::to_vec(value).ok())
+                    .is_some_and(|bytes| bytes.len() > logging::MAX_EXTERNAL_BATCH_BYTES)
+                {
+                    return Err("Diagnostic batch payload is too large".to_string());
+                }
+                let payload: SubmitDiagnosticLogsPayload = parse_payload(command, payload)?;
+                logging::submit_external(payload.entries)?;
+                Ok(Value::Null)
+            }
+            "set_extended_diagnostics" => {
+                let payload: SetExtendedDiagnosticsPayload = parse_payload(command, payload)?;
+                logging::set_extended(payload.enabled);
+                Ok(Value::Null)
+            }
+            "get_diagnostic_report" => {
+                const SERVER_REPORT_TAIL_BYTES: usize = 2 * 1024 * 1024;
+                let tails = match self.bridge.streaming_log_tails(SERVER_REPORT_TAIL_BYTES) {
+                    Ok(Some(tails)) => Some(tails),
+                    Ok(None) | Err(_) => None,
+                };
+                let report = logging::diagnostic_report(logging::DiagnosticReportRuntime {
+                    native_player_status: safe_native_player_status(
+                        &self.bridge.native_player_status(),
+                    ),
+                    streaming_server_running: self.bridge.is_streaming_server_running(),
+                    server_stdout: tails
+                        .as_ref()
+                        .map(|tails| Ok(tails.stdout.clone()))
+                        .unwrap_or_else(|| Err("unavailable".to_string())),
+                    server_stderr: tails
+                        .map(|tails| Ok(tails.stderr))
+                        .unwrap_or_else(|| Err("unavailable".to_string())),
+                });
+                Ok(json!(report))
+            }
+            "clear_diagnostics" => {
+                self.bridge.clear_streaming_logs()?;
+                logging::clear_diagnostics()?;
+                Ok(Value::Null)
+            }
+            "init" => {
+                let (logged_engine, logged_version) = logging::webview_metadata();
+                let webview_engine = if logged_engine == "unavailable" {
+                    self.bridge.diagnostics_webview_engine().to_string()
+                } else {
+                    logged_engine
+                };
+                let webview_version =
+                    logged_version.or_else(|| self.bridge.diagnostics_webview_version());
+                Ok(json!({
+                    "platform": self.bridge.platform_name(),
+                    "shell": self.bridge.shell_name(),
+                    "shellVersion": self.package_version,
+                    "nativePlayer": self.bridge.native_player_status(),
+                    "streamingServerRunning": self.bridge.is_streaming_server_running(),
+                    "diagnostics": {
+                        "persistent": logging::is_persistent_available(),
+                        "nativeHttpCapture": self.bridge.native_http_diagnostics(),
+                        "nativeNetworkFailureCapture": self.bridge.native_network_failure_diagnostics(),
+                        "webviewEngine": webview_engine,
+                        "webviewVersion": webview_version,
+                    },
+                }))
+            }
             "get_native_player_status" => Ok(self.bridge.native_player_status()),
             "get_streaming_server_status" => self.bridge.get_streaming_server_status(),
             "shell_bridge_ready" => {
@@ -958,6 +1050,30 @@ pub struct GetLogsPayload {
     pub after_id: u64,
 }
 
+fn safe_native_player_status(status: &Value) -> String {
+    if status.is_null() {
+        return "unavailable".to_string();
+    }
+    for key in ["initialized", "available", "running"] {
+        if let Some(value) = status.get(key).and_then(Value::as_bool) {
+            return format!("{key}={value}");
+        }
+    }
+    "available".to_string()
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SubmitDiagnosticLogsPayload {
+    pub entries: Vec<logging::ExternalLogEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SetExtendedDiagnosticsPayload {
+    pub enabled: bool,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ModFilePayload {
@@ -1127,6 +1243,10 @@ mod tests {
             serde_json::to_value(HostCommand::GetLogs).unwrap(),
             json!("get_logs")
         );
+        assert_eq!(
+            serde_json::to_value(HostCommand::GetDiagnosticReport).unwrap(),
+            json!("get_diagnostic_report")
+        );
     }
 
     #[test]
@@ -1257,6 +1377,53 @@ mod tests {
             .unwrap();
 
         assert_eq!(result, json!([]));
+    }
+
+    #[test]
+    fn diagnostics_commands_validate_payloads_and_report_capabilities() {
+        let host = test_host(TestBridge::default());
+        let init = host.invoke_sync("init", None).unwrap();
+        assert_eq!(init["diagnostics"]["nativeHttpCapture"], false);
+        assert_eq!(init["diagnostics"]["nativeNetworkFailureCapture"], false);
+        assert_eq!(init["diagnostics"]["webviewEngine"], "test-shell");
+
+        host.invoke_sync("set_extended_diagnostics", Some(json!({ "enabled": true })))
+            .unwrap();
+        assert!(logging::is_extended());
+        host.invoke_sync(
+            "submit_diagnostic_logs",
+            Some(json!({
+                "entries": [{
+                    "level": "info",
+                    "source": "bridge.test",
+                    "message": "safe"
+                }]
+            })),
+        )
+        .unwrap();
+        assert!(host
+            .invoke_sync(
+                "submit_diagnostic_logs",
+                Some(json!({ "entries": [{ "level": "invalid", "source": "x", "message": "x" }] })),
+            )
+            .is_err());
+        assert!(host
+            .invoke_sync(
+                "submit_diagnostic_logs",
+                Some(json!({
+                    "entries": [{
+                        "level": "error",
+                        "source": "bridge.test",
+                        "message": "x".repeat(logging::MAX_EXTERNAL_BATCH_BYTES)
+                    }]
+                })),
+            )
+            .is_err());
+        let report = host.invoke_sync("get_diagnostic_report", None).unwrap();
+        assert!(report
+            .as_str()
+            .is_some_and(|report| report.contains("Stremio Lightning diagnostic report")));
+        logging::set_extended(false);
     }
 
     #[test]

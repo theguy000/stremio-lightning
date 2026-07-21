@@ -291,6 +291,9 @@ fn build_webview(
         settings.set_enable_webgl(false);
     }
 
+    log_webkit_runtime_version();
+    attach_webview_failure_hooks(&webview);
+
     {
         let webview = webview.clone();
         let runtime = runtime.clone();
@@ -345,6 +348,109 @@ fn build_webview(
 
     webview.load_uri(&config.url);
     Ok(webview)
+}
+
+fn log_webkit_runtime_version() {
+    let version = format!(
+        "{}.{}.{}",
+        webkit::functions::major_version(),
+        webkit::functions::minor_version(),
+        webkit::functions::micro_version()
+    );
+    stremio_lightning_core::logging::update_webview_metadata("WebKitGTK", Some(&version));
+    stremio_lightning_core::logging::info(
+        "native.webview.linux",
+        format!("WebKitGTK runtime version: {version}"),
+    );
+}
+
+fn attach_webview_failure_hooks(webview: &WebKitWebView) {
+    webview.connect_load_failed(|_, event, uri, error| {
+        stremio_lightning_core::logging::error(
+            "native.webview.linux",
+            format!(
+                "WebKitGTK navigation failed during {} ({}, error code {})",
+                webkit_load_event_name(event),
+                safe_webview_resource_descriptor(Some(uri)),
+                error.code()
+            ),
+        );
+        // Returning false preserves WebKit's existing failure handling.
+        false
+    });
+
+    webview.connect_web_process_terminated(|_, reason| {
+        stremio_lightning_core::logging::error(
+            "native.webview.linux",
+            format!(
+                "WebKitGTK web process terminated: {}",
+                webkit_process_termination_reason_name(reason)
+            ),
+        );
+    });
+
+    webview.connect_resource_load_started(|_, resource, request| {
+        let request_descriptor = safe_webview_resource_descriptor(request.uri().as_deref());
+        resource.connect_finished(move |resource| {
+            let Some(response) = resource.response() else {
+                return;
+            };
+            let status = response.status_code();
+            if status >= 400 {
+                let descriptor = safe_webview_resource_descriptor(resource.uri().as_deref());
+                stremio_lightning_core::logging::error(
+                    "native.webview.linux",
+                    format!("WebKitGTK resource response failed: HTTP {status} ({descriptor})"),
+                );
+            }
+        });
+        resource.connect_failed(move |resource, error| {
+            let descriptor = resource
+                .uri()
+                .as_deref()
+                .map(|uri| safe_webview_resource_descriptor(Some(uri)))
+                .unwrap_or(request_descriptor);
+            stremio_lightning_core::logging::error(
+                "native.webview.linux",
+                format!(
+                    "WebKitGTK resource load failed: {descriptor} (error code {})",
+                    error.code()
+                ),
+            );
+        });
+    });
+}
+
+fn safe_webview_resource_descriptor(uri: Option<&str>) -> &'static str {
+    let scheme = uri.and_then(|uri| uri.split_once(':').map(|(scheme, _)| scheme));
+    match scheme {
+        Some(scheme) if scheme.eq_ignore_ascii_case("https") => "https resource",
+        Some(scheme) if scheme.eq_ignore_ascii_case("http") => "http resource",
+        Some(scheme) if scheme.eq_ignore_ascii_case("file") => "file resource",
+        Some(_) => "other resource",
+        None => "unknown resource",
+    }
+}
+
+fn webkit_load_event_name(event: webkit::LoadEvent) -> &'static str {
+    match event {
+        webkit::LoadEvent::Started => "started",
+        webkit::LoadEvent::Redirected => "redirected",
+        webkit::LoadEvent::Committed => "committed",
+        webkit::LoadEvent::Finished => "finished",
+        _ => "unknown",
+    }
+}
+
+fn webkit_process_termination_reason_name(
+    reason: webkit::WebProcessTerminationReason,
+) -> &'static str {
+    match reason {
+        webkit::WebProcessTerminationReason::Crashed => "crashed",
+        webkit::WebProcessTerminationReason::ExceededMemoryLimit => "exceeded-memory-limit",
+        webkit::WebProcessTerminationReason::TerminatedByApi => "terminated-by-api",
+        _ => "unknown",
+    }
 }
 
 fn document_start_script(source: impl Into<String>) -> UserScript {
@@ -1215,5 +1321,20 @@ mod tests {
             property_data_to_json(PropertyData::Int64(7)),
             Some(json!(7))
         );
+    }
+
+    #[test]
+    fn webkit_failure_descriptors_never_include_raw_uris() {
+        assert_eq!(
+            safe_webview_resource_descriptor(Some(
+                "https://api.example.test/stream/token?secret=hidden"
+            )),
+            "https resource"
+        );
+        assert_eq!(
+            safe_webview_resource_descriptor(Some("file:///home/private/video.mkv")),
+            "file resource"
+        );
+        assert_eq!(safe_webview_resource_descriptor(None), "unknown resource");
     }
 }
