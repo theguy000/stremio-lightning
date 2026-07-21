@@ -48,6 +48,20 @@
   flex: 0 0 auto;
 }
 
+.sl-log-extended {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  color: var(--primary-foreground-color, #f2f2f2);
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.sl-log-extended .sl-toggle {
+  flex: none;
+  align-self: center;
+}
+
 .sl-log-action:hover {
   border-color: rgba(255, 255, 255, 0.8);
   background: transparent;

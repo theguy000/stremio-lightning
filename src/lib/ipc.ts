@@ -113,6 +113,27 @@ export function getLogs(afterId: number): Promise<StremioLightningLogEntry[]> {
   return host().invoke('get_logs', { afterId });
 }
 
+export function submitDiagnosticLogs(entries: Array<{
+  level: StremioLightningLogLevel;
+  source: string;
+  message: string;
+  timestamp?: number;
+}>): Promise<void> {
+  return host().invoke('submit_diagnostic_logs', { entries });
+}
+
+export function setExtendedDiagnostics(enabled: boolean): Promise<void> {
+  return host().invoke('set_extended_diagnostics', { enabled });
+}
+
+export function getDiagnosticReport(): Promise<string> {
+  return host().invoke('get_diagnostic_report');
+}
+
+export function clearDiagnostics(): Promise<void> {
+  return host().invoke('clear_diagnostics');
+}
+
 export function openExternalUrl(url: string): Promise<void> {
   return host().invoke('open_external_url', { url });
 }

@@ -1,10 +1,13 @@
 <script lang="ts">
   import { tick } from 'svelte';
   import {
-    clearLogRecords,
+    clearDiagnostics,
+    extendedDiagnosticsEnabled,
+    getDiagnosticReport,
     logRecords,
     nativeLogState,
     filterLogRecords,
+    setExtendedDiagnostics,
     startNativeLogPolling,
     type LogLevel,
     type LogRecord,
@@ -19,6 +22,10 @@
   let level = $state<LogLevel | 'all'>('all');
   let source = $state('all');
   let copyLabel = $state('Copy logs');
+  let exportLabel = $state('Export diagnostics');
+  let diagnosticsStatus = $state('');
+  let extendedBusy = $state(false);
+  let clearBusy = $state(false);
   let paused = $state(false);
   let pausedRecords = $state<LogRecord[] | null>(null);
   let followNewest = $state(true);
@@ -97,10 +104,33 @@
     }
   }
 
-  function clearLogs(): void {
+  async function clearLogs(): Promise<void> {
+    if (clearBusy) return;
+    clearBusy = true;
+    diagnosticsStatus = '';
+    try {
+      await clearDiagnostics();
+    } catch {
+      diagnosticsStatus = 'Could not clear retained diagnostics.';
+    } finally {
+      clearBusy = false;
+    }
     paused = false;
     pausedRecords = null;
-    clearLogRecords();
+  }
+
+  async function changeExtendedDiagnostics(event: Event): Promise<void> {
+    if (extendedBusy) return;
+    const enabled = (event.currentTarget as HTMLInputElement).checked;
+    extendedBusy = true;
+    diagnosticsStatus = '';
+    try {
+      await setExtendedDiagnostics(enabled);
+    } catch {
+      diagnosticsStatus = 'Could not update Extended diagnostics.';
+    } finally {
+      extendedBusy = false;
+    }
   }
 
   async function copyLogs(): Promise<void> {
@@ -116,6 +146,39 @@
     }
     window.setTimeout(() => copyLabel = 'Copy logs', 1500);
   }
+
+  async function exportDiagnostics(): Promise<void> {
+    if (exportLabel !== 'Export diagnostics') return;
+    exportLabel = 'Preparing...';
+    diagnosticsStatus = '';
+    try {
+      const report = await getDiagnosticReport();
+      try {
+        const blob = new Blob([report], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = `stremio-lightning-diagnostics-${new Date().toISOString().replace(/[:.]/g, '-')}.txt`;
+        anchor.style.display = 'none';
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        window.setTimeout(() => URL.revokeObjectURL(url), 0);
+        diagnosticsStatus = 'Diagnostics report downloaded.';
+      } catch {
+        try {
+          await navigator.clipboard.writeText(report);
+          diagnosticsStatus = 'Download unavailable. Diagnostics report copied to clipboard.';
+        } catch {
+          diagnosticsStatus = 'Could not download or copy the diagnostics report.';
+        }
+      }
+    } catch {
+      diagnosticsStatus = 'Could not prepare the diagnostics report.';
+    } finally {
+      exportLabel = 'Export diagnostics';
+    }
+  }
 </script>
 
 <div class="sl-logs">
@@ -127,6 +190,18 @@
       </div>
     </div>
     <div class="sl-log-header-actions">
+      <label class="sl-log-extended" title="Includes additional browser request timing and console warnings for this session only.">
+        Extended diagnostics (this session)
+        <span class="sl-toggle">
+          <input
+            type="checkbox"
+            checked={$extendedDiagnosticsEnabled}
+            disabled={extendedBusy}
+            onchange={changeExtendedDiagnostics}
+          />
+          <span class="sl-toggle-track"><span class="sl-toggle-thumb"></span></span>
+        </span>
+      </label>
       <button
         type="button"
         class="sl-btn sl-btn-ghost sl-log-action"
@@ -148,10 +223,18 @@
       <button
         type="button"
         class="sl-btn sl-btn-ghost sl-log-action"
-        disabled={displayedRecords.length === 0}
+        disabled={clearBusy}
         onclick={clearLogs}
       >
-        Clear
+        {clearBusy ? 'Clearing...' : 'Clear'}
+      </button>
+      <button
+        type="button"
+        class="sl-btn sl-btn-ghost sl-log-action"
+        disabled={exportLabel !== 'Export diagnostics'}
+        onclick={exportDiagnostics}
+      >
+        {exportLabel}
       </button>
       <button
         type="button"
@@ -207,6 +290,10 @@
     <div class="sl-log-status sl-log-status-warning">
       Native logs are unavailable. Browser and plugin records are still shown.
     </div>
+  {/if}
+
+  {#if diagnosticsStatus}
+    <div class="sl-log-status">{diagnosticsStatus}</div>
   {/if}
 
   {#if displayedRecords.length === 0 && $nativeLogState !== 'loading'}

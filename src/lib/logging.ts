@@ -1,5 +1,10 @@
 import { writable } from 'svelte/store';
-import { getLogs } from './ipc';
+import {
+  clearDiagnostics as clearNativeDiagnostics,
+  getDiagnosticReport as getNativeDiagnosticReport,
+  getLogs,
+  setExtendedDiagnostics as setNativeExtendedDiagnostics,
+} from './ipc';
 
 const MAX_ENTRIES = 2_000;
 
@@ -21,10 +26,12 @@ export interface LogFilters {
 
 export const logRecords = writable<LogRecord[]>([]);
 export const nativeLogState = writable<NativeLogState>('idle');
+export const extendedDiagnosticsEnabled = writable(false);
 
 const records = new Map<string, LogRecord>();
 const orderedRecords: LogRecord[] = [];
 let nativeCursor = 0;
+let nativeGeneration = 0;
 let nativeUnavailableReported = false;
 
 export function safeFormat(value: unknown): string {
@@ -107,7 +114,47 @@ function trimRecords(): void {
 export function clearLogRecords(): void {
   records.clear();
   orderedRecords.length = 0;
+  nativeCursor = 0;
+  nativeGeneration++;
+  nativeUnavailableReported = false;
   logRecords.set([]);
+}
+
+export async function setExtendedDiagnostics(enabled: boolean): Promise<void> {
+  const browserLogger = typeof window === 'undefined'
+    ? undefined
+    : window.StremioLightningLogger;
+  browserLogger?.setExtendedDiagnostics(enabled);
+  try {
+    await setNativeExtendedDiagnostics(enabled);
+    extendedDiagnosticsEnabled.set(enabled);
+  } catch (error) {
+    browserLogger?.setExtendedDiagnostics(false);
+    extendedDiagnosticsEnabled.set(false);
+    try {
+      await setNativeExtendedDiagnostics(false);
+    } catch {
+      // Keep both producers disabled even when the host is unavailable.
+    }
+    throw error;
+  }
+}
+
+export async function getDiagnosticReport(): Promise<string> {
+  await window.StremioLightningLogger?.flush();
+  return getNativeDiagnosticReport();
+}
+
+export async function clearDiagnostics(): Promise<void> {
+  let nativeError: unknown;
+  try {
+    await clearNativeDiagnostics();
+  } catch (error) {
+    nativeError = error;
+  }
+  window.StremioLightningLogger?.clearDiagnostics();
+  clearLogRecords();
+  if (nativeError) throw nativeError;
 }
 
 function ingest(origin: LogOrigin, entries: StremioLightningLogEntry[]): void {
@@ -189,14 +236,15 @@ export function startNativeLogPolling(): () => void {
   const poll = async () => {
     if (stopped || inFlight) return;
     inFlight = true;
+    const generation = nativeGeneration;
     try {
       const entries = await getLogs(nativeCursor);
-      if (stopped) return;
+      if (stopped || generation !== nativeGeneration) return;
       ingest('native', entries);
       for (const entry of entries) nativeCursor = Math.max(nativeCursor, entry.id);
       nativeLogState.set('available');
     } catch (error) {
-      if (stopped) return;
+      if (stopped || generation !== nativeGeneration) return;
       nativeLogState.set('unavailable');
       reportNativeUnavailable(error);
     } finally {

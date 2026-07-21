@@ -9,8 +9,32 @@ export type AppUpdateInfo = {
   releaseUrl?: string;
 };
 
+export type DiagnosticsCapabilities = {
+  persistent: boolean;
+  nativeHttpCapture: boolean;
+  nativeNetworkFailureCapture: boolean;
+  webviewEngine: string;
+  webviewVersion: string | null;
+};
+
+export type HostInit = {
+  platform: string;
+  shell: string;
+  shellVersion: string;
+  nativePlayer: unknown;
+  streamingServerRunning: boolean;
+  diagnostics: DiagnosticsCapabilities;
+};
+
+export type DiagnosticLogEntry = {
+  level: StremioLightningLogLevel;
+  source: string;
+  message: string;
+  timestamp?: number;
+};
+
 type HostCommandMap = {
-  init: { payload: undefined; result: unknown };
+  init: { payload: undefined; result: HostInit };
   toggle_devtools: { payload: undefined; result: void };
   open_external_url: { payload: { url: string }; result: void };
   shell_transport_send: { payload: { message: string }; result: void };
@@ -43,6 +67,10 @@ type HostCommandMap = {
   get_pip_mode: { payload: undefined; result: boolean };
   set_pip_size: { payload: { width: number; height: number }; result: void };
   get_logs: { payload: { afterId: number }; result: StremioLightningLogEntry[] };
+  submit_diagnostic_logs: { payload: { entries: DiagnosticLogEntry[] }; result: void };
+  set_extended_diagnostics: { payload: { enabled: boolean }; result: void };
+  get_diagnostic_report: { payload: undefined; result: string };
+  clear_diagnostics: { payload: undefined; result: void };
 };
 
 export type HostCommand = keyof HostCommandMap;

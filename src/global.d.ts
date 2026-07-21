@@ -24,12 +24,26 @@ interface StremioLightningLogger extends StremioLightningBoundLogger {
   error(source: string, ...values: unknown[]): void;
   bind(source: string): StremioLightningBoundLogger;
   entries(): StremioLightningLogEntry[];
+  clear(): void;
+  configure(options?: {
+    extended?: boolean;
+    nativeHttpCapture?: boolean;
+    nativeNetworkFailureCapture?: boolean;
+    capabilities?: {
+      nativeHttpCapture?: boolean;
+      nativeHttpResponseCapture?: boolean;
+      nativeNetworkFailureCapture?: boolean;
+    };
+  }): void;
+  flush(): Promise<void>;
   subscribe(
     listener: (
       entry: StremioLightningLogEntry | null,
       initialEntries?: StremioLightningLogEntry[],
     ) => void,
   ): () => void;
+  setExtendedDiagnostics(enabled: boolean): void;
+  clearDiagnostics(): void;
 }
 
 interface Window {
