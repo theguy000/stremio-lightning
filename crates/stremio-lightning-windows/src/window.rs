@@ -286,7 +286,7 @@ mod platform {
                     0,
                     0,
                     0,
-                    SWP_NOOWNERZORDER | SWP_FRAMECHANGED,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOOWNERZORDER | SWP_FRAMECHANGED,
                 )
                 .map_err(|error| format!("Failed to exit fullscreen: {error}"))?;
             }
