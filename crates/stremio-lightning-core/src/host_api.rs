@@ -998,6 +998,13 @@ impl<P: PlatformBridge> BaseHost<P> {
             ParsedRequest::Command { method, data } => {
                 if method == "app-ready" || method == "app-error" {
                     self.mark_transport_ready()?;
+                } else if method == "win-set-visibility" {
+                    let payload: FullscreenIpcPayload = parse_payload(&method, data)?;
+                    self.bridge.set_window_fullscreen(payload.fullscreen)?;
+                    self.emit_transport_message(response_message(serialize_window_visibility(
+                        true,
+                        self.bridge.is_window_fullscreen()?,
+                    )))?;
                 } else {
                     self.bridge.handle_custom_transport(&method, data)?;
                 }
@@ -1178,6 +1185,7 @@ pub fn parse_optional_bool(payload: Option<Value>) -> Option<bool> {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+    use std::sync::Mutex;
 
     use serde_json::{json, Value};
 
@@ -1185,6 +1193,7 @@ mod tests {
     struct TestBridge {
         pip_enabled: bool,
         fail_custom_transport: bool,
+        fullscreen: Mutex<bool>,
     }
 
     impl PlatformBridge for TestBridge {
@@ -1202,6 +1211,15 @@ mod tests {
 
         fn is_streaming_server_running(&self) -> bool {
             false
+        }
+
+        fn is_window_fullscreen(&self) -> Result<bool, String> {
+            Ok(*self.fullscreen.lock().unwrap())
+        }
+
+        fn set_window_fullscreen(&self, fullscreen: bool) -> Result<(), String> {
+            *self.fullscreen.lock().unwrap() = fullscreen;
+            Ok(())
         }
 
         fn toggle_picture_in_picture(&self) -> Result<bool, String> {
@@ -1352,6 +1370,44 @@ mod tests {
                 "isFullscreen": false
             }])
         );
+    }
+
+    #[test]
+    fn handles_win_set_visibility_and_emits_resulting_state_every_time() {
+        let host = test_host(TestBridge::default());
+        host.listen_with_id(7, SHELL_TRANSPORT_EVENT).unwrap();
+
+        for fullscreen in [true, true, false] {
+            host.handle_shell_transport_message(
+                &json!({
+                    "id": 1,
+                    "type": 6,
+                    "args": ["win-set-visibility", { "fullscreen": fullscreen }]
+                })
+                .to_string(),
+            )
+            .unwrap();
+
+            assert_eq!(*host.bridge.fullscreen.lock().unwrap(), fullscreen);
+            let event = host.drain_emitted_events().unwrap().remove(0);
+            let response: Value = serde_json::from_str(event.payload.as_str().unwrap()).unwrap();
+            assert_eq!(
+                response["args"],
+                serialize_window_visibility(true, fullscreen)
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_win_set_visibility_payload() {
+        let host = test_host(TestBridge::default());
+        let error = host
+            .handle_shell_transport_message(
+                r#"{"id":1,"type":6,"args":["win-set-visibility",{"fullscreen":"yes"}]}"#,
+            )
+            .unwrap_err();
+
+        assert!(error.contains("Invalid win-set-visibility payload"));
     }
 
     #[test]

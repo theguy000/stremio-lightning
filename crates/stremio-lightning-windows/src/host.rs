@@ -483,14 +483,8 @@ impl WindowsHost {
     }
 
     pub fn set_window_fullscreen(&self, fullscreen: bool) -> Result<(), String> {
+        let state_changed = self.is_window_fullscreen()? != fullscreen;
         self.base.bridge.set_window_fullscreen(fullscreen)?;
-        let state_changed = {
-            let mut state = self.base.bridge.lock_window_state()?;
-            let state_changed = state.fullscreen != fullscreen;
-            state.fullscreen = fullscreen;
-            state.visible = true;
-            state_changed
-        };
 
         if state_changed {
             self.emit_window_fullscreen_changed(fullscreen)?;
@@ -693,6 +687,102 @@ mod tests {
         assert_eq!(
             serde_json::from_str::<Value>(response.as_str().unwrap()).unwrap()["type"],
             json!(3)
+        );
+    }
+
+    fn send_shell_transport_command(host: &WindowsHost, message: &str) -> Result<Value, String> {
+        host.invoke("shell_transport_send", Some(json!({ "message": message })))
+    }
+
+    fn transport_event_payload(host: &WindowsHost) -> Value {
+        let event = host.drain_emitted_events().unwrap().remove(0);
+        serde_json::from_str(event.payload.as_str().unwrap()).unwrap()
+    }
+
+    #[test]
+    fn handles_win_set_visibility_transport() {
+        let host = WindowsHost::default();
+        host.dispatch_windows_ipc(
+            "listen",
+            Some(json!({ "id": 7, "event": "shell-transport-message" })),
+        )
+        .unwrap();
+        host.dispatch_windows_ipc("invoke", Some(json!({ "command": "shell_bridge_ready" })))
+            .unwrap();
+        host.invoke(
+            "shell_transport_send",
+            Some(json!({ "message": r#"{"id":0,"type":3}"# })),
+        )
+        .unwrap();
+        host.drain_emitted_events().unwrap();
+
+        send_shell_transport_command(
+            &host,
+            r#"{"id":1,"type":6,"args":["win-set-visibility",{"fullscreen":true}]}"#,
+        )
+        .unwrap();
+        assert!(host.is_window_fullscreen().unwrap());
+        assert_eq!(
+            transport_event_payload(&host)["args"],
+            json!(["win-visibility-changed", {
+                "visible": true,
+                "visibility": 1,
+                "isFullscreen": true
+            }])
+        );
+
+        send_shell_transport_command(
+            &host,
+            r#"{"id":2,"type":6,"args":["win-set-visibility",{"fullscreen":false}]}"#,
+        )
+        .unwrap();
+        assert!(!host.is_window_fullscreen().unwrap());
+        assert_eq!(
+            transport_event_payload(&host)["args"],
+            json!(["win-visibility-changed", {
+                "visible": true,
+                "visibility": 0,
+                "isFullscreen": false
+            }])
+        );
+    }
+
+    #[test]
+    fn win_set_visibility_rejects_invalid_payload_and_emits_repeated_state() {
+        let host = WindowsHost::default();
+        host.dispatch_windows_ipc(
+            "listen",
+            Some(json!({ "id": 7, "event": "shell-transport-message" })),
+        )
+        .unwrap();
+        host.dispatch_windows_ipc("invoke", Some(json!({ "command": "shell_bridge_ready" })))
+            .unwrap();
+        host.invoke(
+            "shell_transport_send",
+            Some(json!({ "message": r#"{"id":0,"type":3}"# })),
+        )
+        .unwrap();
+        host.drain_emitted_events().unwrap();
+
+        let error = send_shell_transport_command(
+            &host,
+            r#"{"id":1,"type":6,"args":["win-set-visibility",{"fullscreen":"yes"}]}"#,
+        )
+        .unwrap_err();
+        assert!(error.contains("Invalid win-set-visibility payload"));
+
+        send_shell_transport_command(
+            &host,
+            r#"{"id":2,"type":6,"args":["win-set-visibility",{"fullscreen":false}]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            transport_event_payload(&host)["args"],
+            json!(["win-visibility-changed", {
+                "visible": true,
+                "visibility": 0,
+                "isFullscreen": false
+            }])
         );
     }
 
