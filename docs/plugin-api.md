@@ -19,8 +19,10 @@ The API provides:
 Plugin log calls are tagged as `plugin.<name>`. They appear in the Mods panel's
 Logs tab and in the browser developer console.
 
-Logs are retained in bounded session memory and are not persisted across
-application restarts.
+Logs remain bounded in session memory for the live Logs tab. Sanitized
+`info`, `warn`, and `error` records are also included in the bounded diagnostic
+history and exported diagnostic report; `debug` records are persisted only
+while Extended diagnostics is enabled for the current process session.
 
 ## Host Bridge
 

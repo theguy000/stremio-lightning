@@ -20,7 +20,14 @@
         "initialized": false,
         "backend": "webview2-libmpv"
       },
-      "streamingServerRunning": false
+      "streamingServerRunning": false,
+      "diagnostics": {
+        "persistent": false,
+        "nativeHttpCapture": false,
+        "nativeNetworkFailureCapture": false,
+        "webviewEngine": "WebView2",
+        "webviewVersion": null
+      }
     }
   },
   "invalidCommandRequest": {

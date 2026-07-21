@@ -1,9 +1,20 @@
 import { get } from 'svelte/store';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { LogRecord } from './logging';
 
-const { getLogs } = vi.hoisted(() => ({ getLogs: vi.fn() }));
+const { clearDiagnostics, getDiagnosticReport, getLogs, setExtendedDiagnostics } = vi.hoisted(() => ({
+  clearDiagnostics: vi.fn(),
+  getDiagnosticReport: vi.fn(),
+  getLogs: vi.fn(),
+  setExtendedDiagnostics: vi.fn(),
+}));
 
-vi.mock('./ipc', () => ({ getLogs }));
+vi.mock('./ipc', () => ({
+  clearDiagnostics,
+  getDiagnosticReport,
+  getLogs,
+  setExtendedDiagnostics,
+}));
 
 function installBrowserLogger(initialEntries: StremioLightningLogEntry[] = []): void {
   let entries = [...initialEntries];
@@ -35,6 +46,11 @@ function installBrowserLogger(initialEntries: StremioLightningLogEntry[] = []): 
       error: (...values: unknown[]) => write('error', source, values),
     }),
     entries: () => [...entries],
+    clear: () => {},
+    configure: () => {},
+    flush: () => Promise.resolve(),
+    setExtendedDiagnostics: () => {},
+    clearDiagnostics: () => {},
     subscribe: (listener: (
       entry: StremioLightningLogEntry | null,
       initialEntries?: StremioLightningLogEntry[],
@@ -49,7 +65,11 @@ function installBrowserLogger(initialEntries: StremioLightningLogEntry[] = []): 
 
 beforeEach(() => {
   vi.resetModules();
+  clearDiagnostics.mockReset();
+  getDiagnosticReport.mockReset();
   getLogs.mockReset();
+  setExtendedDiagnostics.mockReset();
+  setExtendedDiagnostics.mockResolvedValue(undefined);
   installBrowserLogger();
 });
 
@@ -119,16 +139,18 @@ describe('frontend logging adapter', () => {
 
   it('publishes a new record snapshot for every live entry', async () => {
     const { createLogger, logRecords } = await import('./logging');
-    const snapshots: Array<ReturnType<typeof get<typeof logRecords>>> = [];
+    const snapshots: LogRecord[][] = [];
     const unsubscribe = logRecords.subscribe((records) => snapshots.push(records));
 
     createLogger('ui.test').info('first');
     createLogger('ui.test').info('second');
     unsubscribe();
 
-    expect(snapshots.at(-2)).not.toBe(snapshots.at(-1));
-    expect(snapshots.at(-2)).toHaveLength(1);
-    expect(snapshots.at(-1)).toHaveLength(2);
+    const previous = snapshots[snapshots.length - 2];
+    const latest = snapshots[snapshots.length - 1];
+    expect(previous).not.toBe(latest);
+    expect(previous).toHaveLength(1);
+    expect(latest).toHaveLength(2);
   });
 
   it('clears displayed records without disconnecting future entries', async () => {
@@ -141,6 +163,56 @@ describe('frontend logging adapter', () => {
     createLogger('ui.test').info('after clear');
     expect(get(logRecords)).toHaveLength(1);
     expect(get(logRecords)[0]).toMatchObject({ message: 'after clear' });
+  });
+
+  it('keeps Extended diagnostics session-only and rolls browser mode back on failure', async () => {
+    setExtendedDiagnostics.mockRejectedValueOnce(new Error('offline'));
+    const { extendedDiagnosticsEnabled, setExtendedDiagnostics: setMode } = await import('./logging');
+    const setBrowserMode = vi.spyOn(window.StremioLightningLogger!, 'setExtendedDiagnostics');
+
+    await expect(setMode(true)).rejects.toThrow('offline');
+
+    expect(setBrowserMode).toHaveBeenNthCalledWith(1, true);
+    expect(setBrowserMode).toHaveBeenNthCalledWith(2, false);
+    expect(get(extendedDiagnosticsEnabled)).toBe(false);
+  });
+
+  it('flushes queued browser records before requesting a diagnostic report', async () => {
+    getDiagnosticReport.mockResolvedValue('report');
+    const flush = vi.spyOn(window.StremioLightningLogger!, 'flush');
+    const { getDiagnosticReport: report } = await import('./logging');
+
+    await expect(report()).resolves.toBe('report');
+
+    expect(flush).toHaveBeenCalledOnce();
+    expect(flush.mock.invocationCallOrder[0]).toBeLessThan(
+      getDiagnosticReport.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('clears native diagnostics before resetting browser and UI records', async () => {
+    clearDiagnostics.mockResolvedValue(undefined);
+    const { clearDiagnostics: clearAll, createLogger, logRecords } = await import('./logging');
+    const clearBrowser = vi.spyOn(window.StremioLightningLogger!, 'clearDiagnostics');
+    createLogger('ui.test').info('before clear');
+
+    await clearAll();
+
+    expect(clearDiagnostics).toHaveBeenCalledOnce();
+    expect(clearBrowser).toHaveBeenCalledOnce();
+    expect(get(logRecords)).toEqual([]);
+  });
+
+  it('clears browser and UI records while surfacing a retained-file failure', async () => {
+    clearDiagnostics.mockRejectedValueOnce(new Error('file locked'));
+    const { clearDiagnostics: clearAll, createLogger, logRecords } = await import('./logging');
+    const clearBrowser = vi.spyOn(window.StremioLightningLogger!, 'clearDiagnostics');
+    createLogger('ui.test').info('before failed clear');
+
+    await expect(clearAll()).rejects.toThrow('file locked');
+
+    expect(clearBrowser).toHaveBeenCalledOnce();
+    expect(get(logRecords)).toEqual([]);
   });
 
   it('polls incrementally and deduplicates repeated native snapshots', async () => {
@@ -162,6 +234,62 @@ describe('frontend logging adapter', () => {
     expect(getLogs).toHaveBeenNthCalledWith(1, 0);
     expect(getLogs).toHaveBeenNthCalledWith(2, 1);
     expect(get(logRecords).filter((record) => record.origin === 'native')).toHaveLength(1);
+  });
+
+  it('ignores a stale native poll and accepts live records after Clear', async () => {
+    vi.useFakeTimers();
+    let resolveStale: ((entries: StremioLightningLogEntry[]) => void) | undefined;
+    getLogs
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveStale = resolve; }))
+      .mockResolvedValueOnce([{
+        id: 9,
+        timestamp: 200,
+        level: 'info',
+        source: 'native.application',
+        message: 'after clear',
+      }]);
+    clearDiagnostics.mockResolvedValue(undefined);
+    const { clearDiagnostics: clearAll, logRecords, startNativeLogPolling } = await import('./logging');
+
+    const stop = startNativeLogPolling();
+    await vi.advanceTimersByTimeAsync(0);
+    await clearAll();
+    resolveStale?.([{
+      id: 4,
+      timestamp: 100,
+      level: 'warn',
+      source: 'native.application',
+      message: 'before clear',
+    }]);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(1_000);
+    stop();
+
+    expect(get(logRecords).map((record) => record.message)).toEqual(['after clear']);
+  });
+
+  it('ignores a stale native poll failure after Clear', async () => {
+    let rejectStale: ((error: Error) => void) | undefined;
+    getLogs.mockImplementationOnce(() => new Promise((_resolve, reject) => {
+      rejectStale = reject;
+    }));
+    clearDiagnostics.mockResolvedValue(undefined);
+    const {
+      clearDiagnostics: clearAll,
+      logRecords,
+      nativeLogState,
+      startNativeLogPolling,
+    } = await import('./logging');
+
+    const stop = startNativeLogPolling();
+    await Promise.resolve();
+    await clearAll();
+    rejectStale?.(new Error('stale failure'));
+    await Promise.resolve();
+    stop();
+
+    expect(get(logRecords)).toEqual([]);
+    expect(get(nativeLogState)).not.toBe('unavailable');
   });
 
   it('reports repeated native retrieval failures only once', async () => {
