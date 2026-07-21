@@ -1,6 +1,7 @@
 use crate::host::Host;
 use crate::settings::ShellSettings;
 use crate::single_instance::LaunchIntent;
+use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(windows)]
 use std::sync::Mutex;
 use std::sync::{mpsc, Arc};
@@ -20,6 +21,12 @@ pub const BRIDGE_DISCORD_RPC_NAME: &str = "bridge/discord-rpc.js";
 pub const BRIDGE_UPDATE_BANNER_NAME: &str = "bridge/update-banner.js";
 pub const BRIDGE_NAME: &str = "bridge.js";
 pub const MOD_UI_NAME: &str = "mod-ui-svelte.iife.js";
+
+static NATIVE_HTTP_CAPTURE_AVAILABLE: AtomicBool = AtomicBool::new(false);
+
+pub fn native_http_capture_available() -> bool {
+    NATIVE_HTTP_CAPTURE_AVAILABLE.load(Ordering::Relaxed)
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InjectionScript {
@@ -237,7 +244,10 @@ impl CleanupReport {
 
 #[cfg(windows)]
 mod platform {
-    use super::{mpsc, Arc, CleanupReport, Host, InjectionBundle, LaunchIntent, Mutex};
+    use super::{
+        mpsc, Arc, CleanupReport, Host, InjectionBundle, LaunchIntent, Mutex, Ordering,
+        NATIVE_HTTP_CAPTURE_AVAILABLE,
+    };
     use crate::host::WindowsIpcOutbound;
     use crate::window::{
         focus_window, run_native_window_with_handler, MediaKeyAction, NativeWindowHandler,
@@ -248,8 +258,8 @@ mod platform {
         AddScriptToExecuteOnDocumentCreatedCompletedHandler, CoTaskMemPWSTR,
         CoreWebView2EnvironmentOptions, CreateCoreWebView2ControllerCompletedHandler,
         CreateCoreWebView2EnvironmentCompletedHandler, Microsoft::Web::WebView2::Win32::*,
-        NavigationCompletedEventHandler, NavigationStartingEventHandler,
-        WebMessageReceivedEventHandler,
+        NavigationCompletedEventHandler, NavigationStartingEventHandler, ProcessFailedEventHandler,
+        WebMessageReceivedEventHandler, WebResourceResponseReceivedEventHandler,
     };
     use windows::core::{Interface, PCWSTR, PWSTR};
     use windows::Win32::Foundation::{E_POINTER, HWND, RECT};
@@ -303,6 +313,8 @@ mod platform {
         message_received: Option<i64>,
         navigation_starting: Option<i64>,
         navigation_completed: Option<i64>,
+        process_failed: Option<i64>,
+        web_resource_response_received: Option<i64>,
     }
 
     struct WebView2Runtime {
@@ -320,6 +332,7 @@ mod platform {
             url: &str,
         ) -> Result<Self, String> {
             let environment = create_environment()?;
+            log_webview2_runtime_version(&environment);
             let controller = create_controller(&environment, hwnd)?;
             let mut runtime = Self {
                 controller: Some(controller),
@@ -404,6 +417,9 @@ mod platform {
             )?);
             self.event_tokens.navigation_completed =
                 Some(add_navigation_completed_handler(&webview)?);
+            self.event_tokens.process_failed = Some(add_process_failed_handler(&webview)?);
+            self.event_tokens.web_resource_response_received =
+                add_web_resource_response_received_handler(&webview)?;
             navigate(&webview, url)
         }
 
@@ -432,6 +448,23 @@ mod platform {
                     report.record_windows("remove WebView2 navigation completed handler", unsafe {
                         webview.remove_NavigationCompleted(token)
                     });
+                }
+                if let Some(token) = self.event_tokens.process_failed.take() {
+                    report.record_windows("remove WebView2 process failed handler", unsafe {
+                        webview.remove_ProcessFailed(token)
+                    });
+                }
+                if let Some(token) = self.event_tokens.web_resource_response_received.take() {
+                    match webview.cast::<ICoreWebView2_2>() {
+                        Ok(webview2) => report
+                            .record_windows("remove WebView2 resource response handler", unsafe {
+                                webview2.remove_WebResourceResponseReceived(token)
+                            }),
+                        Err(error) => report.record(
+                            "remove WebView2 resource response handler",
+                            Err(error.to_string()),
+                        ),
+                    }
                 }
             }
 
@@ -650,6 +683,31 @@ mod platform {
             .map_err(|error| format!("WebView2 controller creation failed: {error}"))
     }
 
+    fn log_webview2_runtime_version(environment: &ICoreWebView2Environment) {
+        let mut version = PWSTR(ptr::null_mut());
+        let Ok(()) = (unsafe { environment.BrowserVersionString(&mut version) }) else {
+            stremio_lightning_core::logging::warn(
+                "native.webview.windows",
+                "WebView2 runtime version is unavailable",
+            );
+            return;
+        };
+
+        let version = CoTaskMemPWSTR::from(version).to_string();
+        if version.is_empty() {
+            stremio_lightning_core::logging::warn(
+                "native.webview.windows",
+                "WebView2 runtime version is unavailable",
+            );
+        } else {
+            stremio_lightning_core::logging::update_webview_metadata("WebView2", Some(&version));
+            stremio_lightning_core::logging::info(
+                "native.webview.windows",
+                format!("WebView2 runtime version: {version}"),
+            );
+        }
+    }
+
     fn configure_controller(controller: &ICoreWebView2Controller) -> Result<(), String> {
         // Stremio renders video through MPV using the native parent HWND. WebView2 must be
         // transparent so its HTML controls overlay MPV instead of painting an opaque white layer.
@@ -858,7 +916,26 @@ mod platform {
         unsafe {
             webview
                 .add_NavigationCompleted(
-                    &NavigationCompletedEventHandler::create(Box::new(move |webview, _args| {
+                    &NavigationCompletedEventHandler::create(Box::new(move |webview, args| {
+                        let Some(args) = args else {
+                            return Ok(());
+                        };
+                        let mut success = windows::core::BOOL::default();
+                        args.IsSuccess(&mut success)?;
+                        if !success.as_bool() {
+                            let mut status = COREWEBVIEW2_WEB_ERROR_STATUS_UNKNOWN;
+                            args.WebErrorStatus(&mut status)?;
+                            if status.0 != 14 {
+                                stremio_lightning_core::logging::error(
+                                    "native.webview.windows",
+                                    format!(
+                                        "WebView2 navigation failed: status={}",
+                                        web_error_status_name(status.0)
+                                    ),
+                                );
+                            }
+                        }
+
                         if let Some(webview) = webview {
                             let message = CoTaskMemPWSTR::from(
                                 serde_json::json!({
@@ -879,6 +956,202 @@ mod platform {
                 })?;
         }
         Ok(token)
+    }
+
+    fn add_process_failed_handler(webview: &ICoreWebView2) -> Result<i64, String> {
+        let mut token = 0;
+        unsafe {
+            webview
+                .add_ProcessFailed(
+                    &ProcessFailedEventHandler::create(Box::new(move |_webview, args| {
+                        let Some(args) = args else {
+                            return Ok(());
+                        };
+                        let mut kind = COREWEBVIEW2_PROCESS_FAILED_KIND_UNKNOWN_PROCESS_EXITED;
+                        args.ProcessFailedKind(&mut kind)?;
+                        stremio_lightning_core::logging::error(
+                            "native.webview.windows",
+                            format!(
+                                "WebView2 process failed: kind={}",
+                                process_failed_kind_name(kind.0)
+                            ),
+                        );
+                        Ok(())
+                    })),
+                    &mut token,
+                )
+                .map_err(|error| {
+                    format!("Failed to attach WebView2 process failure handler: {error}")
+                })?;
+        }
+        Ok(token)
+    }
+
+    fn add_web_resource_response_received_handler(
+        webview: &ICoreWebView2,
+    ) -> Result<Option<i64>, String> {
+        let webview2 = match webview.cast::<ICoreWebView2_2>() {
+            Ok(webview2) => webview2,
+            Err(error) => {
+                NATIVE_HTTP_CAPTURE_AVAILABLE.store(false, Ordering::Relaxed);
+                stremio_lightning_core::logging::warn(
+                    "native.webview.windows",
+                    format!("WebView2 resource response diagnostics are unavailable: {error}"),
+                );
+                return Ok(None);
+            }
+        };
+        let mut token = 0;
+        let registration = unsafe {
+            webview2.add_WebResourceResponseReceived(
+                &WebResourceResponseReceivedEventHandler::create(Box::new(
+                    move |_webview, args| {
+                        let Some(args) = args else {
+                            return Ok(());
+                        };
+                        let Some(status) = web_resource_response_status(&args) else {
+                            return Ok(());
+                        };
+                        if status < 400 {
+                            return Ok(());
+                        }
+
+                        let (method, resource) = web_resource_request_descriptor(&args);
+                        stremio_lightning_core::logging::error(
+                            "native.webview.windows",
+                            format!(
+                                "WebView2 HTTP resource failed: status={status} method={method} resource={resource}"
+                            ),
+                        );
+                        Ok(())
+                    },
+                )),
+                &mut token,
+            )
+        };
+        if let Err(error) = registration {
+            NATIVE_HTTP_CAPTURE_AVAILABLE.store(false, Ordering::Relaxed);
+            stremio_lightning_core::logging::warn(
+                "native.webview.windows",
+                format!("WebView2 resource response diagnostics could not start: {error}"),
+            );
+            return Ok(None);
+        }
+        NATIVE_HTTP_CAPTURE_AVAILABLE.store(true, Ordering::Relaxed);
+        Ok(Some(token))
+    }
+
+    fn web_resource_response_status(
+        args: &ICoreWebView2WebResourceResponseReceivedEventArgs,
+    ) -> Option<i32> {
+        unsafe {
+            let response = args.Response().ok()?;
+            let mut status = 0;
+            response.StatusCode(&mut status).ok()?;
+            Some(status)
+        }
+    }
+
+    fn web_resource_request_descriptor(
+        args: &ICoreWebView2WebResourceResponseReceivedEventArgs,
+    ) -> (&'static str, &'static str) {
+        unsafe {
+            let Ok(request) = args.Request() else {
+                return ("unknown", "unknown resource");
+            };
+
+            let mut method = PWSTR(ptr::null_mut());
+            let method = request
+                .Method(&mut method)
+                .ok()
+                .map(|()| CoTaskMemPWSTR::from(method).to_string())
+                .unwrap_or_default();
+            let mut uri = PWSTR(ptr::null_mut());
+            let resource = request
+                .Uri(&mut uri)
+                .ok()
+                .map(|()| CoTaskMemPWSTR::from(uri).to_string())
+                .unwrap_or_default();
+            (
+                safe_http_method_name(&method),
+                safe_webview_resource_descriptor(&resource),
+            )
+        }
+    }
+
+    fn safe_http_method_name(method: &str) -> &'static str {
+        match method {
+            "GET" => "GET",
+            "POST" => "POST",
+            "PUT" => "PUT",
+            "PATCH" => "PATCH",
+            "DELETE" => "DELETE",
+            "HEAD" => "HEAD",
+            "OPTIONS" => "OPTIONS",
+            _ => "unknown",
+        }
+    }
+
+    pub(super) fn safe_webview_resource_descriptor(uri: &str) -> &'static str {
+        let scheme = uri
+            .trim()
+            .split_once(':')
+            .map(|(scheme, _)| scheme)
+            .unwrap_or_default();
+        if scheme.eq_ignore_ascii_case("http") {
+            "http resource"
+        } else if scheme.eq_ignore_ascii_case("https") {
+            "https resource"
+        } else if scheme.eq_ignore_ascii_case("data") {
+            "data resource"
+        } else if scheme.eq_ignore_ascii_case("blob") {
+            "blob resource"
+        } else if scheme.eq_ignore_ascii_case("about") {
+            "about resource"
+        } else if scheme.eq_ignore_ascii_case("file") {
+            "file resource"
+        } else {
+            "other resource"
+        }
+    }
+
+    pub(super) fn web_error_status_name(status: i32) -> &'static str {
+        match status {
+            1 => "certificate-common-name-incorrect",
+            2 => "certificate-expired",
+            3 => "client-certificate-errors",
+            4 => "certificate-revoked",
+            5 => "certificate-invalid",
+            6 => "server-unreachable",
+            7 => "timeout",
+            8 => "http-invalid-server-response",
+            9 => "connection-aborted",
+            10 => "connection-reset",
+            11 => "disconnected",
+            12 => "cannot-connect",
+            13 => "host-not-resolved",
+            14 => "operation-canceled",
+            15 => "redirect-failed",
+            16 => "unexpected-error",
+            17 => "authentication-required",
+            18 => "proxy-authentication-required",
+            _ => "unknown",
+        }
+    }
+
+    pub(super) fn process_failed_kind_name(kind: i32) -> &'static str {
+        match kind {
+            0 => "browser-process-exited",
+            1 => "render-process-exited",
+            2 => "render-process-unresponsive",
+            3 => "frame-render-process-exited",
+            4 => "utility-process-exited",
+            5 => "sandbox-helper-process-exited",
+            6 => "gpu-process-exited",
+            7 => "ppapi-plugin-process-exited",
+            8 => "ppapi-broker-process-exited",
+            _ => "unknown",
+        }
     }
 
     fn navigate(webview: &ICoreWebView2, url: &str) -> Result<(), String> {
@@ -1173,5 +1446,28 @@ mod tests {
                 "close controller: close failed"
             ]
         );
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn webview_failure_descriptors_never_include_raw_uris() {
+        assert_eq!(
+            platform::safe_webview_resource_descriptor(
+                "https://api.example.test/stream/token?secret=hidden"
+            ),
+            "https resource"
+        );
+        assert_eq!(
+            platform::safe_webview_resource_descriptor("file:///C:/Users/private/video.mkv"),
+            "file resource"
+        );
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn webview_failure_statuses_are_classified() {
+        assert_eq!(platform::web_error_status_name(7), "timeout");
+        assert_eq!(platform::process_failed_kind_name(6), "gpu-process-exited");
+        assert_eq!(platform::web_error_status_name(99), "unknown");
     }
 }

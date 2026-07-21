@@ -1,8 +1,10 @@
 use std::collections::BTreeMap;
-use std::fs::{self, OpenOptions};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Command};
 use std::sync::Mutex;
+use stremio_lightning_core::streaming_logs::{
+    ManagedChild, StreamingLogFiles, StreamingLogPaths, StreamingLogTails,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandSpec {
@@ -48,41 +50,30 @@ impl ProcessChild for Child {
     }
 }
 
+impl ProcessChild for ManagedChild {
+    fn stop(&mut self) -> Result<(), String> {
+        ManagedChild::stop(self)
+    }
+
+    fn has_exited(&mut self) -> Result<bool, String> {
+        ManagedChild::has_exited(self)
+    }
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct RealProcessSpawner;
 
 impl ProcessSpawner for RealProcessSpawner {
-    type Child = Child;
+    type Child = ManagedChild;
 
     fn spawn(&self, spec: CommandSpec) -> Result<Self::Child, String> {
-        if let Some(parent) = spec.stdout_log.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|e| format!("Failed to create streaming server log dir: {e}"))?;
-        }
-        if let Some(parent) = spec.stderr_log.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|e| format!("Failed to create streaming server log dir: {e}"))?;
-        }
-
-        let stdout = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&spec.stdout_log)
-            .map_err(|e| format!("Failed to open streaming server stdout log: {e}"))?;
-        let stderr = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&spec.stderr_log)
-            .map_err(|e| format!("Failed to open streaming server stderr log: {e}"))?;
-
         let mut command = Command::new(&spec.program);
         command.args(&spec.args);
         command.envs(&spec.env);
-        command.stdout(Stdio::from(stdout));
-        command.stderr(Stdio::from(stderr));
-        command
-            .spawn()
-            .map_err(|e| format!("Failed to spawn streaming server: {e}"))
+        ManagedChild::spawn(
+            &mut command,
+            StreamingLogFiles::new(spec.stdout_log, spec.stderr_log),
+        )
     }
 }
 
@@ -92,6 +83,7 @@ pub struct StreamingServer<P: ProcessSpawner> {
     child: Mutex<Option<P::Child>>,
     project_root: PathBuf,
     log_dir: PathBuf,
+    log_files: StreamingLogFiles,
 }
 
 impl<P: ProcessSpawner> StreamingServer<P> {
@@ -108,6 +100,10 @@ impl<P: ProcessSpawner> StreamingServer<P> {
             spawner,
             child: Mutex::new(None),
             project_root,
+            log_files: StreamingLogFiles::new(
+                log_dir.join("stremio-server.stdout.log"),
+                log_dir.join("stremio-server.stderr.log"),
+            ),
             log_dir,
         }
     }
@@ -160,6 +156,22 @@ impl<P: ProcessSpawner> StreamingServer<P> {
 
     pub fn project_root(&self) -> &Path {
         &self.project_root
+    }
+
+    pub fn log_paths(&self) -> StreamingLogPaths {
+        self.log_files.paths()
+    }
+
+    pub fn log_tails(&self, max_bytes_per_stream: usize) -> Result<StreamingLogTails, String> {
+        self.log_files
+            .tails(max_bytes_per_stream)
+            .map_err(|error| format!("Failed to read streaming server log tails: {error}"))
+    }
+
+    pub fn clear_logs(&self) -> Result<(), String> {
+        self.log_files
+            .clear()
+            .map_err(|error| format!("Failed to clear streaming server logs: {error}"))
     }
 }
 

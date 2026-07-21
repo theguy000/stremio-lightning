@@ -1,6 +1,6 @@
 use crate::player::WindowsPlayer;
 use crate::resources::WindowsResourceLayout;
-use crate::server::{RealProcessSpawner, WindowsStreamingServer};
+use crate::server::{RealProcessSpawner, WindowsServerConfig, WindowsStreamingServer};
 use crate::single_instance::LaunchIntent;
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -11,6 +11,7 @@ use stremio_lightning_core::host_api::{
 };
 use stremio_lightning_core::pip::{serialize_picture_in_picture, PipState};
 use stremio_lightning_core::player_api::PlayerEvent;
+use stremio_lightning_core::streaming_logs::StreamingLogTails;
 
 #[cfg(windows)]
 use crate::window::NativeWindowController;
@@ -190,6 +191,27 @@ impl PlatformBridge for WindowsBridge {
         self.streaming_server.restart()
     }
 
+    fn diagnostics_webview_engine(&self) -> &'static str {
+        "WebView2"
+    }
+
+    fn native_http_diagnostics(&self) -> bool {
+        crate::webview::native_http_capture_available()
+    }
+
+    fn streaming_log_tails(
+        &self,
+        max_bytes_per_stream: usize,
+    ) -> Result<Option<StreamingLogTails>, String> {
+        self.streaming_server
+            .log_tails(max_bytes_per_stream)
+            .map(Some)
+    }
+
+    fn clear_streaming_logs(&self) -> Result<(), String> {
+        self.streaming_server.clear_logs()
+    }
+
     fn handle_custom_transport(&self, method: &str, data: Option<Value>) -> Result<(), String> {
         match method {
             "mpv-observe-prop" | "mpv-set-prop" | "mpv-command" | "native-player-stop" => {
@@ -263,12 +285,13 @@ impl WindowsHost {
         app_data_dir: PathBuf,
         disabled: bool,
     ) -> Self {
+        let mut server_config =
+            WindowsServerConfig::from_resources(&WindowsResourceLayout::from_runtime())
+                .disabled(disabled);
+        server_config.log_dir = app_data_dir.join("stremio-lightning").join("logs");
         let bridge = WindowsBridge {
             player: Mutex::default(),
-            streaming_server: WindowsStreamingServer::from_resources(
-                &WindowsResourceLayout::from_runtime(),
-                disabled,
-            ),
+            streaming_server: WindowsStreamingServer::new(RealProcessSpawner, server_config),
             window_state: Mutex::default(),
             pip_state: PipState::new(),
             #[cfg(windows)]
@@ -564,7 +587,7 @@ impl WindowsHost {
     }
 }
 
-fn default_app_data_dir() -> PathBuf {
+pub(crate) fn default_app_data_dir() -> PathBuf {
     if let Some(path) = std::env::var_os("LOCALAPPDATA") {
         PathBuf::from(path)
     } else {
@@ -635,6 +658,13 @@ mod tests {
             "shellVersion": env!("CARGO_PKG_VERSION"),
             "nativePlayer": { "enabled": cfg!(windows), "initialized": false, "backend": "webview2-libmpv" },
             "streamingServerRunning": false,
+            "diagnostics": {
+                "persistent": false,
+                "nativeHttpCapture": false,
+                "nativeNetworkFailureCapture": false,
+                "webviewEngine": "WebView2",
+                "webviewVersion": null,
+            },
         })
     }
 
@@ -893,8 +923,9 @@ mod tests {
 
     #[test]
     fn matches_json_host_contract_fixture() {
-        let fixture: Value =
+        let mut fixture: Value =
             serde_json::from_str(include_str!("../tests/fixtures/host_contract.json")).unwrap();
+        fixture["invokeInitResponse"]["value"]["nativePlayer"]["enabled"] = json!(cfg!(windows));
         let host = WindowsHost::default();
 
         let init = host.dispatch_ipc_message(&fixture["invokeInitRequest"].to_string());
