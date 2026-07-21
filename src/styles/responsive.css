@@ -1,4 +1,11 @@
 /* ── Responsive ── */
+@media only screen and (max-width: 1280px) {
+  .sl-log-mode-actions,
+  .sl-log-file-actions {
+    flex: 0 1 auto;
+  }
+}
+
 @media only screen and (max-width: 1100px) {
   .sl-card {
     flex-wrap: wrap;
@@ -119,18 +126,26 @@
   }
 
   .sl-log-header-actions {
+    width: 100%;
+  }
+
+  .sl-log-mode-actions,
+  .sl-log-file-actions {
     display: grid;
+    width: 100%;
+  }
+
+  .sl-log-mode-actions {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    width: 100%;
   }
 
-  .sl-log-header-actions > .sl-log-action {
-    width: 100%;
+  .sl-log-file-actions {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
-  .sl-log-extended {
-    grid-column: 1 / -1;
-    justify-content: space-between;
+  .sl-log-mode-actions>.sl-log-action,
+  .sl-log-file-actions>.sl-log-action {
+    width: 100%;
   }
 
   .sl-log-levels {
@@ -185,5 +200,15 @@
   .sl-modal-footer {
     padding-left: 1.25rem;
     padding-right: 1.25rem;
+  }
+}
+
+@media only screen and (max-width: 520px) {
+  .sl-log-file-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .sl-log-primary-action {
+    grid-column: 1 / -1;
   }
 }

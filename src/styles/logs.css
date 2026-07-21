@@ -4,6 +4,9 @@
 }
 
 .sl-log-header {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.9rem;
   margin-bottom: 1.25rem;
 }
 
@@ -13,6 +16,13 @@
   flex-direction: column;
   align-items: flex-start;
   gap: 0.3rem;
+}
+
+.sl-log-heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
 }
 
 .sl-log-count,
@@ -30,31 +40,57 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem 1rem;
+}
+
+.sl-log-mode-actions,
+.sl-log-file-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.sl-log-file-actions {
   justify-content: flex-end;
-  gap: 0.6rem;
 }
 
 .sl-log-action {
   width: auto;
-  min-height: 2.5rem;
-  padding: 0 1rem;
-  border: 1px solid transparent;
-  background: rgba(255, 255, 255, 0.08);
-  font-size: 0.8rem;
+  min-height: 3rem;
+  padding: 0 1.25rem;
+  border: none;
+  background-color: var(--overlay-color, rgba(255, 255, 255, 0.08));
+  font-size: 0.88rem;
   opacity: 1;
 }
 
-.sl-log-header-actions > .sl-log-action {
+.sl-log-mode-actions>.sl-log-action,
+.sl-log-file-actions>.sl-log-action {
   flex: 0 0 auto;
 }
 
 .sl-log-extended {
   display: inline-flex;
+  flex: none;
   align-items: center;
   gap: 0.65rem;
+  min-height: 3rem;
   color: var(--primary-foreground-color, #f2f2f2);
-  font-size: 0.8rem;
+  font-size: 0.82rem;
+  font-weight: 600;
   white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+
+.sl-log-extended:hover {
+  color: #fff;
+}
+
+.sl-log-extended.sl-busy {
+  opacity: 0.55;
+  cursor: wait;
 }
 
 .sl-log-extended .sl-toggle {
@@ -63,8 +99,7 @@
 }
 
 .sl-log-action:hover {
-  border-color: rgba(255, 255, 255, 0.8);
-  background: transparent;
+  background-color: rgba(255, 255, 255, 0.15);
 }
 
 .sl-log-action:focus-visible {
@@ -74,17 +109,39 @@
 
 .sl-log-action.sl-active {
   background: var(--primary-accent-color, #7b5bf5);
+  color: #fff;
   opacity: 1;
 }
 
 .sl-log-action.sl-active:hover {
-  background: transparent;
+  background: var(--primary-accent-color, #7b5bf5);
+  filter: brightness(1.18);
+}
+
+.sl-log-clear-action {
+  background-color: transparent;
+  opacity: 0.62;
+}
+
+.sl-log-clear-action:hover {
+  background-color: rgba(255, 107, 107, 0.12);
+  color: #ffb1b1;
+  opacity: 1;
+}
+
+.sl-log-primary-action,
+.sl-log-primary-action:hover {
+  background-color: var(--secondary-accent-color, var(--primary-accent-color, #7b5bf5));
+}
+
+.sl-log-primary-action:hover {
+  filter: brightness(1.18);
 }
 
 .sl-log-action:disabled {
   opacity: 0.4;
   cursor: default;
-  border-color: transparent;
+  filter: none;
 }
 
 .sl-log-toolbar {
@@ -233,10 +290,24 @@
   background: rgba(255, 255, 255, 0.08);
 }
 
-.sl-log-level-debug { color: rgba(255, 255, 255, 0.62); }
-.sl-log-level-info { color: #8fc0ff; background: rgba(71, 144, 255, 0.14); }
-.sl-log-level-warn { color: #ffd27a; background: rgba(242, 189, 87, 0.14); }
-.sl-log-level-error { color: #ff9ba4; background: rgba(255, 75, 91, 0.14); }
+.sl-log-level-debug {
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.sl-log-level-info {
+  color: #8fc0ff;
+  background: rgba(71, 144, 255, 0.14);
+}
+
+.sl-log-level-warn {
+  color: #ffd27a;
+  background: rgba(242, 189, 87, 0.14);
+}
+
+.sl-log-level-error {
+  color: #ff9ba4;
+  background: rgba(255, 75, 91, 0.14);
+}
 
 .sl-log-source,
 .sl-log-message {
@@ -251,12 +322,29 @@
   text-transform: uppercase;
 }
 
-.sl-log-source-ui { color: #62d7d1; }
-.sl-log-source-bridge { color: #b69cff; }
-.sl-log-source-updater { color: #66d99a; }
-.sl-log-source-player { color: #82aeff; }
-.sl-log-source-native { color: #c6abf5; }
-.sl-log-source-system { color: rgba(255, 255, 255, 0.68); }
+.sl-log-source-ui {
+  color: #62d7d1;
+}
+
+.sl-log-source-bridge {
+  color: #b69cff;
+}
+
+.sl-log-source-updater {
+  color: #66d99a;
+}
+
+.sl-log-source-player {
+  color: #82aeff;
+}
+
+.sl-log-source-native {
+  color: #c6abf5;
+}
+
+.sl-log-source-system {
+  color: rgba(255, 255, 255, 0.68);
+}
 
 .sl-log-message {
   color: var(--primary-foreground-color, #f2f2f2);

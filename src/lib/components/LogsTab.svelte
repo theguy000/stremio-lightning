@@ -183,18 +183,23 @@
 
 <div class="sl-logs">
   <div class="sl-section-header sl-log-header">
-    <div class="sl-log-heading">
-      <div class="sl-section-title">Logs</div>
-      <div class="sl-log-count">
-        {filteredRecords.length} / {displayedRecords.length} records{paused ? ' (paused)' : ''}
+    <div class="sl-log-heading-row">
+      <div class="sl-log-heading">
+        <div class="sl-section-title">Logs</div>
+        <div class="sl-log-count">
+          {filteredRecords.length} / {displayedRecords.length} records{paused ? ' (paused)' : ''}
+        </div>
       </div>
-    </div>
-    <div class="sl-log-header-actions">
-      <label class="sl-log-extended" title="Includes additional browser request timing and console warnings for this session only.">
-        Extended diagnostics (this session)
+      <label
+        class="sl-log-extended"
+        class:sl-busy={extendedBusy}
+        title="Includes additional browser request timing and console warnings for this session only."
+      >
+        <span>Extended diagnostics</span>
         <span class="sl-toggle">
           <input
             type="checkbox"
+            aria-label="Extended diagnostics for this session"
             checked={$extendedDiagnosticsEnabled}
             disabled={extendedBusy}
             onchange={changeExtendedDiagnostics}
@@ -202,48 +207,54 @@
           <span class="sl-toggle-track"><span class="sl-toggle-thumb"></span></span>
         </span>
       </label>
-      <button
-        type="button"
-        class="sl-btn sl-btn-ghost sl-log-action"
-        class:sl-active={paused}
-        aria-pressed={paused}
-        onclick={togglePaused}
-      >
-        {paused ? 'Resume' : 'Pause'}
-      </button>
-      <button
-        type="button"
-        class="sl-btn sl-btn-ghost sl-log-action"
-        class:sl-active={followNewest}
-        aria-pressed={followNewest}
-        onclick={() => followNewest = !followNewest}
-      >
-        Follow newest
-      </button>
-      <button
-        type="button"
-        class="sl-btn sl-btn-ghost sl-log-action"
-        disabled={clearBusy}
-        onclick={clearLogs}
-      >
-        {clearBusy ? 'Clearing...' : 'Clear'}
-      </button>
-      <button
-        type="button"
-        class="sl-btn sl-btn-ghost sl-log-action"
-        disabled={exportLabel !== 'Export diagnostics'}
-        onclick={exportDiagnostics}
-      >
-        {exportLabel}
-      </button>
-      <button
-        type="button"
-        class="sl-btn sl-btn-ghost sl-log-action"
-        disabled={filteredRecords.length === 0}
-        onclick={copyLogs}
-      >
-        {copyLabel}
-      </button>
+    </div>
+    <div class="sl-log-header-actions">
+      <div class="sl-log-mode-actions">
+        <button
+          type="button"
+          class="sl-btn sl-btn-ghost sl-log-action sl-log-mode-action"
+          class:sl-active={paused}
+          aria-pressed={paused}
+          onclick={togglePaused}
+        >
+          {paused ? 'Resume' : 'Pause'}
+        </button>
+        <button
+          type="button"
+          class="sl-btn sl-btn-ghost sl-log-action sl-log-mode-action"
+          class:sl-active={followNewest}
+          aria-pressed={followNewest}
+          onclick={() => followNewest = !followNewest}
+        >
+          Follow newest
+        </button>
+      </div>
+      <div class="sl-log-file-actions">
+        <button
+          type="button"
+          class="sl-btn sl-btn-ghost sl-log-action sl-log-clear-action"
+          disabled={clearBusy}
+          onclick={clearLogs}
+        >
+          {clearBusy ? 'Clearing...' : 'Clear'}
+        </button>
+        <button
+          type="button"
+          class="sl-btn sl-btn-ghost sl-log-action"
+          disabled={filteredRecords.length === 0}
+          onclick={copyLogs}
+        >
+          {copyLabel}
+        </button>
+        <button
+          type="button"
+          class="sl-btn sl-btn-primary sl-log-action sl-log-primary-action"
+          disabled={exportLabel !== 'Export diagnostics'}
+          onclick={exportDiagnostics}
+        >
+          {exportLabel}
+        </button>
+      </div>
     </div>
   </div>
 
