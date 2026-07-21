@@ -35,9 +35,7 @@ pub use platform::{
 mod platform {
     use super::WindowConfig;
     use std::{ffi::c_void, ptr::NonNull};
-    use stremio_lightning_core::pip::{
-        PipRestoreSnapshot, PipWindowController, PIP_WINDOW_HEIGHT, PIP_WINDOW_WIDTH,
-    };
+    use stremio_lightning_core::pip::{PipRestoreSnapshot, PipWindowController};
     use windows::core::{w, PCWSTR};
     use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, RECT, WPARAM};
     use windows::Win32::Graphics::Gdi::{
