@@ -450,8 +450,8 @@ mod platform {
             hInstance: instance.into(),
             hIcon: icon,
             hCursor: cursor,
-            // shell-ng keeps a dark splash/background behind transparent WebView2 while MPV loads.
-            hbrBackground: unsafe { CreateSolidBrush(COLORREF(0x0026111b)) },
+            // Keep a black background behind transparent WebView2 while MPV loads.
+            hbrBackground: unsafe { CreateSolidBrush(COLORREF(0x00000000)) },
             lpszClassName: class_name,
             ..Default::default()
         };
