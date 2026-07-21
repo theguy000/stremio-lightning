@@ -25,6 +25,28 @@ function initShellTransport(ctx) {
   var shellMessageListeners = [];
   var nativeChromeWebview = null;
   var mpvState = createMpvState();
+  var reportedTransportFailures = Object.create(null);
+
+  function transportMethod(payload) {
+    var parsed = parseTransportPayload(payload);
+    var args = parsed && parsed.args;
+    var method = Array.isArray(args) ? args[0] : null;
+    return typeof method === "string" && /^[a-z0-9_-]{1,64}$/i.test(method)
+      ? method
+      : "unknown";
+  }
+
+  function reportTransportFailure(payload, messageLength) {
+    var method = transportMethod(payload);
+    if (reportedTransportFailures[method]) return;
+    reportedTransportFailures[method] = true;
+    log.warn(
+      "[StremioLightning] Shell transport method is unavailable:",
+      method,
+      "message length:",
+      messageLength,
+    );
+  }
 
   try {
     nativeChromeWebview =
@@ -143,13 +165,8 @@ function initShellTransport(ctx) {
     var serialized =
       typeof payload === "string" ? payload : JSON.stringify(payload);
     return host.invoke("shell_transport_send", { message: serialized }).catch(
-      function (error) {
-        log.error(
-          "[StremioLightning] shell transport send failed:",
-          error,
-          "message length:",
-          serialized.length,
-        );
+      function () {
+        reportTransportFailure(payload, serialized.length);
       },
     );
   }
