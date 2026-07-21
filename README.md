@@ -48,7 +48,10 @@
 
 ## Development
 
-Developer guide, build instructions, and plugin API documentation are located in [`docs/developer-guide.md`](docs/developer-guide.md).
+Start with the [developer guide](docs/developer-guide.md). Detailed documentation
+is available for [packaging](docs/packaging.md), the
+[plugin API](docs/plugin-api.md), and
+[runtime architecture](docs/runtime-architecture.md).
 
 
 ## Platform Support
