@@ -49,7 +49,7 @@ mod platform {
     use windows::Win32::UI::WindowsAndMessaging::{
         CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetClientRect,
         GetMessageW, GetWindowLongPtrW, GetWindowPlacement, GetWindowRect, IsIconic, IsZoomed,
-        LoadCursorW, PostMessageW, PostQuitMessage, RegisterClassW, SendMessageW,
+        LoadCursorW, LoadIconW, PostMessageW, PostQuitMessage, RegisterClassW, SendMessageW,
         SetForegroundWindow, SetWindowLongPtrW, SetWindowPlacement, SetWindowPos, ShowWindow,
         TranslateMessage, CREATESTRUCTW, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, GWLP_USERDATA,
         GWL_EXSTYLE, GWL_STYLE, HTCAPTION, HWND_NOTOPMOST, HWND_TOPMOST, IDC_ARROW, MINMAXINFO,
@@ -62,6 +62,7 @@ mod platform {
     };
 
     pub const UI_THREAD_WAKE_MESSAGE: u32 = WM_APP + 1;
+    const APP_ICON_RESOURCE_ID: usize = 101;
 
     struct WindowState {
         config: WindowConfig,
@@ -435,11 +436,19 @@ mod platform {
 
         let cursor = unsafe { LoadCursorW(None, IDC_ARROW) }
             .map_err(|error| format!("Failed to load default cursor: {error}"))?;
+        let icon = unsafe {
+            LoadIconW(
+                Some(instance.into()),
+                PCWSTR(APP_ICON_RESOURCE_ID as *const u16),
+            )
+        }
+        .map_err(|error| format!("Failed to load application icon: {error}"))?;
 
         let window_class = WNDCLASSW {
             style: CS_HREDRAW | CS_VREDRAW,
             lpfnWndProc: Some(window_proc),
             hInstance: instance.into(),
+            hIcon: icon,
             hCursor: cursor,
             // shell-ng keeps a dark splash/background behind transparent WebView2 while MPV loads.
             hbrBackground: unsafe { CreateSolidBrush(COLORREF(0x0026111b)) },
