@@ -91,6 +91,11 @@ beforeEach(() => {
       error: (...values: unknown[]) => methods.error(source, ...values),
     })),
     entries: vi.fn(() => []),
+    clear: vi.fn(),
+    configure: vi.fn(),
+    flush: vi.fn().mockResolvedValue(undefined),
+    setExtendedDiagnostics: vi.fn(),
+    clearDiagnostics: vi.fn(),
     subscribe: vi.fn(() => () => {}),
   };
   window.StremioLightningLogger = browserLogger;

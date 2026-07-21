@@ -61,6 +61,7 @@ afterEach(() => {
   delete (window as typeof window & { qt?: unknown }).qt;
   delete (window as typeof window & { chrome?: unknown }).chrome;
   delete (window as typeof window & { StremioLightningLogger?: unknown }).StremioLightningLogger;
+  delete (window as typeof window & { __stremioLightningCapture?: unknown }).__stremioLightningCapture;
 });
 
 describe('bridge host bootstrap', () => {
@@ -162,6 +163,198 @@ describe('bridge host bootstrap', () => {
     expect(info).toHaveBeenCalledWith(circular);
   });
 
+  it('captures direct console errors once without recursion and warnings only in Extended mode', () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    window.eval(bridgeModuleSources[0]);
+    const logger = (window as any).StremioLightningLogger;
+
+    console.error('request failed https://media.example.test/video?token=secret {"token":"secret-json"} {\\"token\\":\\"escaped-json-secret\\"} session_id: browser-session-secret at C:\\Users\\local-user\\app.js:10');
+    console.warn('normal page warning');
+    logger.warn('bridge.test', 'explicit warning');
+    logger.configure({ extended: true });
+    console.warn('extended page warning');
+
+    const entries = logger.entries();
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledTimes(3);
+    expect(entries.filter((entry: { source: string }) => entry.source === 'web.console'))
+      .toHaveLength(2);
+    expect(entries.map((entry: { message: string }) => entry.message).join('\n'))
+      .toContain('https://media.example.test/video?token=[redacted]');
+    expect(entries.map((entry: { message: string }) => entry.message).join('\n'))
+      .not.toContain('token=secret');
+    expect(entries.map((entry: { message: string }) => entry.message).join('\n'))
+      .not.toContain('secret-json');
+    expect(entries.map((entry: { message: string }) => entry.message).join('\n'))
+      .not.toContain('escaped-json-secret');
+    expect(entries.map((entry: { message: string }) => entry.message).join('\n'))
+      .not.toContain('browser-session-secret');
+    expect(entries.map((entry: { message: string }) => entry.message).join('\n'))
+      .not.toContain('local-user');
+    expect(entries.some((entry: { message: string }) => entry.message === 'explicit warning')).toBe(true);
+  });
+
+  it('resets native Extended diagnostics when the bridge is reloaded', async () => {
+    vi.useFakeTimers();
+    const nativeShellHost = {
+      invoke: vi.fn().mockImplementation((command: string) => Promise.resolve(
+        command === 'init'
+          ? { diagnostics: { nativeHttpCapture: false, nativeNetworkFailureCapture: false } }
+          : undefined,
+      )),
+      listen: vi.fn().mockResolvedValue(() => {}),
+      window: appWindow,
+      webview,
+    };
+    window.StremioLightningHost = nativeShellHost as unknown as StremioLightningHost;
+
+    window.eval(bridgeModuleSources[0]);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(nativeShellHost.invoke).toHaveBeenCalledWith(
+      'set_extended_diagnostics',
+      { enabled: false },
+    );
+  });
+
+  it('clears the local ring and queued browser diagnostics', async () => {
+    const nativeShellHost = {
+      invoke: vi.fn().mockResolvedValue(undefined),
+      listen: vi.fn().mockResolvedValue(() => {}),
+      window: appWindow,
+      webview,
+    };
+    window.StremioLightningHost = nativeShellHost as unknown as StremioLightningHost;
+    vi.spyOn(console, 'info').mockImplementation(() => {});
+    window.eval(bridgeModuleSources[0]);
+    const logger = window.StremioLightningLogger!;
+
+    logger.info('bridge.test', 'queued record');
+    logger.clear();
+    await logger.flush();
+
+    expect(logger.entries()).toEqual([]);
+    expect(nativeShellHost.invoke).not.toHaveBeenCalledWith(
+      'submit_diagnostic_logs',
+      expect.anything(),
+    );
+  });
+
+  it('batches sanitized diagnostics and retries failed native submissions', async () => {
+    vi.useFakeTimers();
+    let submitAttempts = 0;
+    const nativeShellHost = {
+      invoke: vi.fn().mockImplementation((command: string) => {
+        if (command === 'submit_diagnostic_logs') {
+          submitAttempts++;
+          return submitAttempts === 1
+            ? Promise.reject(new Error('temporarily unavailable'))
+            : Promise.resolve(undefined);
+        }
+        return Promise.resolve({ diagnostics: { nativeHttpCapture: true } });
+      }),
+      listen: vi.fn().mockResolvedValue(() => {}),
+      window: appWindow,
+      webview,
+    };
+    window.StremioLightningHost = nativeShellHost as unknown as StremioLightningHost;
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    window.eval(bridgeModuleSources[0]);
+    const logger = window.StremioLightningLogger!;
+
+    logger.error('bridge.test', 'failed https://media.example.test/video?token=secret');
+    const flush = logger.flush();
+    await vi.advanceTimersByTimeAsync(500);
+    await flush;
+
+    expect(submitAttempts).toBe(2);
+    const batches = nativeShellHost.invoke.mock.calls
+      .filter(([command]) => command === 'submit_diagnostic_logs')
+      .map(([, payload]) => JSON.stringify(payload));
+    expect(batches).toHaveLength(2);
+    expect(batches.join('\n')).toContain('https://media.example.test/video?token=[redacted]');
+    expect(batches.join('\n')).not.toContain('token=secret');
+  });
+
+  it('does not restore an in-flight batch after diagnostics are cleared', async () => {
+    vi.useFakeTimers();
+    let rejectSubmission: ((error: Error) => void) | undefined;
+    const nativeShellHost = {
+      invoke: vi.fn().mockImplementation((command: string) => {
+        if (command === 'submit_diagnostic_logs') {
+          return new Promise<void>((_resolve, reject) => {
+            rejectSubmission = reject;
+          });
+        }
+        return Promise.resolve({ diagnostics: { nativeHttpCapture: false } });
+      }),
+      listen: vi.fn().mockResolvedValue(() => {}),
+      window: appWindow,
+      webview,
+    };
+    window.StremioLightningHost = nativeShellHost as unknown as StremioLightningHost;
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    window.eval(bridgeModuleSources[0]);
+    const logger = window.StremioLightningLogger!;
+
+    logger.error('bridge.test', 'in-flight failure');
+    logger.clearDiagnostics();
+    rejectSubmission?.(new Error('late rejection'));
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    expect(nativeShellHost.invoke.mock.calls.filter(([command]) =>
+      command === 'submit_diagnostic_logs'
+    )).toHaveLength(1);
+    expect(logger.entries()).toEqual([]);
+  });
+
+  it('bounds the browser diagnostic queue and reports drops without recursive console capture', () => {
+    vi.spyOn(console, 'info').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    window.eval(bridgeModuleSources[0]);
+    const logger = window.StremioLightningLogger!;
+
+    for (let index = 0; index < 501; index++) {
+      logger.info('bridge.test', `record ${index}`);
+    }
+
+    const dropped = logger.entries().filter((entry) =>
+      entry.message.includes('Browser diagnostic records were dropped'),
+    );
+    expect(dropped).toHaveLength(1);
+    expect(dropped[0]).toMatchObject({ source: 'bridge.diagnostics', level: 'warn' });
+  });
+
+  it('keeps every browser submission below the native batch byte limit', async () => {
+    vi.useFakeTimers();
+    const nativeShellHost = {
+      invoke: vi.fn().mockImplementation((command: string) => Promise.resolve(
+        command === 'init' ? { diagnostics: { nativeHttpCapture: false } } : undefined,
+      )),
+      listen: vi.fn().mockResolvedValue(() => {}),
+      window: appWindow,
+      webview,
+    };
+    window.StremioLightningHost = nativeShellHost as unknown as StremioLightningHost;
+    vi.spyOn(console, 'info').mockImplementation(() => {});
+    window.eval(bridgeModuleSources[0]);
+    const logger = window.StremioLightningLogger!;
+
+    for (let index = 0; index < 20; index++) {
+      logger.info('bridge.test', `${index} ${'\u{1F680}'.repeat(4_000)}`);
+    }
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    const payloads = nativeShellHost.invoke.mock.calls
+      .filter(([command]) => command === 'submit_diagnostic_logs')
+      .map(([, payload]) => JSON.stringify(payload));
+    expect(payloads.length).toBeGreaterThan(1);
+    expect(payloads.every((payload) => new TextEncoder().encode(payload).length < 256 * 1024))
+      .toBe(true);
+  });
+
   it('bounds retained message size and object traversal', () => {
     vi.spyOn(console, 'info').mockImplementation(() => {});
     window.eval(bridgeModuleSources[0]);
@@ -177,7 +370,25 @@ describe('bridge host bootstrap', () => {
     expect(logger.entries()[1].message).toContain('[Max depth]');
   });
 
-  it('retains uncaught errors, promise rejections, and code resource failures', () => {
+  it('preserves non-HTTP URLs while redacting embedded credentials', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    window.eval(bridgeModuleSources[0]);
+    const logger = window.StremioLightningLogger!;
+
+    logger.error(
+      'rtsp://source-secret@source.example.test/private',
+      'rtsp://user:password@media.example.test/private',
+      'data:text/plain,secret',
+    );
+
+    expect(logger.entries()[0].message).toContain(
+      'rtsp://[redacted]@media.example.test/private data:text/plain,secret',
+    );
+    expect(logger.entries()[0].message).not.toContain('password');
+    expect(logger.entries()[0].source).toBe('browser.external');
+  });
+
+  it('retains uncaught errors, promise rejections, and safe resource failures', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     window.eval(bridgeModuleSources[0]);
 
@@ -212,7 +423,31 @@ describe('bridge host bootstrap', () => {
     expect(entries[2].message).toContain('script');
     expect(entries[3].message).toContain('stylesheet');
     expect(entries.map((entry: { message: string }) => entry.message).join('\n'))
-      .not.toMatch(/media\.example\.test|token=secret|secret-value/);
+      .toContain('https://media.example.test/video?token=[redacted]');
+    expect(entries.map((entry: { message: string }) => entry.message).join('\n'))
+      .not.toMatch(/token=secret|secret-value/);
+  });
+
+  it('classifies media, font, and document resource failures without addresses', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    window.eval(bridgeModuleSources[0]);
+    const audio = document.createElement('audio');
+    audio.src = 'https://media.example.test/audio?token=secret';
+    const font = document.createElement('link');
+    font.as = 'font';
+    font.href = 'https://fonts.example.test/font.woff2?token=secret';
+    document.body.append(audio, font);
+
+    audio.dispatchEvent(new Event('error'));
+    font.dispatchEvent(new Event('error'));
+    document.dispatchEvent(new Event('error'));
+
+    const messages = window.StremioLightningLogger!.entries().map((entry) => entry.message).join('\n');
+    expect(messages).toContain('media');
+    expect(messages).toContain('font');
+    expect(messages).toContain('document');
+    expect(messages).toContain('resource address redacted');
+    expect(messages).not.toMatch(/media\.example\.test|fonts\.example\.test|token=secret/);
   });
 
   it('retains failed addon requests without request details', async () => {
@@ -237,26 +472,106 @@ describe('bridge host bootstrap', () => {
     await frameWindow.fetch('https://addon.example.test/stream?token=secret');
 
     const entries = (frameWindow as any).StremioLightningLogger.entries();
-    expect(entries).toHaveLength(2);
+    expect(entries).toHaveLength(1);
     expect(entries[0]).toMatchObject({
-      level: 'info',
-      source: 'bridge.network',
-      message: expect.stringContaining(
-        'Stream request #1 started: GET stream discovery via fetch from addon #1',
-      ),
-    });
-    expect(entries[1]).toMatchObject({
       level: 'error',
       source: 'bridge.network',
       message: expect.stringContaining(
-        'request #1 failed: GET stream discovery via fetch from addon #1 -> HTTP 503 Service Unavailable after',
+        'Browser request failed: GET stream discovery via fetch from origin #1 -> HTTP 503 after',
       ),
     });
     expect(entries.map((entry: { message: string }) => entry.message).join('\n'))
       .not.toMatch(/addon\.example\.test|token=secret/);
   });
 
-  it('retains successful stream discovery without logging other successes', async () => {
+  it('captures generic opensubHash HTTP failures with safe request metadata', async () => {
+    const frame = document.createElement('iframe');
+    document.body.appendChild(frame);
+    const frameWindow = frame.contentWindow as Window & typeof globalThis;
+    Object.defineProperty(frameWindow, 'fetch', {
+      configurable: true,
+      value: vi.fn().mockResolvedValue({ ok: false, status: 500 }),
+      writable: true,
+    });
+    vi.spyOn(frameWindow.console, 'error').mockImplementation(() => {});
+    frameWindow.eval(bridgeModuleSources[0]);
+
+    await frameWindow.fetch('https://subtitle.example.test/opensubHash?mediaId=tt-secret&token=secret', {
+      method: 'post',
+      headers: { authorization: 'Bearer secret' },
+      body: 'secret body',
+    });
+
+    const message = (frameWindow as any).StremioLightningLogger.entries()[0].message;
+    expect(message).toMatch(/POST subtitle hash via fetch from origin #1 -> HTTP 500 after \d+ ms/);
+    expect(message).not.toMatch(/subtitle\.example\.test|tt-secret|token=secret|Bearer|secret body/);
+  });
+
+  it('suppresses native-captured HTTP responses but retains browser network errors', async () => {
+    const frame = document.createElement('iframe');
+    document.body.appendChild(frame);
+    const frameWindow = frame.contentWindow as Window & typeof globalThis;
+    const fetch = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 503 })
+      .mockRejectedValueOnce(new Error('https://media.example.test/video?token=secret'));
+    Object.defineProperty(frameWindow, 'fetch', { configurable: true, value: fetch, writable: true });
+    vi.spyOn(frameWindow.console, 'error').mockImplementation(() => {});
+    frameWindow.eval(bridgeModuleSources[0]);
+    const logger = (frameWindow as any).StremioLightningLogger;
+    logger.configure({ nativeHttpCapture: true });
+
+    await frameWindow.fetch('https://addon.example.test/meta/movie/tt-secret.json?token=secret');
+    await expect(frameWindow.fetch('https://addon.example.test/meta/movie/tt-secret.json?token=secret'))
+      .rejects.toThrow('token=secret');
+
+    const entries = logger.entries();
+    expect(entries).toHaveLength(1);
+    expect(entries[0].message).toContain('network error');
+    expect(entries[0].message).not.toMatch(/media\.example\.test|token=secret/);
+  });
+
+  it('suppresses browser network errors when native failure capture is active', async () => {
+    const frame = document.createElement('iframe');
+    document.body.appendChild(frame);
+    const frameWindow = frame.contentWindow as Window & typeof globalThis;
+    Object.defineProperty(frameWindow, 'fetch', {
+      configurable: true,
+      value: vi.fn().mockRejectedValue(new Error('rtsp://media.example.test/private')),
+      writable: true,
+    });
+    vi.spyOn(frameWindow.console, 'error').mockImplementation(() => {});
+    frameWindow.eval(bridgeModuleSources[0]);
+    const logger = (frameWindow as any).StremioLightningLogger;
+    logger.configure({ nativeNetworkFailureCapture: true });
+
+    await expect(frameWindow.fetch('rtsp://media.example.test/private')).rejects.toThrow();
+
+    expect(logger.entries()).toEqual([]);
+  });
+
+  it('records successful request lifecycle details only in Extended mode', async () => {
+    const frame = document.createElement('iframe');
+    document.body.appendChild(frame);
+    const frameWindow = frame.contentWindow as Window & typeof globalThis;
+    Object.defineProperty(frameWindow, 'fetch', {
+      configurable: true,
+      value: vi.fn().mockResolvedValue({ ok: true, status: 200 }),
+      writable: true,
+    });
+    vi.spyOn(frameWindow.console, 'debug').mockImplementation(() => {});
+    frameWindow.eval(bridgeModuleSources[0]);
+    const logger = (frameWindow as any).StremioLightningLogger;
+    logger.configure({ extended: true });
+
+    await frameWindow.fetch('https://addon.example.test/catalog/movie/top.json?token=secret');
+
+    expect(logger.entries()).toHaveLength(2);
+    expect(logger.entries().every((entry: { level: string }) => entry.level === 'debug')).toBe(true);
+    expect(logger.entries().map((entry: { message: string }) => entry.message).join('\n'))
+      .not.toMatch(/addon\.example\.test|token=secret/);
+  });
+
+  it('omits successful request lifecycle records by default', async () => {
     const frame = document.createElement('iframe');
     document.body.appendChild(frame);
     const frameWindow = frame.contentWindow as Window & typeof globalThis;
@@ -276,14 +591,7 @@ describe('bridge host bootstrap', () => {
       'https://addon.example.test/stream/movie/tt-secret.json?token=secret',
     );
 
-    const entries = (frameWindow as any).StremioLightningLogger.entries();
-    expect(entries).toHaveLength(2);
-    expect(entries[0].message).toContain('Stream request #1 started');
-    expect(entries[1].message).toMatch(
-      /Stream request #1 completed: GET stream discovery \(movie\) via fetch from addon #1 -> HTTP 200 OK in \d+ ms/,
-    );
-    expect(entries.map((entry: { message: string }) => entry.message).join('\n'))
-      .not.toMatch(/addon\.example\.test|tt-secret|token=secret/);
+    expect((frameWindow as any).StremioLightningLogger.entries()).toEqual([]);
   });
 
   it('warns when stream discovery remains pending', async () => {
@@ -304,8 +612,8 @@ describe('bridge host bootstrap', () => {
     await vi.advanceTimersByTimeAsync(15_000);
 
     const entries = (frameWindow as any).StremioLightningLogger.entries();
-    expect(entries).toHaveLength(2);
-    expect(entries[1]).toMatchObject({
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
       level: 'warn',
       source: 'bridge.network',
       message: expect.stringContaining(
@@ -367,6 +675,33 @@ describe('bridge host bootstrap', () => {
     expect(messages.join('\n')).not.toContain('media.example.test');
     expect(messages.join('\n')).not.toContain('external.example.test');
     expect(messages.join('\n')).not.toContain('token=secret');
+  });
+
+  it('reports an unavailable shell transport method once without its payload', async () => {
+    const nativeShellHost = {
+      invoke: vi.fn().mockImplementation((command: string) => {
+        if (command === 'shell_transport_send') return Promise.reject(new Error('unsupported'));
+        return Promise.resolve(undefined);
+      }),
+      listen: vi.fn().mockResolvedValue(() => {}),
+      window: appWindow,
+      webview,
+    };
+    window.StremioLightningHost = nativeShellHost as unknown as StremioLightningHost;
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    runBridge();
+
+    const payload = {
+      args: ['unsupported-method', 'https://media.example.test/video?token=secret'],
+    };
+    await (window as any).qt.webChannelTransport.send(payload);
+    await (window as any).qt.webChannelTransport.send(payload);
+
+    const messages = window.StremioLightningLogger!.entries()
+      .filter((entry) => entry.source === 'bridge.shell-transport')
+      .map((entry) => entry.message);
+    expect(messages.filter((message) => message.includes('unsupported-method'))).toHaveLength(1);
+    expect(messages.join('\n')).not.toMatch(/media\.example\.test|token=secret/);
   });
 
   it('installs desktop shell transport compatibility shims', async () => {

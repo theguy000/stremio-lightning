@@ -27,6 +27,12 @@ const ipcTestCases: IpcTestCase[] = [
   ['togglePip', 'toggle_pip', []],
   ['getPipMode', 'get_pip_mode', []],
   ['getLogs', 'get_logs', [42]],
+  ['submitDiagnosticLogs', 'submit_diagnostic_logs', [[{
+    level: 'error', source: 'bridge.test', message: 'failed', timestamp: 42,
+  }]]],
+  ['setExtendedDiagnostics', 'set_extended_diagnostics', [true]],
+  ['getDiagnosticReport', 'get_diagnostic_report', []],
+  ['clearDiagnostics', 'clear_diagnostics', []],
   ['openExternalUrl', 'open_external_url', ['https://example.test']],
 ];
 
@@ -42,6 +48,8 @@ function expectedPayload(command: HostCommand, args: unknown[]): unknown {
     set_auto_pause: { enabled: args[0] },
     set_pip_disables_auto_pause: { enabled: args[0] },
     get_logs: { afterId: args[0] },
+    submit_diagnostic_logs: { entries: args[0] },
+    set_extended_diagnostics: { enabled: args[0] },
     open_external_url: { url: args[0] },
   };
 
