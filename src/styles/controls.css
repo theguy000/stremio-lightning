@@ -1,43 +1,78 @@
 /* ── Toggle ── */
 .sl-toggle {
   position: relative;
-  display: inline-block;
-  width: 44px;
-  height: 24px;
+  display: inline-flex;
+  flex: none;
+  width: 48px;
+  height: 28px;
   cursor: pointer;
   align-self: flex-end;
 }
 
 .sl-toggle input {
-  display: none;
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: inherit;
 }
 
 .sl-toggle-track {
+  position: relative;
+  display: block;
   width: 100%;
   height: 100%;
-  background: var(--overlay-color, rgba(255, 255, 255, 0.15));
-  border-radius: 12px;
-  transition: background 0.2s;
-  position: relative;
+  border-radius: 999px;
+  box-sizing: border-box;
+  background: var(--overlay-color, rgba(255, 255, 255, 0.14));
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.24);
+  transition: background-color 0.18s ease-out, filter 0.18s ease-out;
+}
+
+.sl-toggle input:hover+.sl-toggle-track {
+  background: rgba(255, 255, 255, 0.22);
 }
 
 .sl-toggle input:checked+.sl-toggle-track {
   background: var(--secondary-accent-color, var(--primary-accent-color, #7b5bf5));
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.18);
+}
+
+.sl-toggle input:checked:hover+.sl-toggle-track {
+  filter: brightness(1.18);
+}
+
+.sl-toggle input:focus-visible+.sl-toggle-track {
+  outline: 2px solid var(--primary-foreground-color, #f2f2f2);
+  outline-offset: 3px;
+}
+
+.sl-toggle input:disabled {
+  cursor: default;
+}
+
+.sl-toggle input:disabled+.sl-toggle-track {
+  opacity: 0.5;
 }
 
 .sl-toggle-thumb {
-  width: 20px;
-  height: 20px;
-  background: white;
-  border-radius: 50%;
   position: absolute;
-  top: 2px;
-  left: 2px;
-  transition: transform 0.2s;
+  top: 3px;
+  left: 3px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.38);
+  transition: transform 0.18s ease-out, background-color 0.18s ease-out;
 }
 
 .sl-toggle input:checked+.sl-toggle-track .sl-toggle-thumb {
   transform: translateX(20px);
+  background: #fff;
 }
 
 /* ── Buttons ── */
