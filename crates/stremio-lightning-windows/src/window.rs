@@ -19,6 +19,11 @@ impl Default for WindowConfig {
     }
 }
 
+fn window_activation_focused(wparam: usize) -> bool {
+    // WM_ACTIVATE stores WA_INACTIVE in the low word and minimization state in the high word.
+    wparam & 0xffff != 0
+}
+
 pub const UI_THREAD_WAKE_MESSAGE: u32 = platform::UI_THREAD_WAKE_MESSAGE;
 
 pub fn run_native_window(config: WindowConfig) -> Result<(), String> {
@@ -56,9 +61,9 @@ mod platform {
         MSG, SHOW_WINDOW_CMD, SIZE_MAXIMIZED, SIZE_MINIMIZED, SIZE_RESTORED, SWP_FRAMECHANGED,
         SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE,
         SW_SHOWDEFAULT, WINDOWPLACEMENT, WINDOW_EX_STYLE, WM_ACTIVATE, WM_APP, WM_APPCOMMAND,
-        WM_CLOSE, WM_DESTROY, WM_DPICHANGED, WM_GETMINMAXINFO, WM_KILLFOCUS, WM_NCCREATE,
-        WM_NCDESTROY, WM_NCLBUTTONDOWN, WM_SETFOCUS, WM_SIZE, WNDCLASSW, WS_CLIPCHILDREN,
-        WS_EX_TOPMOST, WS_OVERLAPPEDWINDOW, WS_POPUP, WS_VISIBLE,
+        WM_CLOSE, WM_DESTROY, WM_DPICHANGED, WM_GETMINMAXINFO, WM_NCCREATE, WM_NCDESTROY,
+        WM_NCLBUTTONDOWN, WM_SIZE, WNDCLASSW, WS_CLIPCHILDREN, WS_EX_TOPMOST, WS_OVERLAPPEDWINDOW,
+        WS_POPUP, WS_VISIBLE,
     };
 
     pub const UI_THREAD_WAKE_MESSAGE: u32 = WM_APP + 1;
@@ -561,9 +566,9 @@ mod platform {
                 }
                 LRESULT(0)
             }
-            WM_SETFOCUS | WM_KILLFOCUS => {
+            WM_ACTIVATE => {
                 notify_handler(hwnd, "focus", |handler| {
-                    handler.on_focus_changed(hwnd, message == WM_SETFOCUS)
+                    handler.on_focus_changed(hwnd, super::window_activation_focused(wparam.0))
                 });
                 default_window_proc(hwnd, message, wparam, lparam)
             }
@@ -609,7 +614,7 @@ mod platform {
                 }
                 default_window_proc(hwnd, message, wparam, lparam)
             }
-            WM_ACTIVATE | WM_DPICHANGED => default_window_proc(hwnd, message, wparam, lparam),
+            WM_DPICHANGED => default_window_proc(hwnd, message, wparam, lparam),
             _ => default_window_proc(hwnd, message, wparam, lparam),
         }
     }
@@ -743,5 +748,13 @@ mod tests {
     #[test]
     fn ui_thread_wake_message_uses_app_message_range() {
         const { assert!(UI_THREAD_WAKE_MESSAGE >= 0x8000) };
+    }
+
+    #[test]
+    fn window_activation_uses_only_the_low_word() {
+        assert!(!window_activation_focused(0));
+        assert!(window_activation_focused(1));
+        assert!(window_activation_focused(2));
+        assert!(!window_activation_focused(1 << 16));
     }
 }

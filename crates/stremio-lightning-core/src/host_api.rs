@@ -342,6 +342,7 @@ pub struct ShellPreferenceState {
     pub auto_pause: bool,
     pub pip_disables_auto_pause: bool,
     pub auto_paused: bool,
+    pub player_active: bool,
     pub player_paused: bool,
 }
 
@@ -351,6 +352,7 @@ impl Default for ShellPreferenceState {
             auto_pause: true,
             pip_disables_auto_pause: true,
             auto_paused: false,
+            player_active: false,
             player_paused: true,
         }
     }
@@ -500,11 +502,48 @@ impl<P: PlatformBridge> BaseHost<P> {
             }
             ("mpv-event-ended", _) => {
                 let mut prefs = self.lock_shell_preferences()?;
+                prefs.player_active = false;
                 prefs.player_paused = true;
                 prefs.auto_paused = false;
             }
             _ => {}
         }
+        Ok(())
+    }
+
+    fn update_player_state_from_command(
+        &self,
+        command: &str,
+        payload: &Option<Value>,
+    ) -> Result<(), String> {
+        if command == "mpv-set-prop" {
+            return self.update_player_paused_from_set_prop(payload);
+        }
+
+        let player_active = match command {
+            "native-player-stop" => Some(false),
+            "mpv-command" => match payload
+                .as_ref()
+                .and_then(Value::as_array)
+                .and_then(|args| args.first())
+                .and_then(Value::as_str)
+            {
+                Some("loadfile") => Some(true),
+                Some("stop" | "quit") => Some(false),
+                _ => None,
+            },
+            _ => None,
+        };
+
+        if let Some(player_active) = player_active {
+            let mut prefs = self.lock_shell_preferences()?;
+            prefs.player_active = player_active;
+            prefs.auto_paused = false;
+            if !player_active {
+                prefs.player_paused = true;
+            }
+        }
+
         Ok(())
     }
 
@@ -949,10 +988,9 @@ impl<P: PlatformBridge> BaseHost<P> {
                 self.lock_shell_preferences()?.pip_disables_auto_pause
             )),
             "mpv-observe-prop" | "mpv-set-prop" | "mpv-command" | "native-player-stop" => {
-                if command == "mpv-set-prop" {
-                    self.update_player_paused_from_set_prop(&payload)?;
-                }
-                self.bridge.handle_custom_transport(command, payload)?;
+                self.bridge
+                    .handle_custom_transport(command, payload.clone())?;
+                self.update_player_state_from_command(command, &payload)?;
                 Ok(Value::Null)
             }
             "toggle_devtools" => Ok(Value::Null),
@@ -1006,7 +1044,8 @@ impl<P: PlatformBridge> BaseHost<P> {
                         self.bridge.is_window_fullscreen()?,
                     )))?;
                 } else {
-                    self.bridge.handle_custom_transport(&method, data)?;
+                    self.bridge.handle_custom_transport(&method, data.clone())?;
+                    self.update_player_state_from_command(&method, &data)?;
                 }
                 Ok(())
             }
@@ -1021,7 +1060,10 @@ impl<P: PlatformBridge> BaseHost<P> {
         // Determine the action while holding the lock, then release before calling bridge
         let pause_action = {
             let prefs = self.lock_shell_preferences()?;
-            if !prefs.auto_pause || (is_pip && prefs.pip_disables_auto_pause) {
+            if !prefs.player_active
+                || !prefs.auto_pause
+                || (is_pip && prefs.pip_disables_auto_pause)
+            {
                 return Ok(());
             }
             if focused && prefs.auto_paused {
@@ -1489,10 +1531,58 @@ mod tests {
             ..Default::default()
         });
 
-        host.shell_preferences.lock().unwrap().player_paused = false;
+        {
+            let mut prefs = host.shell_preferences.lock().unwrap();
+            prefs.player_active = true;
+            prefs.player_paused = false;
+        }
 
         let error = host.update_window_focus(false).unwrap_err();
         assert_eq!(error, "transport failed for mpv-set-prop");
         assert!(!host.shell_preferences.lock().unwrap().auto_paused);
+    }
+
+    #[test]
+    fn auto_pause_ignores_stale_unpaused_state_without_active_playback() {
+        let host = test_host(TestBridge {
+            fail_custom_transport: true,
+            ..Default::default()
+        });
+        host.shell_preferences.lock().unwrap().player_paused = false;
+
+        host.update_window_focus(false).unwrap();
+
+        assert!(!host.shell_preferences.lock().unwrap().auto_paused);
+    }
+
+    #[test]
+    fn player_stop_disables_auto_pause_before_late_property_events() {
+        let host = test_host(TestBridge::default());
+        host.handle_shell_transport_message(
+            r#"{"id":0,"type":6,"args":["mpv-command",["loadfile","https://example.test/video"]]}"#,
+        )
+        .unwrap();
+        host.queue_transport_message(response_message(json!([
+            "mpv-prop-change",
+            {"name": "pause", "data": false}
+        ])))
+        .unwrap();
+
+        host.update_window_focus(false).unwrap();
+        assert!(host.shell_preferences.lock().unwrap().auto_paused);
+        host.update_window_focus(true).unwrap();
+
+        host.handle_shell_transport_message(r#"{"id":0,"type":6,"args":["mpv-command",["stop"]]}"#)
+            .unwrap();
+        host.queue_transport_message(response_message(json!([
+            "mpv-prop-change",
+            {"name": "pause", "data": false}
+        ])))
+        .unwrap();
+        host.update_window_focus(false).unwrap();
+
+        let prefs = host.shell_preferences.lock().unwrap();
+        assert!(!prefs.player_active);
+        assert!(!prefs.auto_paused);
     }
 }
