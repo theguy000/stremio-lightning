@@ -807,6 +807,49 @@ describe('bridge host bootstrap', () => {
     expect(messages).not.toMatch(/media\.example\.test|token=secret/);
   });
 
+  it('adds the PiP button after the volume slider on navigation and control remounts', async () => {
+    const nativeShellHost = {
+      invoke: vi.fn().mockResolvedValue(undefined),
+      listen: vi.fn().mockResolvedValue(() => {}),
+      window: appWindow,
+      webview,
+    };
+    window.StremioLightningHost = nativeShellHost as unknown as StremioLightningHost;
+    window.history.replaceState({}, '', '#/');
+
+    runBridge();
+
+    window.history.pushState({}, '', '#/player/test');
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+    const oldControls = document.createElement('div');
+    oldControls.className = 'control-bar-buttons-container-old';
+    oldControls.innerHTML =
+      '<div id="volume-button" class="control-bar-button-old"></div>' +
+      '<div id="volume-slider" class="volume-slider-old"></div>' +
+      '<div class="spacing-old"></div>';
+    document.body.appendChild(oldControls);
+
+    await vi.waitFor(() => {
+      expect(oldControls.querySelector('#sl-pip-btn')).not.toBeNull();
+    });
+    expect(oldControls.querySelector('#volume-slider')?.nextElementSibling?.id).toBe('sl-pip-btn');
+
+    const newControls = document.createElement('div');
+    newControls.className = 'control-bar-buttons-container-new';
+    newControls.innerHTML =
+      '<div class="control-bar-button-new"></div>' +
+      '<div class="volume-slider-new"></div>' +
+      '<div class="spacing-new"></div>';
+    oldControls.replaceWith(newControls);
+
+    await vi.waitFor(() => {
+      expect(newControls.querySelector('#sl-pip-btn')).not.toBeNull();
+    });
+
+    document.dispatchEvent(new CustomEvent('sl-pip-feature-changed', { detail: false }));
+    window.history.replaceState({}, '', '#/');
+  });
+
   it('dispatches shell transport messages to Qt, chrome listeners, and PiP events', () => {
     let shellTransportCallback:
       | ((event: { event: 'shell-transport-message'; payload: string }) => void)

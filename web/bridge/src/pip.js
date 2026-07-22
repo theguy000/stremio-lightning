@@ -2,7 +2,8 @@ function initPictureInPicture(ctx) {
   var log = window.StremioLightningLogger.bind("bridge.pip");
   var host = ctx.host;
   var appWindow = ctx.appWindow;
-  var pipBtnInjected = false;
+  var pipObserver = null;
+  var pipObserverTimeout = null;
   var pipDragActive = false;
   var interactiveTags = ["A", "BUTTON", "INPUT", "LABEL", "SELECT", "TEXTAREA"];
   var interactiveRoles = ["button", "menuitem", "option", "slider", "tab", "textbox"];
@@ -20,12 +21,12 @@ function initPictureInPicture(ctx) {
   }
 
   function injectPipButton() {
-    if (pipBtnInjected) return;
+    if (document.getElementById("sl-pip-btn")) return "present";
 
     var containers = document.querySelectorAll(
       '[class*="control-bar-buttons-container"]',
     );
-    if (!containers.length) return;
+    if (!containers.length) return "controls-missing";
 
     var btnContainer = containers[containers.length - 1];
     var btn = document.createElement("button");
@@ -54,41 +55,86 @@ function initPictureInPicture(ctx) {
       btn.blur();
     });
 
+    var volumeSlider = btnContainer.querySelector('[class*="volume-slider"]');
     var spacing = btnContainer.querySelector('[class*="spacing"]');
-    if (spacing) {
+    if (volumeSlider) {
+      btnContainer.insertBefore(btn, volumeSlider.nextSibling);
+    } else if (spacing) {
       btnContainer.insertBefore(btn, spacing);
     } else {
       btnContainer.appendChild(btn);
     }
-
-    pipBtnInjected = true;
+    return "injected";
   }
 
   function removePipButton() {
     var btn = document.getElementById("sl-pip-btn");
-    if (btn) {
-      btn.remove();
-      pipBtnInjected = false;
+    if (btn) btn.remove();
+  }
+
+  function stopPipObserver() {
+    if (pipObserver) {
+      pipObserver.disconnect();
+      pipObserver = null;
+    }
+    if (pipObserverTimeout) {
+      clearTimeout(pipObserverTimeout);
+      pipObserverTimeout = null;
+    }
+  }
+
+  function observePipButton() {
+    if (!document.body) return;
+
+    stopPipObserver();
+
+    pipObserver = new MutationObserver(function () {
+      if (!ctx.pipFeatureOn) return;
+      if (!isPlayerRoute()) {
+        stopPipObserver();
+        removePipButton();
+        return;
+      }
+
+      var result = injectPipButton();
+      if (result === "injected") {
+        log.info("[StremioLightning] PiP button restored after controls changed");
+      }
+      observePipButton();
+    });
+
+    var btn = document.getElementById("sl-pip-btn");
+    var controls = btn && btn.parentElement;
+    if (!controls) {
+      pipObserver.observe(document.body, { childList: true, subtree: true });
+      pipObserverTimeout = setTimeout(stopPipObserver, 30000);
+      return;
+    }
+
+    var node = controls;
+    while (node) {
+      pipObserver.observe(node, { childList: true });
+      if (node === document.body) break;
+      node = node.parentElement;
     }
   }
 
   function updatePipButton() {
-    if (!isPlayerRoute() || !ctx.pipFeatureOn) {
+    if (!ctx.pipFeatureOn) {
+      stopPipObserver();
       removePipButton();
       return;
     }
 
-    injectPipButton();
-    if (pipBtnInjected) return;
+    if (!isPlayerRoute()) {
+      stopPipObserver();
+      removePipButton();
+      return;
+    }
 
-    var observer = new MutationObserver(function () {
-      injectPipButton();
-      if (pipBtnInjected) observer.disconnect();
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
-    setTimeout(function () {
-      observer.disconnect();
-    }, 30000);
+    var result = injectPipButton();
+    observePipButton();
+    log.info("[StremioLightning] PiP button update: " + result);
   }
 
   function isInteractiveNode(el) {
