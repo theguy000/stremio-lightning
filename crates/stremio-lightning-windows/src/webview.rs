@@ -562,13 +562,15 @@ mod platform {
         }
 
         fn on_focus_changed(&mut self, _hwnd: HWND, focused: bool) -> Result<(), String> {
+            self.host.update_window_focus(focused)?;
+            self.post_host_events()?;
+
             if focused {
                 if let Some(runtime) = self.runtime.as_ref() {
                     runtime.focus()?;
                 }
             }
-            self.host.update_window_focus(focused)?;
-            self.post_host_events()
+            Ok(())
         }
 
         fn on_media_key(&mut self, _hwnd: HWND, action: MediaKeyAction) -> Result<(), String> {
