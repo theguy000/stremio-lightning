@@ -15,6 +15,7 @@ pub struct NativeWindowPlan {
     pub min_height: f64,
     pub title: &'static str,
     pub ipc_handler: &'static str,
+    pub start_maximized: bool,
     pub video_layer_behind_webview: bool,
     pub transparent_webview: bool,
     pub mpv_attached_before_load: bool,
@@ -29,6 +30,7 @@ impl Default for NativeWindowPlan {
             min_height: 600.0,
             title: crate::APP_NAME,
             ipc_handler: IPC_HANDLER_NAME,
+            start_maximized: true,
             video_layer_behind_webview: true,
             transparent_webview: true,
             mpv_attached_before_load: true,
@@ -52,6 +54,9 @@ impl NativeWindowPlan {
         }
         if self.ipc_handler != IPC_HANDLER_NAME {
             return Err("macOS native window IPC handler must be named ipc".to_string());
+        }
+        if !self.start_maximized {
+            return Err("macOS native window must start maximized".to_string());
         }
         if !self.video_layer_behind_webview || !self.transparent_webview {
             return Err(
@@ -124,8 +129,8 @@ pub fn run_native_window(
     mut runtime: MacosWebviewRuntime<MpvPlayerBackend, RealProcessSpawner>,
     player: MpvPlayerBackend,
 ) -> Result<(), String> {
-    let _state = prepare_native_launch(&mut runtime, &player)?;
-    appkit_shell::run(config, runtime, player)
+    let state = prepare_native_launch(&mut runtime, &player)?;
+    appkit_shell::run(config, runtime, player, state.plan)
 }
 
 pub fn prepare_native_launch(
@@ -151,6 +156,7 @@ mod appkit_shell {
         _config: AppConfig,
         _runtime: MacosWebviewRuntime<MpvPlayerBackend, RealProcessSpawner>,
         _player: MpvPlayerBackend,
+        _plan: NativeWindowPlan,
     ) -> Result<(), String> {
         stremio_lightning_core::logging::info(
             "native.window",
@@ -229,6 +235,7 @@ mod tests {
         assert_eq!(plan.min_width, 800.0);
         assert_eq!(plan.min_height, 600.0);
         assert_eq!(plan.ipc_handler, IPC_HANDLER_NAME);
+        assert!(plan.start_maximized);
         assert!(plan.video_layer_behind_webview);
         assert!(plan.transparent_webview);
         assert!(plan.mpv_attached_before_load);
