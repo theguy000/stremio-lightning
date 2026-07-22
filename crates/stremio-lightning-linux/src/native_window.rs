@@ -220,6 +220,7 @@ fn build_window(
         });
     }
 
+    window.maximize();
     window.present();
     Ok(())
 }
