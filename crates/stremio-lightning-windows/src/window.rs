@@ -567,10 +567,13 @@ mod platform {
                 LRESULT(0)
             }
             WM_ACTIVATE => {
+                // DefWindowProc restores keyboard focus for an activated top-level window.
+                // WebView2 can only accept MoveFocus after that native transition completes.
+                let result = default_window_proc(hwnd, message, wparam, lparam);
                 notify_handler(hwnd, "focus", |handler| {
                     handler.on_focus_changed(hwnd, super::window_activation_focused(wparam.0))
                 });
-                default_window_proc(hwnd, message, wparam, lparam)
+                result
             }
             WM_APPCOMMAND => {
                 let command = ((lparam.0 >> 16) & 0x0fff) as u32;
