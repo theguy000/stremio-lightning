@@ -1,5 +1,6 @@
 #[cfg(feature = "app-updates")]
 pub mod app_update;
+pub mod bridge_assets;
 pub mod discord_rpc;
 pub mod host_api;
 pub mod logging;

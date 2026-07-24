@@ -46,7 +46,6 @@
 
     onDomReady(initCoreStyles);
 
-    initCastFallback();
     ctx.shellTransport = initShellTransport(ctx);
     ctx.shellTransport.observeMpvProperties();
 
