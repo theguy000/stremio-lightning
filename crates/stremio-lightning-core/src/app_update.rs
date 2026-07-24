@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-const LATEST_RELEASE_URL: &str =
-    "https://api.github.com/repos/theguy000/stremio-lightning/releases/latest";
+const UPDATE_MANIFEST_URL: &str = "https://theguy000.github.io/stremio-lightning/latest.json";
 const USER_AGENT: &str = "stremio-lightning-updater";
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -16,9 +15,10 @@ pub struct AppUpdateInfo {
 }
 
 #[derive(Deserialize)]
-struct GitHubRelease {
-    tag_name: String,
-    html_url: String,
+#[serde(rename_all = "camelCase")]
+struct UpdateManifest {
+    version: String,
+    release_url: String,
 }
 
 pub async fn check_app_update(current_version: &str) -> Result<AppUpdateInfo, String> {
@@ -33,7 +33,7 @@ pub async fn check_app_update(current_version: &str) -> Result<AppUpdateInfo, St
     }
 
     let response = reqwest::Client::new()
-        .get(LATEST_RELEASE_URL)
+        .get(UPDATE_MANIFEST_URL)
         .header(reqwest::header::USER_AGENT, USER_AGENT)
         .send()
         .await
@@ -46,11 +46,11 @@ pub async fn check_app_update(current_version: &str) -> Result<AppUpdateInfo, St
         ));
     }
 
-    let release = response
-        .json::<GitHubRelease>()
+    let manifest = response
+        .json::<UpdateManifest>()
         .await
         .map_err(|e| format!("Failed to parse app update response: {e}"))?;
-    let latest_version = normalize_version(&release.tag_name);
+    let latest_version = normalize_version(&manifest.version);
     let current_version = normalize_version(current_version);
 
     let has_update = is_newer_version(&latest_version, &current_version);
@@ -58,7 +58,7 @@ pub async fn check_app_update(current_version: &str) -> Result<AppUpdateInfo, St
         has_update,
         current_version,
         new_version: has_update.then_some(latest_version),
-        release_url: has_update.then_some(release.html_url),
+        release_url: has_update.then_some(manifest.release_url),
     })
 }
 
@@ -129,6 +129,21 @@ mod tests {
                 "newVersion": "0.2.0",
                 "releaseUrl": "https://github.com/theguy000/stremio-lightning/releases/tag/v0.2.0"
             })
+        );
+    }
+
+    #[test]
+    fn parses_update_manifest_shape() {
+        let manifest: UpdateManifest = serde_json::from_value(json!({
+            "version": "0.2.0",
+            "releaseUrl": "https://github.com/theguy000/stremio-lightning/releases/tag/v0.2.0"
+        }))
+        .unwrap();
+
+        assert_eq!(manifest.version, "0.2.0");
+        assert_eq!(
+            manifest.release_url,
+            "https://github.com/theguy000/stremio-lightning/releases/tag/v0.2.0"
         );
     }
 
