@@ -3,29 +3,12 @@ use crate::player::PlayerBackend;
 use crate::streaming_server::ProcessSpawner;
 use serde_json::Value;
 use std::sync::Arc;
+use stremio_lightning_core::bridge_assets::{bridge_scripts, InjectionScript};
 use stremio_lightning_core::pip::PipWindowController;
 
 pub const LINUX_HOST_ADAPTER_NAME: &str = "linux-host-adapter";
 pub const HOST_ADAPTER_NAME: &str = LINUX_HOST_ADAPTER_NAME;
-pub const BRIDGE_LOGGING_NAME: &str = "bridge/logging.js";
-pub const BRIDGE_UTILS_NAME: &str = "bridge/utils.js";
-pub const BRIDGE_CAST_FALLBACK_NAME: &str = "bridge/cast-fallback.js";
-pub const BRIDGE_SHELL_TRANSPORT_NAME: &str = "bridge/shell-transport.js";
-pub const BRIDGE_EXTERNAL_LINKS_NAME: &str = "bridge/external-links.js";
-pub const BRIDGE_SHELL_DETECTION_NAME: &str = "bridge/shell-detection.js";
-pub const BRIDGE_BACK_BUTTON_NAME: &str = "bridge/back-button.js";
-pub const BRIDGE_SHORTCUTS_NAME: &str = "bridge/shortcuts.js";
-pub const BRIDGE_PIP_NAME: &str = "bridge/pip.js";
-pub const BRIDGE_DISCORD_RPC_NAME: &str = "bridge/discord-rpc.js";
-pub const BRIDGE_UPDATE_BANNER_NAME: &str = "bridge/update-banner.js";
-pub const BRIDGE_NAME: &str = "bridge.js";
 pub const MOD_UI_NAME: &str = "mod-ui-svelte.iife.js";
-
-#[derive(Debug, Clone)]
-pub struct InjectionScript {
-    pub name: &'static str,
-    pub source: String,
-}
 
 #[derive(Debug, Clone)]
 pub struct InjectionBundle {
@@ -38,17 +21,11 @@ impl InjectionBundle {
             name: HOST_ADAPTER_NAME,
             source: host_adapter(),
         }];
-        scripts.extend(bridge_module_scripts());
-        scripts.extend([
-            InjectionScript {
-                name: BRIDGE_NAME,
-                source: include_str!("../../../web/bridge/bridge.js").to_string(),
-            },
-            InjectionScript {
-                name: MOD_UI_NAME,
-                source: include_str!("../../../src/dist/mod-ui-svelte.iife.js").to_string(),
-            },
-        ]);
+        scripts.extend(bridge_scripts());
+        scripts.push(InjectionScript {
+            name: MOD_UI_NAME,
+            source: include_str!("../../../src/dist/mod-ui-svelte.iife.js").to_string(),
+        });
 
         Ok(Self { scripts })
     }
@@ -60,55 +37,6 @@ impl InjectionBundle {
     pub fn script_names(&self) -> Vec<&'static str> {
         self.scripts.iter().map(|script| script.name).collect()
     }
-}
-
-fn bridge_module_scripts() -> Vec<InjectionScript> {
-    vec![
-        InjectionScript {
-            name: BRIDGE_LOGGING_NAME,
-            source: include_str!("../../../web/bridge/src/logging.js").to_string(),
-        },
-        InjectionScript {
-            name: BRIDGE_UTILS_NAME,
-            source: include_str!("../../../web/bridge/src/utils.js").to_string(),
-        },
-        InjectionScript {
-            name: BRIDGE_CAST_FALLBACK_NAME,
-            source: include_str!("../../../web/bridge/src/cast-fallback.js").to_string(),
-        },
-        InjectionScript {
-            name: BRIDGE_SHELL_TRANSPORT_NAME,
-            source: include_str!("../../../web/bridge/src/shell-transport.js").to_string(),
-        },
-        InjectionScript {
-            name: BRIDGE_EXTERNAL_LINKS_NAME,
-            source: include_str!("../../../web/bridge/src/external-links.js").to_string(),
-        },
-        InjectionScript {
-            name: BRIDGE_SHELL_DETECTION_NAME,
-            source: include_str!("../../../web/bridge/src/shell-detection.js").to_string(),
-        },
-        InjectionScript {
-            name: BRIDGE_BACK_BUTTON_NAME,
-            source: include_str!("../../../web/bridge/src/back-button.js").to_string(),
-        },
-        InjectionScript {
-            name: BRIDGE_SHORTCUTS_NAME,
-            source: include_str!("../../../web/bridge/src/shortcuts.js").to_string(),
-        },
-        InjectionScript {
-            name: BRIDGE_PIP_NAME,
-            source: include_str!("../../../web/bridge/src/pip.js").to_string(),
-        },
-        InjectionScript {
-            name: BRIDGE_DISCORD_RPC_NAME,
-            source: include_str!("../../../web/bridge/src/discord-rpc.js").to_string(),
-        },
-        InjectionScript {
-            name: BRIDGE_UPDATE_BANNER_NAME,
-            source: include_str!("../../../web/bridge/src/update-banner.js").to_string(),
-        },
-    ]
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -313,25 +241,11 @@ mod tests {
     #[test]
     fn injection_order_puts_linux_adapter_before_bridge() {
         let bundle = InjectionBundle::load().unwrap();
-        assert_eq!(
-            bundle.script_names(),
-            vec![
-                LINUX_HOST_ADAPTER_NAME,
-                BRIDGE_LOGGING_NAME,
-                BRIDGE_UTILS_NAME,
-                BRIDGE_CAST_FALLBACK_NAME,
-                BRIDGE_SHELL_TRANSPORT_NAME,
-                BRIDGE_EXTERNAL_LINKS_NAME,
-                BRIDGE_SHELL_DETECTION_NAME,
-                BRIDGE_BACK_BUTTON_NAME,
-                BRIDGE_SHORTCUTS_NAME,
-                BRIDGE_PIP_NAME,
-                BRIDGE_DISCORD_RPC_NAME,
-                BRIDGE_UPDATE_BANNER_NAME,
-                BRIDGE_NAME,
-                MOD_UI_NAME
-            ]
-        );
+        let mut expected = vec![LINUX_HOST_ADAPTER_NAME];
+        expected.extend(bridge_scripts().iter().map(|script| script.name));
+        expected.push(MOD_UI_NAME);
+
+        assert_eq!(bundle.script_names(), expected);
         assert!(bundle.scripts()[0]
             .source
             .contains("window.StremioLightningHost"));
@@ -354,25 +268,10 @@ mod tests {
         let state = runtime.load().unwrap();
         assert!(state.loaded);
         assert_eq!(state.url, "file:///tmp/stremio-lightning-smoke.html");
-        assert_eq!(
-            state.document_start_scripts,
-            vec![
-                LINUX_HOST_ADAPTER_NAME,
-                BRIDGE_LOGGING_NAME,
-                BRIDGE_UTILS_NAME,
-                BRIDGE_CAST_FALLBACK_NAME,
-                BRIDGE_SHELL_TRANSPORT_NAME,
-                BRIDGE_EXTERNAL_LINKS_NAME,
-                BRIDGE_SHELL_DETECTION_NAME,
-                BRIDGE_BACK_BUTTON_NAME,
-                BRIDGE_SHORTCUTS_NAME,
-                BRIDGE_PIP_NAME,
-                BRIDGE_DISCORD_RPC_NAME,
-                BRIDGE_UPDATE_BANNER_NAME,
-                BRIDGE_NAME,
-                MOD_UI_NAME
-            ]
-        );
+        let mut expected = vec![LINUX_HOST_ADAPTER_NAME];
+        expected.extend(bridge_scripts().iter().map(|script| script.name));
+        expected.push(MOD_UI_NAME);
+        assert_eq!(state.document_start_scripts, expected);
         assert!(state.devtools);
     }
 

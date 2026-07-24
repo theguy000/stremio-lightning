@@ -8,7 +8,6 @@ const testDir = dirname(fileURLToPath(import.meta.url));
 const bridgeModuleNames = [
   'logging.js',
   'utils.js',
-  'cast-fallback.js',
   'shell-transport.js',
   'external-links.js',
   'shell-detection.js',
@@ -62,9 +61,32 @@ afterEach(() => {
   delete (window as typeof window & { chrome?: unknown }).chrome;
   delete (window as typeof window & { StremioLightningLogger?: unknown }).StremioLightningLogger;
   delete (window as typeof window & { __stremioLightningCapture?: unknown }).__stremioLightningCapture;
+  delete (window as typeof window & { __onGCastApiAvailable?: unknown }).__onGCastApiAvailable;
 });
 
 describe('bridge host bootstrap', () => {
+  it('leaves Google Cast availability under page control', () => {
+    vi.useFakeTimers();
+    window.StremioLightningHost = {
+      invoke: vi.fn().mockResolvedValue(undefined),
+      listen: vi.fn().mockResolvedValue(() => {}),
+      window: appWindow,
+      webview,
+    } as unknown as StremioLightningHost;
+
+    runBridge();
+
+    const callback = vi.fn();
+    (window as typeof window & { __onGCastApiAvailable?: (available: boolean) => void })
+      .__onGCastApiAvailable = callback;
+    vi.runAllTimers();
+
+    expect(callback).not.toHaveBeenCalled();
+    expect(
+      (window as typeof window & { __onGCastApiAvailable?: unknown }).__onGCastApiAvailable,
+    ).toBe(callback);
+  });
+
   it('uses the host provided by the native shell', async () => {
     const nativeShellHost = {
       invoke: vi.fn().mockResolvedValue(undefined),
