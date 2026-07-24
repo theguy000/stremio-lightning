@@ -15,9 +15,11 @@
   }
 
   onMount(async () => {
-    // Load persisted settings
+    const handleThemeChanged = () => requestAnimationFrame(loadSettingsFromStorage);
+    document.addEventListener('sl-theme-changed', handleThemeChanged);
+
+    await loadThemeFromStorage();
     loadSettingsFromStorage();
-    loadThemeFromStorage();
 
     // Load enabled plugins
     await refreshPlugins();
@@ -32,13 +34,7 @@
       })
     );
 
-    // Re-apply blur intensity when theme changes (defer one frame so browser
-    // has processed the new <style> element before we read computed styles)
-    document.addEventListener('sl-theme-changed', () => {
-      requestAnimationFrame(() => {
-        loadSettingsFromStorage();
-      });
-    });
+    return () => document.removeEventListener('sl-theme-changed', handleThemeChanged);
   });
 </script>
 

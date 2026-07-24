@@ -65,9 +65,13 @@ export async function applyTheme(filename: string): Promise<void> {
   document.dispatchEvent(new CustomEvent('sl-theme-changed'));
 }
 
-export function loadThemeFromStorage(): void {
+export async function loadThemeFromStorage(): Promise<void> {
   const stored = localStorage.getItem('currentTheme');
   if (stored) {
-    applyTheme(stored).catch((error) => logger.error('Failed to restore theme:', error));
+    try {
+      await applyTheme(stored);
+    } catch (error) {
+      logger.error('Failed to restore theme:', error);
+    }
   }
 }
