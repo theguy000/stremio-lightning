@@ -8,11 +8,12 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 const CLIENT_ID: &str = "1492155780839768216";
-const RECONNECT_INTERVAL: Duration = Duration::from_secs(10);
+const RECONNECT_DELAYS_SECS: [u64; 5] = [10, 30, 60, 120, 300];
 const DEFAULT_IMAGE: &str = "stremio";
 
 pub struct DiscordRpcState {
     client: Mutex<Option<DiscordIpcClient>>,
+    latest_activity: Mutex<Option<ActivityPayload>>,
     enabled: AtomicBool,
     reconnecting: AtomicBool,
 }
@@ -21,6 +22,7 @@ impl Default for DiscordRpcState {
     fn default() -> Self {
         Self {
             client: Mutex::new(None),
+            latest_activity: Mutex::new(None),
             enabled: AtomicBool::new(false),
             reconnecting: AtomicBool::new(false),
         }
@@ -66,11 +68,10 @@ impl DiscordRpcState {
                 Ok(())
             }
             Err(e) => {
-                crate::logging::warn(
+                crate::logging::info(
                     "native.discord-rpc",
-                    format!("[DiscordRPC] Failed to connect: {e}"),
+                    format!("[DiscordRPC] Discord unavailable; reconnecting in background: {e}"),
                 );
-                // Store the client even if connection failed — we'll reconnect
                 *client_guard = Some(client);
                 self.enabled.store(true, Ordering::SeqCst);
                 drop(client_guard);
@@ -90,11 +91,19 @@ impl DiscordRpcState {
         }
 
         *client_guard = None;
+        *self.latest_activity.lock().map_err(|e| e.to_string())? = None;
         Ok(())
     }
 
     pub fn update_activity(self: &Arc<Self>, payload: ActivityPayload) -> Result<(), String> {
         if !self.enabled.load(Ordering::SeqCst) {
+            return Ok(());
+        }
+
+        // only the newest presence matters while Discord is unavailable.
+        *self.latest_activity.lock().map_err(|e| e.to_string())? = Some(payload.clone());
+
+        if self.reconnecting.load(Ordering::SeqCst) {
             return Ok(());
         }
 
@@ -109,13 +118,14 @@ impl DiscordRpcState {
         match client.set_activity(act) {
             Ok(()) => Ok(()),
             Err(e) => {
-                crate::logging::warn(
-                    "native.discord-rpc",
-                    format!("[DiscordRPC] Failed to set activity: {e}"),
-                );
                 drop(client_guard);
-                self.spawn_reconnect();
-                Err(format!("Failed to set Discord activity: {e}"))
+                if self.spawn_reconnect() {
+                    crate::logging::warn(
+                        "native.discord-rpc",
+                        format!("[DiscordRPC] Connection lost; reconnecting in background: {e}"),
+                    );
+                }
+                Ok(())
             }
         }
     }
@@ -186,21 +196,22 @@ impl DiscordRpcState {
         act
     }
 
-    fn spawn_reconnect(self: &Arc<Self>) {
+    fn spawn_reconnect(self: &Arc<Self>) -> bool {
         if self
             .reconnecting
             .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
             .is_err()
         {
-            return;
+            return false;
         }
 
         let state = self.clone();
         std::thread::spawn(move || {
+            let mut attempt = 0;
             loop {
-                // Check the enabled flag every second instead of sleeping the
-                // full reconnect interval at once.
-                for _ in 0..RECONNECT_INTERVAL.as_secs() {
+                let delay = reconnect_delay(attempt);
+                attempt = attempt.saturating_add(1);
+                for _ in 0..delay.as_secs() {
                     std::thread::sleep(Duration::from_secs(1));
                     if !state.enabled.load(Ordering::SeqCst) {
                         state.reconnecting.store(false, Ordering::SeqCst);
@@ -221,19 +232,33 @@ impl DiscordRpcState {
                     return;
                 };
 
-                match client.reconnect() {
-                    Ok(()) => {
+                if client.reconnect().is_err() {
+                    continue;
+                }
+
+                let latest_activity = match state.latest_activity.lock() {
+                    Ok(activity) => activity,
+                    Err(_) => {
                         state.reconnecting.store(false, Ordering::SeqCst);
                         return;
                     }
-                    Err(e) => {
-                        crate::logging::warn(
-                            "native.discord-rpc",
-                            format!("[DiscordRPC] Reconnect failed: {e}"),
-                        );
+                };
+                if let Some(payload) = latest_activity.as_ref() {
+                    if client.set_activity(state.build_activity(payload)).is_err() {
+                        continue;
                     }
                 }
+
+                state.reconnecting.store(false, Ordering::SeqCst);
+                drop(latest_activity);
+                crate::logging::info("native.discord-rpc", "[DiscordRPC] Connected");
+                return;
             }
         });
+        true
     }
+}
+
+fn reconnect_delay(attempt: usize) -> Duration {
+    Duration::from_secs(RECONNECT_DELAYS_SECS[attempt.min(RECONNECT_DELAYS_SECS.len() - 1)])
 }
