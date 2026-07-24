@@ -121,7 +121,7 @@ function initUpdateBanner(ctx) {
           showUpdateBanner(info);
         })
         .catch(function (e) {
-          log.error("[AppUpdater] Failed to check for updates:", e);
+          log.debug("[AppUpdater] Update check unavailable:", e);
         });
     }, 5000);
   };
