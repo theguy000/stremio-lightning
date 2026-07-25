@@ -188,8 +188,9 @@ mod platform {
         AddScriptToExecuteOnDocumentCreatedCompletedHandler, CoTaskMemPWSTR,
         CoreWebView2EnvironmentOptions, CreateCoreWebView2ControllerCompletedHandler,
         CreateCoreWebView2EnvironmentCompletedHandler, Microsoft::Web::WebView2::Win32::*,
-        NavigationCompletedEventHandler, NavigationStartingEventHandler, ProcessFailedEventHandler,
-        WebMessageReceivedEventHandler, WebResourceResponseReceivedEventHandler,
+        NavigationCompletedEventHandler, NavigationStartingEventHandler,
+        NewWindowRequestedEventHandler, ProcessFailedEventHandler, WebMessageReceivedEventHandler,
+        WebResourceResponseReceivedEventHandler,
     };
     use windows::core::{Interface, PCWSTR, PWSTR};
     use windows::Win32::Foundation::{E_POINTER, HWND, RECT};
@@ -242,6 +243,7 @@ mod platform {
     struct WebView2EventTokens {
         message_received: Option<i64>,
         navigation_starting: Option<i64>,
+        new_window_requested: Option<i64>,
         navigation_completed: Option<i64>,
         process_failed: Option<i64>,
         web_resource_response_received: Option<i64>,
@@ -342,9 +344,11 @@ mod platform {
             self.event_tokens.message_received = Some(add_message_handler(&webview, host.clone())?);
             self.event_tokens.navigation_starting = Some(add_navigation_starting_handler(
                 &webview,
-                host,
+                host.clone(),
                 url.to_string(),
             )?);
+            self.event_tokens.new_window_requested =
+                Some(add_new_window_requested_handler(&webview, host)?);
             self.event_tokens.navigation_completed =
                 Some(add_navigation_completed_handler(&webview)?);
             self.event_tokens.process_failed = Some(add_process_failed_handler(&webview)?);
@@ -372,6 +376,11 @@ mod platform {
                 if let Some(token) = self.event_tokens.navigation_starting.take() {
                     report.record_windows("remove WebView2 navigation starting handler", unsafe {
                         webview.remove_NavigationStarting(token)
+                    });
+                }
+                if let Some(token) = self.event_tokens.new_window_requested.take() {
+                    report.record_windows("remove WebView2 new window handler", unsafe {
+                        webview.remove_NewWindowRequested(token)
                     });
                 }
                 if let Some(token) = self.event_tokens.navigation_completed.take() {
@@ -794,7 +803,7 @@ mod platform {
         unsafe {
             webview
                 .add_NavigationStarting(
-                    &NavigationStartingEventHandler::create(Box::new(move |_webview, args| {
+                    &NavigationStartingEventHandler::create(Box::new(move |webview, args| {
                         let Some(args) = args else {
                             return Ok(());
                         };
@@ -805,13 +814,13 @@ mod platform {
                         let uri = uri.to_string();
                         if !super::is_allowed_webview_navigation(&app_url, &uri) {
                             args.SetCancel(true)?;
-                            if let Err(error) = host.invoke(
-                                "open_external_url",
-                                Some(serde_json::json!({ "url": uri })),
-                            ) {
+                            let result = webview.map_or(Ok(()), |webview| {
+                                handle_external_navigation(&webview, &host, uri)
+                            });
+                            if let Err(error) = result {
                                 stremio_lightning_core::logging::error(
                                     "native.webview.windows",
-                                    format!("Failed to open external navigation URL: {error}"),
+                                    format!("Failed to handle external navigation URL: {error}"),
                                 );
                             }
                         }
@@ -824,6 +833,56 @@ mod platform {
                 })?;
         }
         Ok(token)
+    }
+
+    fn add_new_window_requested_handler(
+        webview: &ICoreWebView2,
+        host: Arc<Host>,
+    ) -> Result<i64, String> {
+        let mut token = 0;
+        unsafe {
+            webview
+                .add_NewWindowRequested(
+                    &NewWindowRequestedEventHandler::create(Box::new(move |webview, args| {
+                        let (Some(webview), Some(args)) = (webview, args) else {
+                            return Ok(());
+                        };
+                        let mut uri = PWSTR(ptr::null_mut());
+                        args.Uri(&mut uri)?;
+                        args.SetHandled(true)?;
+                        let uri = CoTaskMemPWSTR::from(uri).to_string();
+                        if let Err(error) = handle_external_navigation(&webview, &host, uri) {
+                            stremio_lightning_core::logging::error(
+                                "native.webview.windows",
+                                format!("Failed to handle new window URL: {error}"),
+                            );
+                        }
+                        Ok(())
+                    })),
+                    &mut token,
+                )
+                .map_err(|error| {
+                    format!("Failed to attach WebView2 new window handler: {error}")
+                })?;
+        }
+        Ok(token)
+    }
+
+    fn handle_external_navigation(
+        webview: &ICoreWebView2,
+        host: &Host,
+        uri: String,
+    ) -> Result<(), String> {
+        if uri
+            .get(.."stremio://".len())
+            .is_some_and(|value| value.eq_ignore_ascii_case("stremio://"))
+        {
+            host.emit_launch_intent(LaunchIntent::StremioDeepLink(uri))?;
+            post_outbound_messages(webview, host.drain_ipc_events())
+        } else {
+            host.invoke("open_external_url", Some(serde_json::json!({ "url": uri })))?;
+            Ok(())
+        }
     }
 
     fn post_outbound_messages(

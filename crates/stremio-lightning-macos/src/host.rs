@@ -239,11 +239,11 @@ where
 
     pub fn emit_launch_intent(&self, intent: LaunchIntent) -> Result<(), String> {
         self.focus_window()?;
-        let Some(value) = intent.open_media_value() else {
+        let Some(args) = intent.transport_args() else {
             return Ok(());
         };
         self.base
-            .queue_transport_message(host_api::response_message(json!(["open-media", value])))?;
+            .queue_transport_message(host_api::response_message(args))?;
         Ok(())
     }
 

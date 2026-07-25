@@ -321,8 +321,12 @@ impl WindowsHost {
         let Some(value) = intent.open_media_value() else {
             return Ok(());
         };
+        let args = match intent {
+            LaunchIntent::StremioDeepLink(_) => host_api::stremio_deep_link_transport_args(&value),
+            _ => json!(["open-media", value]),
+        };
         self.base
-            .queue_transport_message(host_api::response_message(json!(["open-media", value])))?;
+            .queue_transport_message(host_api::response_message(args))?;
         Ok(())
     }
 
@@ -877,6 +881,36 @@ mod tests {
         assert_eq!(
             transport["args"],
             json!(["open-media", "magnet:?xt=urn:btih:test"])
+        );
+    }
+
+    #[test]
+    fn queues_addon_install_for_stremio_manifest_links() {
+        let host = WindowsHost::default();
+        host.dispatch_windows_ipc(
+            "listen",
+            Some(json!({ "id": 8, "event": "shell-transport-message" })),
+        )
+        .unwrap();
+        host.dispatch_windows_ipc("invoke", Some(json!({"command": "shell_bridge_ready"})))
+            .unwrap();
+        host.invoke(
+            "shell_transport_send",
+            Some(json!({ "message": r#"{"id":1,"type":6,"args":["app-ready"]}"# })),
+        )
+        .unwrap();
+        host.emit_launch_intent(LaunchIntent::StremioDeepLink(
+            "stremio://addon.example/manifest.json".to_string(),
+        ))
+        .unwrap();
+
+        let WindowsIpcOutbound::Event { payload, .. } = &host.drain_ipc_events()[0] else {
+            panic!("expected shell transport event");
+        };
+        let transport: Value = serde_json::from_str(payload.as_str().unwrap()).unwrap();
+        assert_eq!(
+            transport["args"],
+            json!(["addon-install", "stremio://addon.example/manifest.json"])
         );
     }
 

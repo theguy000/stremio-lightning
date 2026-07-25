@@ -55,6 +55,10 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  const externalLinkHandler = (
+    window as typeof window & { __stremioLightningExternalLinkHandler?: EventListener }
+  ).__stremioLightningExternalLinkHandler;
+  if (externalLinkHandler) document.removeEventListener('click', externalLinkHandler, true);
   delete window.StremioLightningHost;
   delete (window as typeof window & { StremioEnhancedAPI?: unknown }).StremioEnhancedAPI;
   delete (window as typeof window & { qt?: unknown }).qt;
@@ -62,6 +66,11 @@ afterEach(() => {
   delete (window as typeof window & { StremioLightningLogger?: unknown }).StremioLightningLogger;
   delete (window as typeof window & { __stremioLightningCapture?: unknown }).__stremioLightningCapture;
   delete (window as typeof window & { __onGCastApiAvailable?: unknown }).__onGCastApiAvailable;
+  delete (window as typeof window & { StremioLightningOpenStremioUrl?: unknown })
+    .StremioLightningOpenStremioUrl;
+  delete (
+    window as typeof window & { __stremioLightningExternalLinkHandler?: unknown }
+  ).__stremioLightningExternalLinkHandler;
 });
 
 describe('bridge host bootstrap', () => {
@@ -827,6 +836,50 @@ describe('bridge host bootstrap', () => {
       .join('\n') || '';
     expect(messages).toContain('Forwarding MPV loadfile command');
     expect(messages).not.toMatch(/media\.example\.test|token=secret/);
+  });
+
+  it('routes Stremio addon links to the addon install page', () => {
+    let shellTransportCallback:
+      | ((event: { event: 'shell-transport-message'; payload: string }) => void)
+      | undefined;
+    const nativeShellHost = {
+      invoke: vi.fn().mockResolvedValue(undefined),
+      listen: vi.fn().mockImplementation((event, callback) => {
+        if (event === 'shell-transport-message') shellTransportCallback = callback;
+        return Promise.resolve(() => {});
+      }),
+      window: appWindow,
+      webview,
+    };
+    window.StremioLightningHost = nativeShellHost as unknown as StremioLightningHost;
+    window.location.hash = '';
+    runBridge();
+
+    window.open('stremio://addon.example.test/manifest.json');
+
+    expect(window.location.hash).toBe(
+      '#/addons?addon=https%3A%2F%2Faddon.example.test%2Fmanifest.json',
+    );
+    expect(nativeShellHost.invoke).not.toHaveBeenCalledWith(
+      'open_external_url',
+      expect.anything(),
+    );
+
+    window.location.hash = '';
+    shellTransportCallback?.({
+      event: 'shell-transport-message',
+      payload: JSON.stringify({
+        args: ['addon-install', 'stremio://second.example.test/manifest.json'],
+      }),
+    });
+    expect(window.location.hash).toContain('second.example.test');
+
+    window.location.hash = '';
+    const link = document.createElement('a');
+    link.href = 'stremio://third.example.test/manifest.json';
+    document.body.appendChild(link);
+    link.click();
+    expect(window.location.hash).toContain('third.example.test');
   });
 
   it('adds the PiP button after the volume slider on navigation and control remounts', async () => {

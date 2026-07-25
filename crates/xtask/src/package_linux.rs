@@ -503,8 +503,8 @@ fn prepare_linux_appdir() -> Result<PathBuf> {
     )?;
 
     let desktop_entry = fs::read_to_string(&desktop_source)?;
-    let installed_exec = format!("Exec={APP_ID}");
-    let appimage_exec = format!("Exec={LINUX_BIN}");
+    let installed_exec = format!("Exec={APP_ID} %u");
+    let appimage_exec = format!("Exec={LINUX_BIN} %u");
     if !desktop_entry.lines().any(|line| line == installed_exec) {
         return Err(format!("{} must contain {installed_exec}", desktop_source.display()).into());
     }

@@ -98,6 +98,12 @@ where
         self.host.dispatch_ipc(kind, payload)
     }
 
+    pub fn emit_stremio_deep_link(&self, url: &str) -> Result<(), String> {
+        self.host.emit_transport_event(
+            stremio_lightning_core::host_api::stremio_deep_link_transport_args(url),
+        )
+    }
+
     pub fn shutdown(&self) -> Result<(), String> {
         self.host.shutdown()
     }
