@@ -112,7 +112,7 @@ fn test_real_process_spawner_execution() {
     let exit_status = child.try_wait().unwrap().unwrap();
 
     let stdout_content = fs::read_to_string(&stdout_log).unwrap();
-    let stderr_content = fs::read_to_string(&stderr_log).unwrap();
+    let stderr_content = fs::read_to_string(&stderr_log).unwrap_or_default();
     assert!(
         stdout_content.contains("hello world from spawned child"),
         "Child exit status: {:?}\nStdout log was: {}\nStderr log was: {}",
