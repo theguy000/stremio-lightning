@@ -325,14 +325,31 @@ fn build_webview(
         });
     }
 
-    webview.connect_decide_policy(move |_, decision, decision_type| {
-        if decision_type == PolicyDecisionType::NewWindowAction {
-            if let Some(uri) = decision
-                .downcast_ref::<NavigationPolicyDecision>()
-                .and_then(|decision| decision.navigation_action())
-                .and_then(|action| action.request())
-                .and_then(|request| request.uri())
+    let runtime_for_navigation = runtime.clone();
+    webview.connect_decide_policy(move |webview, decision, decision_type| {
+        let uri = decision
+            .downcast_ref::<NavigationPolicyDecision>()
+            .and_then(|decision| decision.navigation_action())
+            .and_then(|action| action.request())
+            .and_then(|request| request.uri());
+
+        if let Some(uri) = uri {
+            if uri
+                .get(.."stremio://".len())
+                .is_some_and(|value| value.eq_ignore_ascii_case("stremio://"))
             {
+                decision.ignore();
+                if let Err(error) = runtime_for_navigation.emit_stremio_deep_link(uri.as_str()) {
+                    stremio_lightning_core::logging::error(
+                        "native.window",
+                        format!("[StremioLightning] Failed to open Stremio deep link: {error}"),
+                    );
+                }
+                drain_host_events(webview, &runtime_for_navigation);
+                return true;
+            }
+
+            if decision_type == PolicyDecisionType::NewWindowAction {
                 if let Err(error) = open_external_uri(uri.as_str()) {
                     stremio_lightning_core::logging::error(
                         "native.window",
@@ -340,6 +357,9 @@ fn build_webview(
                     );
                 }
             }
+        }
+
+        if decision_type == PolicyDecisionType::NewWindowAction {
             decision.ignore();
             return true;
         }

@@ -79,8 +79,15 @@ impl LaunchIntent {
     }
 
     pub fn transport_args(&self) -> Option<Value> {
-        self.open_media_value()
-            .map(|value| json!(["open-media", value]))
+        match self {
+            Self::Focus => None,
+            Self::StremioDeepLink(value) => {
+                Some(stremio_lightning_core::host_api::stremio_deep_link_transport_args(value))
+            }
+            _ => self
+                .open_media_value()
+                .map(|value| json!(["open-media", value])),
+        }
     }
 }
 
@@ -233,6 +240,14 @@ mod tests {
             Some(json!(["open-media", "magnet:?xt=urn:btih:test"]))
         );
         assert_eq!(LaunchIntent::Focus.transport_args(), None);
+        assert_eq!(
+            LaunchIntent::StremioDeepLink("stremio://addon.example/manifest.json".to_string())
+                .transport_args(),
+            Some(json!([
+                "addon-install",
+                "stremio://addon.example/manifest.json"
+            ]))
+        );
     }
 
     #[test]

@@ -101,6 +101,17 @@ function initShellTransport(ctx) {
 
   function dispatchShellTransportMessage(payload) {
     var event = { data: payload };
+    var parsed = parseTransportPayload(payload);
+    var args = parsed && parsed.args;
+
+    if (
+      Array.isArray(args) &&
+      args[0] === "addon-install" &&
+      typeof window.StremioLightningOpenStremioUrl === "function" &&
+      window.StremioLightningOpenStremioUrl(args[1])
+    ) {
+      return;
+    }
 
     updateMpvStateFromTransport(payload);
     dispatchPipEvents(payload);

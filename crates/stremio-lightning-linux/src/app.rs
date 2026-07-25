@@ -16,6 +16,7 @@ pub struct AppConfig {
     pub url: String,
     pub devtools: bool,
     pub headless_bootstrap: bool,
+    pub launch_url: Option<String>,
 }
 
 impl Default for AppConfig {
@@ -24,6 +25,7 @@ impl Default for AppConfig {
             url: DEFAULT_URL.to_string(),
             devtools: true,
             headless_bootstrap: false,
+            launch_url: None,
         }
     }
 }
@@ -47,6 +49,11 @@ where
             config.devtools = true;
         } else if arg == "--headless-bootstrap" {
             config.headless_bootstrap = true;
+        } else if arg
+            .get(.."stremio://".len())
+            .is_some_and(|value| value.eq_ignore_ascii_case("stremio://"))
+        {
+            config.launch_url = Some(arg);
         }
     }
 
@@ -82,6 +89,11 @@ pub fn run(config: AppConfig) -> Result<(), String> {
             "native.streaming-server",
             format!("[StreamingServer] Failed to start Linux sidecar: {error}"),
         );
+    }
+    if let Some(url) = config.launch_url.as_deref() {
+        host.emit_transport_event(
+            stremio_lightning_core::host_api::stremio_deep_link_transport_args(url),
+        )?;
     }
 
     let injection = InjectionBundle::load()?;
@@ -158,6 +170,18 @@ mod tests {
     fn accepts_developer_url() {
         let config = parse_args(["stremio-lightning-linux", "--url", "file:///tmp/smoke.html"]);
         assert_eq!(config.url, "file:///tmp/smoke.html");
+    }
+
+    #[test]
+    fn accepts_stremio_protocol_launch_url() {
+        let config = parse_args([
+            "stremio-lightning-linux",
+            "stremio://addon.example/manifest.json",
+        ]);
+        assert_eq!(
+            config.launch_url.as_deref(),
+            Some("stremio://addon.example/manifest.json")
+        );
     }
 
     #[test]

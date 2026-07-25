@@ -177,6 +177,17 @@ pub fn response_message(args: Value) -> String {
     .expect("failed to serialize transport response")
 }
 
+pub fn stremio_deep_link_transport_args(url: &str) -> Value {
+    let lower = url.trim().to_ascii_lowercase();
+    let event = if lower.starts_with("stremio:///detail/") || lower.starts_with("stremio://detail/")
+    {
+        "open-media"
+    } else {
+        "addon-install"
+    };
+    json!([event, url])
+}
+
 pub fn serialize_window_visibility(visible: bool, is_fullscreen: bool) -> Value {
     serde_json::json!([
         "win-visibility-changed",
@@ -1391,6 +1402,18 @@ mod tests {
                 "type": 1,
                 "args": ["open-media", "stremio://foo"]
             })
+        );
+    }
+
+    #[test]
+    fn classifies_stremio_deep_link_transport_events() {
+        assert_eq!(
+            stremio_deep_link_transport_args("stremio://addon.example/manifest.json"),
+            json!(["addon-install", "stremio://addon.example/manifest.json"])
+        );
+        assert_eq!(
+            stremio_deep_link_transport_args("stremio:///detail/movie/tt123"),
+            json!(["open-media", "stremio:///detail/movie/tt123"])
         );
     }
 
