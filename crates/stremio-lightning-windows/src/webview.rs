@@ -90,7 +90,7 @@ impl WindowsWebView2Shell {
             devtools,
             injection: InjectionBundle::load(),
             host: Arc::new(Host::with_streaming_server_disabled(
-                env!("CARGO_PKG_VERSION"),
+                stremio_lightning_core::SHELL_VERSION,
                 settings.streaming_server_disabled,
             )),
             launch_intents,
@@ -114,7 +114,7 @@ impl WindowsWebView2Shell {
             devtools,
             injection: InjectionBundle::load(),
             host: Arc::new(Host::with_streaming_server_disabled(
-                env!("CARGO_PKG_VERSION"),
+                stremio_lightning_core::SHELL_VERSION,
                 settings.streaming_server_disabled,
             )),
             launch_intents,

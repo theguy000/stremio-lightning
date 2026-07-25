@@ -194,7 +194,11 @@ where
             pip_state: PipState::new(),
         };
         Self {
-            base: BaseHost::new(bridge, app_data_dir.into(), env!("CARGO_PKG_VERSION")),
+            base: BaseHost::new(
+                bridge,
+                app_data_dir.into(),
+                stremio_lightning_core::SHELL_VERSION,
+            ),
         }
     }
 

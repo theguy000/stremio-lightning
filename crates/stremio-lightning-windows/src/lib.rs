@@ -19,7 +19,7 @@ mod platform {
         let _ = stremio_lightning_core::logging::initialize(
             stremio_lightning_core::logging::LoggingConfig::new(
                 stremio_lightning_core::logging::diagnostics_dir_for_platform("windows"),
-                env!("CARGO_PKG_VERSION"),
+                stremio_lightning_core::SHELL_VERSION,
                 "windows",
                 "webview2",
                 "WebView2",
