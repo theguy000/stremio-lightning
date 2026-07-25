@@ -1,3 +1,5 @@
+pub const SHELL_VERSION: &str = env!("STREMIO_LIGHTNING_VERSION");
+
 #[cfg(feature = "app-updates")]
 pub mod app_update;
 pub mod bridge_assets;

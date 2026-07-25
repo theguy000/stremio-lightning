@@ -72,7 +72,7 @@ pub fn run(config: AppConfig) -> Result<(), String> {
     let _ = stremio_lightning_core::logging::initialize(
         stremio_lightning_core::logging::LoggingConfig::new(
             stremio_lightning_core::logging::diagnostics_dir_for_platform("linux"),
-            env!("CARGO_PKG_VERSION"),
+            stremio_lightning_core::SHELL_VERSION,
             "linux",
             "webkitgtk",
             "WebKitGTK",

@@ -251,7 +251,7 @@ impl From<HostEventRecord> for WindowsIpcOutbound {
 
 impl Default for WindowsHost {
     fn default() -> Self {
-        Self::new(env!("CARGO_PKG_VERSION"))
+        Self::new(stremio_lightning_core::SHELL_VERSION)
     }
 }
 
@@ -653,7 +653,7 @@ mod tests {
         json!({
             "platform": "windows",
             "shell": "webview2",
-            "shellVersion": env!("CARGO_PKG_VERSION"),
+            "shellVersion": stremio_lightning_core::SHELL_VERSION,
             "nativePlayer": { "enabled": cfg!(windows), "initialized": false, "backend": "webview2-libmpv" },
             "streamingServerRunning": false,
             "diagnostics": {
@@ -1083,7 +1083,7 @@ mod tests {
 
     fn host_with_app_data(app_data_dir: PathBuf) -> WindowsHost {
         WindowsHost::with_app_data_dir_and_server_disabled(
-            env!("CARGO_PKG_VERSION"),
+            stremio_lightning_core::SHELL_VERSION,
             app_data_dir,
             true,
         )
