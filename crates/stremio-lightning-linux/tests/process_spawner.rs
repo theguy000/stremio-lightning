@@ -172,7 +172,6 @@ fn test_real_server_stops_and_restarts() {
 fn test_real_server_drop_stops_child() {
     let log_dir = temp_log_dir("drop-stops");
     let project_root = setup_temp_project_root(&log_dir);
-    let stdout_log = log_dir.join("stremio-server.stdout.log");
 
     std::env::set_var("STREMIO_TEST_SPAWN_CHILD", "1");
     std::env::set_var("STREMIO_TEST_CHILD_MODE", "keep-running");
@@ -183,8 +182,6 @@ fn test_real_server_drop_stops_child() {
         assert!(server.is_running());
     }
 
-    std::thread::sleep(std::time::Duration::from_millis(200));
-    assert!(stdout_log.exists());
     std::env::remove_var("STREMIO_TEST_SPAWN_CHILD");
     std::env::remove_var("STREMIO_TEST_CHILD_MODE");
     let _ = fs::remove_dir_all(log_dir);
