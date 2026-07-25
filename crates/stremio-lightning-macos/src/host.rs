@@ -659,7 +659,8 @@ mod tests {
 
     #[test]
     fn shared_host_command_fixture_covers_macos_supported_commands() {
-        let host = test_host();
+        let mut host = test_host();
+        host.base.package_version = "0.0.0";
         for command in [
             "init",
             "get_native_player_status",
