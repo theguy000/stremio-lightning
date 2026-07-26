@@ -355,17 +355,13 @@ pub async fn fetch_registry() -> Result<Registry, String> {
 }
 
 async fn check_mod_updates_internal(
-    app_data_dir: &Path,
     filename: &str,
     mod_type: ModType,
+    metadata: Option<ModMetadata>,
     registry: Option<&Registry>,
 ) -> Result<UpdateInfo, String> {
     validate_mod_filename(filename, mod_type)?;
-    let content = tokio::fs::read_to_string(mods_dir(app_data_dir, mod_type).join(filename))
-        .await
-        .map_err(|e| format!("Failed to read file: {}", e))?;
-
-    let Some(metadata) = parse_metadata(&content) else {
+    let Some(metadata) = metadata else {
         return Ok(UpdateInfo::unavailable(None));
     };
 
@@ -423,12 +419,13 @@ pub async fn check_mod_updates(
     let mut tasks = Vec::new();
 
     for md in mods {
-        let app_data = app_data_dir.to_path_buf();
         let registry = registry.clone();
-        let filename = md.filename.clone();
+        let InstalledMod {
+            filename, metadata, ..
+        } = md;
         tasks.push(async move {
             let res =
-                check_mod_updates_internal(&app_data, &filename, mod_type, registry.as_ref()).await;
+                check_mod_updates_internal(&filename, mod_type, metadata, registry.as_ref()).await;
             (filename, res)
         });
     }
