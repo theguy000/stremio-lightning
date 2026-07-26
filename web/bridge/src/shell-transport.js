@@ -4,6 +4,7 @@ function createMpvState() {
     timePos: 0,
     duration: 0,
     pause: false,
+    speed: 1,
     pausedForCache: false,
     seeking: false,
   };
@@ -73,6 +74,8 @@ function initShellTransport(ctx) {
         mpvState.duration = toFiniteNumber(eventPayload.data);
       } else if (eventPayload.name === "pause") {
         mpvState.pause = !!eventPayload.data;
+      } else if (eventPayload.name === "speed") {
+        mpvState.speed = toFiniteNumber(eventPayload.data) || 1;
       } else if (eventPayload.name === "paused-for-cache") {
         mpvState.pausedForCache = !!eventPayload.data;
       } else if (eventPayload.name === "seeking") {
@@ -82,6 +85,7 @@ function initShellTransport(ctx) {
       mpvState.timePos = 0;
       mpvState.duration = 0;
       mpvState.pause = false;
+      mpvState.speed = 1;
       mpvState.pausedForCache = false;
       mpvState.seeking = false;
     }
@@ -196,6 +200,7 @@ function initShellTransport(ctx) {
       "time-pos",
       "duration",
       "pause",
+      "speed",
       "paused-for-cache",
       "seeking",
       "eof-reached",
@@ -260,5 +265,12 @@ function initShellTransport(ctx) {
   return {
     mpvState: mpvState,
     observeMpvProperties: observeMpvProperties,
+    setMpvProperty: function (name, value) {
+      return sendShellTransportMessage({
+        id: 0,
+        type: 6,
+        args: ["mpv-set-prop", [name, value]],
+      });
+    },
   };
 }
