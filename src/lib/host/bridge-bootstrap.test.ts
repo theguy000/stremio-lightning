@@ -74,6 +74,64 @@ afterEach(() => {
 });
 
 describe('bridge host bootstrap', () => {
+  it('uses held Space for temporary 2x playback on the player route', () => {
+    vi.useFakeTimers();
+    const invoke = vi.fn().mockResolvedValue(undefined);
+    window.StremioLightningHost = {
+      invoke,
+      listen: vi.fn().mockResolvedValue(() => {}),
+      window: appWindow,
+      webview,
+    } as unknown as StremioLightningHost;
+    window.location.hash = '#/player';
+    runBridge();
+    invoke.mockClear();
+    expect(document.querySelector('#sl-core-ui-styles')?.textContent).toContain('#sl-speed-hint');
+
+    const pressSpace = () =>
+      document.body.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          code: 'Space',
+          key: ' ',
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    const releaseSpace = () =>
+      document.body.dispatchEvent(
+        new KeyboardEvent('keyup', {
+          code: 'Space',
+          key: ' ',
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    const playerCommands = () =>
+      invoke.mock.calls
+        .filter(([command]) => command === 'shell_transport_send')
+        .map(([, payload]) => JSON.parse(payload.message).args);
+
+    pressSpace();
+    releaseSpace();
+    expect(playerCommands()).toEqual([['mpv-set-prop', ['pause', true]]]);
+    invoke.mockClear();
+
+    pressSpace();
+    vi.advanceTimersByTime(349);
+    expect(playerCommands()).toEqual([]);
+    vi.advanceTimersByTime(1);
+    expect(playerCommands()).toEqual([['mpv-set-prop', ['speed', 2]]]);
+    expect(document.querySelector('#sl-speed-hint')?.hasAttribute('hidden')).toBe(false);
+
+    releaseSpace();
+    expect(playerCommands()).toEqual([
+      ['mpv-set-prop', ['speed', 2]],
+      ['mpv-set-prop', ['speed', 1]],
+    ]);
+    expect(document.querySelector('#sl-speed-hint')?.hasAttribute('hidden')).toBe(true);
+    window.location.hash = '';
+  });
+
   it('leaves Google Cast availability under page control', () => {
     vi.useFakeTimers();
     window.StremioLightningHost = {
@@ -768,6 +826,7 @@ describe('bridge host bootstrap', () => {
       'time-pos',
       'duration',
       'pause',
+      'speed',
       'paused-for-cache',
       'seeking',
       'eof-reached',

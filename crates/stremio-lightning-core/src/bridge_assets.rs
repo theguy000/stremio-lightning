@@ -92,6 +92,12 @@ mod tests {
         assert!(scripts
             .iter()
             .all(|script| !script.source.trim().is_empty()));
+        assert!(scripts
+            .iter()
+            .find(|script| script.name == BRIDGE_NAME)
+            .unwrap()
+            .source
+            .contains("sl-speed-hint"));
         assert!(!scripts
             .iter()
             .any(|script| script.source.contains("initCastFallback")));
