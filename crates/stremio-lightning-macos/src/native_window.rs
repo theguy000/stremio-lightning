@@ -2,6 +2,10 @@ use crate::app::AppConfig;
 use crate::player::{MpvPlayerBackend, PlayerBackend};
 use crate::streaming_server::RealProcessSpawner;
 use crate::webview_runtime::{MacosWebviewRuntime, WebviewLoadState};
+#[cfg(any(target_os = "macos", test))]
+use serde_json::Value;
+#[cfg(any(target_os = "macos", test))]
+use stremio_lightning_core::host_api::IpcRequest;
 
 pub const IPC_HANDLER_NAME: &str = "ipc";
 pub const DEFAULT_WINDOW_WIDTH: f64 = 1500.0;
@@ -118,6 +122,32 @@ fn is_external_url(lower_url: &str) -> bool {
     .any(|prefix| lower_url.starts_with(prefix))
 }
 
+#[cfg(any(target_os = "macos", test))]
+fn dispatch_ipc_message(
+    runtime: &MacosWebviewRuntime<MpvPlayerBackend, RealProcessSpawner>,
+    raw: &str,
+) -> Result<(u64, Result<Value, String>), String> {
+    let request = serde_json::from_str::<IpcRequest>(raw)
+        .map_err(|error| format!("Invalid macOS WKWebView IPC message: {error}"))?;
+    Ok((
+        request.id,
+        runtime.dispatch_ipc(&request.kind, request.payload),
+    ))
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn resolve_ipc_script(id: u64, response: Result<Value, String>) -> String {
+    match response {
+        Ok(value) => {
+            format!("window.__STREMIO_LIGHTNING_MACOS_RESOLVE__({id}, {value}, null);")
+        }
+        Err(error) => format!(
+            "window.__STREMIO_LIGHTNING_MACOS_RESOLVE__({id}, null, {});",
+            Value::String(error)
+        ),
+    }
+}
+
 #[cfg(target_os = "macos")]
 pub fn run_native_window(
     config: AppConfig,
@@ -154,12 +184,12 @@ mod appkit_shell {
         NSColor, NSWindow, NSWindowStyleMask,
     };
     use objc2_foundation::{
-        MainThreadMarker, NSNotification, NSObject, NSObjectProtocol, NSPoint, NSRect, NSSize,
-        NSString, NSURLRequest, NSURL,
+        MainThreadMarker, NSJSONSerialization, NSJSONWritingOptions, NSNotification, NSObject,
+        NSObjectProtocol, NSPoint, NSRect, NSSize, NSString, NSURLRequest, NSURL,
     };
     use objc2_web_kit::{
-        WKUserContentController, WKUserScript, WKUserScriptInjectionTime, WKWebView,
-        WKWebViewConfiguration,
+        WKScriptMessage, WKScriptMessageHandler, WKUserContentController, WKUserScript,
+        WKUserScriptInjectionTime, WKWebView, WKWebViewConfiguration,
     };
     use std::cell::OnceCell;
 
@@ -178,6 +208,19 @@ mod appkit_shell {
         struct AppDelegate;
 
         unsafe impl NSObjectProtocol for AppDelegate {}
+
+        unsafe impl WKScriptMessageHandler for AppDelegate {
+            #[unsafe(method(userContentController:didReceiveScriptMessage:))]
+            fn did_receive_script_message(
+                &self,
+                _user_content_controller: &WKUserContentController,
+                message: &WKScriptMessage,
+            ) {
+                if let Err(error) = self.handle_script_message(message) {
+                    eprintln!("[WKWebView IPC] {error}");
+                }
+            }
+        }
 
         unsafe impl NSApplicationDelegate for AppDelegate {
             #[unsafe(method(applicationDidFinishLaunching:))]
@@ -199,6 +242,15 @@ mod appkit_shell {
                         )
                     };
                     unsafe { user_content_controller.addUserScript(&script) };
+                }
+
+                let handler: &ProtocolObject<dyn WKScriptMessageHandler> =
+                    ProtocolObject::from_ref(self);
+                unsafe {
+                    user_content_controller.addScriptMessageHandler_name(
+                        handler,
+                        &NSString::from_str(plan.ipc_handler),
+                    );
                 }
 
                 let webview_configuration = unsafe { WKWebViewConfiguration::new(self.mtm()) };
@@ -294,6 +346,58 @@ mod appkit_shell {
             });
             Ok(unsafe { msg_send![super(this), init] })
         }
+
+        fn handle_script_message(&self, message: &WKScriptMessage) -> Result<(), String> {
+            let frame = unsafe { message.frameInfo() };
+            if !unsafe { frame.isMainFrame() } {
+                return Err("Rejected macOS WKWebView IPC from a subframe".to_string());
+            }
+            let url = unsafe { frame.request() }
+                .URL()
+                .and_then(|url| url.absoluteString())
+                .map(|url| url.to_string())
+                .ok_or_else(|| "Rejected macOS WKWebView IPC without a frame URL".to_string())?;
+            if decide_navigation_policy(&url, true) != NavigationDecision::Allow {
+                return Err(format!(
+                    "Rejected macOS WKWebView IPC from untrusted URL: {url}"
+                ));
+            }
+
+            let body = unsafe { message.body() };
+            let data = unsafe {
+                NSJSONSerialization::dataWithJSONObject_options_error(
+                    &body,
+                    NSJSONWritingOptions::FragmentsAllowed,
+                )
+            }
+            .map_err(|error| format!("Invalid macOS WKWebView IPC body: {error}"))?;
+            let raw = String::from_utf8(data.to_vec())
+                .map_err(|error| format!("Invalid macOS WKWebView IPC UTF-8: {error}"))?;
+            let (id, response) = dispatch_ipc_message(&self.ivars().runtime, &raw)?;
+            let webview = unsafe { message.webView() }
+                .ok_or_else(|| "macOS WKWebView IPC message has no webview".to_string())?;
+            evaluate_javascript(&webview, &resolve_ipc_script(id, response));
+            for script in self.ivars().runtime.drain_event_dispatch_scripts()? {
+                evaluate_javascript(&webview, &script);
+            }
+            Ok(())
+        }
+
+        fn remove_script_message_handler(&self) {
+            if let Some(webview) = self.ivars().webview.get() {
+                let controller = unsafe { webview.configuration().userContentController() };
+                unsafe {
+                    controller
+                        .removeScriptMessageHandlerForName(&NSString::from_str(IPC_HANDLER_NAME));
+                }
+            }
+        }
+    }
+
+    fn evaluate_javascript(webview: &WKWebView, script: &str) {
+        unsafe {
+            webview.evaluateJavaScript_completionHandler(&NSString::from_str(script), None);
+        }
     }
 
     pub fn run(
@@ -308,6 +412,7 @@ mod appkit_shell {
         app.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
 
         app.run();
+        delegate.remove_script_message_handler();
         Ok(())
     }
 }
@@ -416,5 +521,37 @@ mod tests {
         assert!(state.player_initialized);
         assert!(state.webview.loaded);
         assert_eq!(state.plan.ipc_handler, IPC_HANDLER_NAME);
+    }
+
+    #[test]
+    fn ipc_message_routes_to_host_and_formats_javascript_responses() {
+        let player = MpvPlayerBackend::default();
+        let host = Arc::new(Host::new(player, StreamingServer::new(RealProcessSpawner)));
+        let runtime = MacosWebviewRuntime::new(
+            "https://web.stremio.com/",
+            false,
+            InjectionBundle::load().unwrap(),
+            host,
+        );
+
+        let (id, response) = dispatch_ipc_message(
+            &runtime,
+            r#"{"id":7,"kind":"invoke","payload":{"command":"init"}}"#,
+        )
+        .unwrap();
+        assert_eq!(id, 7);
+        let script = resolve_ipc_script(id, response);
+        assert!(script.starts_with("window.__STREMIO_LIGHTNING_MACOS_RESOLVE__(7, {"));
+        assert!(script.contains("\"platform\":\"macos\""));
+
+        let (id, response) =
+            dispatch_ipc_message(&runtime, r#"{"id":8,"kind":"unknown"}"#).unwrap();
+        assert_eq!(
+            resolve_ipc_script(id, response),
+            "window.__STREMIO_LIGHTNING_MACOS_RESOLVE__(8, null, \"Unsupported IPC kind: unknown\");"
+        );
+        assert!(dispatch_ipc_message(&runtime, "not json")
+            .unwrap_err()
+            .starts_with("Invalid macOS WKWebView IPC message:"));
     }
 }
