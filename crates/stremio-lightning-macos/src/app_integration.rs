@@ -89,8 +89,13 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<str>,
 {
-    for argument in args {
+    let mut args = args.into_iter();
+    while let Some(argument) = args.next() {
         let argument = argument.as_ref();
+        if argument == "--url" {
+            args.next();
+            continue;
+        }
         if argument.starts_with('-') {
             continue;
         }

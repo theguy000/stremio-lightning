@@ -1,3 +1,4 @@
+use crate::app_integration::{launch_intent_from_args, LaunchIntent};
 use crate::host::Host;
 use crate::native_window::run_native_window;
 use crate::player::MpvPlayerBackend;
@@ -14,6 +15,7 @@ pub struct AppConfig {
     pub devtools: bool,
     pub headless_bootstrap: bool,
     pub disable_streaming_server: bool,
+    pub launch_intent: LaunchIntent,
 }
 
 pub type ShellSettings = AppConfig;
@@ -28,17 +30,20 @@ impl Default for AppConfig {
                 .ok()
                 .as_deref()
                 == Some("1"),
+            launch_intent: LaunchIntent::Focus,
         }
     }
 }
 
-pub fn parse_args<I, S>(args: I) -> AppConfig
+pub fn parse_args<I, S>(args: I) -> Result<AppConfig, String>
 where
     I: IntoIterator<Item = S>,
     S: Into<String>,
 {
+    let args = args.into_iter().map(Into::into).collect::<Vec<_>>();
     let mut config = AppConfig::default();
-    let mut args = args.into_iter().map(Into::into).skip(1);
+    config.launch_intent = launch_intent_from_args(args.iter().skip(1))?;
+    let mut args = args.into_iter().skip(1);
 
     while let Some(arg) = args.next() {
         if arg == "--url" {
@@ -56,7 +61,7 @@ where
         }
     }
 
-    config
+    Ok(config)
 }
 
 pub fn normalize_startup_url(url: &str) -> String {
@@ -97,7 +102,7 @@ mod tests {
 
     #[test]
     fn defaults_to_streaming_server_proxy() {
-        let config = parse_args(["stremio-lightning-macos"]);
+        let config = parse_args(["stremio-lightning-macos"]).unwrap();
         assert_eq!(config.url, DEFAULT_URL);
         assert!(config.devtools);
         assert!(!config.headless_bootstrap);
@@ -105,7 +110,8 @@ mod tests {
 
     #[test]
     fn accepts_developer_url() {
-        let config = parse_args(["stremio-lightning-macos", "--url", "file:///tmp/smoke.html"]);
+        let config =
+            parse_args(["stremio-lightning-macos", "--url", "file:///tmp/smoke.html"]).unwrap();
         assert_eq!(config.url, "file:///tmp/smoke.html");
     }
 
@@ -115,7 +121,8 @@ mod tests {
             "stremio-lightning-macos",
             "--url=https://localhost:5173/",
             "--devtools",
-        ]);
+        ])
+        .unwrap();
         assert_eq!(config.url, "https://localhost:5173/");
         assert!(config.devtools);
     }
@@ -126,13 +133,14 @@ mod tests {
             "stremio-lightning-macos",
             "--url",
             "https://web.stremio.com/",
-        ]);
+        ])
+        .unwrap();
         assert_eq!(config.url, DEFAULT_URL);
     }
 
     #[test]
     fn accepts_headless_bootstrap() {
-        let config = parse_args(["stremio-lightning-macos", "--headless-bootstrap"]);
+        let config = parse_args(["stremio-lightning-macos", "--headless-bootstrap"]).unwrap();
         assert!(config.headless_bootstrap);
     }
 
@@ -145,7 +153,23 @@ mod tests {
 
     #[test]
     fn accepts_no_streaming_server() {
-        let config = parse_args(["stremio-lightning-macos", "--no-streaming-server"]);
+        let config = parse_args(["stremio-lightning-macos", "--no-streaming-server"]).unwrap();
         assert!(config.disable_streaming_server);
+    }
+
+    #[test]
+    fn captures_initial_launch_intent_without_treating_url_options_as_intents() {
+        let config = parse_args([
+            "stremio-lightning-macos",
+            "--url",
+            "https://localhost:5173/",
+            "magnet:?xt=urn:btih:test",
+        ])
+        .unwrap();
+
+        assert_eq!(
+            config.launch_intent,
+            LaunchIntent::Magnet("magnet:?xt=urn:btih:test".to_string())
+        );
     }
 }

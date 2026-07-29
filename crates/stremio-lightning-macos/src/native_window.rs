@@ -198,7 +198,7 @@ pub fn run_native_window(
     player: MpvPlayerBackend,
 ) -> Result<(), String> {
     let _state = prepare_native_launch(&mut runtime, &player)?;
-    appkit_shell::run(config, runtime, player)
+    appkit_shell::run(config.launch_intent, runtime, player)
 }
 
 pub fn prepare_native_launch(
@@ -219,7 +219,7 @@ pub fn prepare_native_launch(
 #[cfg(target_os = "macos")]
 mod appkit_shell {
     use super::*;
-    use crate::app_integration::AppLifecycleEvent;
+    use crate::app_integration::{classify_launch_argument, AppLifecycleEvent, LaunchIntent};
     use crate::host::open_external_url;
     use crate::player::{MacosMpvRenderer, MpvVideoLayerHandle};
     use objc2::rc::Retained;
@@ -227,14 +227,14 @@ mod appkit_shell {
     use objc2::{define_class, msg_send, sel, DefinedClass, MainThreadOnly, Message};
     use objc2_app_kit::{
         NSApplication, NSApplicationActivationPolicy, NSApplicationDelegate,
-        NSApplicationTerminateReply, NSAutoresizingMaskOptions, NSBackingStoreType, NSColor,
-        NSFloatingWindowLevel, NSView, NSWindow, NSWindowDelegate, NSWindowLevel,
-        NSWindowStyleMask,
+        NSApplicationDelegateReply, NSApplicationTerminateReply, NSAutoresizingMaskOptions,
+        NSBackingStoreType, NSColor, NSFloatingWindowLevel, NSView, NSWindow, NSWindowDelegate,
+        NSWindowLevel, NSWindowStyleMask,
     };
     use objc2_foundation::{
-        MainThreadMarker, NSError, NSJSONSerialization, NSJSONWritingOptions, NSNotification,
-        NSObject, NSObjectProtocol, NSPoint, NSRect, NSSize, NSString, NSTimer, NSURLRequest,
-        NSURL,
+        MainThreadMarker, NSArray, NSError, NSJSONSerialization, NSJSONWritingOptions,
+        NSNotification, NSObject, NSObjectProtocol, NSPoint, NSRect, NSSize, NSString, NSTimer,
+        NSURLRequest, NSURL,
     };
     use objc2_web_kit::{
         WKNavigationAction, WKNavigationActionPolicy, WKNavigationDelegate, WKScriptMessage,
@@ -265,6 +265,7 @@ mod appkit_shell {
         pip_window: RefCell<Option<PipWindowSnapshot>>,
         pending_pip_transition: Cell<Option<PendingPipTransition>>,
         termination_pending: Cell<bool>,
+        pending_launch_intents: RefCell<Vec<LaunchIntent>>,
     }
 
     define_class!(
@@ -378,6 +379,54 @@ mod appkit_shell {
         }
 
         unsafe impl NSApplicationDelegate for AppDelegate {
+            #[unsafe(method(application:openURLs:))]
+            fn open_urls(&self, _application: &NSApplication, urls: &NSArray<NSURL>) {
+                for url in urls {
+                    let argument = if url.isFileURL() {
+                        url.path().map(|path| path.to_string())
+                    } else {
+                        url.absoluteString().map(|url| url.to_string())
+                    };
+                    let Some(argument) = argument else {
+                        eprintln!("[AppKit Launch] Ignored URL without an absolute value");
+                        continue;
+                    };
+                    self.open_launch_argument(&argument);
+                }
+            }
+
+            #[unsafe(method(application:openFile:))]
+            fn open_file(&self, _application: &NSApplication, filename: &NSString) -> bool {
+                self.open_launch_argument(&filename.to_string())
+            }
+
+            #[unsafe(method(application:openFiles:))]
+            fn open_files(&self, application: &NSApplication, filenames: &NSArray<NSString>) {
+                let mut succeeded = true;
+                for filename in filenames {
+                    succeeded &= self.open_launch_argument(&filename.to_string());
+                }
+                application.replyToOpenOrPrint(if succeeded {
+                    NSApplicationDelegateReply::Success
+                } else {
+                    NSApplicationDelegateReply::Failure
+                });
+            }
+
+            #[unsafe(method(applicationShouldHandleReopen:hasVisibleWindows:))]
+            fn should_handle_reopen(
+                &self,
+                _application: &NSApplication,
+                _has_visible_windows: bool,
+            ) -> bool {
+                if let Err(error) = self.deliver_launch_intent(LaunchIntent::Focus) {
+                    eprintln!("[AppKit Launch] Failed to reopen window: {error}");
+                    false
+                } else {
+                    true
+                }
+            }
+
             #[unsafe(method(applicationDidBecomeActive:))]
             fn did_become_active(&self, _notification: &NSNotification) {
                 self.emit_lifecycle_event(AppLifecycleEvent::BecameActive);
@@ -588,6 +637,7 @@ mod appkit_shell {
                 let _ = app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
                 #[allow(deprecated)]
                 app.activateIgnoringOtherApps(true);
+                self.flush_pending_launch_intents();
             }
 
             #[unsafe(method(applicationShouldTerminateAfterLastWindowClosed:))]
@@ -602,6 +652,7 @@ mod appkit_shell {
             mtm: MainThreadMarker,
             runtime: MacosWebviewRuntime<MpvPlayerBackend, RealProcessSpawner>,
             player: MpvPlayerBackend,
+            initial_launch_intent: LaunchIntent,
         ) -> Result<Retained<Self>, String> {
             let url_string = runtime.load_state().url;
             let url = NSURL::URLWithString(&NSString::from_str(&url_string))
@@ -618,6 +669,12 @@ mod appkit_shell {
                 pip_window: RefCell::new(None),
                 pending_pip_transition: Cell::new(None),
                 termination_pending: Cell::new(false),
+                pending_launch_intents: RefCell::new(
+                    (initial_launch_intent != LaunchIntent::Focus)
+                        .then_some(initial_launch_intent)
+                        .into_iter()
+                        .collect(),
+                ),
             });
             Ok(unsafe { msg_send![super(this), init] })
         }
@@ -667,6 +724,55 @@ mod appkit_shell {
             if let Err(error) = result {
                 eprintln!("[AppKit Lifecycle] Failed to emit {event:?}: {error}");
             }
+        }
+
+        fn open_launch_argument(&self, argument: &str) -> bool {
+            let result = classify_launch_argument(argument).and_then(|intent| {
+                intent
+                    .ok_or_else(|| format!("Unsupported macOS launch argument: {argument}"))
+                    .and_then(|intent| self.deliver_launch_intent(intent))
+            });
+            if let Err(error) = result {
+                eprintln!("[AppKit Launch] {error}");
+                false
+            } else {
+                true
+            }
+        }
+
+        fn deliver_launch_intent(&self, intent: LaunchIntent) -> Result<(), String> {
+            if self.ivars().window.get().is_none() {
+                let mut pending = self.ivars().pending_launch_intents.borrow_mut();
+                if !pending.contains(&intent) {
+                    pending.push(intent);
+                }
+                return Ok(());
+            }
+
+            self.focus_native_window();
+            self.ivars().runtime.host().emit_launch_intent(intent)?;
+            self.drain_events_to_webview()
+        }
+
+        fn flush_pending_launch_intents(&self) {
+            for intent in self.ivars().pending_launch_intents.take() {
+                if let Err(error) = self.deliver_launch_intent(intent) {
+                    eprintln!("[AppKit Launch] Failed to deliver launch intent: {error}");
+                }
+            }
+        }
+
+        fn focus_native_window(&self) {
+            let Some(window) = self.ivars().window.get() else {
+                return;
+            };
+            if window.isMiniaturized() {
+                window.deminiaturize(None);
+            }
+            window.makeKeyAndOrderFront(None);
+            let app = NSApplication::sharedApplication(self.mtm());
+            #[allow(deprecated)]
+            app.activateIgnoringOtherApps(true);
         }
 
         fn finish_termination(&self) {
@@ -732,13 +838,7 @@ mod appkit_shell {
                     self.ivars().runtime.dispatch_ipc(kind, payload)
                 }
                 "window.focus" => {
-                    if window.isMiniaturized() {
-                        window.deminiaturize(None);
-                    }
-                    window.makeKeyAndOrderFront(None);
-                    let app = NSApplication::sharedApplication(self.mtm());
-                    #[allow(deprecated)]
-                    app.activateIgnoringOtherApps(true);
+                    self.focus_native_window();
                     self.ivars().runtime.dispatch_ipc(kind, payload)
                 }
                 "window.toggleMaximize" => {
@@ -931,14 +1031,14 @@ mod appkit_shell {
     }
 
     pub fn run(
-        _config: AppConfig,
+        initial_launch_intent: LaunchIntent,
         runtime: MacosWebviewRuntime<MpvPlayerBackend, RealProcessSpawner>,
         player: MpvPlayerBackend,
     ) -> Result<(), String> {
         let mtm = MainThreadMarker::new()
             .ok_or_else(|| "macOS AppKit must run on the main thread".to_string())?;
         let app = NSApplication::sharedApplication(mtm);
-        let delegate = AppDelegate::new(mtm, runtime, player)?;
+        let delegate = AppDelegate::new(mtm, runtime, player, initial_launch_intent)?;
         app.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
 
         app.run();
