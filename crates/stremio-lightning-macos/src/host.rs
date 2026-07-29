@@ -7,7 +7,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 pub use stremio_lightning_core::host_api::SHELL_TRANSPORT_EVENT;
 use stremio_lightning_core::host_api::{self, BaseHost, HostEventRecord, PlatformBridge};
-use stremio_lightning_core::pip::PipState;
+use stremio_lightning_core::pip::{serialize_picture_in_picture, PipState, PipWindowController};
+use stremio_lightning_core::player_api::PlayerEvent;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct WindowRuntimeState {
@@ -188,6 +189,26 @@ where
         &self.base.bridge.streaming_server
     }
 
+    pub fn toggle_picture_in_picture(
+        &self,
+        controller: &mut impl PipWindowController,
+    ) -> Result<bool, String> {
+        let enabled = self.base.bridge.pip_state.toggle_window_pip(controller)?;
+        self.emit_native_player_transport_args(serialize_picture_in_picture(enabled))?;
+        Ok(enabled)
+    }
+
+    pub fn exit_picture_in_picture(
+        &self,
+        controller: &mut impl PipWindowController,
+    ) -> Result<bool, String> {
+        let changed = self.base.bridge.pip_state.exit_window_pip(controller)?;
+        if changed {
+            self.emit_native_player_transport_args(serialize_picture_in_picture(false))?;
+        }
+        Ok(changed)
+    }
+
     pub fn window_state(&self) -> Result<WindowRuntimeState, String> {
         Ok(self.base.bridge.lock_window_state()?.clone())
     }
@@ -253,14 +274,7 @@ where
     }
 
     pub fn invoke(&self, command: &str, payload: Option<Value>) -> Result<Value, String> {
-        let res = self.base.invoke(command, payload);
-        if matches!(
-            command,
-            "mpv-observe-prop" | "mpv-set-prop" | "mpv-command" | "native-player-stop"
-        ) {
-            self.emit_drained_player_events().ok();
-        }
-        res
+        self.base.invoke(command, payload)
     }
 
     pub fn dispatch_ipc(&self, kind: &str, payload: Option<Value>) -> Result<Value, String> {
@@ -423,7 +437,27 @@ where
     }
 
     pub fn emit_drained_player_events(&self) -> Result<(), String> {
+        self.emit_drained_player_events_with(|_| Ok(()))
+    }
+
+    pub fn emit_drained_player_events_with_pip_controller(
+        &self,
+        controller: &mut impl PipWindowController,
+    ) -> Result<(), String> {
+        self.emit_drained_player_events_with(|event| {
+            if matches!(event, PlayerEvent::Ended(_)) {
+                self.exit_picture_in_picture(controller)?;
+            }
+            Ok(())
+        })
+    }
+
+    fn emit_drained_player_events_with(
+        &self,
+        mut before_emit: impl FnMut(&PlayerEvent) -> Result<(), String>,
+    ) -> Result<(), String> {
         for event in self.player().drain_events()? {
+            before_emit(&event)?;
             self.emit_native_player_transport_args(event.transport_args())?;
         }
         Ok(())
@@ -431,6 +465,14 @@ where
 
     pub fn drain_emitted_events(&self) -> Result<Vec<HostEventRecord>, String> {
         self.emit_drained_player_events()?;
+        self.base.drain_emitted_events()
+    }
+
+    pub fn drain_emitted_events_with_pip_controller(
+        &self,
+        controller: &mut impl PipWindowController,
+    ) -> Result<Vec<HostEventRecord>, String> {
+        self.emit_drained_player_events_with_pip_controller(controller)?;
         self.base.drain_emitted_events()
     }
 }
@@ -482,6 +524,7 @@ mod tests {
     use std::fs;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use stremio_lightning_core::mods;
+    use stremio_lightning_core::pip::PipRestoreSnapshot;
 
     static TEMP_ID: AtomicUsize = AtomicUsize::new(0);
 
@@ -756,6 +799,53 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event, SHELL_TRANSPORT_EVENT);
         assert_eq!(events[0].payload["type"], "showPictureInPicture");
+    }
+
+    #[test]
+    fn native_pip_restores_the_window_snapshot_when_playback_ends() {
+        #[derive(Default)]
+        struct FakeWindow {
+            restored: Option<PipRestoreSnapshot>,
+        }
+
+        impl PipWindowController for FakeWindow {
+            fn enter_pip(
+                &mut self,
+                _width: i32,
+                _height: i32,
+            ) -> Result<PipRestoreSnapshot, String> {
+                Ok(PipRestoreSnapshot {
+                    was_fullscreen: true,
+                    saved_size: Some((1500, 850)),
+                })
+            }
+
+            fn exit_pip(&mut self, snapshot: PipRestoreSnapshot) -> Result<(), String> {
+                self.restored = Some(snapshot);
+                Ok(())
+            }
+        }
+
+        let host = test_host();
+        let mut window = FakeWindow::default();
+        assert!(host.toggle_picture_in_picture(&mut window).unwrap());
+        host.player()
+            .push_event(PlayerEvent::Ended(
+                stremio_lightning_core::player_api::PlayerEnded {
+                    reason: "eof".to_string(),
+                    error: None,
+                },
+            ))
+            .unwrap();
+        host.emit_drained_player_events_with_pip_controller(&mut window)
+            .unwrap();
+        assert_eq!(
+            window.restored,
+            Some(PipRestoreSnapshot {
+                was_fullscreen: true,
+                saved_size: Some((1500, 850)),
+            })
+        );
     }
 
     #[test]

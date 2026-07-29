@@ -4,6 +4,8 @@ use crate::streaming_server::ProcessSpawner;
 use serde_json::Value;
 use std::sync::Arc;
 use std::time::Duration;
+#[cfg(target_os = "macos")]
+use stremio_lightning_core::pip::PipWindowController;
 
 pub const MACOS_HOST_ADAPTER_NAME: &str = "macos-host-adapter";
 pub const HOST_ADAPTER_NAME: &str = MACOS_HOST_ADAPTER_NAME;
@@ -138,6 +140,11 @@ where
         self.host.dispatch_ipc(kind, payload)
     }
 
+    #[cfg(target_os = "macos")]
+    pub(crate) fn host(&self) -> &Host<B, P> {
+        &self.host
+    }
+
     pub fn shutdown(&self) -> Result<(), String> {
         self.host.shutdown()
     }
@@ -151,8 +158,24 @@ where
     }
 
     pub fn drain_event_dispatch_scripts(&self) -> Result<Vec<String>, String> {
-        self.host
-            .drain_emitted_events()?
+        Self::event_dispatch_scripts(self.host.drain_emitted_events()?)
+    }
+
+    #[cfg(target_os = "macos")]
+    pub(crate) fn drain_event_dispatch_scripts_with_pip_controller(
+        &self,
+        controller: &mut impl PipWindowController,
+    ) -> Result<Vec<String>, String> {
+        Self::event_dispatch_scripts(
+            self.host
+                .drain_emitted_events_with_pip_controller(controller)?,
+        )
+    }
+
+    fn event_dispatch_scripts(
+        events: Vec<stremio_lightning_core::host_api::HostEventRecord>,
+    ) -> Result<Vec<String>, String> {
+        events
             .into_iter()
             .map(|event| {
                 let event_name = serde_json::to_string(&event.event)
@@ -301,6 +324,7 @@ fn host_adapter() -> String {
     },
     window: {
       minimize: function () { return post("window.minimize"); },
+      focus: function () { return post("window.focus"); },
       toggleMaximize: function () { return post("window.toggleMaximize"); },
       close: function () { return post("window.close"); },
       isMaximized: function () { return post("window.isMaximized"); },
@@ -445,6 +469,7 @@ mod tests {
             .expect("host adapter source");
         assert!(source.contains("__STREMIO_LIGHTNING_MACOS_DISPATCH__"));
         assert!(source.contains("window.webkit.messageHandlers.ipc.postMessage"));
+        assert!(source.contains("focus: function () { return post(\"window.focus\"); }"));
     }
 
     #[test]

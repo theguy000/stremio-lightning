@@ -3,9 +3,9 @@ use crate::player::{MpvPlayerBackend, PlayerBackend};
 use crate::streaming_server::RealProcessSpawner;
 use crate::webview_runtime::{MacosWebviewRuntime, WebviewLoadState};
 #[cfg(any(target_os = "macos", test))]
-use serde_json::Value;
+use serde_json::{json, Value};
 #[cfg(any(target_os = "macos", test))]
-use stremio_lightning_core::host_api::IpcRequest;
+use stremio_lightning_core::host_api::{self, IpcRequest, ParsedRequest};
 
 pub const IPC_HANDLER_NAME: &str = "ipc";
 pub const DEFAULT_WINDOW_WIDTH: f64 = 1500.0;
@@ -123,16 +123,59 @@ fn is_external_url(lower_url: &str) -> bool {
 }
 
 #[cfg(any(target_os = "macos", test))]
-fn dispatch_ipc_message(
-    runtime: &MacosWebviewRuntime<MpvPlayerBackend, RealProcessSpawner>,
-    raw: &str,
-) -> Result<(u64, Result<Value, String>), String> {
-    let request = serde_json::from_str::<IpcRequest>(raw)
-        .map_err(|error| format!("Invalid macOS WKWebView IPC message: {error}"))?;
-    Ok((
-        request.id,
-        runtime.dispatch_ipc(&request.kind, request.payload),
-    ))
+fn parse_ipc_message(raw: &str) -> Result<IpcRequest, String> {
+    serde_json::from_str(raw)
+        .map_err(|error| format!("Invalid macOS WKWebView IPC message: {error}"))
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn invoke_command(payload: Option<&Value>) -> Option<&str> {
+    payload
+        .and_then(|value| value.get("command"))
+        .and_then(Value::as_str)
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn shell_transport_fullscreen_request(payload: Option<&Value>) -> Result<Option<bool>, String> {
+    if invoke_command(payload) != Some("shell_transport_send") {
+        return Ok(None);
+    }
+    let message = payload
+        .and_then(|value| value.get("payload"))
+        .and_then(|value| value.get("message"))
+        .and_then(Value::as_str)
+        .ok_or_else(|| "Missing shell_transport_send message".to_string())?;
+    let ParsedRequest::Command { method, data } = host_api::parse_request(message)? else {
+        return Ok(None);
+    };
+    if method != "win-set-visibility" {
+        return Ok(None);
+    }
+    data.as_ref()
+        .and_then(|value| value.get("fullscreen"))
+        .and_then(Value::as_bool)
+        .map(Some)
+        .ok_or_else(|| "Invalid win-set-visibility payload".to_string())
+}
+
+#[cfg(any(target_os = "macos", test))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PendingPipTransition {
+    Enter { width: i32, height: i32 },
+    RestoreFullscreen,
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn schedule_pending_fullscreen_restore(
+    transition: &std::cell::Cell<Option<PendingPipTransition>>,
+    was_fullscreen: bool,
+) -> bool {
+    if was_fullscreen && transition.take().is_some() {
+        transition.set(Some(PendingPipTransition::RestoreFullscreen));
+        true
+    } else {
+        false
+    }
 }
 
 #[cfg(any(target_os = "macos", test))]
@@ -180,22 +223,32 @@ mod appkit_shell {
     use crate::player::{MacosMpvRenderer, MpvVideoLayerHandle};
     use objc2::rc::Retained;
     use objc2::runtime::ProtocolObject;
-    use objc2::{define_class, msg_send, DefinedClass, MainThreadOnly};
+    use objc2::{define_class, msg_send, sel, DefinedClass, MainThreadOnly};
     use objc2_app_kit::{
         NSApplication, NSApplicationActivationPolicy, NSApplicationDelegate,
-        NSAutoresizingMaskOptions, NSBackingStoreType, NSColor, NSView, NSWindow,
-        NSWindowStyleMask,
+        NSAutoresizingMaskOptions, NSBackingStoreType, NSColor, NSFloatingWindowLevel, NSView,
+        NSWindow, NSWindowDelegate, NSWindowLevel, NSWindowStyleMask,
     };
     use objc2_foundation::{
         MainThreadMarker, NSJSONSerialization, NSJSONWritingOptions, NSNotification, NSObject,
-        NSObjectProtocol, NSPoint, NSRect, NSSize, NSString, NSURLRequest, NSURL,
+        NSObjectProtocol, NSPoint, NSRect, NSSize, NSString, NSTimer, NSURLRequest, NSURL,
     };
     use objc2_web_kit::{
         WKNavigationAction, WKNavigationActionPolicy, WKNavigationDelegate, WKScriptMessage,
         WKScriptMessageHandler, WKUserContentController, WKUserScript, WKUserScriptInjectionTime,
         WKWebView, WKWebViewConfiguration,
     };
-    use std::cell::OnceCell;
+    use std::cell::{Cell, OnceCell, RefCell};
+    use stremio_lightning_core::pip::{PipRestoreSnapshot, PipWindowController};
+
+    #[derive(Clone, Copy)]
+    struct PipWindowSnapshot {
+        frame: NSRect,
+        min_size: NSSize,
+        style_mask: NSWindowStyleMask,
+        level: NSWindowLevel,
+        was_zoomed: bool,
+    }
 
     struct AppDelegateIvars {
         runtime: MacosWebviewRuntime<MpvPlayerBackend, RealProcessSpawner>,
@@ -205,6 +258,9 @@ mod appkit_shell {
         window: OnceCell<Retained<NSWindow>>,
         video_layer: OnceCell<Retained<NSView>>,
         webview: OnceCell<Retained<WKWebView>>,
+        player_event_timer: OnceCell<Retained<NSTimer>>,
+        pip_window: RefCell<Option<PipWindowSnapshot>>,
+        pending_pip_transition: Cell<Option<PendingPipTransition>>,
     }
 
     define_class!(
@@ -212,6 +268,15 @@ mod appkit_shell {
         #[thread_kind = MainThreadOnly]
         #[ivars = AppDelegateIvars]
         struct AppDelegate;
+
+        impl AppDelegate {
+            #[unsafe(method(drainPlayerEvents:))]
+            fn drain_player_events_timer(&self, _timer: &NSTimer) {
+                if let Err(error) = self.drain_events_to_webview() {
+                    eprintln!("[MPV] Failed to drain macOS player events: {error}");
+                }
+            }
+        }
 
         unsafe impl NSObjectProtocol for AppDelegate {}
 
@@ -264,6 +329,25 @@ mod appkit_shell {
                     }
                 };
                 decision_handler.call((policy,));
+            }
+        }
+
+        unsafe impl NSWindowDelegate for AppDelegate {
+            #[unsafe(method(windowDidExitFullScreen:))]
+            fn did_exit_fullscreen(&self, _notification: &NSNotification) {
+                let Some(transition) = self.ivars().pending_pip_transition.take() else {
+                    return;
+                };
+                if let Some(window) = self.ivars().window.get() {
+                    match transition {
+                        PendingPipTransition::Enter { width, height } => {
+                            enter_pip_window(window, &self.ivars().pip_window, width, height);
+                        }
+                        PendingPipTransition::RestoreFullscreen => {
+                            set_native_fullscreen(window, true);
+                        }
+                    }
+                }
             }
         }
 
@@ -338,6 +422,9 @@ mod appkit_shell {
                     )
                 };
                 unsafe { window.setReleasedWhenClosed(false) };
+                let window_delegate: &ProtocolObject<dyn NSWindowDelegate> =
+                    ProtocolObject::from_ref(self);
+                window.setDelegate(Some(window_delegate));
                 window.setTitle(&NSString::from_str(plan.title));
                 window.setContentMinSize(NSSize::new(plan.min_width, plan.min_height));
                 window.setContentView(Some(&content_view));
@@ -374,6 +461,19 @@ mod appkit_shell {
                     .webview
                     .set(webview)
                     .expect("application webview must only be created once");
+                let timer = unsafe {
+                    NSTimer::scheduledTimerWithTimeInterval_target_selector_userInfo_repeats(
+                        0.016,
+                        self,
+                        sel!(drainPlayerEvents:),
+                        None,
+                        true,
+                    )
+                };
+                self.ivars()
+                    .player_event_timer
+                    .set(timer)
+                    .expect("player event timer must only be created once");
 
                 let webview = self.ivars().webview.get().expect("webview must exist");
                 let navigation = if self.ivars().url.isFileURL() {
@@ -428,6 +528,9 @@ mod appkit_shell {
                 window: OnceCell::new(),
                 video_layer: OnceCell::new(),
                 webview: OnceCell::new(),
+                player_event_timer: OnceCell::new(),
+                pip_window: RefCell::new(None),
+                pending_pip_transition: Cell::new(None),
             });
             Ok(unsafe { msg_send![super(this), init] })
         }
@@ -458,14 +561,141 @@ mod appkit_shell {
             .map_err(|error| format!("Invalid macOS WKWebView IPC body: {error}"))?;
             let raw = String::from_utf8(data.to_vec())
                 .map_err(|error| format!("Invalid macOS WKWebView IPC UTF-8: {error}"))?;
-            let (id, response) = dispatch_ipc_message(&self.ivars().runtime, &raw)?;
+            let request = parse_ipc_message(&raw)?;
+            let id = request.id;
+            let response = self.dispatch_native_ipc(&request.kind, request.payload);
             let webview = unsafe { message.webView() }
                 .ok_or_else(|| "macOS WKWebView IPC message has no webview".to_string())?;
             evaluate_javascript(&webview, &resolve_ipc_script(id, response));
-            for script in self.ivars().runtime.drain_event_dispatch_scripts()? {
+            self.drain_events_to_webview()
+        }
+
+        fn drain_events_to_webview(&self) -> Result<(), String> {
+            let Some(window) = self.ivars().window.get() else {
+                return Ok(());
+            };
+            let Some(webview) = self.ivars().webview.get() else {
+                return Ok(());
+            };
+            let mut controller = self.window_controller(window);
+            for script in self
+                .ivars()
+                .runtime
+                .drain_event_dispatch_scripts_with_pip_controller(&mut controller)?
+            {
                 evaluate_javascript(&webview, &script);
             }
             Ok(())
+        }
+
+        fn dispatch_native_ipc(&self, kind: &str, payload: Option<Value>) -> Result<Value, String> {
+            let window = self
+                .ivars()
+                .window
+                .get()
+                .ok_or_else(|| "macOS native window is not initialized".to_string())?;
+            let webview = self
+                .ivars()
+                .webview
+                .get()
+                .ok_or_else(|| "macOS WKWebView is not initialized".to_string())?;
+
+            if let Some(fullscreen) = shell_transport_fullscreen_request(payload.as_ref())? {
+                self.set_fullscreen(window, fullscreen)?;
+                return Ok(Value::Null);
+            }
+
+            match kind {
+                "invoke" if invoke_command(payload.as_ref()) == Some("toggle_pip") => {
+                    let mut controller = self.window_controller(window);
+                    Ok(json!(self
+                        .ivars()
+                        .runtime
+                        .host()
+                        .toggle_picture_in_picture(&mut controller)?))
+                }
+                "window.minimize" => {
+                    window.miniaturize(None);
+                    self.ivars().runtime.dispatch_ipc(kind, payload)
+                }
+                "window.focus" => {
+                    if window.isMiniaturized() {
+                        window.deminiaturize(None);
+                    }
+                    window.makeKeyAndOrderFront(None);
+                    let app = NSApplication::sharedApplication(self.mtm());
+                    #[allow(deprecated)]
+                    app.activateIgnoringOtherApps(true);
+                    self.ivars().runtime.dispatch_ipc(kind, payload)
+                }
+                "window.toggleMaximize" => {
+                    if window.isMiniaturized() {
+                        window.deminiaturize(None);
+                    }
+                    window.zoom(None);
+                    self.ivars()
+                        .runtime
+                        .host()
+                        .emit_window_maximized_changed(window.isZoomed())?;
+                    Ok(Value::Null)
+                }
+                "window.close" => {
+                    let mut controller = self.window_controller(window);
+                    self.ivars()
+                        .runtime
+                        .host()
+                        .exit_picture_in_picture(&mut controller)?;
+                    window.orderOut(None);
+                    self.ivars().runtime.dispatch_ipc(kind, payload)
+                }
+                "window.isMaximized" => Ok(json!(window.isZoomed())),
+                "window.isFullscreen" => Ok(json!(is_window_fullscreen(window))),
+                "window.setFullscreen" => {
+                    let request: host_api::FullscreenIpcPayload =
+                        host_api::parse_payload(kind, payload)?;
+                    self.set_fullscreen(window, request.fullscreen)?;
+                    Ok(Value::Null)
+                }
+                "webview.setZoom" => {
+                    let request: host_api::ZoomIpcPayload = host_api::parse_payload(kind, payload)?;
+                    if !request.level.is_finite() || request.level <= 0.0 {
+                        return Err("Invalid webview zoom level".to_string());
+                    }
+                    unsafe { webview.setPageZoom(request.level) };
+                    Ok(Value::Null)
+                }
+                _ => self.ivars().runtime.dispatch_ipc(kind, payload),
+            }
+        }
+
+        fn set_fullscreen(&self, window: &NSWindow, fullscreen: bool) -> Result<(), String> {
+            let restored_fullscreen = if fullscreen {
+                let mut controller = self.window_controller(window);
+                self.ivars()
+                    .runtime
+                    .host()
+                    .exit_picture_in_picture(&mut controller)?;
+                controller.restored_fullscreen
+            } else {
+                false
+            };
+            if !restored_fullscreen {
+                set_native_fullscreen(window, fullscreen);
+            }
+            self.ivars().runtime.dispatch_ipc(
+                "window.setFullscreen",
+                Some(json!({ "fullscreen": fullscreen })),
+            )?;
+            Ok(())
+        }
+
+        fn window_controller<'a>(&'a self, window: &'a NSWindow) -> NativeWindowController<'a> {
+            NativeWindowController {
+                window,
+                pip_window: &self.ivars().pip_window,
+                pending_pip_transition: &self.ivars().pending_pip_transition,
+                restored_fullscreen: false,
+            }
         }
 
         fn remove_script_message_handler(&self) {
@@ -477,6 +707,108 @@ mod appkit_shell {
                 }
             }
         }
+
+        fn invalidate_player_event_timer(&self) {
+            if let Some(timer) = self.ivars().player_event_timer.get() {
+                timer.invalidate();
+            }
+        }
+    }
+
+    struct NativeWindowController<'a> {
+        window: &'a NSWindow,
+        pip_window: &'a RefCell<Option<PipWindowSnapshot>>,
+        pending_pip_transition: &'a Cell<Option<PendingPipTransition>>,
+        restored_fullscreen: bool,
+    }
+
+    impl PipWindowController for NativeWindowController<'_> {
+        fn enter_pip(&mut self, width: i32, height: i32) -> Result<PipRestoreSnapshot, String> {
+            let was_fullscreen = is_window_fullscreen(self.window);
+            let frame = self.window.frame();
+            if was_fullscreen {
+                self.pending_pip_transition
+                    .set(Some(PendingPipTransition::Enter { width, height }));
+                self.window.toggleFullScreen(None);
+            } else {
+                enter_pip_window(self.window, self.pip_window, width, height);
+            }
+            Ok(PipRestoreSnapshot {
+                was_fullscreen,
+                saved_size: (!was_fullscreen)
+                    .then_some((frame.size.width as i32, frame.size.height as i32)),
+            })
+        }
+
+        fn exit_pip(&mut self, snapshot: PipRestoreSnapshot) -> Result<(), String> {
+            self.restored_fullscreen = snapshot.was_fullscreen;
+            let restore_is_pending = schedule_pending_fullscreen_restore(
+                self.pending_pip_transition,
+                snapshot.was_fullscreen,
+            );
+            if let Some(window_snapshot) = self.pip_window.borrow_mut().take() {
+                self.window.setStyleMask(window_snapshot.style_mask);
+                self.window.setContentMinSize(window_snapshot.min_size);
+                self.window.setLevel(window_snapshot.level);
+                self.window.setFrame_display(window_snapshot.frame, true);
+                if window_snapshot.was_zoomed && !self.window.isZoomed() {
+                    self.window.zoom(None);
+                }
+            }
+            if snapshot.was_fullscreen && !restore_is_pending && !is_window_fullscreen(self.window)
+            {
+                self.window.toggleFullScreen(None);
+            }
+            self.window.makeKeyAndOrderFront(None);
+            Ok(())
+        }
+    }
+
+    fn is_window_fullscreen(window: &NSWindow) -> bool {
+        window.styleMask().contains(NSWindowStyleMask::FullScreen)
+    }
+
+    fn set_native_fullscreen(window: &NSWindow, fullscreen: bool) {
+        if is_window_fullscreen(window) != fullscreen {
+            window.toggleFullScreen(None);
+        }
+    }
+
+    fn enter_pip_window(
+        window: &NSWindow,
+        state: &RefCell<Option<PipWindowSnapshot>>,
+        width: i32,
+        height: i32,
+    ) {
+        if state.borrow().is_some() {
+            return;
+        }
+        let was_zoomed = window.isZoomed();
+        if was_zoomed {
+            window.zoom(None);
+        }
+        let frame = window.frame();
+        *state.borrow_mut() = Some(PipWindowSnapshot {
+            frame,
+            min_size: window.contentMinSize(),
+            style_mask: window.styleMask(),
+            level: window.level(),
+            was_zoomed,
+        });
+        window.setContentMinSize(NSSize::new(240.0, 135.0));
+        window.setStyleMask(NSWindowStyleMask::Borderless);
+        window.setLevel(NSFloatingWindowLevel);
+        window.setFrame_display(
+            NSRect::new(
+                NSPoint::new(
+                    frame.origin.x,
+                    frame.origin.y + frame.size.height - height as f64,
+                ),
+                NSSize::new(width as f64, height as f64),
+            ),
+            true,
+        );
+        window.makeKeyAndOrderFront(None);
     }
 
     fn evaluate_javascript(webview: &WKWebView, script: &str) {
@@ -497,6 +829,7 @@ mod appkit_shell {
         app.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
 
         app.run();
+        delegate.invalidate_player_event_timer();
         delegate.remove_script_message_handler();
         Ok(())
     }
@@ -619,24 +952,55 @@ mod tests {
             host,
         );
 
-        let (id, response) = dispatch_ipc_message(
-            &runtime,
-            r#"{"id":7,"kind":"invoke","payload":{"command":"init"}}"#,
-        )
-        .unwrap();
+        let request =
+            parse_ipc_message(r#"{"id":7,"kind":"invoke","payload":{"command":"init"}}"#).unwrap();
+        let id = request.id;
+        let response = runtime.dispatch_ipc(&request.kind, request.payload);
         assert_eq!(id, 7);
         let script = resolve_ipc_script(id, response);
         assert!(script.starts_with("window.__STREMIO_LIGHTNING_MACOS_RESOLVE__(7, {"));
         assert!(script.contains("\"platform\":\"macos\""));
 
-        let (id, response) =
-            dispatch_ipc_message(&runtime, r#"{"id":8,"kind":"unknown"}"#).unwrap();
+        let request = parse_ipc_message(r#"{"id":8,"kind":"unknown"}"#).unwrap();
+        let id = request.id;
+        let response = runtime.dispatch_ipc(&request.kind, request.payload);
         assert_eq!(
             resolve_ipc_script(id, response),
             "window.__STREMIO_LIGHTNING_MACOS_RESOLVE__(8, null, \"Unsupported IPC kind: unknown\");"
         );
-        assert!(dispatch_ipc_message(&runtime, "not json")
+        assert!(parse_ipc_message("not json")
             .unwrap_err()
             .starts_with("Invalid macOS WKWebView IPC message:"));
+    }
+
+    #[test]
+    fn pending_fullscreen_pip_exit_schedules_fullscreen_restore() {
+        let transition = std::cell::Cell::new(Some(PendingPipTransition::Enter {
+            width: 480,
+            height: 270,
+        }));
+        assert!(schedule_pending_fullscreen_restore(&transition, true));
+        assert_eq!(
+            transition.get(),
+            Some(PendingPipTransition::RestoreFullscreen)
+        );
+    }
+
+    #[test]
+    fn extracts_native_window_requests_from_ipc_payloads() {
+        let fullscreen = json!({
+            "command": "shell_transport_send",
+            "payload": {
+                "message": r#"{"id":1,"type":6,"args":["win-set-visibility",{"fullscreen":true}]}"#
+            }
+        });
+        assert_eq!(
+            shell_transport_fullscreen_request(Some(&fullscreen)).unwrap(),
+            Some(true)
+        );
+        assert_eq!(
+            invoke_command(Some(&json!({ "command": "toggle_pip" }))),
+            Some("toggle_pip")
+        );
     }
 }
