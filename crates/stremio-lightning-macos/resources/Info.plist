@@ -50,6 +50,18 @@
       <key>CFBundleTypeRole</key>
       <string>Viewer</string>
     </dict>
+    <dict>
+      <key>CFBundleTypeName</key>
+      <string>Media Document</string>
+      <key>CFBundleTypeExtensions</key>
+      <array>
+        <string>mp4</string>
+        <string>mkv</string>
+        <string>srt</string>
+      </array>
+      <key>CFBundleTypeRole</key>
+      <string>Viewer</string>
+    </dict>
   </array>
 </dict>
 </plist>

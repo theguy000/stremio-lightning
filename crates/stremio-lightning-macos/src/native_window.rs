@@ -1,4 +1,5 @@
 use crate::app::AppConfig;
+use crate::app_integration::{classify_launch_argument, LaunchIntent};
 use crate::player::{MpvPlayerBackend, PlayerBackend};
 use crate::streaming_server::RealProcessSpawner;
 use crate::webview_runtime::{MacosWebviewRuntime, WebviewLoadState};
@@ -80,6 +81,7 @@ pub struct NativeLaunchState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NavigationDecision {
     Allow,
+    DeliverLaunchIntent(LaunchIntent),
     OpenExternally,
     Block,
 }
@@ -88,6 +90,13 @@ pub fn decide_navigation_policy(url: &str, is_main_frame: bool) -> NavigationDec
     let lower = url.to_lowercase();
     if is_allowed_app_url(&lower) || lower.starts_with("file://") || !is_main_frame {
         return NavigationDecision::Allow;
+    }
+
+    if lower.starts_with("stremio://") || lower.starts_with("magnet:") {
+        return classify_launch_argument(url).ok().flatten().map_or(
+            NavigationDecision::Block,
+            NavigationDecision::DeliverLaunchIntent,
+        );
     }
 
     if is_external_url(&lower) {
@@ -109,14 +118,7 @@ fn is_allowed_app_url(lower_url: &str) -> bool {
 
 fn is_external_url(lower_url: &str) -> bool {
     [
-        "http://",
-        "https://",
-        "rtp://",
-        "rtsp://",
-        "ftp://",
-        "ipfs://",
-        "magnet:",
-        "stremio://",
+        "http://", "https://", "rtp://", "rtsp://", "ftp://", "ipfs://",
     ]
     .iter()
     .any(|prefix| lower_url.starts_with(prefix))
@@ -219,7 +221,7 @@ pub fn prepare_native_launch(
 #[cfg(target_os = "macos")]
 mod appkit_shell {
     use super::*;
-    use crate::app_integration::{classify_launch_argument, AppLifecycleEvent, LaunchIntent};
+    use crate::app_integration::AppLifecycleEvent;
     use crate::host::open_external_url;
     use crate::player::{MacosMpvRenderer, MpvVideoLayerHandle};
     use objc2::rc::Retained;
@@ -323,6 +325,12 @@ mod appkit_shell {
                     .map(|url| (url, decide_navigation_policy(url, is_main_frame)))
                 {
                     Some((_, NavigationDecision::Allow)) => WKNavigationActionPolicy::Allow,
+                    Some((url, NavigationDecision::DeliverLaunchIntent(intent))) => {
+                        if let Err(error) = self.deliver_launch_intent(intent) {
+                            eprintln!("[WKWebView] Failed to deliver launch intent {url}: {error}");
+                        }
+                        WKNavigationActionPolicy::Cancel
+                    }
                     Some((url, NavigationDecision::OpenExternally)) => {
                         if let Err(error) = open_external_url(url) {
                             eprintln!("[WKWebView] Failed to open external URL {url}: {error}");
@@ -1086,9 +1094,21 @@ mod tests {
             decide_navigation_policy("https://example.com/", true),
             NavigationDecision::OpenExternally
         );
+    }
+
+    #[test]
+    fn navigation_policy_routes_launch_intents() {
         assert_eq!(
             decide_navigation_policy("magnet:?xt=urn:btih:abc", true),
-            NavigationDecision::OpenExternally
+            NavigationDecision::DeliverLaunchIntent(LaunchIntent::Magnet(
+                "magnet:?xt=urn:btih:abc".to_string()
+            ))
+        );
+        assert_eq!(
+            decide_navigation_policy("stremio://detail/movie/tt123", true),
+            NavigationDecision::DeliverLaunchIntent(LaunchIntent::StremioDeepLink(
+                "stremio://detail/movie/tt123".to_string()
+            ))
         );
     }
 

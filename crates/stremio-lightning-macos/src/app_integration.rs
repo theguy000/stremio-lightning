@@ -29,7 +29,7 @@ impl Default for BundleMetadata {
             icon_file: "AppIcon",
             supports_automatic_graphics_switching: true,
             url_schemes: vec!["stremio", "magnet"],
-            document_extensions: vec!["torrent"],
+            document_extensions: vec!["torrent", "mp4", "mkv", "srt"],
         }
     }
 }
@@ -51,8 +51,11 @@ impl BundleMetadata {
         if !self.url_schemes.contains(&"stremio") || !self.url_schemes.contains(&"magnet") {
             return Err("macOS bundle must register stremio and magnet URL schemes".to_string());
         }
-        if !self.document_extensions.contains(&"torrent") {
-            return Err("macOS bundle must register torrent documents".to_string());
+        if !["torrent", "mp4", "mkv", "srt"]
+            .iter()
+            .all(|extension| self.document_extensions.contains(extension))
+        {
+            return Err("macOS bundle must register supported local media documents".to_string());
         }
         Ok(())
     }
@@ -194,7 +197,9 @@ mod tests {
         assert!(INFO_PLIST.contains(MINIMUM_MACOS_VERSION));
         assert!(INFO_PLIST.contains("stremio"));
         assert!(INFO_PLIST.contains("magnet"));
-        assert!(INFO_PLIST.contains("torrent"));
+        for extension in metadata.document_extensions {
+            assert!(INFO_PLIST.contains(&format!("<string>{extension}</string>")));
+        }
     }
 
     #[test]
