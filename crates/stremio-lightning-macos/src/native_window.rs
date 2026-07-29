@@ -176,12 +176,14 @@ pub fn prepare_native_launch(
 #[cfg(target_os = "macos")]
 mod appkit_shell {
     use super::*;
+    use crate::player::{MacosMpvRenderer, MpvVideoLayerHandle};
     use objc2::rc::Retained;
     use objc2::runtime::ProtocolObject;
     use objc2::{define_class, msg_send, DefinedClass, MainThreadOnly};
     use objc2_app_kit::{
-        NSApplication, NSApplicationActivationPolicy, NSApplicationDelegate, NSBackingStoreType,
-        NSColor, NSWindow, NSWindowStyleMask,
+        NSApplication, NSApplicationActivationPolicy, NSApplicationDelegate,
+        NSAutoresizingMaskOptions, NSBackingStoreType, NSColor, NSView, NSWindow,
+        NSWindowStyleMask,
     };
     use objc2_foundation::{
         MainThreadMarker, NSJSONSerialization, NSJSONWritingOptions, NSNotification, NSObject,
@@ -195,9 +197,11 @@ mod appkit_shell {
 
     struct AppDelegateIvars {
         runtime: MacosWebviewRuntime<MpvPlayerBackend, RealProcessSpawner>,
-        _player: MpvPlayerBackend,
+        player: MpvPlayerBackend,
         url: Retained<NSURL>,
+        renderer: OnceCell<MacosMpvRenderer>,
         window: OnceCell<Retained<NSWindow>>,
+        video_layer: OnceCell<Retained<NSView>>,
         webview: OnceCell<Retained<WKWebView>>,
     }
 
@@ -265,11 +269,22 @@ mod appkit_shell {
                 unsafe {
                     webview.setUnderPageBackgroundColor(Some(&NSColor::clearColor()));
                 }
+                let autoresizing = NSAutoresizingMaskOptions::ViewWidthSizable
+                    | NSAutoresizingMaskOptions::ViewHeightSizable;
+                webview.setAutoresizingMask(autoresizing);
+
+                let frame =
+                    NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(plan.width, plan.height));
+                let content_view = NSView::initWithFrame(NSView::alloc(self.mtm()), frame);
+                let video_layer = NSView::initWithFrame(NSView::alloc(self.mtm()), frame);
+                video_layer.setAutoresizingMask(autoresizing);
+                video_layer.setWantsLayer(true);
+                content_view.addSubview(&video_layer);
 
                 let window = unsafe {
                     NSWindow::initWithContentRect_styleMask_backing_defer(
                         NSWindow::alloc(self.mtm()),
-                        NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(plan.width, plan.height)),
+                        frame,
                         NSWindowStyleMask::Titled
                             | NSWindowStyleMask::Closable
                             | NSWindowStyleMask::Miniaturizable
@@ -281,8 +296,32 @@ mod appkit_shell {
                 unsafe { window.setReleasedWhenClosed(false) };
                 window.setTitle(&NSString::from_str(plan.title));
                 window.setContentMinSize(NSSize::new(plan.min_width, plan.min_height));
-                window.setContentView(Some(&webview));
+                window.setContentView(Some(&content_view));
                 window.center();
+
+                let handle = MpvVideoLayerHandle::new(Retained::as_ptr(&video_layer) as usize)
+                    .expect("retained macOS video layer must have a valid pointer");
+                let renderer = match self
+                    .ivars()
+                    .player
+                    .attach_to_video_layer(handle, crate::APP_NAME)
+                {
+                    Ok(renderer) => renderer,
+                    Err(error) => {
+                        eprintln!("[MPV] Failed to attach macOS video layer: {error}");
+                        NSApplication::sharedApplication(self.mtm()).terminate(None);
+                        return;
+                    }
+                };
+                assert!(
+                    self.ivars().renderer.set(renderer).is_ok(),
+                    "MPV renderer must only be attached once"
+                );
+                assert!(
+                    self.ivars().video_layer.set(video_layer).is_ok(),
+                    "MPV video layer must only be created once"
+                );
+                content_view.addSubview(&webview);
                 self.ivars()
                     .window
                     .set(window)
@@ -339,9 +378,11 @@ mod appkit_shell {
                 .ok_or_else(|| format!("Invalid macOS webview URL: {url_string}"))?;
             let this = Self::alloc(mtm).set_ivars(AppDelegateIvars {
                 runtime,
-                _player: player,
+                player,
                 url,
+                renderer: OnceCell::new(),
                 window: OnceCell::new(),
+                video_layer: OnceCell::new(),
                 webview: OnceCell::new(),
             });
             Ok(unsafe { msg_send![super(this), init] })
