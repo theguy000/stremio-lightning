@@ -317,11 +317,13 @@ where
     }
 
     pub fn emit_lifecycle_event(&self, event: AppLifecycleEvent) -> Result<(), String> {
+        if let AppLifecycleEvent::WindowFocused(focused) = event {
+            return self.update_window_focus(focused);
+        }
         let (name, payload) = lifecycle_event_payload(event);
         match event {
-            AppLifecycleEvent::BecameActive => self.update_window_focus(true)?,
-            AppLifecycleEvent::ResignedActive => self.update_window_focus(false)?,
-            AppLifecycleEvent::WindowFocused(focused) => self.set_window_focus(focused)?,
+            AppLifecycleEvent::BecameActive | AppLifecycleEvent::ResignedActive => {}
+            AppLifecycleEvent::WindowFocused(_) => unreachable!(),
             AppLifecycleEvent::WindowVisible(visible) => self.set_window_visible(visible)?,
             AppLifecycleEvent::Shutdown => {}
         }
@@ -1040,8 +1042,15 @@ mod tests {
             Some(json!({"id": 16, "event": "window-visible-changed"})),
         )
         .unwrap();
+        host.dispatch_ipc(
+            "listen",
+            Some(json!({"id": 17, "event": "window-focus-changed"})),
+        )
+        .unwrap();
 
         host.emit_lifecycle_event(AppLifecycleEvent::BecameActive)
+            .unwrap();
+        host.emit_lifecycle_event(AppLifecycleEvent::WindowFocused(true))
             .unwrap();
         host.emit_lifecycle_event(AppLifecycleEvent::WindowVisible(false))
             .unwrap();
@@ -1050,11 +1059,13 @@ mod tests {
         assert!(state.focused);
         assert!(!state.visible);
         let events = host.drain_emitted_events().unwrap();
-        assert_eq!(events.len(), 2);
+        assert_eq!(events.len(), 3);
         assert_eq!(events[0].event, "app-became-active");
         assert_eq!(events[0].payload, json!({"active": true}));
-        assert_eq!(events[1].event, "window-visible-changed");
-        assert_eq!(events[1].payload, json!({"visible": false}));
+        assert_eq!(events[1].event, "window-focus-changed");
+        assert_eq!(events[1].payload, json!(true));
+        assert_eq!(events[2].event, "window-visible-changed");
+        assert_eq!(events[2].payload, json!({"visible": false}));
     }
 
     #[test]

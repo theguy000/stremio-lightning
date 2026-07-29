@@ -219,19 +219,22 @@ pub fn prepare_native_launch(
 #[cfg(target_os = "macos")]
 mod appkit_shell {
     use super::*;
+    use crate::app_integration::AppLifecycleEvent;
     use crate::host::open_external_url;
     use crate::player::{MacosMpvRenderer, MpvVideoLayerHandle};
     use objc2::rc::Retained;
-    use objc2::runtime::ProtocolObject;
-    use objc2::{define_class, msg_send, sel, DefinedClass, MainThreadOnly};
+    use objc2::runtime::{AnyObject, ProtocolObject};
+    use objc2::{define_class, msg_send, sel, DefinedClass, MainThreadOnly, Message};
     use objc2_app_kit::{
         NSApplication, NSApplicationActivationPolicy, NSApplicationDelegate,
-        NSAutoresizingMaskOptions, NSBackingStoreType, NSColor, NSFloatingWindowLevel, NSView,
-        NSWindow, NSWindowDelegate, NSWindowLevel, NSWindowStyleMask,
+        NSApplicationTerminateReply, NSAutoresizingMaskOptions, NSBackingStoreType, NSColor,
+        NSFloatingWindowLevel, NSView, NSWindow, NSWindowDelegate, NSWindowLevel,
+        NSWindowStyleMask,
     };
     use objc2_foundation::{
-        MainThreadMarker, NSJSONSerialization, NSJSONWritingOptions, NSNotification, NSObject,
-        NSObjectProtocol, NSPoint, NSRect, NSSize, NSString, NSTimer, NSURLRequest, NSURL,
+        MainThreadMarker, NSError, NSJSONSerialization, NSJSONWritingOptions, NSNotification,
+        NSObject, NSObjectProtocol, NSPoint, NSRect, NSSize, NSString, NSTimer, NSURLRequest,
+        NSURL,
     };
     use objc2_web_kit::{
         WKNavigationAction, WKNavigationActionPolicy, WKNavigationDelegate, WKScriptMessage,
@@ -261,6 +264,7 @@ mod appkit_shell {
         player_event_timer: OnceCell<Retained<NSTimer>>,
         pip_window: RefCell<Option<PipWindowSnapshot>>,
         pending_pip_transition: Cell<Option<PendingPipTransition>>,
+        termination_pending: Cell<bool>,
     }
 
     define_class!(
@@ -275,6 +279,11 @@ mod appkit_shell {
                 if let Err(error) = self.drain_events_to_webview() {
                     eprintln!("[MPV] Failed to drain macOS player events: {error}");
                 }
+            }
+
+            #[unsafe(method(finishTermination:))]
+            fn finish_termination_timer(&self, _timer: &NSTimer) {
+                self.finish_termination();
             }
         }
 
@@ -333,6 +342,23 @@ mod appkit_shell {
         }
 
         unsafe impl NSWindowDelegate for AppDelegate {
+            #[unsafe(method(windowDidBecomeKey:))]
+            fn did_become_key(&self, _notification: &NSNotification) {
+                self.emit_lifecycle_event(AppLifecycleEvent::WindowFocused(true));
+            }
+
+            #[unsafe(method(windowDidResignKey:))]
+            fn did_resign_key(&self, _notification: &NSNotification) {
+                self.emit_lifecycle_event(AppLifecycleEvent::WindowFocused(false));
+            }
+
+            #[unsafe(method(windowDidChangeOcclusionState:))]
+            fn did_change_occlusion_state(&self, _notification: &NSNotification) {
+                if let Some(window) = self.ivars().window.get() {
+                    self.emit_lifecycle_event(AppLifecycleEvent::WindowVisible(window.isVisible()));
+                }
+            }
+
             #[unsafe(method(windowDidExitFullScreen:))]
             fn did_exit_fullscreen(&self, _notification: &NSNotification) {
                 let Some(transition) = self.ivars().pending_pip_transition.take() else {
@@ -352,6 +378,66 @@ mod appkit_shell {
         }
 
         unsafe impl NSApplicationDelegate for AppDelegate {
+            #[unsafe(method(applicationDidBecomeActive:))]
+            fn did_become_active(&self, _notification: &NSNotification) {
+                self.emit_lifecycle_event(AppLifecycleEvent::BecameActive);
+            }
+
+            #[unsafe(method(applicationDidResignActive:))]
+            fn did_resign_active(&self, _notification: &NSNotification) {
+                self.emit_lifecycle_event(AppLifecycleEvent::ResignedActive);
+            }
+
+            #[unsafe(method(applicationShouldTerminate:))]
+            fn should_terminate(
+                &self,
+                _application: &NSApplication,
+            ) -> NSApplicationTerminateReply {
+                if self.ivars().termination_pending.get() {
+                    return NSApplicationTerminateReply::TerminateLater;
+                }
+                if let Err(error) = self.ivars().runtime.shutdown() {
+                    eprintln!("[AppKit Lifecycle] Failed to shut down macOS host: {error}");
+                }
+
+                let Some((webview, scripts)) = self.event_dispatch_scripts().unwrap_or_else(|error| {
+                    eprintln!("[AppKit Lifecycle] Failed to prepare shutdown event: {error}");
+                    None
+                }) else {
+                    return NSApplicationTerminateReply::TerminateNow;
+                };
+                if scripts.is_empty() {
+                    return NSApplicationTerminateReply::TerminateNow;
+                }
+
+                self.ivars().termination_pending.set(true);
+                // WebKit may not complete during teardown; never leave AppKit waiting forever.
+                let timeout = unsafe {
+                    NSTimer::scheduledTimerWithTimeInterval_target_selector_userInfo_repeats(
+                        1.0,
+                        self,
+                        sel!(finishTermination:),
+                        None,
+                        false,
+                    )
+                };
+                drop(timeout);
+
+                let delegate = self.retain();
+                let completion = block2::RcBlock::new(
+                    move |_result: *mut AnyObject, _error: *mut NSError| {
+                        delegate.finish_termination();
+                    },
+                );
+                unsafe {
+                    webview.evaluateJavaScript_completionHandler(
+                        &NSString::from_str(&scripts.join("\n")),
+                        Some(&completion),
+                    );
+                }
+                NSApplicationTerminateReply::TerminateLater
+            }
+
             #[unsafe(method(applicationDidFinishLaunching:))]
             fn did_finish_launching(&self, _notification: &NSNotification) {
                 let plan = NativeWindowPlan::default();
@@ -531,6 +617,7 @@ mod appkit_shell {
                 player_event_timer: OnceCell::new(),
                 pip_window: RefCell::new(None),
                 pending_pip_transition: Cell::new(None),
+                termination_pending: Cell::new(false),
             });
             Ok(unsafe { msg_send![super(this), init] })
         }
@@ -570,19 +657,45 @@ mod appkit_shell {
             self.drain_events_to_webview()
         }
 
-        fn drain_events_to_webview(&self) -> Result<(), String> {
-            let Some(window) = self.ivars().window.get() else {
-                return Ok(());
-            };
-            let Some(webview) = self.ivars().webview.get() else {
-                return Ok(());
-            };
-            let mut controller = self.window_controller(window);
-            for script in self
+        fn emit_lifecycle_event(&self, event: AppLifecycleEvent) {
+            let result = self
                 .ivars()
                 .runtime
-                .drain_event_dispatch_scripts_with_pip_controller(&mut controller)?
-            {
+                .host()
+                .emit_lifecycle_event(event)
+                .and_then(|_| self.drain_events_to_webview());
+            if let Err(error) = result {
+                eprintln!("[AppKit Lifecycle] Failed to emit {event:?}: {error}");
+            }
+        }
+
+        fn finish_termination(&self) {
+            if self.ivars().termination_pending.replace(false) {
+                NSApplication::sharedApplication(self.mtm())
+                    .replyToApplicationShouldTerminate(true);
+            }
+        }
+
+        fn event_dispatch_scripts(&self) -> Result<Option<(&WKWebView, Vec<String>)>, String> {
+            let Some(window) = self.ivars().window.get() else {
+                return Ok(None);
+            };
+            let Some(webview) = self.ivars().webview.get() else {
+                return Ok(None);
+            };
+            let mut controller = self.window_controller(window);
+            let scripts = self
+                .ivars()
+                .runtime
+                .drain_event_dispatch_scripts_with_pip_controller(&mut controller)?;
+            Ok(Some((webview, scripts)))
+        }
+
+        fn drain_events_to_webview(&self) -> Result<(), String> {
+            let Some((webview, scripts)) = self.event_dispatch_scripts()? else {
+                return Ok(());
+            };
+            for script in scripts {
                 evaluate_javascript(&webview, &script);
             }
             Ok(())
