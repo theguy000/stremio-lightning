@@ -151,17 +151,24 @@ mod appkit_shell {
     use objc2::{define_class, msg_send, DefinedClass, MainThreadOnly};
     use objc2_app_kit::{
         NSApplication, NSApplicationActivationPolicy, NSApplicationDelegate, NSBackingStoreType,
-        NSWindow, NSWindowStyleMask,
+        NSColor, NSWindow, NSWindowStyleMask,
     };
     use objc2_foundation::{
         MainThreadMarker, NSNotification, NSObject, NSObjectProtocol, NSPoint, NSRect, NSSize,
-        NSString,
+        NSString, NSURLRequest, NSURL,
+    };
+    use objc2_web_kit::{
+        WKUserContentController, WKUserScript, WKUserScriptInjectionTime, WKWebView,
+        WKWebViewConfiguration,
     };
     use std::cell::OnceCell;
 
-    #[derive(Debug, Default)]
     struct AppDelegateIvars {
+        runtime: MacosWebviewRuntime<MpvPlayerBackend, RealProcessSpawner>,
+        _player: MpvPlayerBackend,
+        url: Retained<NSURL>,
         window: OnceCell<Retained<NSWindow>>,
+        webview: OnceCell<Retained<WKWebView>>,
     }
 
     define_class!(
@@ -176,6 +183,37 @@ mod appkit_shell {
             #[unsafe(method(applicationDidFinishLaunching:))]
             fn did_finish_launching(&self, _notification: &NSNotification) {
                 let plan = NativeWindowPlan::default();
+                let user_content_controller = unsafe { WKUserContentController::new(self.mtm()) };
+                for name in self.ivars().runtime.load_state().document_start_scripts {
+                    let source = self
+                        .ivars()
+                        .runtime
+                        .script_source(name)
+                        .expect("configured bridge script must exist");
+                    let script = unsafe {
+                        WKUserScript::initWithSource_injectionTime_forMainFrameOnly(
+                            WKUserScript::alloc(self.mtm()),
+                            &NSString::from_str(&source),
+                            WKUserScriptInjectionTime::AtDocumentStart,
+                            false,
+                        )
+                    };
+                    unsafe { user_content_controller.addUserScript(&script) };
+                }
+
+                let webview_configuration = unsafe { WKWebViewConfiguration::new(self.mtm()) };
+                unsafe { webview_configuration.setUserContentController(&user_content_controller) };
+                let webview = unsafe {
+                    WKWebView::initWithFrame_configuration(
+                        WKWebView::alloc(self.mtm()),
+                        NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(plan.width, plan.height)),
+                        &webview_configuration,
+                    )
+                };
+                unsafe {
+                    webview.setUnderPageBackgroundColor(Some(&NSColor::clearColor()));
+                }
+
                 let window = unsafe {
                     NSWindow::initWithContentRect_styleMask_backing_defer(
                         NSWindow::alloc(self.mtm()),
@@ -191,12 +229,39 @@ mod appkit_shell {
                 unsafe { window.setReleasedWhenClosed(false) };
                 window.setTitle(&NSString::from_str(plan.title));
                 window.setContentMinSize(NSSize::new(plan.min_width, plan.min_height));
+                window.setContentView(Some(&webview));
                 window.center();
-                window.makeKeyAndOrderFront(None);
                 self.ivars()
                     .window
                     .set(window)
                     .expect("application window must only be created once");
+                self.ivars()
+                    .webview
+                    .set(webview)
+                    .expect("application webview must only be created once");
+
+                let webview = self.ivars().webview.get().expect("webview must exist");
+                let navigation = if self.ivars().url.isFileURL() {
+                    let read_access = self
+                        .ivars()
+                        .url
+                        .URLByDeletingLastPathComponent()
+                        .unwrap_or_else(|| self.ivars().url.clone());
+                    unsafe {
+                        webview.loadFileURL_allowingReadAccessToURL(&self.ivars().url, &read_access)
+                    }
+                } else {
+                    let request = NSURLRequest::requestWithURL(&self.ivars().url);
+                    unsafe { webview.loadRequest(&request) }
+                };
+                if navigation.is_none() {
+                    eprintln!("[WKWebView] Failed to start loading the configured web UI");
+                }
+                self.ivars()
+                    .window
+                    .get()
+                    .expect("window must exist")
+                    .makeKeyAndOrderFront(None);
 
                 let app = NSApplication::sharedApplication(self.mtm());
                 let _ = app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
@@ -212,24 +277,36 @@ mod appkit_shell {
     );
 
     impl AppDelegate {
-        fn new(mtm: MainThreadMarker) -> Retained<Self> {
-            let this = Self::alloc(mtm).set_ivars(AppDelegateIvars::default());
-            unsafe { msg_send![super(this), init] }
+        fn new(
+            mtm: MainThreadMarker,
+            runtime: MacosWebviewRuntime<MpvPlayerBackend, RealProcessSpawner>,
+            player: MpvPlayerBackend,
+        ) -> Result<Retained<Self>, String> {
+            let url_string = runtime.load_state().url;
+            let url = NSURL::URLWithString(&NSString::from_str(&url_string))
+                .ok_or_else(|| format!("Invalid macOS webview URL: {url_string}"))?;
+            let this = Self::alloc(mtm).set_ivars(AppDelegateIvars {
+                runtime,
+                _player: player,
+                url,
+                window: OnceCell::new(),
+                webview: OnceCell::new(),
+            });
+            Ok(unsafe { msg_send![super(this), init] })
         }
     }
 
     pub fn run(
-        config: AppConfig,
+        _config: AppConfig,
         runtime: MacosWebviewRuntime<MpvPlayerBackend, RealProcessSpawner>,
         player: MpvPlayerBackend,
     ) -> Result<(), String> {
         let mtm = MainThreadMarker::new()
             .ok_or_else(|| "macOS AppKit must run on the main thread".to_string())?;
         let app = NSApplication::sharedApplication(mtm);
-        let delegate = AppDelegate::new(mtm);
+        let delegate = AppDelegate::new(mtm, runtime, player)?;
         app.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
 
-        let _shell_state = (config, runtime, player);
         app.run();
         Ok(())
     }
