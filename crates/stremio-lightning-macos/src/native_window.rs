@@ -146,15 +146,91 @@ pub fn prepare_native_launch(
 #[cfg(target_os = "macos")]
 mod appkit_shell {
     use super::*;
+    use objc2::rc::Retained;
+    use objc2::runtime::ProtocolObject;
+    use objc2::{define_class, msg_send, DefinedClass, MainThreadOnly};
+    use objc2_app_kit::{
+        NSApplication, NSApplicationActivationPolicy, NSApplicationDelegate, NSBackingStoreType,
+        NSWindow, NSWindowStyleMask,
+    };
+    use objc2_foundation::{
+        MainThreadMarker, NSNotification, NSObject, NSObjectProtocol, NSPoint, NSRect, NSSize,
+        NSString,
+    };
+    use std::cell::OnceCell;
+
+    #[derive(Debug, Default)]
+    struct AppDelegateIvars {
+        window: OnceCell<Retained<NSWindow>>,
+    }
+
+    define_class!(
+        #[unsafe(super = NSObject)]
+        #[thread_kind = MainThreadOnly]
+        #[ivars = AppDelegateIvars]
+        struct AppDelegate;
+
+        unsafe impl NSObjectProtocol for AppDelegate {}
+
+        unsafe impl NSApplicationDelegate for AppDelegate {
+            #[unsafe(method(applicationDidFinishLaunching:))]
+            fn did_finish_launching(&self, _notification: &NSNotification) {
+                let plan = NativeWindowPlan::default();
+                let window = unsafe {
+                    NSWindow::initWithContentRect_styleMask_backing_defer(
+                        NSWindow::alloc(self.mtm()),
+                        NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(plan.width, plan.height)),
+                        NSWindowStyleMask::Titled
+                            | NSWindowStyleMask::Closable
+                            | NSWindowStyleMask::Miniaturizable
+                            | NSWindowStyleMask::Resizable,
+                        NSBackingStoreType::Buffered,
+                        false,
+                    )
+                };
+                unsafe { window.setReleasedWhenClosed(false) };
+                window.setTitle(&NSString::from_str(plan.title));
+                window.setContentMinSize(NSSize::new(plan.min_width, plan.min_height));
+                window.center();
+                window.makeKeyAndOrderFront(None);
+                self.ivars()
+                    .window
+                    .set(window)
+                    .expect("application window must only be created once");
+
+                let app = NSApplication::sharedApplication(self.mtm());
+                let _ = app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
+                #[allow(deprecated)]
+                app.activateIgnoringOtherApps(true);
+            }
+
+            #[unsafe(method(applicationShouldTerminateAfterLastWindowClosed:))]
+            fn should_terminate_after_last_window_closed(&self, _app: &NSApplication) -> bool {
+                true
+            }
+        }
+    );
+
+    impl AppDelegate {
+        fn new(mtm: MainThreadMarker) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(AppDelegateIvars::default());
+            unsafe { msg_send![super(this), init] }
+        }
+    }
 
     pub fn run(
-        _config: AppConfig,
-        _runtime: MacosWebviewRuntime<MpvPlayerBackend, RealProcessSpawner>,
-        _player: MpvPlayerBackend,
+        config: AppConfig,
+        runtime: MacosWebviewRuntime<MpvPlayerBackend, RealProcessSpawner>,
+        player: MpvPlayerBackend,
     ) -> Result<(), String> {
-        eprintln!(
-            "native macOS AppKit/WKWebView shell prepared; launch on macOS to exercise the window loop"
-        );
+        let mtm = MainThreadMarker::new()
+            .ok_or_else(|| "macOS AppKit must run on the main thread".to_string())?;
+        let app = NSApplication::sharedApplication(mtm);
+        let delegate = AppDelegate::new(mtm);
+        app.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
+
+        let _shell_state = (config, runtime, player);
+        app.run();
         Ok(())
     }
 }
