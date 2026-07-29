@@ -461,7 +461,7 @@ fn validate_external_url(url: &str) -> Result<(), String> {
 }
 
 #[cfg(target_os = "macos")]
-fn open_external_url(url: &str) -> Result<(), String> {
+pub(crate) fn open_external_url(url: &str) -> Result<(), String> {
     std::process::Command::new("open")
         .arg(url)
         .spawn()
@@ -470,7 +470,7 @@ fn open_external_url(url: &str) -> Result<(), String> {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn open_external_url(_url: &str) -> Result<(), String> {
+pub(crate) fn open_external_url(_url: &str) -> Result<(), String> {
     Ok(())
 }
 

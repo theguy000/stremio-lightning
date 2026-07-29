@@ -176,6 +176,7 @@ pub fn prepare_native_launch(
 #[cfg(target_os = "macos")]
 mod appkit_shell {
     use super::*;
+    use crate::host::open_external_url;
     use crate::player::{MacosMpvRenderer, MpvVideoLayerHandle};
     use objc2::rc::Retained;
     use objc2::runtime::ProtocolObject;
@@ -190,8 +191,9 @@ mod appkit_shell {
         NSObjectProtocol, NSPoint, NSRect, NSSize, NSString, NSURLRequest, NSURL,
     };
     use objc2_web_kit::{
-        WKScriptMessage, WKScriptMessageHandler, WKUserContentController, WKUserScript,
-        WKUserScriptInjectionTime, WKWebView, WKWebViewConfiguration,
+        WKNavigationAction, WKNavigationActionPolicy, WKNavigationDelegate, WKScriptMessage,
+        WKScriptMessageHandler, WKUserContentController, WKUserScript, WKUserScriptInjectionTime,
+        WKWebView, WKWebViewConfiguration,
     };
     use std::cell::OnceCell;
 
@@ -223,6 +225,45 @@ mod appkit_shell {
                 if let Err(error) = self.handle_script_message(message) {
                     eprintln!("[WKWebView IPC] {error}");
                 }
+            }
+        }
+
+        unsafe impl WKNavigationDelegate for AppDelegate {
+            #[unsafe(method(webView:decidePolicyForNavigationAction:decisionHandler:))]
+            fn decide_policy_for_navigation_action(
+                &self,
+                _webview: &WKWebView,
+                navigation_action: &WKNavigationAction,
+                decision_handler: &block2::DynBlock<dyn Fn(WKNavigationActionPolicy)>,
+            ) {
+                let request = unsafe { navigation_action.request() };
+                let url = request
+                    .URL()
+                    .and_then(|url| url.absoluteString())
+                    .map(|url| url.to_string());
+                let is_main_frame = unsafe { navigation_action.targetFrame() }
+                    .is_none_or(|frame| unsafe { frame.isMainFrame() });
+                let policy = match url
+                    .as_deref()
+                    .map(|url| (url, decide_navigation_policy(url, is_main_frame)))
+                {
+                    Some((_, NavigationDecision::Allow)) => WKNavigationActionPolicy::Allow,
+                    Some((url, NavigationDecision::OpenExternally)) => {
+                        if let Err(error) = open_external_url(url) {
+                            eprintln!("[WKWebView] Failed to open external URL {url}: {error}");
+                        }
+                        WKNavigationActionPolicy::Cancel
+                    }
+                    Some((url, NavigationDecision::Block)) => {
+                        eprintln!("[WKWebView] Blocked navigation to {url}");
+                        WKNavigationActionPolicy::Cancel
+                    }
+                    None => {
+                        eprintln!("[WKWebView] Blocked navigation without a URL");
+                        WKNavigationActionPolicy::Cancel
+                    }
+                };
+                decision_handler.call((policy,));
             }
         }
 
@@ -269,6 +310,9 @@ mod appkit_shell {
                 unsafe {
                     webview.setUnderPageBackgroundColor(Some(&NSColor::clearColor()));
                 }
+                let navigation_delegate: &ProtocolObject<dyn WKNavigationDelegate> =
+                    ProtocolObject::from_ref(self);
+                unsafe { webview.setNavigationDelegate(Some(navigation_delegate)) };
                 let autoresizing = NSAutoresizingMaskOptions::ViewWidthSizable
                     | NSAutoresizingMaskOptions::ViewHeightSizable;
                 webview.setAutoresizingMask(autoresizing);
