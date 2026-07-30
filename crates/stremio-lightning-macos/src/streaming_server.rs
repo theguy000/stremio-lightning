@@ -377,10 +377,6 @@ fn default_project_root() -> PathBuf {
     }
 
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .ancestors()
-        .nth(2)
-        .unwrap_or_else(|| Path::new("."))
-        .to_path_buf()
 }
 
 fn default_log_dir() -> PathBuf {
@@ -461,6 +457,18 @@ mod tests {
         assert_eq!(
             bundled_resources_root_from_executable(Path::new("/tmp/stremio-lightning-macos")),
             None
+        );
+    }
+
+    #[test]
+    fn defaults_local_resources_to_macos_crate() {
+        if std::env::var_os("STREMIO_LIGHTNING_BUNDLE_DIR").is_some() {
+            return;
+        }
+
+        assert_eq!(
+            default_project_root(),
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         );
     }
 
