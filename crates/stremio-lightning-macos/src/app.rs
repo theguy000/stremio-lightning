@@ -77,11 +77,9 @@ pub fn run(config: AppConfig) -> Result<(), String> {
     let streaming_server =
         StreamingServer::new(RealProcessSpawner).with_disabled(config.disable_streaming_server);
     let host = Arc::new(Host::new(player.clone(), streaming_server));
-    if !config.disable_streaming_server {
-        if let Err(error) = host.start_streaming_server() {
-            eprintln!("[StreamingServer] Failed to start macOS sidecar: {error}");
-        }
-    }
+    start_streaming_server_for_url(&config.url, config.disable_streaming_server, || {
+        host.start_streaming_server()
+    })?;
     let injection = InjectionBundle::load()?;
 
     let runtime = MacosWebviewRuntime::new(config.url.clone(), config.devtools, injection, host);
@@ -93,7 +91,29 @@ pub fn run(config: AppConfig) -> Result<(), String> {
 }
 
 pub fn uses_streaming_server_proxy(url: &str) -> bool {
-    url.starts_with("http://127.0.0.1:11470/")
+    url == "http://127.0.0.1:11470" || url.starts_with("http://127.0.0.1:11470/")
+}
+
+fn start_streaming_server_for_url(
+    url: &str,
+    disabled: bool,
+    start: impl FnOnce() -> Result<(), String>,
+) -> Result<(), String> {
+    if disabled {
+        return (!uses_streaming_server_proxy(url))
+            .then_some(())
+            .ok_or_else(|| "macOS local proxy requires the streaming server".to_string());
+    }
+
+    if let Err(error) = start() {
+        if uses_streaming_server_proxy(url) {
+            return Err(format!(
+                "Failed to start required macOS streaming server sidecar: {error}"
+            ));
+        }
+        eprintln!("[StreamingServer] Failed to start macOS sidecar: {error}");
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -147,8 +167,24 @@ mod tests {
     #[test]
     fn detects_streaming_server_proxy_urls() {
         assert!(uses_streaming_server_proxy(DEFAULT_URL));
+        assert!(uses_streaming_server_proxy("http://127.0.0.1:11470"));
         assert!(!uses_streaming_server_proxy("https://web.stremio.com/"));
         assert!(!uses_streaming_server_proxy("http://localhost:11470/"));
+    }
+
+    #[test]
+    fn requires_sidecar_only_for_local_proxy() {
+        assert!(
+            start_streaming_server_for_url(DEFAULT_URL, false, || Err("boom".to_string())).is_err()
+        );
+        assert!(start_streaming_server_for_url(STREMIO_WEB_URL, false, || {
+            Err("boom".to_string())
+        })
+        .is_ok());
+        assert!(start_streaming_server_for_url(DEFAULT_URL, true, || {
+            panic!("disabled server must not start")
+        })
+        .is_err());
     }
 
     #[test]

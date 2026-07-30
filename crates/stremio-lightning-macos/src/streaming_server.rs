@@ -1,11 +1,16 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs::{self, OpenOptions};
+use std::net::{SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::{Duration, Instant};
 
 pub const DEFAULT_SERVER_URL: &str = "http://127.0.0.1:11470";
+const SERVER_STARTUP_TIMEOUT: Duration = Duration::from_secs(5);
+const SERVER_STARTUP_RETRY: Duration = Duration::from_millis(25);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StreamingServerStatus {
@@ -127,12 +132,44 @@ impl ProcessSpawner for RealProcessSpawner {
         command.envs(&spec.env);
         command.stdout(Stdio::from(stdout));
         command.stderr(Stdio::from(stderr));
-        command.spawn().map_err(|e| {
+        let mut child = command.spawn().map_err(|e| {
             format!(
                 "Failed to start macOS streaming server sidecar {}: {e}",
                 spec.program.display()
             )
-        })
+        })?;
+        let server_address = SocketAddr::from(([127, 0, 0, 1], 11470));
+        if let Err(error) = wait_for_server_ready(
+            SERVER_STARTUP_TIMEOUT,
+            || child.has_exited(),
+            || TcpStream::connect_timeout(&server_address, SERVER_STARTUP_RETRY).is_ok(),
+        ) {
+            child.stop().ok();
+            return Err(error);
+        }
+        Ok(child)
+    }
+}
+
+fn wait_for_server_ready(
+    timeout: Duration,
+    mut has_exited: impl FnMut() -> Result<bool, String>,
+    mut can_connect: impl FnMut() -> bool,
+) -> Result<(), String> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if has_exited()? {
+            return Err("macOS streaming server sidecar exited during startup".to_string());
+        }
+        if can_connect() {
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            return Err(format!(
+                "macOS streaming server sidecar did not become ready at {DEFAULT_SERVER_URL}"
+            ));
+        }
+        thread::sleep(SERVER_STARTUP_RETRY);
     }
 }
 
@@ -267,8 +304,18 @@ impl<P: ProcessSpawner> StreamingServer<P> {
             }
         }
 
-        *child = Some(self.spawner.spawn(command_spec(&self.config))?);
-        Ok(())
+        let mut spawned = self.spawner.spawn(command_spec(&self.config))?;
+        match spawned.has_exited() {
+            Ok(false) => {
+                *child = Some(spawned);
+                Ok(())
+            }
+            Ok(true) => Err("macOS streaming server sidecar exited during startup".to_string()),
+            Err(error) => {
+                *child = Some(spawned);
+                Err(error)
+            }
+        }
     }
 
     pub fn stop(&self) -> Result<(), String> {
@@ -496,11 +543,14 @@ mod tests {
     }
 
     #[test]
-    fn status_reaps_exited_child_and_start_spawns_again() {
+    fn start_rejects_exited_child_and_can_retry() {
         let spawner = FakeProcessSpawner::default();
         spawner.set_next_child_exited(true);
         let server = StreamingServer::with_config(spawner.clone(), test_config());
-        server.start().unwrap();
+        assert_eq!(
+            server.start().unwrap_err(),
+            "macOS streaming server sidecar exited during startup"
+        );
         assert!(!server.is_running());
 
         spawner.set_next_child_exited(false);
@@ -544,5 +594,18 @@ mod tests {
         let server = StreamingServer::with_config(spawner, test_config());
         assert_eq!(server.start().unwrap_err(), "boom");
         assert!(!server.is_running());
+    }
+
+    #[test]
+    fn readiness_wait_handles_ready_exit_and_timeout() {
+        assert!(wait_for_server_ready(Duration::ZERO, || Ok(false), || true).is_ok());
+        assert!(wait_for_server_ready(Duration::ZERO, || Ok(true), || false)
+            .unwrap_err()
+            .contains("exited"));
+        assert!(
+            wait_for_server_ready(Duration::ZERO, || Ok(false), || false)
+                .unwrap_err()
+                .contains("did not become ready")
+        );
     }
 }

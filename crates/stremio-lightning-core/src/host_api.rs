@@ -349,8 +349,27 @@ impl<P: PlatformBridge> BaseHost<P> {
     }
 
     pub fn listen_with_id(&self, id: u64, event: impl Into<String>) -> Result<(), String> {
+        let event = event.into();
         let mut registry = self.lock_listeners()?;
-        registry.listen_with_id(id, event);
+        if id == 1 && registry.listeners.contains_key(&id) {
+            registry.listeners.clear();
+            registry.emitted.clear();
+            registry.bridge_ready = false;
+            registry.transport_ready = false;
+        }
+        let replay_server_started = event == "server-started"
+            && self.bridge.is_streaming_server_running()
+            && !registry
+                .listeners
+                .values()
+                .any(|listener| listener == &event);
+        registry.listen_with_id(id, event.clone());
+        if replay_server_started {
+            registry.emitted.push(HostEventRecord {
+                event,
+                payload: Value::Null,
+            });
+        }
         self.flush_pending_transport_messages(&mut registry);
         Ok(())
     }

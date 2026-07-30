@@ -214,7 +214,11 @@ where
     }
 
     pub fn start_streaming_server(&self) -> Result<(), String> {
-        self.streaming_server().start()
+        self.streaming_server().start()?;
+        if self.streaming_server().is_running() {
+            self.emit_server_started()?;
+        }
+        Ok(())
     }
 
     pub fn stop_streaming_server(&self) -> Result<(), String> {
@@ -522,7 +526,7 @@ pub(crate) fn open_external_url(_url: &str) -> Result<(), String> {
 mod tests {
     use super::*;
     use crate::player::FakePlayerBackend;
-    use crate::streaming_server::{FakeProcessSpawner, StreamingServer};
+    use crate::streaming_server::{FakeProcessSpawner, StreamingServer, DEFAULT_SERVER_URL};
     use std::fs;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use stremio_lightning_core::mods;
@@ -612,6 +616,53 @@ mod tests {
             host.invoke("get_streaming_server_status", None).unwrap()["running"],
             false
         );
+    }
+
+    #[test]
+    fn successful_server_start_emits_started_event() {
+        let host = test_host();
+        host.listen("server-started").unwrap();
+
+        host.start_streaming_server().unwrap();
+
+        let events = host.drain_emitted_events().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event, "server-started");
+        assert_eq!(events[0].payload, json!({ "url": DEFAULT_SERVER_URL }));
+    }
+
+    #[test]
+    fn first_server_listener_receives_running_startup_state() {
+        let host = test_host();
+        host.start_streaming_server().unwrap();
+        assert!(host.drain_emitted_events().unwrap().is_empty());
+
+        host.dispatch_ipc(
+            "listen",
+            Some(json!({ "id": 1, "event": SHELL_TRANSPORT_EVENT })),
+        )
+        .unwrap();
+        host.dispatch_ipc(
+            "listen",
+            Some(json!({ "id": 2, "event": "server-started" })),
+        )
+        .unwrap();
+
+        let events = host.drain_emitted_events().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event, "server-started");
+
+        host.dispatch_ipc(
+            "listen",
+            Some(json!({ "id": 1, "event": SHELL_TRANSPORT_EVENT })),
+        )
+        .unwrap();
+        host.dispatch_ipc(
+            "listen",
+            Some(json!({ "id": 2, "event": "server-started" })),
+        )
+        .unwrap();
+        assert_eq!(host.drain_emitted_events().unwrap().len(), 1);
     }
 
     #[test]
