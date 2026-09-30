@@ -205,7 +205,8 @@ mod platform {
         events::{Event, PropertyData},
         mpv_end_file_reason, Format, Mpv, SetData,
     };
-    use std::sync::mpsc::TryRecvError;
+    use std::ptr::NonNull;
+    use std::sync::{mpsc::TryRecvError, Arc, Mutex};
     use std::thread::{self, JoinHandle};
     use windows::Win32::Foundation::HWND;
 
@@ -214,10 +215,50 @@ mod platform {
         Shutdown,
     }
 
+    struct MpvWaker {
+        ctx: Mutex<Option<NonNull<libmpv2_sys::mpv_handle>>>,
+    }
+
+    // SAFETY: the raw mpv handle is only read and cleared while holding the mutex,
+    // `mpv_wakeup` is documented as safe to call from any thread, and the handle is
+    // cleared on every exit from the player thread before the owning `Mpv` is dropped.
+    unsafe impl Send for MpvWaker {}
+    unsafe impl Sync for MpvWaker {}
+
+    impl MpvWaker {
+        fn new(mpv: &Mpv) -> Self {
+            Self {
+                ctx: Mutex::new(Some(mpv.ctx)),
+            }
+        }
+
+        fn wake(&self) {
+            let ctx = *self.ctx.lock().expect("MPV waker mutex poisoned");
+            if let Some(ctx) = ctx {
+                // SAFETY: the lock guarantees the handle stays valid until `invalidate`
+                // clears it, which only happens before the owning `Mpv` is dropped.
+                unsafe { libmpv2_sys::mpv_wakeup(ctx.as_ptr()) };
+            }
+        }
+
+        fn invalidate(&self) {
+            *self.ctx.lock().expect("MPV waker mutex poisoned") = None;
+        }
+    }
+
+    struct WakerGuard(Arc<MpvWaker>);
+
+    impl Drop for WakerGuard {
+        fn drop(&mut self) {
+            self.0.invalidate();
+        }
+    }
+
     #[derive(Default)]
     pub struct PlayerBackend {
         sender: Option<Sender<BackendCommand>>,
         receiver: Option<Receiver<PlayerEvent>>,
+        waker: Option<Arc<MpvWaker>>,
         thread: Option<JoinHandle<()>>,
         initialized: bool,
     }
@@ -237,6 +278,7 @@ mod platform {
             }
 
             let mpv = create_mpv(hwnd)?;
+            let waker = Arc::new(MpvWaker::new(&mpv));
             let (command_sender, command_receiver) = std::sync::mpsc::channel();
             let (event_sender, event_receiver) = std::sync::mpsc::channel();
 
@@ -245,9 +287,11 @@ mod platform {
                 command_receiver,
                 event_sender,
                 notifier,
+                Arc::clone(&waker),
             ));
             self.sender = Some(command_sender);
             self.receiver = Some(event_receiver);
+            self.waker = Some(waker);
             self.initialized = true;
             stremio_lightning_core::logging::info(
                 "native.player",
@@ -269,7 +313,13 @@ mod platform {
                 .as_ref()
                 .ok_or_else(|| "Windows MPV backend is not initialized".to_string())?
                 .send(BackendCommand::Player(command))
-                .map_err(|error| format!("Failed to send command to Windows MPV backend: {error}"))
+                .map_err(|error| {
+                    format!("Failed to send command to Windows MPV backend: {error}")
+                })?;
+            if let Some(waker) = &self.waker {
+                waker.wake();
+            }
+            Ok(())
         }
 
         pub fn drain_events(&mut self) -> Vec<PlayerEvent> {
@@ -282,6 +332,9 @@ mod platform {
         pub fn shutdown(&mut self) {
             if let Some(sender) = self.sender.take() {
                 let _ = sender.send(BackendCommand::Shutdown);
+            }
+            if let Some(waker) = self.waker.take() {
+                waker.wake();
             }
             // Do not join thread to prevent circular deadlock during window destruction
             self.thread.take();
@@ -338,16 +391,18 @@ mod platform {
         command_receiver: Receiver<BackendCommand>,
         event_sender: Sender<PlayerEvent>,
         notifier: UiThreadNotifier,
+        waker: Arc<MpvWaker>,
     ) -> JoinHandle<()> {
         thread::spawn(move || {
             let _ = mpv.disable_deprecated_events();
+            let _waker_guard = WakerGuard(waker);
 
             loop {
                 if should_shutdown(&mpv, &command_receiver) {
-                    return;
+                    break;
                 }
 
-                if let Some(event) = mpv.wait_event(0.05) {
+                if let Some(event) = mpv.wait_event(-1.0) {
                     let event = match event {
                         Ok(event) => event,
                         Err(error) => {
@@ -508,9 +563,7 @@ mod platform {
             PlayerCommand::ObserveProperty(name) => {
                 let format = observe_format(&name);
                 mpv.observe_property(&name, format, 0)
-                    .map_err(|error| format!("Failed to observe MPV property '{name}': {error}"))?;
-                mpv.wake_up();
-                Ok(())
+                    .map_err(|error| format!("Failed to observe MPV property '{name}': {error}"))
             }
             PlayerCommand::SetProperty(name, value) => set_property(mpv, &name, value),
             PlayerCommand::Command(values) => {
@@ -594,16 +647,6 @@ mod platform {
                 message: "MPV playback error".to_string(),
                 critical: true,
             }),
-        }
-    }
-
-    trait MpvWakeUp {
-        fn wake_up(&self);
-    }
-
-    impl MpvWakeUp for Mpv {
-        fn wake_up(&self) {
-            unsafe { libmpv2_sys::mpv_wakeup(self.ctx.as_ptr()) }
         }
     }
 }
