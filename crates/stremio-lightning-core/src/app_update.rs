@@ -23,7 +23,10 @@ struct UpdateManifest {
 
 pub async fn check_app_update(current_version: &str) -> Result<AppUpdateInfo, String> {
     let current_version_norm = normalize_version(current_version);
-    if current_version_norm == "0.0.0" {
+    if current_version_norm == "0.0.0"
+        || (cfg!(debug_assertions)
+            && std::env::var_os("STREMIO_LIGHTNING_FORCE_UPDATE_CHECK").is_none())
+    {
         return Ok(AppUpdateInfo {
             has_update: false,
             current_version: current_version_norm,
@@ -153,5 +156,20 @@ mod tests {
         assert!(is_newer_version("1.0.0", "1.0.0-beta.1"));
         assert!(!is_newer_version("1.0.0-beta.1", "1.0.0"));
         assert!(!is_newer_version("1.0.0", "1.0.0"));
+    }
+
+    #[tokio::test]
+    async fn dev_builds_and_zero_version_suppress_update_checks() {
+        let info = check_app_update("0.0.0").await.unwrap();
+        assert!(!info.has_update);
+        assert_eq!(info.current_version, "0.0.0");
+        assert!(info.new_version.is_none());
+
+        // In test mode (debug build without STREMIO_LIGHTNING_FORCE_UPDATE_CHECK),
+        // update checks should also be automatically suppressed.
+        let dev_info = check_app_update("0.1.4").await.unwrap();
+        assert!(!dev_info.has_update);
+        assert_eq!(dev_info.current_version, "0.1.4");
+        assert!(dev_info.new_version.is_none());
     }
 }

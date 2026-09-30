@@ -10,17 +10,19 @@ fn main() {
 
     let version = env::var("STREMIO_LIGHTNING_VERSION")
         .ok()
+        .as_deref()
         .and_then(normalize_version)
         .or_else(github_tag_version)
         .or_else(git_tag_version)
+        .or_else(|| env::var("CARGO_PKG_VERSION").ok().as_deref().and_then(normalize_version))
         .unwrap_or_else(|| "0.0.0".to_string());
 
     println!("cargo:rustc-env=STREMIO_LIGHTNING_VERSION={version}");
 }
 
 fn github_tag_version() -> Option<String> {
-    (env::var("GITHUB_REF_TYPE").ok().as_deref() == Some("tag"))
-        .then(|| env::var("GITHUB_REF_NAME").ok().and_then(normalize_version))
+    (env::var("GITHUB_REF_TYPE").as_deref() == Ok("tag"))
+        .then(|| env::var("GITHUB_REF_NAME").ok().as_deref().and_then(normalize_version))
         .flatten()
 }
 
@@ -33,14 +35,14 @@ fn git_tag_version() -> Option<String> {
         .status
         .success()
         .then(|| {
-            String::from_utf8(output.stdout)
+            std::str::from_utf8(&output.stdout)
                 .ok()
                 .and_then(normalize_version)
         })
         .flatten()
 }
 
-fn normalize_version(version: String) -> Option<String> {
+fn normalize_version(version: &str) -> Option<String> {
     let version = version.trim().trim_start_matches('v');
     (!version.is_empty()
         && version.starts_with(|character: char| character.is_ascii_digit())
