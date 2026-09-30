@@ -1,4 +1,43 @@
+#![cfg_attr(windows, allow(unsafe_code))]
+
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum SingleInstanceError {
+    #[error("Failed to create single-instance mutex: {0}")]
+    Mutex(String),
+    #[error("Failed to connect to primary Windows shell: {0}")]
+    Connect(String),
+    #[error("Failed to create single-instance pipe: {0}")]
+    PipeCreation(String),
+    #[error("Failed to accept secondary instance pipe: {0}")]
+    PipeAccept(String),
+    #[error("Launch intent error: {0}")]
+    LaunchIntent(String),
+    #[error("I/O error: {0}")]
+    Io(String),
+    #[error("{0}")]
+    Other(String),
+}
+
+impl From<String> for SingleInstanceError {
+    fn from(error: String) -> Self {
+        Self::Other(error)
+    }
+}
+
+impl From<&str> for SingleInstanceError {
+    fn from(error: &str) -> Self {
+        Self::Other(error.to_string())
+    }
+}
+
+impl From<SingleInstanceError> for String {
+    fn from(error: SingleInstanceError) -> Self {
+        error.to_string()
+    }
+}
 
 #[cfg(windows)]
 const MUTEX_NAME: &str = "Local\\StremioLightning.SingleInstance";
@@ -96,10 +135,14 @@ mod platform {
     impl SingleInstanceGuard {
         pub fn acquire(intent: LaunchIntent) -> Result<SingleInstanceRole, String> {
             let mutex_name = to_wide_null(MUTEX_NAME);
+            // SAFETY: mutex_name is a null-terminated UTF-16 wide string.
             let mutex = unsafe { CreateMutexW(None, true, PCWSTR(mutex_name.as_ptr())) }
                 .map_err(|error| format!("Failed to create single-instance mutex: {error}"))?;
 
-            if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
+            // SAFETY: Queries the Win32 last-error state for the current thread.
+            let already_exists = unsafe { GetLastError() } == ERROR_ALREADY_EXISTS;
+            if already_exists {
+                // SAFETY: mutex is a valid handle created above and closed on secondary path.
                 unsafe {
                     let _ = CloseHandle(mutex);
                 }
@@ -143,6 +186,7 @@ mod platform {
 
     impl Drop for SingleInstanceGuard {
         fn drop(&mut self) {
+            // SAFETY: self.mutex is an owned valid Win32 HANDLE dropped once.
             unsafe {
                 let _ = CloseHandle(self.mutex);
             }
@@ -154,6 +198,7 @@ mod platform {
         let pipe = open_primary_pipe(&pipe_name)?;
 
         let result = write_intent(pipe, intent);
+        // SAFETY: pipe is an owned valid Win32 pipe HANDLE closed on delivery exit.
         unsafe {
             let _ = CloseHandle(pipe);
         }
@@ -163,7 +208,8 @@ mod platform {
     fn open_primary_pipe(pipe_name: &[u16]) -> Result<HANDLE, String> {
         let deadline = Instant::now() + Duration::from_secs(2);
         loop {
-            match unsafe {
+            // SAFETY: pipe_name is a null-terminated UTF-16 wide string pointing to the pipe.
+            let file = unsafe {
                 CreateFileW(
                     PCWSTR(pipe_name.as_ptr()),
                     FILE_GENERIC_WRITE.0,
@@ -173,9 +219,11 @@ mod platform {
                     FILE_ATTRIBUTE_NORMAL,
                     None,
                 )
-            } {
+            };
+            match file {
                 Ok(pipe) => return Ok(pipe),
                 Err(error) => {
+                    // SAFETY: Queries Win32 last-error for pipe status.
                     let last_error = unsafe { GetLastError() };
                     if Instant::now() >= deadline {
                         return Err(format!(
@@ -183,6 +231,7 @@ mod platform {
                         ));
                     }
                     if last_error == ERROR_PIPE_BUSY {
+                        // SAFETY: Waits up to 100ms for busy pipe.
                         let _ = unsafe { WaitNamedPipeW(PCWSTR(pipe_name.as_ptr()), 100) };
                     } else if last_error == ERROR_FILE_NOT_FOUND {
                         thread::sleep(Duration::from_millis(25));
@@ -198,6 +247,7 @@ mod platform {
 
     fn receive_one_intent() -> Result<LaunchIntent, String> {
         let pipe_name = to_wide_null(PIPE_NAME);
+        // SAFETY: pipe_name is a null-terminated UTF-16 wide string; creates inbound pipe.
         let pipe = unsafe {
             CreateNamedPipeW(
                 PCWSTR(pipe_name.as_ptr()),
@@ -214,11 +264,15 @@ mod platform {
             return Err("Failed to create single-instance pipe".to_string());
         }
 
-        let result = match unsafe { ConnectNamedPipe(pipe, None) } {
+        // SAFETY: ConnectNamedPipe waits for client connection on valid pipe handle.
+        let connected = unsafe { ConnectNamedPipe(pipe, None) };
+        let result = match connected {
             Ok(()) => read_intent(pipe),
+            // SAFETY: Queries last error to check if client already connected before call.
             Err(_) if unsafe { GetLastError() } == ERROR_PIPE_CONNECTED => read_intent(pipe),
             Err(error) => Err(format!("Failed to accept secondary instance pipe: {error}")),
         };
+        // SAFETY: pipe handle is closed once processing finishes.
         unsafe {
             let _ = CloseHandle(pipe);
         }
@@ -252,6 +306,7 @@ mod platform {
     fn write_all(pipe: HANDLE, mut bytes: &[u8]) -> Result<(), String> {
         while !bytes.is_empty() {
             let mut written = 0;
+            // SAFETY: pipe is valid open handle; bytes is valid slice; written receives count.
             unsafe { WriteFile(pipe, Some(bytes), Some(&mut written), None) }
                 .map_err(|error| format!("Failed to write launch intent: {error}"))?;
             bytes = &bytes[written as usize..];
@@ -262,6 +317,7 @@ mod platform {
     fn read_exact(pipe: HANDLE, mut bytes: &mut [u8]) -> Result<(), String> {
         while !bytes.is_empty() {
             let mut read = 0;
+            // SAFETY: pipe is valid open handle; bytes is mutable buffer; read receives count.
             unsafe { ReadFile(pipe, Some(bytes), Some(&mut read), None) }
                 .map_err(|error| format!("Failed to read launch intent: {error}"))?;
             let read = read as usize;

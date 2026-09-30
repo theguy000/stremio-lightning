@@ -353,8 +353,7 @@ impl StderrForwarder {
         let suppressed = self
             .state
             .lock()
-            .map(|mut state| std::mem::take(&mut state.suppressed))
-            .unwrap_or(0);
+            .map_or(0, |mut state| std::mem::take(&mut state.suppressed));
         if suppressed > 0 {
             logging::warn(
                 "streaming-server.stderr",
@@ -376,7 +375,7 @@ fn spawn_reader<R: Read + Send + 'static>(
         loop {
             let read = match reader.read(&mut bytes) {
                 Ok(0) => {
-                    write_drained_line(&writer, &forwarder, &line, truncated);
+                    write_drained_line(&writer, forwarder.as_ref(), &line, truncated);
                     if let Some(forwarder) = forwarder {
                         forwarder.finish();
                     }
@@ -392,7 +391,7 @@ fn spawn_reader<R: Read + Send + 'static>(
             };
             for byte in &bytes[..read] {
                 if *byte == b'\n' {
-                    write_drained_line(&writer, &forwarder, &line, truncated);
+                    write_drained_line(&writer, forwarder.as_ref(), &line, truncated);
                     line.clear();
                     truncated = false;
                 } else if line.len() < STREAM_LOG_LINE_LIMIT_BYTES {
@@ -407,7 +406,7 @@ fn spawn_reader<R: Read + Send + 'static>(
 
 fn write_drained_line(
     writer: &RotatingLogWriter,
-    forwarder: &Option<Arc<StderrForwarder>>,
+    forwarder: Option<&Arc<StderrForwarder>>,
     line: &[u8],
     truncated: bool,
 ) {
@@ -473,7 +472,10 @@ fn read_tail(path: &Path, max_bytes: usize) -> io::Result<Vec<u8>> {
 
 fn writer_lock(path: &Path) -> Arc<Mutex<()>> {
     let locks = WRITER_LOCKS.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut locks = locks.lock().expect("streaming log lock registry poisoned");
+    let mut locks = match locks.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
     if let Some(lock) = locks.get(path).and_then(Weak::upgrade) {
         return lock;
     }
@@ -654,7 +656,10 @@ mod tests {
             let mut command = Command::new("cmd");
             command.args([
                 "/C",
-                "echo stdout-before-stop & echo stderr-before-stop 1>&2 & ping -n 30 127.0.0.1 > NUL",
+                concat!(
+                    "echo stdout-before-stop & echo stderr-before-stop 1>&2 & ",
+                    "ping -n 30 127.0.0.1 > NUL",
+                ),
             ]);
             command
         };

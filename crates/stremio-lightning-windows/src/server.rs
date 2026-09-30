@@ -1,3 +1,5 @@
+#![cfg_attr(windows, allow(unsafe_code))]
+
 use crate::resources::WindowsResourceLayout;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -6,6 +8,41 @@ use std::sync::{Arc, Mutex};
 use stremio_lightning_core::streaming_logs::{
     ManagedChild, StreamingLogFiles, StreamingLogPaths, StreamingLogTails,
 };
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum ServerError {
+    #[error("Failed to start streaming server: {0}")]
+    Start(String),
+    #[error("Failed to stop streaming server: {0}")]
+    Stop(String),
+    #[error("Streaming server mutex poisoned: {0}")]
+    LockPoisoned(String),
+    #[error("Streaming server job error: {0}")]
+    Job(String),
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("{0}")]
+    Other(String),
+}
+
+impl From<String> for ServerError {
+    fn from(error: String) -> Self {
+        Self::Other(error)
+    }
+}
+
+impl From<&str> for ServerError {
+    fn from(error: &str) -> Self {
+        Self::Other(error.to_string())
+    }
+}
+
+impl From<ServerError> for String {
+    fn from(error: ServerError) -> Self {
+        error.to_string()
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WindowsServerConfig {
@@ -298,8 +335,8 @@ fn configure_windows_command(_command: &mut Command) {}
 #[derive(Debug)]
 struct WindowsJob(windows::Win32::Foundation::HANDLE);
 
-// A job handle can be closed from any thread. WindowsProcessChild is protected by
-// the server mutex and never uses the handle concurrently.
+// SAFETY: A Windows job object handle can be closed from any thread. Access is
+// synchronized by the server mutex.
 #[cfg(windows)]
 unsafe impl Send for WindowsJob {}
 
@@ -308,6 +345,7 @@ impl Drop for WindowsJob {
     fn drop(&mut self) {
         use windows::Win32::Foundation::CloseHandle;
 
+        // SAFETY: self.0 is an owned Win32 job object handle closed exactly once on drop.
         unsafe {
             let _ = CloseHandle(self.0);
         }
@@ -319,6 +357,7 @@ impl WindowsJob {
     fn terminate(&self) -> Result<(), String> {
         use windows::Win32::System::JobObjects::TerminateJobObject;
 
+        // SAFETY: self.0 is an owned valid Win32 job object handle.
         unsafe { TerminateJobObject(self.0, 1) }
             .map_err(|error| format!("Failed to terminate Windows streaming server job: {error}"))
     }
@@ -335,6 +374,9 @@ fn assign_child_to_job(child: &Child) -> Result<WindowsJob, String> {
         JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
     };
 
+    // SAFETY: CreateJobObjectW creates a new job object; limits points to a valid
+    // JOBOBJECT_EXTENDED_LIMIT_INFORMATION struct; child.as_raw_handle() is a valid
+    // live process handle.
     unsafe {
         let job =
             WindowsJob(CreateJobObjectW(None, None).map_err(|e| {
@@ -378,21 +420,22 @@ pub struct FakeProcessSpawner {
 
 impl FakeProcessSpawner {
     pub fn calls(&self) -> Vec<CommandSpec> {
-        self.calls.lock().expect("fake spawner poisoned").clone()
+        self.calls
+            .lock()
+            .map_or_else(|p| p.into_inner().clone(), |g| g.clone())
     }
 
     pub fn stopped(&self) -> Vec<usize> {
         self.stopped
             .lock()
-            .expect("fake spawner stopped list poisoned")
-            .clone()
+            .map_or_else(|p| p.into_inner().clone(), |g| g.clone())
     }
 
     pub fn set_next_child_exited(&self, exited: bool) {
-        *self
-            .next_child_exited
-            .lock()
-            .expect("fake spawner exit flag poisoned") = exited;
+        match self.next_child_exited.lock() {
+            Ok(mut g) => *g = exited,
+            Err(p) => *p.into_inner() = exited,
+        }
     }
 }
 
@@ -407,13 +450,16 @@ impl ProcessSpawner for FakeProcessSpawner {
     type Child = FakeProcessChild;
 
     fn spawn(&self, spec: CommandSpec) -> Result<Self::Child, String> {
-        let mut calls = self.calls.lock().expect("fake spawner poisoned");
+        let mut calls = match self.calls.lock() {
+            Ok(g) => g,
+            Err(p) => p.into_inner(),
+        };
         calls.push(spec);
         let id = calls.len();
-        let exited = *self
+        let exited = self
             .next_child_exited
             .lock()
-            .expect("fake spawner exit flag poisoned");
+            .map_or_else(|p| *p.into_inner(), |g| *g);
         Ok(FakeProcessChild {
             id,
             stopped: self.stopped.clone(),
@@ -424,10 +470,10 @@ impl ProcessSpawner for FakeProcessSpawner {
 
 impl ProcessChild for FakeProcessChild {
     fn stop(&mut self) -> Result<(), String> {
-        self.stopped
-            .lock()
-            .expect("fake child stopped list poisoned")
-            .push(self.id);
+        match self.stopped.lock() {
+            Ok(mut g) => g.push(self.id),
+            Err(p) => p.into_inner().push(self.id),
+        }
         self.exited = true;
         Ok(())
     }

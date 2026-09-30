@@ -1907,6 +1907,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "thiserror",
  "tokio",
 ]
 
@@ -1962,6 +1963,7 @@ dependencies = [
  "serde_json",
  "stremio-lightning-core",
  "stremio-lightning-identity",
+ "thiserror",
  "tokio",
  "webview2-com",
  "windows",

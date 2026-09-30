@@ -48,10 +48,14 @@ pub fn save_setting_file(path: &Path, key: &str, value: Value) -> Result<(), Str
     std::fs::write(path, json).map_err(|e| format!("Failed to write settings: {}", e))
 }
 
-pub fn get_setting(plugins_dir: &Path, plugin_name: &str, key: &str) -> Result<Value, String> {
+pub fn setting(plugins_dir: &Path, plugin_name: &str, key: &str) -> Result<Value, String> {
     let config_path = plugin_settings_path(plugins_dir, plugin_name)?;
     let settings = load_settings_file(&config_path)?;
     Ok(settings.get(key).cloned().unwrap_or(Value::Null))
+}
+
+pub fn get_setting(plugins_dir: &Path, plugin_name: &str, key: &str) -> Result<Value, String> {
+    setting(plugins_dir, plugin_name, key)
 }
 
 pub fn save_setting(
@@ -76,9 +80,13 @@ pub fn register_settings(
     Ok(())
 }
 
-pub fn get_registered_settings(schemas: &Mutex<HashMap<String, Value>>) -> Result<Value, String> {
+pub fn registered_settings(schemas: &Mutex<HashMap<String, Value>>) -> Result<Value, String> {
     let map = schemas.lock().map_err(|e| e.to_string())?;
     serde_json::to_value(&*map).map_err(|e| format!("Failed to serialize schemas: {e}"))
+}
+
+pub fn get_registered_settings(schemas: &Mutex<HashMap<String, Value>>) -> Result<Value, String> {
+    registered_settings(schemas)
 }
 
 #[cfg(test)]

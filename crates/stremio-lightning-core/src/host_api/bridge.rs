@@ -1,342 +1,22 @@
-use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, OnceLock};
-
-use serde::{Deserialize, Serialize};
+use std::sync::{Arc, Mutex};
+use serde::Deserialize;
 use serde_json::{json, Value};
 
+use super::handlers::{
+    async_runtime, handshake_response, parse_optional_bool, parse_payload, parse_request,
+    response_message, safe_native_player_status, serialize_window_visibility,
+};
+use super::types::{
+    DownloadModPayload, FocusChangedPayload, FullscreenIpcPayload, GetLogsPayload, HostApiError,
+    HostEvent, HostEventRecord, InvokeIpcPayload, ListenIpcPayload, ListenerRegistry,
+    ModFilePayload, ModTypePayload, ParsedRequest, PlatformBridge, RegisterSettingsPayload,
+    RpcResponse, SaveSettingPayload, SetExtendedDiagnosticsPayload, SettingKeyPayload,
+    ShellPreferenceState, SubmitDiagnosticLogsPayload, UnlistenIpcPayload, ZoomIpcPayload,
+    SHELL_TRANSPORT_EVENT,
+};
 use crate::pip::serialize_picture_in_picture;
-use crate::streaming_logs::StreamingLogTails;
 use crate::{app_update, logging, mods, settings};
-
-#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum HostCommand {
-    Init,
-    ToggleDevtools,
-    OpenExternalUrl,
-    ShellTransportSend,
-    ShellBridgeReady,
-    GetNativePlayerStatus,
-    StartStreamingServer,
-    StopStreamingServer,
-    RestartStreamingServer,
-    GetStreamingServerStatus,
-    GetPlugins,
-    GetThemes,
-    DownloadMod,
-    DeleteMod,
-    GetModContent,
-    GetRegistry,
-    CheckModUpdates,
-    GetSetting,
-    SaveSetting,
-    RegisterSettings,
-    GetRegisteredSettings,
-    StartDiscordRpc,
-    StopDiscordRpc,
-    UpdateDiscordActivity,
-    CheckAppUpdate,
-    SetAutoPause,
-    GetAutoPause,
-    SetPipDisablesAutoPause,
-    GetPipDisablesAutoPause,
-    TogglePip,
-    GetPipMode,
-    SetPipSize,
-    GetLogs,
-    SubmitDiagnosticLogs,
-    SetExtendedDiagnostics,
-    GetDiagnosticReport,
-    ClearDiagnostics,
-}
-
-#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
-pub enum HostEvent {
-    #[serde(rename = "window-maximized-changed")]
-    WindowMaximizedChanged,
-    #[serde(rename = "window-fullscreen-changed")]
-    WindowFullscreenChanged,
-    #[serde(rename = "server-started")]
-    ServerStarted,
-    #[serde(rename = "server-stopped")]
-    ServerStopped,
-    #[serde(rename = "shell-transport-message")]
-    ShellTransportMessage,
-}
-
-#[derive(Deserialize, Debug, PartialEq)]
-pub struct RpcRequest {
-    pub id: u64,
-    #[serde(rename = "type")]
-    pub request_type: Option<u8>,
-    pub args: Option<Value>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-pub struct RpcResponseDataTransport {
-    pub properties: Vec<Vec<String>>,
-    pub signals: Vec<String>,
-    pub methods: Vec<Vec<String>>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-pub struct RpcResponseData {
-    pub transport: RpcResponseDataTransport,
-}
-
-#[derive(Default, Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct RpcResponse {
-    pub id: u64,
-    pub object: String,
-    #[serde(rename = "type")]
-    pub response_type: u8,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub data: Option<RpcResponseData>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub args: Option<Value>,
-}
-
-#[derive(Debug, PartialEq)]
-pub enum ParsedRequest {
-    Handshake,
-    Command { method: String, data: Option<Value> },
-}
-
-pub const TRANSPORT_OBJECT: &str = "transport";
-pub const RPC_TYPE_INIT: u8 = 3;
-pub const RPC_TYPE_SIGNAL: u8 = 1;
-pub const RPC_TYPE_INVOKE_METHOD: u8 = 6;
-
-pub fn parse_request(message: &str) -> Result<ParsedRequest, String> {
-    let request: RpcRequest = serde_json::from_str(message)
-        .map_err(|e| format!("Failed to parse shell transport message: {e}"))?;
-
-    if request.request_type == Some(RPC_TYPE_INIT)
-        || (request.id == 0 && request.request_type.is_none() && request.args.is_none())
-    {
-        return Ok(ParsedRequest::Handshake);
-    }
-
-    match request.request_type {
-        Some(RPC_TYPE_INVOKE_METHOD) | None => {}
-        Some(request_type) => {
-            return Err(format!(
-                "Unsupported shell transport request type: {request_type}"
-            ));
-        }
-    }
-
-    let args = request
-        .args
-        .and_then(|value| value.as_array().cloned())
-        .ok_or_else(|| "Missing shell transport args".to_string())?;
-    let method = args
-        .first()
-        .and_then(Value::as_str)
-        .ok_or_else(|| "Missing shell transport method".to_string())?
-        .to_string();
-    let data = args.get(1).cloned();
-
-    Ok(ParsedRequest::Command { method, data })
-}
-
-pub fn handshake_response(package_version: &str) -> String {
-    serde_json::to_string(&RpcResponse {
-        id: 0,
-        object: TRANSPORT_OBJECT.to_string(),
-        response_type: RPC_TYPE_INIT,
-        data: Some(RpcResponseData {
-            transport: RpcResponseDataTransport {
-                properties: vec![
-                    vec![],
-                    vec![
-                        String::new(),
-                        "shellVersion".to_string(),
-                        String::new(),
-                        package_version.to_string(),
-                    ],
-                ],
-                signals: vec![],
-                methods: vec![vec!["onEvent".to_string()]],
-            },
-        }),
-        ..Default::default()
-    })
-    .expect("failed to serialize handshake response")
-}
-
-pub fn response_message(args: Value) -> String {
-    serde_json::to_string(&RpcResponse {
-        id: 1,
-        object: TRANSPORT_OBJECT.to_string(),
-        response_type: RPC_TYPE_SIGNAL,
-        args: Some(args),
-        ..Default::default()
-    })
-    .expect("failed to serialize transport response")
-}
-
-pub fn stremio_deep_link_transport_args(url: &str) -> Value {
-    let lower = url.trim().to_ascii_lowercase();
-    let event = if lower.starts_with("stremio:///detail/") || lower.starts_with("stremio://detail/")
-    {
-        "open-media"
-    } else {
-        "addon-install"
-    };
-    json!([event, url])
-}
-
-pub fn serialize_window_visibility(visible: bool, is_fullscreen: bool) -> Value {
-    serde_json::json!([
-        "win-visibility-changed",
-        {
-            "visible": visible,
-            "visibility": u8::from(is_fullscreen),
-            "isFullscreen": is_fullscreen
-        }
-    ])
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct HostEventRecord {
-    pub event: String,
-    pub payload: Value,
-}
-
-pub const SHELL_TRANSPORT_EVENT: &str = "shell-transport-message";
-
-#[derive(Debug, Default)]
-pub struct ListenerRegistry {
-    pub next_id: u64,
-    pub listeners: HashMap<u64, String>,
-    pub emitted: Vec<HostEventRecord>,
-    pub bridge_ready: bool,
-    pub transport_ready: bool,
-    pub pending_transport_messages: VecDeque<String>,
-}
-
-impl ListenerRegistry {
-    pub fn listen(&mut self, event: impl Into<String>) -> u64 {
-        self.next_id += 1;
-        self.listeners.insert(self.next_id, event.into());
-        self.next_id
-    }
-
-    pub fn listen_with_id(&mut self, id: u64, event: impl Into<String>) {
-        self.next_id = self.next_id.max(id);
-        self.listeners.insert(id, event.into());
-    }
-
-    pub fn unlisten(&mut self, id: u64) {
-        self.listeners.remove(&id);
-    }
-
-    pub fn emit(&mut self, event: impl Into<String>, payload: Value) {
-        let event = event.into();
-        if self.listeners.values().any(|listener| listener == &event) {
-            self.emitted.push(HostEventRecord { event, payload });
-        }
-    }
-
-    pub fn drain_emitted(&mut self) -> Vec<HostEventRecord> {
-        std::mem::take(&mut self.emitted)
-    }
-}
-
-pub trait PlatformBridge: Send + Sync {
-    fn platform_name(&self) -> &'static str;
-    fn shell_name(&self) -> &'static str;
-    fn native_player_status(&self) -> Value;
-    fn is_streaming_server_running(&self) -> bool;
-
-    // Window methods
-    fn minimize_window(&self) -> Result<(), String> {
-        Ok(())
-    }
-    fn focus_window(&self) -> Result<(), String> {
-        Ok(())
-    }
-    fn toggle_window_maximize(&self) -> Result<bool, String> {
-        Ok(false)
-    }
-    fn close_window(&self) -> Result<(), String> {
-        Ok(())
-    }
-    fn start_window_dragging(&self) -> Result<(), String> {
-        Ok(())
-    }
-    fn is_window_maximized(&self) -> Result<bool, String> {
-        Ok(false)
-    }
-    fn is_window_fullscreen(&self) -> Result<bool, String> {
-        Ok(false)
-    }
-    fn set_window_fullscreen(&self, _fullscreen: bool) -> Result<(), String> {
-        Ok(())
-    }
-    fn set_webview_zoom(&self, _level: f64) -> Result<(), String> {
-        Ok(())
-    }
-
-    // Player/Pip methods
-    fn toggle_picture_in_picture(&self) -> Result<bool, String>;
-    fn is_pip_enabled(&self) -> Result<bool, String>;
-    fn set_pip_size(&self, _width: i32, _height: i32) -> Result<(), String> {
-        Ok(())
-    }
-
-    // Custom platform controls
-    fn open_external_url(&self, _url: &str) -> Result<(), String> {
-        Ok(())
-    }
-    fn get_streaming_server_status(&self) -> Result<Value, String> {
-        Ok(Value::Bool(self.is_streaming_server_running()))
-    }
-
-    fn start_streaming_server(&self) -> Result<(), String> {
-        Ok(())
-    }
-    fn stop_streaming_server(&self) -> Result<(), String> {
-        Ok(())
-    }
-    fn restart_streaming_server(&self) -> Result<(), String> {
-        Ok(())
-    }
-
-    fn diagnostics_webview_engine(&self) -> &'static str {
-        self.shell_name()
-    }
-
-    fn diagnostics_webview_version(&self) -> Option<String> {
-        None
-    }
-
-    fn native_http_diagnostics(&self) -> bool {
-        false
-    }
-
-    fn native_network_failure_diagnostics(&self) -> bool {
-        false
-    }
-
-    fn streaming_log_tails(
-        &self,
-        _max_bytes_per_stream: usize,
-    ) -> Result<Option<StreamingLogTails>, String> {
-        Ok(None)
-    }
-
-    fn clear_streaming_logs(&self) -> Result<(), String> {
-        Ok(())
-    }
-
-    // Transport commands delegator
-    fn handle_custom_transport(&self, _method: &str, _data: Option<Value>) -> Result<(), String> {
-        Ok(())
-    }
-}
 
 pub struct BaseHost<P: PlatformBridge> {
     pub bridge: P,
@@ -346,27 +26,6 @@ pub struct BaseHost<P: PlatformBridge> {
     pub package_version: &'static str,
     pub shell_preferences: Mutex<ShellPreferenceState>,
     pub discord_rpc: Arc<crate::discord_rpc::DiscordRpcState>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ShellPreferenceState {
-    pub auto_pause: bool,
-    pub pip_disables_auto_pause: bool,
-    pub auto_paused: bool,
-    pub player_active: bool,
-    pub player_paused: bool,
-}
-
-impl Default for ShellPreferenceState {
-    fn default() -> Self {
-        Self {
-            auto_pause: true,
-            pip_disables_auto_pause: true,
-            auto_paused: false,
-            player_active: false,
-            player_paused: true,
-        }
-    }
 }
 
 impl<P: PlatformBridge> BaseHost<P> {
@@ -382,47 +41,49 @@ impl<P: PlatformBridge> BaseHost<P> {
         }
     }
 
-    pub fn lock_listeners(&self) -> Result<std::sync::MutexGuard<'_, ListenerRegistry>, String> {
+    pub fn lock_listeners(
+        &self,
+    ) -> Result<std::sync::MutexGuard<'_, ListenerRegistry>, HostApiError> {
         self.listeners
             .lock()
-            .map_err(|e| format!("Listeners lock poisoned: {e}"))
+            .map_err(|e| HostApiError::LockPoisoned(format!("Listeners lock poisoned: {e}")))
     }
 
     fn lock_shell_preferences(
         &self,
-    ) -> Result<std::sync::MutexGuard<'_, ShellPreferenceState>, String> {
-        self.shell_preferences
-            .lock()
-            .map_err(|e| format!("Shell preferences lock poisoned: {e}"))
+    ) -> Result<std::sync::MutexGuard<'_, ShellPreferenceState>, HostApiError> {
+        self.shell_preferences.lock().map_err(|e| {
+            HostApiError::LockPoisoned(format!("Shell preferences lock poisoned: {e}"))
+        })
     }
 
-    pub fn listen_with_id(&self, id: u64, event: impl Into<String>) -> Result<(), String> {
+    pub fn listen_with_id(&self, id: u64, event: impl Into<String>) -> Result<(), HostApiError> {
         let mut registry = self.lock_listeners()?;
         registry.listen_with_id(id, event);
         self.flush_pending_transport_messages(&mut registry);
         Ok(())
     }
 
-    pub fn unlisten(&self, id: u64) -> Result<(), String> {
+    pub fn unlisten(&self, id: u64) -> Result<(), HostApiError> {
         self.lock_listeners()?.unlisten(id);
         Ok(())
     }
 
-    pub fn mark_bridge_ready(&self) -> Result<(), String> {
+    pub fn mark_bridge_ready(&self) -> Result<(), HostApiError> {
         let mut registry = self.lock_listeners()?;
         registry.bridge_ready = true;
         self.flush_pending_transport_messages(&mut registry);
         Ok(())
     }
 
-    pub fn mark_transport_ready(&self) -> Result<(), String> {
+    pub fn mark_transport_ready(&self) -> Result<(), HostApiError> {
         let mut registry = self.lock_listeners()?;
         registry.transport_ready = true;
         self.flush_pending_transport_messages(&mut registry);
         Ok(())
     }
 
-    pub fn queue_transport_message(&self, message: String) -> Result<(), String> {
+    pub fn queue_transport_message(&self, message: String) -> Result<(), HostApiError> {
         self.update_player_paused_from_transport(&Value::String(message.clone()))?;
         let mut registry = self.lock_listeners()?;
         if registry.pending_transport_messages.len() >= 512 {
@@ -433,7 +94,7 @@ impl<P: PlatformBridge> BaseHost<P> {
         Ok(())
     }
 
-    pub fn emit_transport_message(&self, message: String) -> Result<(), String> {
+    pub fn emit_transport_message(&self, message: String) -> Result<(), HostApiError> {
         self.emit_event(SHELL_TRANSPORT_EVENT, json!(message))
     }
 
@@ -458,16 +119,15 @@ impl<P: PlatformBridge> BaseHost<P> {
     }
 
     fn update_player_paused_from_transport(&self, payload: &Value) -> Result<(), String> {
-        // Case 1: Payload is a serialized JSON string (Linux/Windows queued/emitted message)
         if let Some(msg_str) = payload.as_str() {
             if let Ok(resp) = serde_json::from_str::<RpcResponse>(msg_str) {
-                if let Some(arr) = resp.args.as_ref().and_then(|v| v.as_array()) {
-                    if let Some(event_type) = arr.first().and_then(|v| v.as_str()) {
+                if let Some(arr) = resp.args.as_ref().and_then(Value::as_array) {
+                    if let Some(event_type) = arr.first().and_then(Value::as_str) {
                         let (name, data) = match event_type {
                             "mpv-prop-change" => {
                                 let prop = arr.get(1);
                                 let name =
-                                    prop.and_then(|p| p.get("name")).and_then(|v| v.as_str());
+                                    prop.and_then(|p| p.get("name")).and_then(Value::as_str);
                                 let data = prop.and_then(|p| p.get("data"));
                                 (name, data)
                             }
@@ -480,12 +140,11 @@ impl<P: PlatformBridge> BaseHost<P> {
             return Ok(());
         }
 
-        // Case 2: Payload is a raw JSON object (macOS native player event)
         if let Some(obj) = payload.as_object() {
-            if let Some(event_type) = obj.get("type").and_then(|v| v.as_str()) {
+            if let Some(event_type) = obj.get("type").and_then(Value::as_str) {
                 let (name, data) = match event_type {
                     "mpv-prop-change" => {
-                        let name = obj.get("name").and_then(|v| v.as_str());
+                        let name = obj.get("name").and_then(Value::as_str);
                         let data = obj.get("data");
                         (name, data)
                     }
@@ -506,7 +165,7 @@ impl<P: PlatformBridge> BaseHost<P> {
     ) -> Result<(), String> {
         match (event_type, prop_name) {
             ("mpv-prop-change", Some("pause")) => {
-                if let Some(paused) = prop_data.and_then(|v| v.as_bool()) {
+                if let Some(paused) = prop_data.and_then(Value::as_bool) {
                     let mut prefs = self.lock_shell_preferences()?;
                     prefs.player_paused = paused;
                 }
@@ -559,13 +218,13 @@ impl<P: PlatformBridge> BaseHost<P> {
     }
 
     fn update_player_paused_from_set_prop(&self, payload: &Option<Value>) -> Result<(), String> {
-        let Some(args) = payload.as_ref().and_then(|v| v.as_array()) else {
+        let Some(args) = payload.as_ref().and_then(Value::as_array) else {
             return Ok(());
         };
-        if args.first().and_then(|v| v.as_str()) != Some("pause") {
+        if args.first().and_then(Value::as_str) != Some("pause") {
             return Ok(());
         }
-        let Some(paused) = args.get(1).and_then(|v| v.as_bool()) else {
+        let Some(paused) = args.get(1).and_then(Value::as_bool) else {
             return Ok(());
         };
 
@@ -575,7 +234,7 @@ impl<P: PlatformBridge> BaseHost<P> {
         Ok(())
     }
 
-    pub fn emit_event(&self, event: impl Into<String>, payload: Value) -> Result<(), String> {
+    pub fn emit_event(&self, event: impl Into<String>, payload: Value) -> Result<(), HostApiError> {
         let event = event.into();
         if event == SHELL_TRANSPORT_EVENT {
             self.update_player_paused_from_transport(&payload)?;
@@ -584,16 +243,17 @@ impl<P: PlatformBridge> BaseHost<P> {
         Ok(())
     }
 
-    pub fn emit_host_event(&self, event: HostEvent, payload: Value) -> Result<(), String> {
-        let event = serde_json::to_value(event)
-            .map_err(|e| format!("Failed to serialize host event: {e}"))?
+    pub fn emit_host_event(&self, event: HostEvent, payload: Value) -> Result<(), HostApiError> {
+        let event = serde_json::to_value(event)?
             .as_str()
-            .ok_or_else(|| "Host event did not serialize to a string".to_string())?
+            .ok_or_else(|| {
+                HostApiError::InvalidRequest("Host event is not a string".to_string())
+            })?
             .to_string();
         self.emit_event(event, payload)
     }
 
-    pub fn drain_emitted_events(&self) -> Result<Vec<HostEventRecord>, String> {
+    pub fn drain_emitted_events(&self) -> Result<Vec<HostEventRecord>, HostApiError> {
         Ok(self.lock_listeners()?.drain_emitted())
     }
 
@@ -691,7 +351,7 @@ impl<P: PlatformBridge> BaseHost<P> {
     pub fn invoke(&self, command: &str, payload: Option<Value>) -> Result<Value, String> {
         match command {
             "download_mod" | "get_registry" | "check_mod_updates" | "check_app_update" => {
-                let runtime = get_async_runtime();
+                let runtime = async_runtime();
                 runtime.block_on(self.invoke_async(command, payload))
             }
             _ => self.invoke_sync(command, payload),
@@ -801,14 +461,15 @@ impl<P: PlatformBridge> BaseHost<P> {
                     "diagnostics": {
                         "persistent": logging::is_persistent_available(),
                         "nativeHttpCapture": self.bridge.native_http_diagnostics(),
-                        "nativeNetworkFailureCapture": self.bridge.native_network_failure_diagnostics(),
+                        "nativeNetworkFailureCapture":
+                            self.bridge.native_network_failure_diagnostics(),
                         "webviewEngine": webview_engine,
                         "webviewVersion": webview_version,
                     },
                 }))
             }
             "get_native_player_status" => Ok(self.bridge.native_player_status()),
-            "get_streaming_server_status" => self.bridge.get_streaming_server_status(),
+            "get_streaming_server_status" => self.bridge.streaming_server_status(),
             "shell_bridge_ready" => {
                 self.mark_bridge_ready()?;
                 Ok(Value::Null)
@@ -906,7 +567,7 @@ impl<P: PlatformBridge> BaseHost<P> {
             }
             "get_setting" => {
                 let payload: SettingKeyPayload = parse_payload(command, payload)?;
-                Ok(settings::get_setting(
+                Ok(settings::setting(
                     &mods::mods_dir(&self.app_data_dir, mods::ModType::Plugin),
                     &payload.plugin_name,
                     &payload.key,
@@ -940,7 +601,7 @@ impl<P: PlatformBridge> BaseHost<P> {
                 Ok(Value::Null)
             }
             "get_registered_settings" => {
-                settings::get_registered_settings(&self.settings.registered_schemas)
+                settings::registered_settings(&self.settings.registered_schemas)
             }
             "toggle_pip" => {
                 let enabled = self.bridge.toggle_picture_in_picture()?;
@@ -1039,10 +700,11 @@ impl<P: PlatformBridge> BaseHost<P> {
         }
     }
 
-    fn handle_shell_transport_message(&self, message: &str) -> Result<(), String> {
+    pub fn handle_shell_transport_message(&self, message: &str) -> Result<(), String> {
         match parse_request(message)? {
             ParsedRequest::Handshake => {
-                self.emit_transport_message(handshake_response(self.package_version))
+                self.emit_transport_message(handshake_response(self.package_version))?;
+                Ok(())
             }
             ParsedRequest::Command { method, data } => {
                 if method == "app-ready" || method == "app-error" {
@@ -1068,7 +730,6 @@ impl<P: PlatformBridge> BaseHost<P> {
 
         let is_pip = self.bridge.is_pip_enabled().unwrap_or(false);
 
-        // Determine the action while holding the lock, then release before calling bridge
         let pause_action = {
             let prefs = self.lock_shell_preferences()?;
             if !prefs.player_active
@@ -1093,519 +754,5 @@ impl<P: PlatformBridge> BaseHost<P> {
         }
 
         Ok(())
-    }
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DownloadModPayload {
-    pub url: String,
-    pub mod_type: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GetLogsPayload {
-    #[serde(default)]
-    pub after_id: u64,
-}
-
-fn safe_native_player_status(status: &Value) -> String {
-    if status.is_null() {
-        return "unavailable".to_string();
-    }
-    for key in ["initialized", "available", "running"] {
-        if let Some(value) = status.get(key).and_then(Value::as_bool) {
-            return format!("{key}={value}");
-        }
-    }
-    "available".to_string()
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct SubmitDiagnosticLogsPayload {
-    pub entries: Vec<logging::ExternalLogEntry>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct SetExtendedDiagnosticsPayload {
-    pub enabled: bool,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ModFilePayload {
-    pub filename: String,
-    pub mod_type: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ModTypePayload {
-    pub mod_type: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SettingKeyPayload {
-    pub plugin_name: String,
-    pub key: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SaveSettingPayload {
-    pub plugin_name: String,
-    pub key: String,
-    pub value: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RegisterSettingsPayload {
-    pub plugin_name: String,
-    pub schema: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct InvokeIpcPayload {
-    pub command: String,
-    pub payload: Option<Value>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct ListenIpcPayload {
-    pub id: u64,
-    pub event: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct UnlistenIpcPayload {
-    pub id: u64,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct FullscreenIpcPayload {
-    pub fullscreen: bool,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct FocusChangedPayload {
-    pub focused: bool,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct ZoomIpcPayload {
-    pub level: f64,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct IpcRequest {
-    pub id: u64,
-    pub kind: String,
-    pub payload: Option<Value>,
-}
-
-pub fn get_async_runtime() -> &'static tokio::runtime::Runtime {
-    static TOKIO_RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
-    TOKIO_RUNTIME.get_or_init(|| {
-        tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .expect("Failed to create async runtime")
-    })
-}
-
-pub fn parse_payload<T>(command: &str, payload: Option<Value>) -> Result<T, String>
-where
-    T: for<'de> Deserialize<'de>,
-{
-    serde_json::from_value(payload.unwrap_or(Value::Null))
-        .map_err(|e| format!("Invalid {command} payload: {e}"))
-}
-
-pub fn parse_optional_bool(payload: Option<Value>) -> Option<bool> {
-    let value = payload?;
-    value
-        .as_bool()
-        .or_else(|| value.get("enabled").and_then(Value::as_bool))
-        .or_else(|| value.get("value").and_then(Value::as_bool))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::path::PathBuf;
-    use std::sync::Mutex;
-
-    use serde_json::{json, Value};
-
-    #[derive(Default)]
-    struct TestBridge {
-        pip_enabled: bool,
-        fail_custom_transport: bool,
-        fullscreen: Mutex<bool>,
-    }
-
-    impl PlatformBridge for TestBridge {
-        fn platform_name(&self) -> &'static str {
-            "test"
-        }
-
-        fn shell_name(&self) -> &'static str {
-            "test-shell"
-        }
-
-        fn native_player_status(&self) -> Value {
-            Value::Null
-        }
-
-        fn is_streaming_server_running(&self) -> bool {
-            false
-        }
-
-        fn is_window_fullscreen(&self) -> Result<bool, String> {
-            Ok(*self.fullscreen.lock().unwrap())
-        }
-
-        fn set_window_fullscreen(&self, fullscreen: bool) -> Result<(), String> {
-            *self.fullscreen.lock().unwrap() = fullscreen;
-            Ok(())
-        }
-
-        fn toggle_picture_in_picture(&self) -> Result<bool, String> {
-            Ok(self.pip_enabled)
-        }
-
-        fn is_pip_enabled(&self) -> Result<bool, String> {
-            Ok(self.pip_enabled)
-        }
-
-        fn handle_custom_transport(
-            &self,
-            method: &str,
-            _data: Option<Value>,
-        ) -> Result<(), String> {
-            if self.fail_custom_transport {
-                Err(format!("transport failed for {method}"))
-            } else {
-                Ok(())
-            }
-        }
-    }
-
-    fn test_host(bridge: TestBridge) -> BaseHost<TestBridge> {
-        BaseHost::new(bridge, PathBuf::new(), "0.0.0")
-    }
-
-    #[test]
-    fn host_command_names_match_frontend() {
-        assert_eq!(
-            serde_json::to_value(HostCommand::ToggleDevtools).unwrap(),
-            json!("toggle_devtools")
-        );
-        assert_eq!(
-            serde_json::to_value(HostCommand::SetPipDisablesAutoPause).unwrap(),
-            json!("set_pip_disables_auto_pause")
-        );
-        assert_eq!(
-            serde_json::to_value(HostCommand::GetLogs).unwrap(),
-            json!("get_logs")
-        );
-        assert_eq!(
-            serde_json::to_value(HostCommand::GetDiagnosticReport).unwrap(),
-            json!("get_diagnostic_report")
-        );
-    }
-
-    #[test]
-    fn host_event_names_match_frontend() {
-        assert_eq!(
-            serde_json::to_value(HostEvent::WindowMaximizedChanged).unwrap(),
-            json!("window-maximized-changed")
-        );
-        assert_eq!(
-            serde_json::to_value(HostEvent::ShellTransportMessage).unwrap(),
-            json!("shell-transport-message")
-        );
-    }
-
-    #[test]
-    fn parses_handshake_request() {
-        assert_eq!(
-            parse_request(r#"{"id":0,"type":3}"#).unwrap(),
-            ParsedRequest::Handshake
-        );
-        assert_eq!(
-            parse_request(r#"{"id":0}"#).unwrap(),
-            ParsedRequest::Handshake
-        );
-    }
-
-    #[test]
-    fn parses_command_request() {
-        assert_eq!(
-            parse_request(r#"{"id":7,"type":6,"args":["mpv-command",["stop"]]}"#).unwrap(),
-            ParsedRequest::Command {
-                method: "mpv-command".to_string(),
-                data: Some(json!(["stop"])),
-            }
-        );
-    }
-
-    #[test]
-    fn parses_current_stremio_command_with_zero_id() {
-        assert_eq!(
-            parse_request(
-                r#"{"id":0,"type":6,"args":["mpv-command",["loadfile","https://example.test/video"]]}"#
-            )
-            .unwrap(),
-            ParsedRequest::Command {
-                method: "mpv-command".to_string(),
-                data: Some(json!(["loadfile", "https://example.test/video"])),
-            }
-        );
-    }
-
-    #[test]
-    fn serializes_handshake_shape() {
-        let payload: Value = serde_json::from_str(&handshake_response("0.1.4")).unwrap();
-        assert_eq!(
-            payload,
-            json!({
-                "id": 0,
-                "object": "transport",
-                "type": 3,
-                "data": {
-                    "transport": {
-                        "properties": [[], ["", "shellVersion", "", "0.1.4"]],
-                        "signals": [],
-                        "methods": [["onEvent"]]
-                    }
-                }
-            })
-        );
-    }
-
-    #[test]
-    fn serializes_event_shape() {
-        let payload: Value =
-            serde_json::from_str(&response_message(json!(["open-media", "stremio://foo"])))
-                .unwrap();
-        assert_eq!(
-            payload,
-            json!({
-                "id": 1,
-                "object": "transport",
-                "type": 1,
-                "args": ["open-media", "stremio://foo"]
-            })
-        );
-    }
-
-    #[test]
-    fn classifies_stremio_deep_link_transport_events() {
-        assert_eq!(
-            stremio_deep_link_transport_args("stremio://addon.example/manifest.json"),
-            json!(["addon-install", "stremio://addon.example/manifest.json"])
-        );
-        assert_eq!(
-            stremio_deep_link_transport_args("stremio:///detail/movie/tt123"),
-            json!(["open-media", "stremio:///detail/movie/tt123"])
-        );
-    }
-
-    #[test]
-    fn serializes_window_visibility_event() {
-        assert_eq!(
-            serialize_window_visibility(true, true),
-            json!(["win-visibility-changed", {
-                "visible": true,
-                "visibility": 1,
-                "isFullscreen": true
-            }])
-        );
-        assert_eq!(
-            serialize_window_visibility(true, false),
-            json!(["win-visibility-changed", {
-                "visible": true,
-                "visibility": 0,
-                "isFullscreen": false
-            }])
-        );
-    }
-
-    #[test]
-    fn handles_win_set_visibility_and_emits_resulting_state_every_time() {
-        let host = test_host(TestBridge::default());
-        host.listen_with_id(7, SHELL_TRANSPORT_EVENT).unwrap();
-
-        for fullscreen in [true, true, false] {
-            host.handle_shell_transport_message(
-                &json!({
-                    "id": 1,
-                    "type": 6,
-                    "args": ["win-set-visibility", { "fullscreen": fullscreen }]
-                })
-                .to_string(),
-            )
-            .unwrap();
-
-            assert_eq!(*host.bridge.fullscreen.lock().unwrap(), fullscreen);
-            let event = host.drain_emitted_events().unwrap().remove(0);
-            let response: Value = serde_json::from_str(event.payload.as_str().unwrap()).unwrap();
-            assert_eq!(
-                response["args"],
-                serialize_window_visibility(true, fullscreen)
-            );
-        }
-    }
-
-    #[test]
-    fn rejects_invalid_win_set_visibility_payload() {
-        let host = test_host(TestBridge::default());
-        let error = host
-            .handle_shell_transport_message(
-                r#"{"id":1,"type":6,"args":["win-set-visibility",{"fullscreen":"yes"}]}"#,
-            )
-            .unwrap_err();
-
-        assert!(error.contains("Invalid win-set-visibility payload"));
-    }
-
-    #[test]
-    fn poisoned_shell_preferences_return_command_error() {
-        let host = test_host(TestBridge::default());
-
-        let poison_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let _guard = host.shell_preferences.lock().unwrap();
-            panic!("poison shell preferences");
-        }));
-        assert!(poison_result.is_err());
-
-        let error = host.invoke_sync("get_auto_pause", None).unwrap_err();
-        assert!(error.contains("Shell preferences lock poisoned"));
-    }
-
-    #[test]
-    fn get_logs_uses_camel_case_cursor_without_generating_records() {
-        let host = test_host(TestBridge::default());
-
-        let result = host
-            .invoke_sync("get_logs", Some(json!({ "afterId": u64::MAX })))
-            .unwrap();
-
-        assert_eq!(result, json!([]));
-    }
-
-    #[test]
-    fn diagnostics_commands_validate_payloads_and_report_capabilities() {
-        let host = test_host(TestBridge::default());
-        let init = host.invoke_sync("init", None).unwrap();
-        assert_eq!(init["diagnostics"]["nativeHttpCapture"], false);
-        assert_eq!(init["diagnostics"]["nativeNetworkFailureCapture"], false);
-        assert_eq!(init["diagnostics"]["webviewEngine"], "test-shell");
-
-        host.invoke_sync("set_extended_diagnostics", Some(json!({ "enabled": true })))
-            .unwrap();
-        assert!(logging::is_extended());
-        host.invoke_sync(
-            "submit_diagnostic_logs",
-            Some(json!({
-                "entries": [{
-                    "level": "info",
-                    "source": "bridge.test",
-                    "message": "safe"
-                }]
-            })),
-        )
-        .unwrap();
-        assert!(host
-            .invoke_sync(
-                "submit_diagnostic_logs",
-                Some(json!({ "entries": [{ "level": "invalid", "source": "x", "message": "x" }] })),
-            )
-            .is_err());
-        assert!(host
-            .invoke_sync(
-                "submit_diagnostic_logs",
-                Some(json!({
-                    "entries": [{
-                        "level": "error",
-                        "source": "bridge.test",
-                        "message": "x".repeat(logging::MAX_EXTERNAL_BATCH_BYTES)
-                    }]
-                })),
-            )
-            .is_err());
-        let report = host.invoke_sync("get_diagnostic_report", None).unwrap();
-        assert!(report
-            .as_str()
-            .is_some_and(|report| report.contains("Stremio Lightning diagnostic report")));
-        logging::set_extended(false);
-    }
-
-    #[test]
-    fn update_window_focus_returns_auto_pause_transport_error() {
-        let host = test_host(TestBridge {
-            fail_custom_transport: true,
-            ..Default::default()
-        });
-
-        {
-            let mut prefs = host.shell_preferences.lock().unwrap();
-            prefs.player_active = true;
-            prefs.player_paused = false;
-        }
-
-        let error = host.update_window_focus(false).unwrap_err();
-        assert_eq!(error, "transport failed for mpv-set-prop");
-        assert!(!host.shell_preferences.lock().unwrap().auto_paused);
-    }
-
-    #[test]
-    fn auto_pause_ignores_stale_unpaused_state_without_active_playback() {
-        let host = test_host(TestBridge {
-            fail_custom_transport: true,
-            ..Default::default()
-        });
-        host.shell_preferences.lock().unwrap().player_paused = false;
-
-        host.update_window_focus(false).unwrap();
-
-        assert!(!host.shell_preferences.lock().unwrap().auto_paused);
-    }
-
-    #[test]
-    fn player_stop_disables_auto_pause_before_late_property_events() {
-        let host = test_host(TestBridge::default());
-        host.handle_shell_transport_message(
-            r#"{"id":0,"type":6,"args":["mpv-command",["loadfile","https://example.test/video"]]}"#,
-        )
-        .unwrap();
-        host.queue_transport_message(response_message(json!([
-            "mpv-prop-change",
-            {"name": "pause", "data": false}
-        ])))
-        .unwrap();
-
-        host.update_window_focus(false).unwrap();
-        assert!(host.shell_preferences.lock().unwrap().auto_paused);
-        host.update_window_focus(true).unwrap();
-
-        host.handle_shell_transport_message(r#"{"id":0,"type":6,"args":["mpv-command",["stop"]]}"#)
-            .unwrap();
-        host.queue_transport_message(response_message(json!([
-            "mpv-prop-change",
-            {"name": "pause", "data": false}
-        ])))
-        .unwrap();
-        host.update_window_focus(false).unwrap();
-
-        let prefs = host.shell_preferences.lock().unwrap();
-        assert!(!prefs.player_active);
-        assert!(!prefs.auto_paused);
     }
 }

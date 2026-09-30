@@ -298,7 +298,7 @@ struct RegistryCache {
 static REGISTRY_CACHE: OnceLock<std::sync::Mutex<Option<RegistryCache>>> = OnceLock::new();
 static REGISTRY_FETCH_MUTEX: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
 
-fn get_cached_registry(cache_mutex: &std::sync::Mutex<Option<RegistryCache>>) -> Option<Registry> {
+fn cached_registry(cache_mutex: &std::sync::Mutex<Option<RegistryCache>>) -> Option<Registry> {
     let guard = cache_mutex.lock().ok()?;
     let cache = guard.as_ref()?;
     if cache.fetched_at.elapsed() < std::time::Duration::from_secs(300) {
@@ -313,7 +313,7 @@ pub async fn fetch_registry() -> Result<Registry, String> {
     let fetch_mutex = REGISTRY_FETCH_MUTEX.get_or_init(|| tokio::sync::Mutex::new(()));
 
     // 1. Fast path: return cached registry if it exists and is less than 5 minutes old
-    if let Some(registry) = get_cached_registry(cache_mutex) {
+    if let Some(registry) = cached_registry(cache_mutex) {
         return Ok(registry);
     }
 
@@ -321,12 +321,15 @@ pub async fn fetch_registry() -> Result<Registry, String> {
     let _guard = fetch_mutex.lock().await;
 
     // 3. Double-check cache inside the lock
-    if let Some(registry) = get_cached_registry(cache_mutex) {
+    if let Some(registry) = cached_registry(cache_mutex) {
         return Ok(registry);
     }
 
     // 4. Fetch over network on cache miss
-    let url = "https://raw.githubusercontent.com/theguy000/stremio-lightning-registry/refs/heads/main/registry.json";
+    let url = concat!(
+        "https://raw.githubusercontent.com/theguy000/",
+        "stremio-lightning-registry/refs/heads/main/registry.json",
+    );
     let response = reqwest::get(url)
         .await
         .map_err(|e| format!("Failed to fetch registry: {}", e))?;

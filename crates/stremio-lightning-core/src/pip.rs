@@ -107,9 +107,14 @@ impl PipState {
         Ok(())
     }
 
-    pub fn get_size(&self) -> Result<(i32, i32), String> {
+    pub fn size(&self) -> Result<(i32, i32), String> {
         let inner = self.inner.lock().map_err(|e| e.to_string())?;
         Ok((inner.width, inner.height))
+    }
+
+    #[deprecated(note = "use `size` instead")]
+    pub fn get_size(&self) -> Result<(i32, i32), String> {
+        self.size()
     }
 
     pub fn exit_window_pip(
@@ -148,7 +153,7 @@ impl PipState {
             self.exit_window_pip(controller)?;
             Ok(false)
         } else {
-            let (width, height) = self.get_size()?;
+            let (width, height) = self.size()?;
             let snapshot = controller.enter_pip(width, height)?;
             self.set_mode(true, Some(snapshot))?;
             Ok(true)

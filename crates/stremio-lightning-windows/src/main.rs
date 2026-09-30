@@ -7,8 +7,8 @@ use windows::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONERROR, MB_OK};
 
 fn main() {
     if let Err(error) = stremio_lightning_windows::run() {
-        show_fatal_error(&error);
-        stremio_lightning_core::logging::error("native.application", error);
+        show_fatal_error(&error.to_string());
+        stremio_lightning_core::logging::error("native.application", error.to_string());
         std::process::exit(1);
     }
 }
@@ -17,6 +17,8 @@ fn main() {
 fn show_fatal_error(message: &str) {
     let title = wide_string("Stremio Lightning");
     let body = wide_string(&format!("Failed to start Stremio Lightning:\n\n{message}"));
+    // SAFETY: title and body are null-terminated wide strings that remain allocated for the call.
+    #[allow(unsafe_code)]
     unsafe {
         MessageBoxW(
             None,

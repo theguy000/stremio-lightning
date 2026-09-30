@@ -1,11 +1,25 @@
-pub fn validate_filename(filename: &str) -> Result<(), String> {
+use thiserror::Error;
+
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum ValidationError {
+    #[error("Invalid filename: path separators or traversal not allowed")]
+    InvalidFilename,
+}
+
+impl From<ValidationError> for String {
+    fn from(error: ValidationError) -> Self {
+        error.to_string()
+    }
+}
+
+pub fn validate_filename(filename: &str) -> Result<(), ValidationError> {
     if filename.is_empty()
         || filename.contains('/')
         || filename.contains('\\')
         || filename.contains("..")
         || filename.contains('\0')
     {
-        return Err("Invalid filename: path separators or traversal not allowed".to_string());
+        return Err(ValidationError::InvalidFilename);
     }
     Ok(())
 }
