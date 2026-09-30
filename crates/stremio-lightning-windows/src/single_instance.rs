@@ -123,7 +123,10 @@ mod platform {
                 match receive_one_intent() {
                     Ok(intent) => {
                         let _ = tx.send(intent);
-                        let notifier = notifier.lock().ok().and_then(|notifier| *notifier);
+                        let notifier = notifier
+                            .lock()
+                            .ok()
+                            .and_then(|notifier| notifier.as_ref().cloned());
                         if let Some(notifier) = notifier {
                             let _ = notifier.notify();
                         }

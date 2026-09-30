@@ -1,3 +1,5 @@
+use std::sync::atomic::{AtomicBool, Ordering};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WindowConfig {
     pub title: &'static str,
@@ -16,6 +18,33 @@ impl Default for WindowConfig {
             min_width: 800,
             min_height: 600,
         }
+    }
+}
+
+/// Coalesces redundant UI-thread wake-ups: while one wake-up is waiting to be
+/// handled, later requests are dropped and covered by the queued wake-up.
+#[derive(Debug)]
+struct WakeCoalescer {
+    pending: AtomicBool,
+}
+
+impl WakeCoalescer {
+    const fn new() -> Self {
+        Self {
+            pending: AtomicBool::new(false),
+        }
+    }
+
+    /// Returns `true` when the caller must post a wake-up, or `false` when one is
+    /// already pending and this request can be dropped.
+    fn try_begin(&self) -> bool {
+        !self.pending.swap(true, Ordering::AcqRel)
+    }
+
+    /// Clears the pending marker. Callers must clear it *before* draining their
+    /// updates so a request arriving during processing posts a fresh wake-up.
+    fn clear(&self) {
+        self.pending.store(false, Ordering::Release);
     }
 }
 
@@ -38,13 +67,14 @@ pub use platform::{
 
 #[cfg(windows)]
 mod platform {
-    use super::WindowConfig;
-    use std::{ffi::c_void, ptr::NonNull};
+    use super::{WakeCoalescer, WindowConfig};
+    use std::{ffi::c_void, ptr::NonNull, sync::Arc};
     use stremio_lightning_core::pip::{PipRestoreSnapshot, PipWindowController};
     use windows::core::{w, PCWSTR};
-    use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, RECT, WPARAM};
+    use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
     use windows::Win32::Graphics::Gdi::{
-        CreateSolidBrush, GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+        GetMonitorInfoW, GetStockObject, MonitorFromWindow, BLACK_BRUSH, HBRUSH, MONITORINFO,
+        MONITOR_DEFAULTTONEAREST,
     };
     use windows::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows::Win32::UI::HiDpi::{
@@ -106,31 +136,58 @@ mod platform {
         fn on_media_key(&mut self, _hwnd: HWND, _action: MediaKeyAction) -> Result<(), String> {
             Ok(())
         }
+        /// Called when a coalesced UI-thread wake-up is delivered. Implementations
+        /// that own a [`UiThreadNotifier`] must clear its pending marker before
+        /// draining updates, so wake-ups posted during processing are not lost.
         fn on_ui_thread_wake(&mut self, _hwnd: HWND) -> Result<(), String> {
             Ok(())
         }
         fn on_destroying(&mut self, _hwnd: HWND) {}
     }
 
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[derive(Debug, Clone)]
     pub struct UiThreadNotifier {
         pub(crate) hwnd: HWND,
+        wake: Arc<WakeCoalescer>,
     }
 
-    // SAFETY: Worker threads only use this HWND with `PostMessageW`.
+    // SAFETY: Worker threads only use this HWND with `PostMessageW`, and the
+    // pending-wake marker is an atomic shared across the notifier's clones.
     unsafe impl Send for UiThreadNotifier {}
 
     impl UiThreadNotifier {
-        pub fn notify(self) -> Result<(), String> {
-            unsafe {
+        pub fn new(hwnd: HWND) -> Self {
+            Self {
+                hwnd,
+                wake: Arc::new(WakeCoalescer::new()),
+            }
+        }
+
+        /// Queues a wake-up unless one is already pending. Every update is drained
+        /// when the window wakes, so dropping redundant wake-ups loses nothing.
+        pub fn notify(&self) -> Result<(), String> {
+            if !self.wake.try_begin() {
+                return Ok(());
+            }
+
+            if let Err(error) = unsafe {
                 PostMessageW(
                     Some(self.hwnd),
                     UI_THREAD_WAKE_MESSAGE,
                     WPARAM(0),
                     LPARAM(0),
                 )
+            } {
+                // Without this reset a failed post would suppress every later wake-up.
+                self.wake.clear();
+                return Err(format!("Failed to notify Windows UI thread: {error}"));
             }
-            .map_err(|error| format!("Failed to notify Windows UI thread: {error}"))
+            Ok(())
+        }
+
+        /// Clears the pending marker so the next update posts a fresh wake-up.
+        pub(crate) fn clear_pending(&self) {
+            self.wake.clear();
         }
     }
 
@@ -416,7 +473,7 @@ mod platform {
 
         let hwnd = create_main_window(config, Box::new(handler))?;
         unsafe {
-            let notifier = UiThreadNotifier { hwnd };
+            let notifier = UiThreadNotifier::new(hwnd);
             notifier.notify()?;
             let _ = ShowWindow(hwnd, SHOW_WINDOW_CMD(SW_MAXIMIZE.0));
             run_message_loop()
@@ -456,7 +513,7 @@ mod platform {
             hIcon: icon,
             hCursor: cursor,
             // Keep a black background behind transparent WebView2 while MPV loads.
-            hbrBackground: unsafe { CreateSolidBrush(COLORREF(0x00000000)) },
+            hbrBackground: unsafe { HBRUSH(GetStockObject(BLACK_BRUSH).0) },
             lpszClassName: class_name,
             ..Default::default()
         };
@@ -751,6 +808,32 @@ mod tests {
     #[test]
     fn ui_thread_wake_message_uses_app_message_range() {
         const { assert!(UI_THREAD_WAKE_MESSAGE >= 0x8000) };
+    }
+
+    #[test]
+    fn wake_coalescer_drops_requests_while_one_is_pending() {
+        let wake = WakeCoalescer::new();
+
+        assert!(wake.try_begin(), "first request posts a wake-up");
+        assert!(!wake.try_begin(), "second request is coalesced");
+        assert!(!wake.try_begin(), "further requests stay coalesced");
+
+        wake.clear();
+        assert!(wake.try_begin(), "request after clearing posts again");
+    }
+
+    #[test]
+    fn wake_coalescer_clear_before_draining_keeps_late_requests() {
+        let wake = WakeCoalescer::new();
+
+        assert!(wake.try_begin());
+        // The consumer clears the marker before processing its updates.
+        wake.clear();
+        assert!(
+            wake.try_begin(),
+            "an update arriving during processing queues another wake-up"
+        );
+        assert!(!wake.try_begin());
     }
 
     #[test]

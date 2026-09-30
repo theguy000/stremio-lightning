@@ -459,7 +459,7 @@ mod platform {
         }
 
         fn start_host_runtime(&self, hwnd: HWND, notifier: UiThreadNotifier) -> Result<(), String> {
-            *self.ui_notifier.lock().map_err(|e| e.to_string())? = Some(notifier);
+            *self.ui_notifier.lock().map_err(|e| e.to_string())? = Some(notifier.clone());
             self.host.bind_native_window(hwnd)?;
             self.host.initialize_native_player(hwnd, notifier)?;
             self.host.start_streaming_server()
@@ -468,7 +468,7 @@ mod platform {
 
     impl NativeWindowHandler for WebView2WindowHost {
         fn on_created(&mut self, hwnd: HWND) -> Result<(), String> {
-            let notifier = UiThreadNotifier { hwnd };
+            let notifier = UiThreadNotifier::new(hwnd);
             self.start_host_runtime(hwnd, notifier)?;
             self.runtime = Some(WebView2Runtime::create(
                 hwnd,
@@ -526,6 +526,14 @@ mod platform {
         }
 
         fn on_ui_thread_wake(&mut self, hwnd: HWND) -> Result<(), String> {
+            // Clear the pending marker before draining: a wake-up posted while we
+            // process below must queue a fresh message instead of being coalesced
+            // into this one. A locked/absent notifier means the window is closing.
+            if let Ok(notifier) = self.ui_notifier.lock() {
+                if let Some(notifier) = notifier.as_ref() {
+                    notifier.clear_pending();
+                }
+            }
             while let Ok(intent) = self.launch_intents.try_recv() {
                 focus_window(hwnd);
                 self.host.emit_launch_intent(intent)?;
