@@ -1911,6 +1911,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "stremio-lightning-identity"
+version = "0.1.4"
+
+[[package]]
 name = "stremio-lightning-linux"
 version = "0.1.4"
 dependencies = [
@@ -1923,6 +1927,7 @@ dependencies = [
  "serde",
  "serde_json",
  "stremio-lightning-core",
+ "stremio-lightning-identity",
  "stremio-lightning-linux",
  "tokio",
  "webkit6",
@@ -1942,6 +1947,7 @@ dependencies = [
  "serde",
  "serde_json",
  "stremio-lightning-core",
+ "stremio-lightning-identity",
  "tokio",
 ]
 
@@ -1955,6 +1961,7 @@ dependencies = [
  "serde",
  "serde_json",
  "stremio-lightning-core",
+ "stremio-lightning-identity",
  "tokio",
  "webview2-com",
  "windows",
@@ -2865,6 +2872,9 @@ dependencies = [
 [[package]]
 name = "xtask"
 version = "0.1.4"
+dependencies = [
+ "stremio-lightning-identity",
+]
 
 [[package]]
 name = "yoke"

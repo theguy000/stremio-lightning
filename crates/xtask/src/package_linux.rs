@@ -4,9 +4,9 @@ use crate::common::{
     required_file, root, run_command, run_program, write_file,
 };
 use crate::{
-    APP_ID, LINUX_APPIMAGE, LINUX_BIN, LINUX_DEB, LINUX_DESKTOP_ID, LINUX_FLATPAK,
-    LINUX_FLATPAK_ID, LINUX_FLATPAK_RUNTIME, LINUX_FLATPAK_RUNTIME_VERSION, LINUX_FLATPAK_SDK,
-    LINUX_TARGET,
+    LINUX_APPIMAGE, LINUX_BIN, LINUX_DEB, LINUX_DESKTOP_ID, LINUX_FLATPAK, LINUX_FLATPAK_ID,
+    LINUX_FLATPAK_RUNTIME, LINUX_FLATPAK_RUNTIME_VERSION, LINUX_FLATPAK_SDK, LINUX_TARGET,
+    PACKAGE_ID,
 };
 use std::{
     collections::BTreeSet,
@@ -61,7 +61,7 @@ pub fn package_linux_deb() -> Result<()> {
     let appdir = prepare_linux_appdir()?;
     let deb_root = root.join("target/deb/stremio-lightning");
     let debian_dir = deb_root.join("DEBIAN");
-    let install_root = deb_root.join(format!("usr/lib/{APP_ID}"));
+    let install_root = deb_root.join(format!("usr/lib/{PACKAGE_ID}"));
     let bundled_lib_dir = install_root.join("lib");
 
     remove_dir_if_exists(&deb_root)?;
@@ -78,11 +78,11 @@ pub fn package_linux_deb() -> Result<()> {
         install_root.join(LINUX_BIN),
     )?;
     copy_dir_recursive(
-        appdir.join(format!("usr/lib/{APP_ID}/binaries")),
+        appdir.join(format!("usr/lib/{PACKAGE_ID}/binaries")),
         install_root.join("binaries"),
     )?;
     copy_dir_recursive(
-        appdir.join(format!("usr/lib/{APP_ID}/resources")),
+        appdir.join(format!("usr/lib/{PACKAGE_ID}/resources")),
         install_root.join("resources"),
     )?;
     copy_file(
@@ -96,7 +96,7 @@ pub fn package_linux_deb() -> Result<()> {
 
     for entry in fs::read_dir(appdir.join("usr/lib"))? {
         let entry = entry?;
-        if entry.file_name() == OsStr::new(APP_ID) {
+        if entry.file_name() == OsStr::new(PACKAGE_ID) {
             continue;
         }
 
@@ -110,10 +110,10 @@ pub fn package_linux_deb() -> Result<()> {
     }
 
     write_file(
-        deb_root.join(format!("usr/bin/{APP_ID}")),
+        deb_root.join(format!("usr/bin/{PACKAGE_ID}")),
         linux_deb_launcher_script(),
     )?;
-    chmod_executable(deb_root.join(format!("usr/bin/{APP_ID}")))?;
+    chmod_executable(deb_root.join(format!("usr/bin/{PACKAGE_ID}")))?;
     chmod_executable(install_root.join(LINUX_BIN))?;
     chmod_executable(install_root.join(format!("binaries/stremio-runtime-{LINUX_TARGET}")))?;
     chmod_executable(install_root.join("resources/ffmpeg"))?;
@@ -126,7 +126,7 @@ pub fn package_linux_deb() -> Result<()> {
     write_file(
         debian_dir.join("control"),
         format!(
-            "Package: {APP_ID}\nVersion: {}\nSection: video\nPriority: optional\nArchitecture: amd64\nMaintainer: Stremio Lightning Maintainers <noreply@example.com>\nDescription: Lightweight native Stremio shell\n Stremio Lightning packages a native Linux shell with bundled runtime resources.\n",
+            "Package: {PACKAGE_ID}\nVersion: {}\nSection: video\nPriority: optional\nArchitecture: amd64\nMaintainer: Stremio Lightning Maintainers <noreply@example.com>\nDescription: Lightweight native Stremio shell\n Stremio Lightning packages a native Linux shell with bundled runtime resources.\n",
             package_version()?
         ),
     )?;
@@ -230,14 +230,14 @@ fn prepare_linux_flatpak_payload(appdir: &Path, payload_dir: &Path) -> Result<()
         appdir.join(format!("usr/bin/{LINUX_BIN}")),
         bin_dir.join(LINUX_BIN),
     )?;
-    write_file(bin_dir.join(APP_ID), linux_flatpak_launcher_script())?;
-    chmod_executable(bin_dir.join(APP_ID))?;
+    write_file(bin_dir.join(PACKAGE_ID), linux_flatpak_launcher_script())?;
+    chmod_executable(bin_dir.join(PACKAGE_ID))?;
     chmod_executable(bin_dir.join(LINUX_BIN))?;
     chmod_executable(files_dir.join(format!(
-        "lib/{APP_ID}/binaries/stremio-runtime-{LINUX_TARGET}"
+        "lib/{PACKAGE_ID}/binaries/stremio-runtime-{LINUX_TARGET}"
     )))?;
-    chmod_executable(files_dir.join(format!("lib/{APP_ID}/resources/ffmpeg")))?;
-    chmod_executable(files_dir.join(format!("lib/{APP_ID}/resources/ffprobe")))?;
+    chmod_executable(files_dir.join(format!("lib/{PACKAGE_ID}/resources/ffmpeg")))?;
+    chmod_executable(files_dir.join(format!("lib/{PACKAGE_ID}/resources/ffprobe")))?;
 
     copy_file(
         root.join(format!("assets/{LINUX_FLATPAK_ID}.desktop")),
@@ -257,25 +257,25 @@ fn prepare_linux_flatpak_payload(appdir: &Path, payload_dir: &Path) -> Result<()
 
 fn linux_flatpak_metadata() -> String {
     format!(
-        "[Application]\nname={LINUX_FLATPAK_ID}\nruntime={LINUX_FLATPAK_RUNTIME}/x86_64/{LINUX_FLATPAK_RUNTIME_VERSION}\nsdk={LINUX_FLATPAK_SDK}/x86_64/{LINUX_FLATPAK_RUNTIME_VERSION}\ncommand={APP_ID}\n\n[Context]\nshared=ipc;network;\nsockets=x11;pulseaudio;\ndevices=dri;\n\n[Session Bus Policy]\norg.freedesktop.Notifications=talk\n{LINUX_FLATPAK_ID}=own\n"
+        "[Application]\nname={LINUX_FLATPAK_ID}\nruntime={LINUX_FLATPAK_RUNTIME}/x86_64/{LINUX_FLATPAK_RUNTIME_VERSION}\nsdk={LINUX_FLATPAK_SDK}/x86_64/{LINUX_FLATPAK_RUNTIME_VERSION}\ncommand={PACKAGE_ID}\n\n[Context]\nshared=ipc;network;\nsockets=x11;pulseaudio;\ndevices=dri;\n\n[Session Bus Policy]\norg.freedesktop.Notifications=talk\n{LINUX_FLATPAK_ID}=own\n"
     )
 }
 
 fn linux_deb_launcher_script() -> String {
     format!(
-        "#!/bin/sh\nset -eu\nexport LD_LIBRARY_PATH=\"/usr/lib/{APP_ID}/lib${{LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}}\"\nexport STREMIO_LIGHTNING_BUNDLE_DIR=\"/usr/lib/{APP_ID}\"\nexec \"/usr/lib/{APP_ID}/{LINUX_BIN}\" \"$@\"\n"
+        "#!/bin/sh\nset -eu\nexport LD_LIBRARY_PATH=\"/usr/lib/{PACKAGE_ID}/lib${{LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}}\"\nexport STREMIO_LIGHTNING_BUNDLE_DIR=\"/usr/lib/{PACKAGE_ID}\"\nexec \"/usr/lib/{PACKAGE_ID}/{LINUX_BIN}\" \"$@\"\n"
     )
 }
 
 fn linux_flatpak_launcher_script() -> String {
     format!(
-        "#!/bin/sh\nset -eu\nexport LD_LIBRARY_PATH=\"/app/lib${{LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}}\"\nexport STREMIO_LIGHTNING_BUNDLE_DIR=\"/app/lib/{APP_ID}\"\nexport WEBKIT_EXEC_PATH=\"/app/lib/webkitgtk-6.0\"\nexport WEBKIT_INJECTED_BUNDLE_PATH=\"/app/lib/webkitgtk-6.0/injected-bundle\"\nexec /app/bin/{LINUX_BIN} \"$@\"\n"
+        "#!/bin/sh\nset -eu\nexport LD_LIBRARY_PATH=\"/app/lib${{LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}}\"\nexport STREMIO_LIGHTNING_BUNDLE_DIR=\"/app/lib/{PACKAGE_ID}\"\nexport WEBKIT_EXEC_PATH=\"/app/lib/webkitgtk-6.0\"\nexport WEBKIT_INJECTED_BUNDLE_PATH=\"/app/lib/webkitgtk-6.0/injected-bundle\"\nexec /app/bin/{LINUX_BIN} \"$@\"\n"
     )
 }
 
 fn linux_appimage_launcher_script() -> String {
     format!(
-        "#!/bin/bash\nset -euo pipefail\nHERE=$(dirname \"$(readlink -f \"$0\")\")\nexport LD_LIBRARY_PATH=\"$HERE/usr/lib${{LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}}\"\nexport STREMIO_LIGHTNING_BUNDLE_DIR=\"$HERE/usr/lib/{APP_ID}\"\nexport WEBKIT_EXEC_PATH=\"$HERE/usr/lib/webkitgtk-6.0\"\nexport WEBKIT_INJECTED_BUNDLE_PATH=\"$HERE/usr/lib/webkitgtk-6.0/injected-bundle\"\nexec \"$HERE/usr/bin/{LINUX_BIN}\" \"$@\"\n"
+        "#!/bin/bash\nset -euo pipefail\nHERE=$(dirname \"$(readlink -f \"$0\")\")\nexport LD_LIBRARY_PATH=\"$HERE/usr/lib${{LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}}\"\nexport STREMIO_LIGHTNING_BUNDLE_DIR=\"$HERE/usr/lib/{PACKAGE_ID}\"\nexport WEBKIT_EXEC_PATH=\"$HERE/usr/lib/webkitgtk-6.0\"\nexport WEBKIT_INJECTED_BUNDLE_PATH=\"$HERE/usr/lib/webkitgtk-6.0/injected-bundle\"\nexec \"$HERE/usr/bin/{LINUX_BIN}\" \"$@\"\n"
     )
 }
 
@@ -451,7 +451,7 @@ fn is_elf_file(path: &Path) -> Result<bool> {
 fn prepare_linux_appdir() -> Result<PathBuf> {
     let root = root();
     let linux_dir = root.join("crates/stremio-lightning-linux");
-    let appdir = root.join(format!("target/appimage/{APP_ID}.AppDir"));
+    let appdir = root.join(format!("target/appimage/{PACKAGE_ID}.AppDir"));
     let dist_dir = root.join("dist");
     let runtime = linux_dir.join(format!("binaries/stremio-runtime-{LINUX_TARGET}"));
     let server = linux_dir.join("resources/server.cjs");
@@ -459,8 +459,8 @@ fn prepare_linux_appdir() -> Result<PathBuf> {
     let ffprobe = linux_dir.join("resources/ffprobe");
     let icon = root.join("assets/icons/128x128.png");
     let desktop_source = root.join(format!("assets/{LINUX_DESKTOP_ID}.desktop"));
-    let app_resources = appdir.join(format!("usr/lib/{APP_ID}/resources"));
-    let app_binaries = appdir.join(format!("usr/lib/{APP_ID}/binaries"));
+    let app_resources = appdir.join(format!("usr/lib/{PACKAGE_ID}/resources"));
+    let app_binaries = appdir.join(format!("usr/lib/{PACKAGE_ID}/binaries"));
     let app_lib = appdir.join("usr/lib");
     let desktop_file = appdir.join(format!("{LINUX_DESKTOP_ID}.desktop"));
 
@@ -503,7 +503,7 @@ fn prepare_linux_appdir() -> Result<PathBuf> {
     )?;
 
     let desktop_entry = fs::read_to_string(&desktop_source)?;
-    let installed_exec = format!("Exec={APP_ID} %u");
+    let installed_exec = format!("Exec={PACKAGE_ID} %u");
     let appimage_exec = format!("Exec={LINUX_BIN} %u");
     if !desktop_entry.lines().any(|line| line == installed_exec) {
         return Err(format!("{} must contain {installed_exec}", desktop_source.display()).into());

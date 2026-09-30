@@ -7,7 +7,7 @@ pub mod single_instance;
 pub mod webview;
 pub mod window;
 
-pub const APP_NAME: &str = "Stremio Lightning";
+pub use stremio_lightning_identity::{APP_ID, APP_NAME};
 
 pub fn run() -> Result<(), String> {
     platform::run()
@@ -26,6 +26,9 @@ mod platform {
             ),
         );
         stremio_lightning_core::logging::info("native.application", "Starting Windows shell");
+        if let Err(error) = crate::window::set_app_user_model_id(crate::APP_ID) {
+            stremio_lightning_core::logging::warn("native.application", error);
+        }
         let args = std::env::args().skip(1).collect::<Vec<_>>();
         let intent = crate::single_instance::launch_intent_from_args(&args);
         let crate::single_instance::SingleInstanceRole::Primary(instance) =

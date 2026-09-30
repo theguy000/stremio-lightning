@@ -99,7 +99,10 @@ cargo install cargo-xwin
 Cross-building can assemble the portable layout, but runtime validation still
 requires Windows with WebView2 and MPV DLL loading available.
 
-Build the installer on Windows with Inno Setup's `iscc` compiler in `PATH`:
+Build the installer on Windows with Inno Setup's `iscc` compiler in `PATH`.
+Inno Setup 6.3 or newer is required: the generated script stamps an Application
+User Model ID (`AppUserModelID`) on the shortcuts it creates, a parameter that
+older Inno Setup versions reject.
 
 ```powershell
 cargo xtask package-windows-installer

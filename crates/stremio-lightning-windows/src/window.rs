@@ -61,8 +61,8 @@ pub fn run_native_window(config: WindowConfig) -> Result<(), String> {
 
 #[cfg(windows)]
 pub use platform::{
-    focus_window, run_native_window_with_handler, MediaKeyAction, NativeWindowController,
-    NativeWindowHandler, UiThreadNotifier, WindowVisualState,
+    focus_window, run_native_window_with_handler, set_app_user_model_id, MediaKeyAction,
+    NativeWindowController, NativeWindowHandler, UiThreadNotifier, WindowVisualState,
 };
 
 #[cfg(windows)]
@@ -84,6 +84,7 @@ mod platform {
         SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
     };
     use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
+    use windows::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
     use windows::Win32::UI::WindowsAndMessaging::{
         CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetClientRect,
         GetMessageW, GetWindowLongPtrW, GetWindowPlacement, GetWindowRect, IsIconic, IsZoomed,
@@ -231,6 +232,12 @@ mod platform {
             }
             let _ = SetForegroundWindow(hwnd);
         }
+    }
+
+    pub fn set_app_user_model_id(app_id: &str) -> Result<(), String> {
+        let app_id = to_wide_null(app_id);
+        unsafe { SetCurrentProcessExplicitAppUserModelID(PCWSTR(app_id.as_ptr())) }
+            .map_err(|error| format!("Failed to set application user model ID: {error}"))
     }
 
     #[derive(Debug)]

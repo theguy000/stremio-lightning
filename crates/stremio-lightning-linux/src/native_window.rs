@@ -20,6 +20,7 @@ use std::sync::mpsc;
 use std::sync::OnceLock;
 use std::time::Duration;
 use stremio_lightning_core::pip::{PipRestoreSnapshot, PipWindowController};
+use stremio_lightning_identity::{APP_ID, APP_NAME};
 use webkit::prelude::*;
 use webkit::{
     NavigationPolicyDecision, PolicyDecisionType, UserContentInjectedFrames, UserScript,
@@ -31,8 +32,6 @@ mod x11;
 use self::x11::{install_source_tree_window_icon, request_window_above};
 
 const IPC_HANDLER_NAME: &str = "ipc";
-const APP_ID: &str = "io.github.theguy000.stremio-lightning";
-const APP_NAME: &str = "Stremio Lightning";
 const DEV_ICON_NAME: &str = "128x128";
 const DEFAULT_WINDOW_WIDTH: i32 = 1500;
 const DEFAULT_WINDOW_HEIGHT: i32 = 850;

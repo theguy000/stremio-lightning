@@ -8,8 +8,9 @@ pub mod validation;
 use common::{Result, run_npm};
 use std::env;
 
-pub const APP_ID: &str = "stremio-lightning";
-pub const APP_NAME: &str = "Stremio Lightning";
+pub use stremio_lightning_identity::{APP_ID, APP_NAME};
+
+pub const PACKAGE_ID: &str = "stremio-lightning";
 pub const LINUX_BIN: &str = "stremio-lightning-linux";
 pub const MACOS_BIN: &str = "stremio-lightning-macos";
 pub const WINDOWS_BIN: &str = "stremio-lightning-windows";
@@ -18,7 +19,7 @@ pub const WINDOWS_TARGET: &str = "x86_64-pc-windows-msvc";
 pub const LINUX_APPIMAGE: &str = "Stremio_Lightning_Linux-x86_64.AppImage";
 pub const LINUX_DEB: &str = "stremio-lightning-linux-amd64.deb";
 pub const LINUX_FLATPAK: &str = "Stremio_Lightning_Linux-x86_64.flatpak";
-pub const LINUX_DESKTOP_ID: &str = "io.github.theguy000.stremio-lightning";
+pub const LINUX_DESKTOP_ID: &str = APP_ID;
 pub const LINUX_FLATPAK_ID: &str = LINUX_DESKTOP_ID;
 pub const LINUX_FLATPAK_RUNTIME: &str = "org.gnome.Platform";
 pub const LINUX_FLATPAK_SDK: &str = "org.gnome.Sdk";

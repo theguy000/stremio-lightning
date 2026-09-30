@@ -8,4 +8,4 @@ pub mod player;
 pub mod streaming_server;
 pub mod webview_runtime;
 
-pub const APP_NAME: &str = "Stremio Lightning";
+pub use stremio_lightning_identity::APP_NAME;

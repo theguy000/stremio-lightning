@@ -2,7 +2,9 @@ use crate::common::{
     Result, copy_file, inno_path, package_version, program_exists, remove_dir_if_exists,
     remove_file_if_exists, required_file, root, run_program, run_program_in, write_file,
 };
-use crate::{APP_ID, APP_NAME, WINDOWS_BIN, WINDOWS_INSTALLER, WINDOWS_TARGET, WINDOWS_ZIP};
+use crate::{
+    APP_ID, APP_NAME, PACKAGE_ID, WINDOWS_BIN, WINDOWS_INSTALLER, WINDOWS_TARGET, WINDOWS_ZIP,
+};
 use std::{
     env, fs,
     path::{Path, PathBuf},
@@ -133,10 +135,11 @@ pub fn package_windows_installer() -> Result<()> {
 #define MyAppVersion "{}"
 #define MyAppPublisher "Stremio Lightning"
 #define MyAppExeName "{WINDOWS_BIN}.exe"
+#define MyAppUserModelID "{APP_ID}"
 #define MyAppIcon "{}"
 
 [Setup]
-AppId={APP_ID}
+AppId={PACKAGE_ID}
 AppName={{#MyAppName}}
 AppVersion={{#MyAppVersion}}
 AppPublisher={{#MyAppPublisher}}
@@ -163,8 +166,8 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 Source: "{}\*"; DestDir: "{{app}}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{{group}}\{{#MyAppName}}"; Filename: "{{app}}\{{#MyAppExeName}}"; IconFilename: "{{app}}\{{#MyAppExeName}}"
-Name: "{{autodesktop}}\{{#MyAppName}}"; Filename: "{{app}}\{{#MyAppExeName}}"; IconFilename: "{{app}}\{{#MyAppExeName}}"; Tasks: desktopicon
+Name: "{{group}}\{{#MyAppName}}"; Filename: "{{app}}\{{#MyAppExeName}}"; IconFilename: "{{app}}\{{#MyAppExeName}}"; AppUserModelID: "{{#MyAppUserModelID}}"
+Name: "{{autodesktop}}\{{#MyAppName}}"; Filename: "{{app}}\{{#MyAppExeName}}"; IconFilename: "{{app}}\{{#MyAppExeName}}"; AppUserModelID: "{{#MyAppUserModelID}}"; Tasks: desktopicon
 
 [Registry]
 Root: HKCU; Subkey: "Software\Classes\stremio"; ValueType: string; ValueName: ""; ValueData: "URL:Stremio Protocol"; Flags: uninsdeletekey
