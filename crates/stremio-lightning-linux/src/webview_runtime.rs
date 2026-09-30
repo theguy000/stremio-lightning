@@ -3,7 +3,7 @@ use crate::player::PlayerBackend;
 use crate::streaming_server::ProcessSpawner;
 use serde_json::Value;
 use std::sync::Arc;
-use stremio_lightning_core::bridge_assets::{bridge_scripts, InjectionScript};
+use stremio_lightning_core::bridge_assets::{bridge_scripts, load_mod_ui_source, InjectionScript};
 use stremio_lightning_core::pip::PipWindowController;
 
 pub const LINUX_HOST_ADAPTER_NAME: &str = "linux-host-adapter";
@@ -24,7 +24,7 @@ impl InjectionBundle {
         scripts.extend(bridge_scripts());
         scripts.push(InjectionScript {
             name: MOD_UI_NAME,
-            source: include_str!("../../../src/dist/mod-ui-svelte.iife.js").to_string(),
+            source: load_mod_ui_source()?,
         });
 
         Ok(Self { scripts })

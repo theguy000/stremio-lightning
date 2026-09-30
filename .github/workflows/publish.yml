@@ -203,6 +203,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Validate Rust before packaging
+        shell: pwsh
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --workspace --all-targets --target x86_64-pc-windows-msvc
+          cargo test -p stremio-lightning-windows --target x86_64-pc-windows-msvc
+
       - name: Package Windows portable artifact
         run: cargo xtask package-windows-portable
 

@@ -4,7 +4,7 @@ use crate::streaming_server::ProcessSpawner;
 use serde_json::Value;
 use std::sync::Arc;
 use std::time::Duration;
-use stremio_lightning_core::bridge_assets::{bridge_scripts, InjectionScript};
+use stremio_lightning_core::bridge_assets::{bridge_scripts, load_mod_ui_source, InjectionScript};
 
 pub const MACOS_HOST_ADAPTER_NAME: &str = "macos-host-adapter";
 pub const HOST_ADAPTER_NAME: &str = MACOS_HOST_ADAPTER_NAME;
@@ -24,7 +24,7 @@ impl InjectionBundle {
         scripts.extend(bridge_scripts());
         scripts.push(InjectionScript {
             name: MOD_UI_NAME,
-            source: include_str!("../../../src/dist/mod-ui-svelte.iife.js").to_string(),
+            source: load_mod_ui_source()?,
         });
 
         Ok(Self { scripts })

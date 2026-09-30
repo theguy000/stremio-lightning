@@ -65,6 +65,21 @@ pub fn bridge_scripts() -> Vec<InjectionScript> {
     ]
 }
 
+pub const MOD_UI_NAME: &str = "mod-ui-svelte.iife.js";
+const MOD_UI_PATH: &str = "../../src/dist/mod-ui-svelte.iife.js";
+
+pub fn load_mod_ui_source() -> Result<String, String> {
+    let manifest_dir = std::env!("CARGO_MANIFEST_DIR");
+    let path = std::path::PathBuf::from(manifest_dir).join(MOD_UI_PATH);
+    std::fs::read_to_string(&path).map_err(|error| {
+        format!(
+            "Failed to read mod UI bundle at {}: {error}\n\
+             Run `cargo xtask build-ui` to generate it.",
+            path.display()
+        )
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

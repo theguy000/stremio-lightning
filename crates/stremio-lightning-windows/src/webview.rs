@@ -5,13 +5,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(windows)]
 use std::sync::Mutex;
 use std::sync::{mpsc, Arc};
-#[cfg(test)]
-use stremio_lightning_core::bridge_assets::BRIDGE_NAME;
-use stremio_lightning_core::bridge_assets::{bridge_scripts, InjectionScript};
+use stremio_lightning_core::bridge_assets::{
+    bridge_scripts, load_mod_ui_source, InjectionScript, MOD_UI_NAME,
+};
 
 pub const WINDOWS_HOST_ADAPTER_NAME: &str = "windows-host-adapter";
 pub const HOST_ADAPTER_NAME: &str = WINDOWS_HOST_ADAPTER_NAME;
-pub const MOD_UI_NAME: &str = "mod-ui-svelte.iife.js";
 
 static NATIVE_HTTP_CAPTURE_AVAILABLE: AtomicBool = AtomicBool::new(false);
 
@@ -25,7 +24,7 @@ pub struct InjectionBundle {
 }
 
 impl InjectionBundle {
-    pub fn load() -> Self {
+    pub fn load() -> Result<Self, String> {
         let mut scripts = vec![InjectionScript {
             name: HOST_ADAPTER_NAME,
             source: host_adapter(),
@@ -33,14 +32,18 @@ impl InjectionBundle {
         scripts.extend(bridge_scripts());
         scripts.push(InjectionScript {
             name: MOD_UI_NAME,
-            source: include_str!("../../../src/dist/mod-ui-svelte.iife.js").to_string(),
+            source: load_mod_ui_source()?,
         });
 
-        Self { scripts }
+        Ok(Self { scripts })
     }
 
     pub fn scripts(&self) -> &[InjectionScript] {
         &self.scripts
+    }
+
+    pub fn script_names(&self) -> Vec<&'static str> {
+        self.scripts.iter().map(|script| script.name).collect()
     }
 }
 
@@ -88,7 +91,7 @@ impl WindowsWebView2Shell {
         Ok(Self {
             url,
             devtools,
-            injection: InjectionBundle::load(),
+            injection: InjectionBundle::load()?,
             host: Arc::new(Host::with_streaming_server_disabled(
                 stremio_lightning_core::SHELL_VERSION,
                 settings.streaming_server_disabled,
@@ -112,7 +115,7 @@ impl WindowsWebView2Shell {
         Ok(Self {
             url,
             devtools,
-            injection: InjectionBundle::load(),
+            injection: InjectionBundle::load()?,
             host: Arc::new(Host::with_streaming_server_disabled(
                 stremio_lightning_core::SHELL_VERSION,
                 settings.streaming_server_disabled,
@@ -1310,6 +1313,7 @@ pub fn host_adapter() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use stremio_lightning_core::bridge_assets::BRIDGE_NAME;
 
     #[test]
     fn injects_windows_adapter_before_shared_bridge() {
@@ -1334,7 +1338,7 @@ mod tests {
 
     #[test]
     fn moved_shared_bridge_is_loaded_from_web_folder() {
-        let bundle = InjectionBundle::load();
+        let bundle = InjectionBundle::load().unwrap();
         let bridge = bundle
             .scripts()
             .iter()
@@ -1346,7 +1350,7 @@ mod tests {
 
     #[test]
     fn windows_bundle_injects_svelte_mod_ui() {
-        let bundle = InjectionBundle::load();
+        let bundle = InjectionBundle::load().unwrap();
         let mod_ui = bundle
             .scripts()
             .iter()
