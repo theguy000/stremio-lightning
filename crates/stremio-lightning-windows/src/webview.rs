@@ -188,8 +188,9 @@ mod platform {
     };
     use std::{path::PathBuf, ptr};
     use webview2_com::{
-        AddScriptToExecuteOnDocumentCreatedCompletedHandler, CoTaskMemPWSTR,
-        CoreWebView2EnvironmentOptions, CreateCoreWebView2ControllerCompletedHandler,
+        AcceleratorKeyPressedEventHandler, AddScriptToExecuteOnDocumentCreatedCompletedHandler,
+        CoTaskMemPWSTR, CoreWebView2EnvironmentOptions,
+        CreateCoreWebView2ControllerCompletedHandler,
         CreateCoreWebView2EnvironmentCompletedHandler, Microsoft::Web::WebView2::Win32::*,
         NavigationCompletedEventHandler, NavigationStartingEventHandler,
         NewWindowRequestedEventHandler, ProcessFailedEventHandler, WebMessageReceivedEventHandler,
@@ -198,6 +199,7 @@ mod platform {
     use windows::core::{Interface, PCWSTR, PWSTR};
     use windows::Win32::Foundation::{E_POINTER, HWND, RECT};
     use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
+    use windows::Win32::UI::Input::KeyboardAndMouse::{GetKeyState, VK_CONTROL, VK_F5, VK_P, VK_R};
 
     impl CleanupReport {
         fn record_windows(&mut self, action: &'static str, result: windows::core::Result<()>) {
@@ -244,6 +246,7 @@ mod platform {
 
     #[derive(Default)]
     struct WebView2EventTokens {
+        accelerator_key_pressed: Option<i64>,
         message_received: Option<i64>,
         navigation_starting: Option<i64>,
         new_window_requested: Option<i64>,
@@ -290,8 +293,12 @@ mod platform {
                 .ok_or_else(|| "WebView2 controller is not available".to_string())
         }
 
-        fn configure_controller(&self) -> Result<(), String> {
-            configure_controller(self.controller()?)
+        fn configure_controller(&mut self) -> Result<(), String> {
+            let controller = self.controller()?.clone();
+            configure_controller(&controller)?;
+            self.event_tokens.accelerator_key_pressed =
+                Some(add_accelerator_key_pressed_handler(&controller)?);
+            Ok(())
         }
 
         fn resize_to_client_rect(&self, hwnd: HWND) -> Result<(), String> {
@@ -408,6 +415,15 @@ mod platform {
                         ),
                     }
                 }
+            }
+
+            if let (Some(controller), Some(token)) = (
+                self.controller.as_ref(),
+                self.event_tokens.accelerator_key_pressed.take(),
+            ) {
+                report.record_windows("remove WebView2 accelerator key handler", unsafe {
+                    controller.remove_AcceleratorKeyPressed(token)
+                });
             }
 
             if let Some(controller) = self.controller.take() {
@@ -679,6 +695,51 @@ mod platform {
                 })?;
         }
         Ok(())
+    }
+
+    /// Consumes WebView2 accelerator keys that map to destructive browser commands.
+    ///
+    /// F5 and Ctrl+R reload the interface, which tears down the running player, and
+    /// Ctrl+P opens a print dialog. Both are browser behaviours with no place in a
+    /// desktop video app, so the events are marked handled before WebView2 processes
+    /// them. Text-editing and other accelerators are left untouched.
+    fn add_accelerator_key_pressed_handler(
+        controller: &ICoreWebView2Controller,
+    ) -> Result<i64, String> {
+        let mut token = 0;
+        unsafe {
+            controller
+                .add_AcceleratorKeyPressed(
+                    &AcceleratorKeyPressedEventHandler::create(Box::new(
+                        move |_controller, args| {
+                            let Some(args) = args else {
+                                return Ok(());
+                            };
+
+                            let mut virtual_key = 0u32;
+                            args.VirtualKey(&mut virtual_key)?;
+                            // GetKeyState reports a negative value while the key is down.
+                            let control_down = GetKeyState(VK_CONTROL.0 as i32) < 0;
+                            if should_block_browser_accelerator(virtual_key, control_down) {
+                                args.SetHandled(true)?;
+                            }
+                            Ok(())
+                        },
+                    )),
+                    &mut token,
+                )
+                .map_err(|error| {
+                    format!("Failed to attach WebView2 accelerator key handler: {error}")
+                })?;
+        }
+        Ok(token)
+    }
+
+    pub(super) fn should_block_browser_accelerator(virtual_key: u32, control_down: bool) -> bool {
+        if virtual_key == VK_F5.0 as u32 {
+            return true;
+        }
+        control_down && (virtual_key == VK_R.0 as u32 || virtual_key == VK_P.0 as u32)
     }
 
     fn configure_webview(webview: &ICoreWebView2, devtools: bool) -> Result<(), String> {
@@ -1457,5 +1518,39 @@ mod tests {
         assert_eq!(platform::web_error_status_name(7), "timeout");
         assert_eq!(platform::process_failed_kind_name(6), "gpu-process-exited");
         assert_eq!(platform::web_error_status_name(99), "unknown");
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn reload_and_print_accelerators_are_blocked() {
+        use windows::Win32::UI::Input::KeyboardAndMouse::{VK_F5, VK_P, VK_R};
+
+        assert!(platform::should_block_browser_accelerator(
+            VK_F5.0 as u32,
+            false
+        ));
+        assert!(platform::should_block_browser_accelerator(
+            VK_R.0 as u32,
+            true
+        ));
+        assert!(platform::should_block_browser_accelerator(
+            VK_P.0 as u32,
+            true
+        ));
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn unrelated_accelerators_are_left_alone() {
+        use windows::Win32::UI::Input::KeyboardAndMouse::{VK_R, VK_S};
+
+        assert!(!platform::should_block_browser_accelerator(
+            VK_R.0 as u32,
+            false
+        ));
+        assert!(!platform::should_block_browser_accelerator(
+            VK_S.0 as u32,
+            true
+        ));
     }
 }
