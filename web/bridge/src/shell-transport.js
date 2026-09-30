@@ -59,8 +59,7 @@ function initShellTransport(ctx) {
     );
   }
 
-  function updateMpvStateFromTransport(payload) {
-    var parsed = parseTransportPayload(payload);
+  function updateMpvStateFromTransport(parsed) {
     var args = parsed && parsed.args;
     if (!Array.isArray(args) || args.length < 2) return;
 
@@ -91,8 +90,7 @@ function initShellTransport(ctx) {
     }
   }
 
-  function dispatchPipEvents(payload) {
-    var parsed = parseTransportPayload(payload);
+  function dispatchPipEvents(parsed) {
     var args = parsed && parsed.args;
     if (!Array.isArray(args) || args.length < 1) return;
 
@@ -117,8 +115,8 @@ function initShellTransport(ctx) {
       return;
     }
 
-    updateMpvStateFromTransport(payload);
-    dispatchPipEvents(payload);
+    updateMpvStateFromTransport(parsed);
+    dispatchPipEvents(parsed);
 
     try {
       if (

@@ -906,7 +906,7 @@ mod platform {
             let serialized = CoTaskMemPWSTR::from(serialized.as_str());
             unsafe {
                 webview
-                    .PostWebMessageAsString(*serialized.as_ref().as_pcwstr())
+                    .PostWebMessageAsJson(*serialized.as_ref().as_pcwstr())
                     .map_err(|error| format!("Failed to post WebView2 IPC response: {error}"))?;
             }
         }
@@ -947,7 +947,7 @@ mod platform {
                                 .to_string()
                                 .as_str(),
                             );
-                            webview.PostWebMessageAsString(*message.as_ref().as_pcwstr())?;
+                            webview.PostWebMessageAsJson(*message.as_ref().as_pcwstr())?;
                         }
                         Ok(())
                     })),
