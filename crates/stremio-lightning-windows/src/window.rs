@@ -70,8 +70,11 @@ mod platform {
     use super::{WakeCoalescer, WindowConfig};
     use std::{ffi::c_void, ptr::NonNull, sync::Arc};
     use stremio_lightning_core::pip::{PipRestoreSnapshot, PipWindowController};
-    use windows::core::{w, PCWSTR};
+    use windows::core::{w, BOOL, PCWSTR};
     use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
+    use windows::Win32::Graphics::Dwm::{
+        DwmSetWindowAttribute, DWMWA_USE_IMMERSIVE_DARK_MODE, DWMWINDOWATTRIBUTE,
+    };
     use windows::Win32::Graphics::Gdi::{
         GetMonitorInfoW, GetStockObject, MonitorFromWindow, BLACK_BRUSH, HBRUSH, MONITORINFO,
         MONITOR_DEFAULTTONEAREST,
@@ -98,6 +101,32 @@ mod platform {
 
     pub const UI_THREAD_WAKE_MESSAGE: u32 = WM_APP + 1;
     const APP_ICON_RESOURCE_ID: usize = 101;
+
+    // Before Windows 10 20H1 (build 18985) the immersive dark mode attribute had id 19;
+    // 20H1 and Windows 11 use the documented DWMWA_USE_IMMERSIVE_DARK_MODE (20).
+    const DWMWA_USE_IMMERSIVE_DARK_MODE_LEGACY: DWMWINDOWATTRIBUTE = DWMWINDOWATTRIBUTE(19);
+
+    fn set_dark_title_bar(hwnd: HWND, dark: bool) {
+        let value = BOOL::from(dark);
+        let size = std::mem::size_of::<BOOL>() as u32;
+        let pointer = &value as *const BOOL as *const c_void;
+
+        let result =
+            unsafe { DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, pointer, size) };
+        if result.is_ok() {
+            return;
+        }
+
+        let legacy = unsafe {
+            DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE_LEGACY, pointer, size)
+        };
+        if let Err(error) = legacy {
+            stremio_lightning_core::logging::debug(
+                "native.window",
+                format!("[StremioLightning] Failed to apply dark title bar: {error}"),
+            );
+        }
+    }
 
     struct WindowState {
         config: WindowConfig,
@@ -476,6 +505,7 @@ mod platform {
             let notifier = UiThreadNotifier::new(hwnd);
             notifier.notify()?;
             let _ = ShowWindow(hwnd, SHOW_WINDOW_CMD(SW_MAXIMIZE.0));
+            set_dark_title_bar(hwnd, true);
             run_message_loop()
         }
     }
@@ -615,6 +645,8 @@ mod platform {
                     } else {
                         notify_handler(hwnd, "resize", |handler| handler.on_resized(hwnd, rect));
                         if let Some(visual_state) = visual_state {
+                            // Maximize/restore can reset the frame on some Windows 10 builds.
+                            set_dark_title_bar(hwnd, true);
                             notify_handler(hwnd, "state", |handler| {
                                 handler.on_window_state_changed(hwnd, visual_state)
                             });

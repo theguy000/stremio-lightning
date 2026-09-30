@@ -16,6 +16,7 @@ libmpv2-sys = { version = "4.0.1" }
 webview2-com = "0.39.1"
 windows = { version = "0.62.2", features = [
     "Win32_Foundation",
+    "Win32_Graphics_Dwm",
     "Win32_Graphics_Gdi",
     "Win32_Security",
     "Win32_Storage",
