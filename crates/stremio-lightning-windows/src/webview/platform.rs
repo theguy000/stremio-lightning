@@ -675,28 +675,26 @@ mod windows_impl {
         webview: &ICoreWebView2,
         injection: &InjectionBundle,
     ) -> Result<(), WebViewError> {
-        for script in injection.scripts() {
-            let source = script.source.clone();
-            let webview = webview.clone();
-            AddScriptToExecuteOnDocumentCreatedCompletedHandler::wait_for_async_operation(
-                Box::new(move |handler| {
-                    let source = CoTaskMemPWSTR::from(source.as_str());
-                    // SAFETY: webview is valid COM interface; source is valid CoTaskMemPWSTR.
-                    unsafe {
-                        webview
-                            .AddScriptToExecuteOnDocumentCreated(
-                                *source.as_ref().as_pcwstr(),
-                                &handler,
-                            )
-                            .map_err(webview2_com::Error::WindowsError)
-                    }
-                }),
-                Box::new(|error_code, _id| error_code),
-            )
-            .map_err(|error| {
-                WebViewError::ScriptInjection(script.name.to_string(), format!("{error:?}"))
-            })?;
-        }
+        let source = injection.combined_source();
+        let webview = webview.clone();
+        AddScriptToExecuteOnDocumentCreatedCompletedHandler::wait_for_async_operation(
+            Box::new(move |handler| {
+                let source = CoTaskMemPWSTR::from(source.as_str());
+                // SAFETY: webview is valid COM interface; source is valid CoTaskMemPWSTR.
+                unsafe {
+                    webview
+                        .AddScriptToExecuteOnDocumentCreated(
+                            *source.as_ref().as_pcwstr(),
+                            &handler,
+                        )
+                        .map_err(webview2_com::Error::WindowsError)
+                }
+            }),
+            Box::new(|error_code, _id| error_code),
+        )
+        .map_err(|error| {
+            WebViewError::ScriptInjection("injection-bundle".to_string(), format!("{error:?}"))
+        })?;
         Ok(())
     }
 
@@ -746,21 +744,10 @@ mod windows_impl {
     }
 
     fn is_toggle_devtools_message(message: &str) -> bool {
-        serde_json::from_str::<serde_json::Value>(message)
-            .ok()
-            .and_then(|value| {
-                (value.get("kind").and_then(serde_json::Value::as_str) == Some("invoke"))
-                    .then_some(value)
+        message.contains("toggle_devtools")
+            && serde_json::from_str::<serde_json::Value>(message).is_ok_and(|value| {
+                value["kind"] == "invoke" && value["payload"]["command"] == "toggle_devtools"
             })
-            .and_then(|value| {
-                value
-                    .get("payload")?
-                    .get("command")?
-                    .as_str()
-                    .map(str::to_string)
-            })
-            .as_deref()
-            == Some("toggle_devtools")
     }
 
     fn add_navigation_starting_handler(

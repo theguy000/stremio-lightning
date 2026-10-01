@@ -26,6 +26,25 @@ fn injects_windows_adapter_before_shared_bridge() {
 }
 
 #[test]
+fn combined_injection_source_concatenates_every_script_in_order() {
+    let bundle = InjectionBundle::load().unwrap();
+    let combined = bundle.combined_source();
+
+    let expected = bundle
+        .scripts()
+        .iter()
+        .map(|script| script.source.as_str())
+        .collect::<Vec<_>>()
+        .join("\n;\n");
+
+    assert_eq!(combined, expected);
+    assert_eq!(
+        combined.matches("\n;\n").count(),
+        bundle.scripts().len() - 1
+    );
+}
+
+#[test]
 fn moved_shared_bridge_is_loaded_from_web_folder() {
     let bundle = InjectionBundle::load().unwrap();
     let bridge = bundle

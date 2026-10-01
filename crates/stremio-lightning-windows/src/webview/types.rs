@@ -126,6 +126,16 @@ impl InjectionBundle {
         &self.scripts
     }
 
+    /// Concatenates every injection source into a single script so the shell can
+    /// register them with one WebView2 round-trip instead of one per script.
+    pub fn combined_source(&self) -> String {
+        self.scripts
+            .iter()
+            .map(|script| script.source.as_str())
+            .collect::<Vec<_>>()
+            .join("\n;\n")
+    }
+
     pub fn script_names(&self) -> Vec<&'static str> {
         self.scripts.iter().map(|script| script.name).collect()
     }

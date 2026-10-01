@@ -18,6 +18,7 @@ const MAX_MPV_LOG_MESSAGE_LENGTH: usize = 2_048;
 
 #[derive(Debug, Default)]
 pub struct WindowsPlayer {
+    #[cfg(test)]
     commands: Vec<PlayerCommand>,
     events: Vec<PlayerEvent>,
     backend: PlayerBackend,
@@ -100,8 +101,9 @@ impl WindowsPlayer {
     }
 
     fn handle_command(&mut self, command: PlayerCommand) -> Result<(), PlayerError> {
-        self.backend.handle_command(command.clone())?;
-        self.commands.push(command);
+        #[cfg(test)]
+        self.commands.push(command.clone());
+        self.backend.handle_command(command)?;
         Ok(())
     }
 
@@ -120,6 +122,7 @@ impl WindowsPlayer {
         }));
     }
 
+    #[cfg(test)]
     pub fn commands(&self) -> &[PlayerCommand] {
         &self.commands
     }
