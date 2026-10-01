@@ -5,7 +5,14 @@ use windows::core::{HSTRING, PCWSTR};
 #[cfg(windows)]
 use windows::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONERROR, MB_OK};
 
+#[cfg(feature = "dhat-heap")]
+#[global_allocator]
+static ALLOC: dhat::Alloc = dhat::Alloc;
+
 fn main() {
+    #[cfg(feature = "dhat-heap")]
+    let _profiler = dhat::Profiler::new_heap();
+
     if let Err(error) = stremio_lightning_windows::run() {
         show_fatal_error(&error.to_string());
         stremio_lightning_core::logging::error("native.application", error.to_string());

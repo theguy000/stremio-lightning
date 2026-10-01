@@ -8,3 +8,14 @@ members = [
     "crates/stremio-lightning-windows",
 ]
 resolver = "2"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+
+[profile.profiling]
+inherits = "release"
+debug = true
+split-debuginfo = "packed"
