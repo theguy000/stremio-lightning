@@ -1,53 +1,43 @@
 //! Manual performance harness for investigating Windows shell allocation churn.
 //!
 //! These are design-time sketches, not part of the default test suite. Run them with:
-//! `cargo test -p stremio-lightning-windows --test measure_ipc_baseline -- --ignored --nocapture --test-threads=1`
+//! `cargo test -p stremio-lightning-windows --features dhat-heap --test measure_ipc_baseline -- --ignored --nocapture --test-threads=1`
 //!
-//! They must run single-threaded (every benchmark shares one global allocation counter)
+//! They must run single-threaded (every benchmark shares one global allocation profiler)
 //! and in a debug build. Debug timings are indicative only; in release the compiler can
 //! optimize the zero-allocation branches away, so only the allocation counts are stable.
 
-#![cfg(windows)]
+#![cfg(all(windows, feature = "dhat-heap"))]
 #![allow(unsafe_code)]
 
-use std::alloc::{GlobalAlloc, Layout, System};
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, OnceLock};
 use std::time::Instant;
+use dhat::{Alloc, HeapStats};
 use stremio_lightning_core::host_api::{self, IpcRequest, InvokeIpcPayload};
 use stremio_lightning_windows::host::{WindowsHost, WindowsIpcOutbound};
 use stremio_lightning_windows::single_instance::LaunchIntent;
 use serde_json::{json, Value};
 
-struct CountingAlloc;
-
-static ALLOC_COUNT: AtomicUsize = AtomicUsize::new(0);
-static ALLOC_BYTES: AtomicUsize = AtomicUsize::new(0);
-
-unsafe impl GlobalAlloc for CountingAlloc {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        ALLOC_COUNT.fetch_add(1, Ordering::Relaxed);
-        ALLOC_BYTES.fetch_add(layout.size(), Ordering::Relaxed);
-        System.alloc(layout)
-    }
-
-    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        System.dealloc(ptr, layout);
-    }
-}
-
 #[global_allocator]
-static GLOBAL: CountingAlloc = CountingAlloc;
+static ALLOC: Alloc = Alloc;
+
+static PROFILER: OnceLock<dhat::Profiler> = OnceLock::new();
+static BASELINE_BLOCKS: AtomicU64 = AtomicU64::new(0);
+static BASELINE_BYTES: AtomicU64 = AtomicU64::new(0);
 
 fn reset_metrics() {
-    ALLOC_COUNT.store(0, Ordering::SeqCst);
-    ALLOC_BYTES.store(0, Ordering::SeqCst);
+    PROFILER.get_or_init(|| dhat::Profiler::builder().testing().build());
+    let stats = HeapStats::get();
+    BASELINE_BLOCKS.store(stats.total_blocks, Ordering::SeqCst);
+    BASELINE_BYTES.store(stats.total_bytes, Ordering::SeqCst);
 }
 
 fn current_metrics() -> (usize, usize) {
+    let stats = HeapStats::get();
     (
-        ALLOC_COUNT.load(Ordering::SeqCst),
-        ALLOC_BYTES.load(Ordering::SeqCst),
+        (stats.total_blocks - BASELINE_BLOCKS.load(Ordering::SeqCst)) as usize,
+        (stats.total_bytes - BASELINE_BYTES.load(Ordering::SeqCst)) as usize,
     )
 }
 
@@ -515,6 +505,100 @@ fn bench_7_navigation_url_origin_parsing() {
     println!("  Latency:     {:.2}% faster ({:.3} µs saved / nav)", time_saved, (elapsed_before.as_secs_f64() - elapsed_after.as_secs_f64()) * 1_000_000.0 / iterations as f64);
     println!("  Allocations: -{} blocks (-100.0% OF HEAP ALLOCATIONS DROPPED)", allocs_before - allocs_after);
     println!("  Heap Churn:  -{} bytes (-100.0% HEAP MEMORY ELIMINATED)\n", bytes_before - bytes_after);
+}
+
+// =====================================================================
+// 9. Real inbound IPC: shell_transport_send with a large media URL
+// =====================================================================
+#[ignore = "manual perf harness: run with --ignored --nocapture --test-threads=1"]
+#[test]
+fn bench_9_real_inbound_transport_send() {
+    let host = Arc::new(WindowsHost::with_app_data_dir_and_server_disabled(
+        stremio_lightning_core::SHELL_VERSION,
+        temp_dir("inbound-transport-send"),
+        true,
+    ));
+
+    let long_url = format!("https://cdn.example.test/media/{}", "segment-path/".repeat(200));
+    let rpc_message = json!({
+        "id": 42,
+        "type": 6,
+        "args": ["open-url", format!("{long_url}?token=abcdef0123456789")],
+    })
+    .to_string();
+    let raw_msg = json!({
+        "id": 7,
+        "kind": "invoke",
+        "payload": {
+            "command": "shell_transport_send",
+            "payload": { "message": rpc_message },
+        },
+    })
+    .to_string();
+
+    let iterations = 10_000;
+    for _ in 0..100 {
+        let _ = host.dispatch_ipc_message_async(&raw_msg);
+    }
+
+    reset_metrics();
+    let start = Instant::now();
+    for _ in 0..iterations {
+        let _ = host.dispatch_ipc_message_async(&raw_msg);
+    }
+    let elapsed = start.elapsed();
+    let (allocs, bytes) = current_metrics();
+
+    println!("\n==================================================================");
+    println!(" BENCHMARK 9: Real Inbound shell_transport_send ({} byte payload)", raw_msg.len());
+    println!("==================================================================");
+    println!("  Time:        {:?} ({:.3} µs / msg)", elapsed, elapsed.as_secs_f64() * 1_000_000.0 / iterations as f64);
+    println!("  Allocations: {} blocks ({:.2} blocks / msg)", allocs, allocs as f64 / iterations as f64);
+    println!("  Heap Bytes:  {} bytes ({:.1} B / msg)\n", bytes, bytes as f64 / iterations as f64);
+    assert!(raw_msg.len() > 2000, "payload should be representative");
+}
+
+// =====================================================================
+// 10. Real outbound player tick: emit_property_change -> drain -> serialize
+// =====================================================================
+#[ignore = "manual perf harness: run with --ignored --nocapture --test-threads=1"]
+#[test]
+fn bench_10_real_player_tick_pipeline() {
+    let host = WindowsHost::with_app_data_dir_and_server_disabled(
+        stremio_lightning_core::SHELL_VERSION,
+        temp_dir("player-tick-pipeline"),
+        true,
+    );
+    host.dispatch_windows_ipc(
+        "listen",
+        Some(json!({ "id": 1, "event": "shell-transport-message" })),
+    )
+    .unwrap();
+    let _ = host.drain_ipc_events();
+
+    let iterations = 10_000;
+    let mut scratch = Vec::with_capacity(512);
+    reset_metrics();
+    let start = Instant::now();
+    for index in 0..iterations {
+        {
+            let mut player = host.player().lock().unwrap();
+            player.emit_property_change("time-pos", json!(index as f64 / 10.0));
+        }
+        for outbound in host.drain_ipc_events() {
+            scratch.clear();
+            serde_json::to_writer(&mut scratch, &outbound).unwrap();
+        }
+    }
+    let elapsed = start.elapsed();
+    let (allocs, bytes) = current_metrics();
+
+    println!("\n==================================================================");
+    println!(" BENCHMARK 10: Real Player Property Tick Pipeline (10,000 ticks)");
+    println!("==================================================================");
+    println!("  Time:        {:?} ({:.3} µs / tick)", elapsed, elapsed.as_secs_f64() * 1_000_000.0 / iterations as f64);
+    println!("  Allocations: {} blocks ({:.2} blocks / tick)", allocs, allocs as f64 / iterations as f64);
+    println!("  Heap Bytes:  {} bytes ({:.1} B / tick)\n", bytes, bytes as f64 / iterations as f64);
 }
 
 // =====================================================================

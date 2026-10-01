@@ -168,21 +168,32 @@ impl WindowsHost {
             Err(error) => return vec![Self::invalid_ipc_message(&error)],
         };
 
-        let async_payload = (request.kind == "invoke")
-            .then(|| {
-                host_api::parse_payload::<host_api::InvokeIpcPayload>(
-                    "invoke",
-                    request.payload.clone(),
-                )
-                .ok()
-            })
-            .flatten()
-            .filter(|payload| host_api::is_async_command(&payload.command));
+        let is_async = request.kind == "invoke"
+            && request
+                .payload
+                .as_ref()
+                .and_then(|payload| payload.get("command"))
+                .and_then(Value::as_str)
+                .is_some_and(host_api::is_async_command);
 
-        let Some(payload) = async_payload else {
+        if !is_async {
             return self.dispatch_parsed_ipc_message(request);
-        };
+        }
         let id = request.id;
+
+        let payload = match host_api::parse_payload::<host_api::InvokeIpcPayload>(
+            "invoke",
+            request.payload,
+        ) {
+            Ok(payload) => payload,
+            Err(error) => {
+                return vec![WindowsIpcOutbound::Response {
+                    id,
+                    ok: false,
+                    value: json!({ "message": error }),
+                }];
+            }
+        };
 
         let host = Arc::clone(self);
         host_api::async_runtime().spawn(async move {
@@ -414,8 +425,7 @@ impl WindowsHost {
             {
                 self.emit_picture_in_picture(false)?;
             }
-            self.base
-                .emit_transport_message(host_api::response_message(event.transport_args()))?;
+            self.base.emit_player_event(&event)?;
         }
         Ok(())
     }

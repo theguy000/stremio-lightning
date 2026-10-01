@@ -71,6 +71,61 @@ fn test_host(bridge: TestBridge) -> BaseHost<TestBridge> {
 }
 
 #[test]
+fn emits_player_events_with_transport_envelope_and_tracks_pause_state() {
+    use crate::player_api::{PlayerEnded, PlayerEvent, PlayerPropertyChange};
+
+    let host = test_host(TestBridge::default());
+    host.listen_with_id(7, SHELL_TRANSPORT_EVENT).unwrap();
+    {
+        let mut prefs = host.shell_preferences.lock().unwrap();
+        prefs.player_active = true;
+        prefs.player_paused = false;
+        prefs.auto_paused = true;
+    }
+
+    let position = PlayerEvent::PropertyChange(PlayerPropertyChange {
+        name: "time-pos".to_string(),
+        data: json!(12.5),
+    });
+    let pause = PlayerEvent::PropertyChange(PlayerPropertyChange {
+        name: "pause".to_string(),
+        data: json!(true),
+    });
+    let ended = PlayerEvent::Ended(PlayerEnded {
+        reason: "eof".to_string(),
+        error: None,
+    });
+
+    host.emit_player_event(&position).unwrap();
+    {
+        let prefs = host.shell_preferences.lock().unwrap();
+        assert!(!prefs.player_paused);
+        assert!(prefs.auto_paused);
+    }
+    host.emit_player_event(&pause).unwrap();
+    assert!(host.shell_preferences.lock().unwrap().player_paused);
+    host.emit_player_event(&ended).unwrap();
+
+    let records = host.drain_emitted_events().unwrap();
+    assert_eq!(records.len(), 3);
+    for (record, event) in records.iter().zip([&position, &pause, &ended]) {
+        assert_eq!(record.event, SHELL_TRANSPORT_EVENT);
+        let actual: Value = serde_json::from_str(record.payload.as_str().unwrap()).unwrap();
+        let expected: Value =
+            serde_json::from_str(&response_message(event.transport_args())).unwrap();
+        assert_eq!(actual, expected);
+        assert_eq!(actual["id"], json!(1));
+        assert_eq!(actual["object"], json!("transport"));
+        assert_eq!(actual["type"], json!(1));
+    }
+
+    let prefs = host.shell_preferences.lock().unwrap();
+    assert!(!prefs.player_active);
+    assert!(prefs.player_paused);
+    assert!(!prefs.auto_paused);
+}
+
+#[test]
 fn classifies_network_backed_commands_as_async() {
     for command in [
         "download_mod",

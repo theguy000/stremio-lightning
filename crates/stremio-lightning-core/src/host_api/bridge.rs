@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use super::handlers::{
@@ -13,9 +13,10 @@ use super::types::{
     ModFilePayload, ModTypePayload, ParsedRequest, PlatformBridge, RegisterSettingsPayload,
     RpcResponse, SaveSettingPayload, SetExtendedDiagnosticsPayload, SettingKeyPayload,
     ShellPreferenceState, SubmitDiagnosticLogsPayload, UnlistenIpcPayload, ZoomIpcPayload,
-    SHELL_TRANSPORT_EVENT,
+    RPC_TYPE_SIGNAL, SHELL_TRANSPORT_EVENT, TRANSPORT_OBJECT,
 };
 use crate::pip::serialize_picture_in_picture;
+use crate::player_api::PlayerEvent;
 use crate::{app_update, logging, mods, settings};
 
 pub struct BaseHost<P: PlatformBridge> {
@@ -95,7 +96,17 @@ impl<P: PlatformBridge> BaseHost<P> {
     }
 
     pub fn emit_transport_message(&self, message: String) -> Result<(), HostApiError> {
-        self.emit_event(SHELL_TRANSPORT_EVENT, json!(message))
+        self.emit_event(SHELL_TRANSPORT_EVENT, Value::String(message))
+    }
+
+    /// Emits a native player event as a `shell-transport-message` without
+    /// re-parsing the serialized envelope just to track pause state.
+    pub fn emit_player_event(&self, event: &PlayerEvent) -> Result<(), HostApiError> {
+        self.update_player_state_from_player_event(event)?;
+        let message = player_event_message(event);
+        self.lock_listeners()?
+            .emit(SHELL_TRANSPORT_EVENT, Value::String(message));
+        Ok(())
     }
 
     fn flush_pending_transport_messages(&self, registry: &mut ListenerRegistry) {
@@ -113,7 +124,7 @@ impl<P: PlatformBridge> BaseHost<P> {
         for message in pending {
             registry.emitted.push(HostEventRecord {
                 event: SHELL_TRANSPORT_EVENT.to_string(),
-                payload: json!(message),
+                payload: Value::String(message),
             });
         }
     }
@@ -121,20 +132,8 @@ impl<P: PlatformBridge> BaseHost<P> {
     fn update_player_paused_from_transport(&self, payload: &Value) -> Result<(), String> {
         if let Some(msg_str) = payload.as_str() {
             if let Ok(resp) = serde_json::from_str::<RpcResponse>(msg_str) {
-                if let Some(arr) = resp.args.as_ref().and_then(Value::as_array) {
-                    if let Some(event_type) = arr.first().and_then(Value::as_str) {
-                        let (name, data) = match event_type {
-                            "mpv-prop-change" => {
-                                let prop = arr.get(1);
-                                let name =
-                                    prop.and_then(|p| p.get("name")).and_then(Value::as_str);
-                                let data = prop.and_then(|p| p.get("data"));
-                                (name, data)
-                            }
-                            _ => (None, None),
-                        };
-                        self.handle_player_event(event_type, name, data)?;
-                    }
+                if let Some(args) = resp.args.as_ref() {
+                    self.update_player_state_from_transport_args(args)?;
                 }
             }
             return Ok(());
@@ -155,6 +154,37 @@ impl<P: PlatformBridge> BaseHost<P> {
         }
 
         Ok(())
+    }
+
+    fn update_player_state_from_transport_args(&self, args: &Value) -> Result<(), String> {
+        let Some(values) = args.as_array() else {
+            return Ok(());
+        };
+        let Some(event_type) = values.first().and_then(Value::as_str) else {
+            return Ok(());
+        };
+        let (name, data) = match event_type {
+            "mpv-prop-change" => {
+                let prop = values.get(1);
+                let name = prop.and_then(|p| p.get("name")).and_then(Value::as_str);
+                let data = prop.and_then(|p| p.get("data"));
+                (name, data)
+            }
+            _ => (None, None),
+        };
+        self.handle_player_event(event_type, name, data)
+    }
+
+    fn update_player_state_from_player_event(&self, event: &PlayerEvent) -> Result<(), String> {
+        match event {
+            PlayerEvent::PropertyChange(change) => self.handle_player_event(
+                "mpv-prop-change",
+                Some(change.name.as_str()),
+                Some(&change.data),
+            ),
+            PlayerEvent::Ended(_) => self.handle_player_event("mpv-event-ended", None, None),
+            _ => Ok(()),
+        }
     }
 
     fn handle_player_event(
@@ -753,5 +783,39 @@ impl<P: PlatformBridge> BaseHost<P> {
         }
 
         Ok(())
+    }
+}
+
+/// Serializes a player event straight into the RPC signal envelope, without
+/// building intermediate `serde_json::Value`s for the event payload.
+fn player_event_message(event: &PlayerEvent) -> String {
+    #[derive(Serialize)]
+    struct TransportSignal<'a, A: Serialize> {
+        id: u64,
+        object: &'a str,
+        #[serde(rename = "type")]
+        response_type: u8,
+        args: A,
+    }
+
+    fn serialize_signal<A: Serialize>(args: A) -> String {
+        serde_json::to_string(&TransportSignal {
+            id: 1,
+            object: TRANSPORT_OBJECT,
+            response_type: RPC_TYPE_SIGNAL,
+            args,
+        })
+        .expect("failed to serialize transport response")
+    }
+
+    match event {
+        PlayerEvent::PropertyChange(payload) => serialize_signal(("mpv-prop-change", payload)),
+        PlayerEvent::Ended(payload) => serialize_signal(("mpv-event-ended", payload)),
+        PlayerEvent::ShowPictureInPicture(payload) => {
+            serialize_signal(("showPictureInPicture", payload))
+        }
+        PlayerEvent::HidePictureInPicture(payload) => {
+            serialize_signal(("hidePictureInPicture", payload))
+        }
     }
 }
