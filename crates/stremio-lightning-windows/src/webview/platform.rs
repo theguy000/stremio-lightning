@@ -137,8 +137,15 @@ mod windows_impl {
             let mut rect = RECT::default();
             // SAFETY: hwnd is a valid window handle and rect is a local mutable buffer.
             unsafe {
-                windows::Win32::UI::WindowsAndMessaging::GetClientRect(hwnd, &mut rect)
+                windows::Win32::UI::WindowsAndMessaging::GetClientRect(hwnd, &raw mut rect)
                     .map_err(|error| WebViewError::HostBounds(error.to_string()))?;
+            }
+            self.apply_bounds(rect)
+        }
+
+        fn apply_bounds(&self, rect: RECT) -> Result<(), WebViewError> {
+            // SAFETY: self.controller() returns an active valid COM interface.
+            unsafe {
                 self.controller()?
                     .SetBounds(rect)
                     .map_err(|error| WebViewError::ResizeController(error.to_string()))?;
@@ -313,15 +320,6 @@ mod windows_impl {
             }
         }
 
-        fn resize_to_client_rect(&self, hwnd: HWND) -> Result<(), String> {
-            let Some(runtime) = self.runtime.as_ref() else {
-                return Ok(());
-            };
-            runtime
-                .resize_to_client_rect(hwnd)
-                .map_err(|error| error.to_string())
-        }
-
         fn post_host_events(&mut self) -> Result<(), String> {
             let Some(runtime) = self.runtime.as_mut() else {
                 return Ok(());
@@ -361,8 +359,13 @@ mod windows_impl {
             Ok(())
         }
 
-        fn on_resized(&mut self, hwnd: HWND, _client_rect: RECT) -> Result<(), String> {
-            self.resize_to_client_rect(hwnd)
+        fn on_resized(&mut self, _hwnd: HWND, client_rect: RECT) -> Result<(), String> {
+            let Some(runtime) = self.runtime.as_ref() else {
+                return Ok(());
+            };
+            runtime
+                .apply_bounds(client_rect)
+                .map_err(|error| error.to_string())
         }
 
         fn on_window_state_changed(
