@@ -35,7 +35,7 @@ pub async fn check_app_update(current_version: &str) -> Result<AppUpdateInfo, St
         });
     }
 
-    let response = reqwest::Client::new()
+    let response = crate::http::client()
         .get(UPDATE_MANIFEST_URL)
         .header(reqwest::header::USER_AGENT, USER_AGENT)
         .send()

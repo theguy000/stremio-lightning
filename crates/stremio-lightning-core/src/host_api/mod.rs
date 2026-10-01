@@ -7,7 +7,7 @@ mod tests;
 
 pub use bridge::BaseHost;
 pub use handlers::{
-    async_runtime, get_async_runtime, handshake_response, parse_optional_bool, parse_payload,
+    async_runtime, handshake_response, is_async_command, parse_optional_bool, parse_payload,
     parse_request, response_message, safe_native_player_status, serialize_window_visibility,
     stremio_deep_link_transport_args,
 };

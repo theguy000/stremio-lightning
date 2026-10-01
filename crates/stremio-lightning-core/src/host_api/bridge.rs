@@ -4,8 +4,8 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use super::handlers::{
-    async_runtime, handshake_response, parse_optional_bool, parse_payload, parse_request,
-    response_message, safe_native_player_status, serialize_window_visibility,
+    async_runtime, handshake_response, is_async_command, parse_optional_bool, parse_payload,
+    parse_request, response_message, safe_native_player_status, serialize_window_visibility,
 };
 use super::types::{
     DownloadModPayload, FocusChangedPayload, FullscreenIpcPayload, GetLogsPayload, HostApiError,
@@ -349,12 +349,11 @@ impl<P: PlatformBridge> BaseHost<P> {
     }
 
     pub fn invoke(&self, command: &str, payload: Option<Value>) -> Result<Value, String> {
-        match command {
-            "download_mod" | "get_registry" | "check_mod_updates" | "check_app_update" => {
-                let runtime = async_runtime();
-                runtime.block_on(self.invoke_async(command, payload))
-            }
-            _ => self.invoke_sync(command, payload),
+        if is_async_command(command) {
+            let runtime = async_runtime();
+            runtime.block_on(self.invoke_async(command, payload))
+        } else {
+            self.invoke_sync(command, payload)
         }
     }
 

@@ -318,13 +318,16 @@ mod windows_impl {
             let Some(runtime) = self.runtime.as_mut() else {
                 return Ok(());
             };
+            let mut outbound = self.host.drain_pending_responses();
+            outbound.extend(self.host.drain_ipc_events());
             runtime
-                .post_outbound_messages(self.host.drain_ipc_events())
+                .post_outbound_messages(outbound)
                 .map_err(|error| error.to_string())
         }
 
         fn start_host_runtime(&self, hwnd: HWND, notifier: UiThreadNotifier) -> Result<(), String> {
             *self.ui_notifier.lock().map_err(|e| e.to_string())? = Some(notifier.clone());
+            self.host.bind_ui_notifier(notifier.clone())?;
             self.host.bind_native_window(hwnd)?;
             self.host.initialize_native_player(hwnd, notifier)?;
             self.host.start_streaming_server()
@@ -689,7 +692,7 @@ mod windows_impl {
                                 }
                                 if let Err(error) = post_outbound_messages(
                                     &webview,
-                                    host.dispatch_ipc_message(&message),
+                                    host.dispatch_ipc_message_async(&message),
                                     &mut scratch,
                                 ) {
                                     stremio_lightning_core::logging::error(

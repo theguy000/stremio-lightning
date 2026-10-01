@@ -132,16 +132,21 @@ pub fn parse_optional_bool(payload: Option<Value>) -> Option<bool> {
         .or_else(|| value.get("value").and_then(Value::as_bool))
 }
 
+#[must_use]
+pub fn is_async_command(command: &str) -> bool {
+    matches!(
+        command,
+        "download_mod" | "get_registry" | "check_mod_updates" | "check_app_update"
+    )
+}
+
 pub fn async_runtime() -> &'static tokio::runtime::Runtime {
     static TOKIO_RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
     TOKIO_RUNTIME.get_or_init(|| {
-        tokio::runtime::Builder::new_current_thread()
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
             .enable_all()
             .build()
             .expect("Failed to create async runtime")
     })
-}
-
-pub fn get_async_runtime() -> &'static tokio::runtime::Runtime {
-    async_runtime()
 }

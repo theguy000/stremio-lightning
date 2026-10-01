@@ -5,6 +5,8 @@ pub mod app_update;
 pub mod bridge_assets;
 pub mod discord_rpc;
 pub mod host_api;
+#[cfg(any(feature = "app-updates", feature = "mods"))]
+pub(crate) mod http;
 pub mod logging;
 #[cfg(feature = "mods")]
 pub mod mods;

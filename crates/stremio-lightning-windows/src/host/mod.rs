@@ -7,6 +7,8 @@ mod tests;
 
 use serde_json::{json, Value};
 use std::path::PathBuf;
+#[cfg(windows)]
+use std::sync::Arc;
 use std::sync::Mutex;
 use stremio_lightning_core::host_api::{
     self, BaseHost, HostEvent, HostEventRecord, PlatformBridge,
@@ -28,6 +30,10 @@ use crate::single_instance::LaunchIntent;
 
 pub struct WindowsHost {
     pub base: BaseHost<WindowsShellBridge>,
+    #[cfg(windows)]
+    pending_responses: Mutex<Vec<WindowsIpcOutbound>>,
+    #[cfg(windows)]
+    ui_notifier: Mutex<Option<crate::window::UiThreadNotifier>>,
 }
 
 pub type Host = WindowsHost;
@@ -83,6 +89,10 @@ impl WindowsHost {
         };
         Self {
             base: BaseHost::new(bridge, app_data_dir, package_version),
+            #[cfg(windows)]
+            pending_responses: Mutex::default(),
+            #[cfg(windows)]
+            ui_notifier: Mutex::default(),
         }
     }
 
@@ -145,6 +155,72 @@ impl WindowsHost {
                 .map(WindowsIpcOutbound::from),
         );
         outbound
+    }
+
+    #[cfg(windows)]
+    pub fn dispatch_ipc_message_async(self: &Arc<Self>, raw: &str) -> Vec<WindowsIpcOutbound> {
+        let request = serde_json::from_str::<host_api::IpcRequest>(raw)
+            .ok()
+            .filter(|request| request.kind == "invoke")
+            .and_then(|request| {
+                let payload = host_api::parse_payload::<host_api::InvokeIpcPayload>(
+                    "invoke",
+                    request.payload,
+                )
+                .ok()?;
+                host_api::is_async_command(&payload.command).then_some((request.id, payload))
+            });
+
+        let Some((id, payload)) = request else {
+            return self.dispatch_ipc_message(raw);
+        };
+
+        let host = Arc::clone(self);
+        host_api::async_runtime().spawn(async move {
+            let result = host
+                .base
+                .invoke_async(&payload.command, payload.payload)
+                .await;
+            let outbound = match result {
+                Ok(value) => WindowsIpcOutbound::Response {
+                    id,
+                    ok: true,
+                    value,
+                },
+                Err(error) => WindowsIpcOutbound::Response {
+                    id,
+                    ok: false,
+                    value: json!({ "message": error }),
+                },
+            };
+            if let Ok(mut queue) = host.pending_responses.lock() {
+                queue.push(outbound);
+            }
+            if let Ok(notifier) = host.ui_notifier.lock() {
+                if let Some(notifier) = notifier.as_ref() {
+                    let _ = notifier.notify();
+                }
+            }
+        });
+
+        self.drain_ipc_events()
+    }
+
+    #[cfg(windows)]
+    pub fn bind_ui_notifier(
+        &self,
+        notifier: crate::window::UiThreadNotifier,
+    ) -> Result<(), String> {
+        *self.ui_notifier.lock().map_err(|e| e.to_string())? = Some(notifier);
+        Ok(())
+    }
+
+    #[cfg(windows)]
+    pub fn drain_pending_responses(&self) -> Vec<WindowsIpcOutbound> {
+        self.pending_responses
+            .lock()
+            .map(|mut queue| std::mem::take(&mut *queue))
+            .unwrap_or_default()
     }
 
     #[cfg(windows)]

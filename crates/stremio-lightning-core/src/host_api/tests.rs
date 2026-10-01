@@ -4,8 +4,8 @@ use serde_json::{json, Value};
 
 use super::bridge::BaseHost;
 use super::handlers::{
-    handshake_response, parse_request, response_message, serialize_window_visibility,
-    stremio_deep_link_transport_args,
+    handshake_response, is_async_command, parse_request, response_message,
+    serialize_window_visibility, stremio_deep_link_transport_args,
 };
 use super::types::{
     HostCommand, HostEvent, ParsedRequest, PlatformBridge, SHELL_TRANSPORT_EVENT,
@@ -68,6 +68,22 @@ impl PlatformBridge for TestBridge {
 
 fn test_host(bridge: TestBridge) -> BaseHost<TestBridge> {
     BaseHost::new(bridge, PathBuf::new(), "0.0.0")
+}
+
+#[test]
+fn classifies_network_backed_commands_as_async() {
+    for command in [
+        "download_mod",
+        "get_registry",
+        "check_mod_updates",
+        "check_app_update",
+    ] {
+        assert!(is_async_command(command), "{command} should be async");
+    }
+
+    for command in ["init", "get_plugins", "shell_transport_send"] {
+        assert!(!is_async_command(command), "{command} should be sync");
+    }
 }
 
 #[test]

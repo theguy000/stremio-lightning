@@ -254,7 +254,9 @@ pub async fn download_mod(
     let filename = filename_from_url(url)?;
     validate_mod_filename(&filename, mod_type)?;
 
-    let response = reqwest::get(url)
+    let response = crate::http::client()
+        .get(url)
+        .send()
         .await
         .map_err(|e| format!("Failed to download: {}", e))?;
 
@@ -330,7 +332,9 @@ pub async fn fetch_registry() -> Result<Registry, String> {
         "https://raw.githubusercontent.com/theguy000/",
         "stremio-lightning-registry/refs/heads/main/registry.json",
     );
-    let response = reqwest::get(url)
+    let response = crate::http::client()
+        .get(url)
+        .send()
         .await
         .map_err(|e| format!("Failed to fetch registry: {}", e))?;
 
@@ -374,7 +378,9 @@ async fn check_mod_updates_internal(
     let mut resolved_update_url = metadata.update_url.clone();
 
     if let Some(update_url) = &metadata.update_url {
-        let remote_response = reqwest::get(update_url)
+        let remote_response = crate::http::client()
+            .get(update_url)
+            .send()
             .await
             .map_err(|e| format!("Failed to fetch update: {}", e))?;
 

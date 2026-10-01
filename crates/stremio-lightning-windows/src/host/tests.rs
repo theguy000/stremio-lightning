@@ -5,6 +5,7 @@ use crate::single_instance::LaunchIntent;
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use stremio_lightning_core::mods;
 
 static TEMP_ID: AtomicUsize = AtomicUsize::new(0);
@@ -610,4 +611,61 @@ fn plugin_settings_round_trip_and_validate() {
         )
         .unwrap_err();
     assert!(invalid_schema.contains("Failed to parse settings schema"));
+}
+
+#[test]
+#[cfg(windows)]
+fn async_dispatch_returns_before_network_completes() {
+    let host = Arc::new(host_with_app_data(temp_dir("async-dispatch")));
+    let immediate = host.dispatch_ipc_message_async(
+        r#"{"id":21,"kind":"invoke","payload":{"command":"download_mod","payload":{"url":"https://example.test/evil.theme.css","modType":"plugin"}}}"#,
+    );
+    assert!(
+        !immediate
+            .iter()
+            .any(|outbound| matches!(outbound, WindowsIpcOutbound::Response { .. })),
+        "network command must not block the caller: {immediate:?}"
+    );
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        for outbound in host.drain_pending_responses() {
+            if let WindowsIpcOutbound::Response {
+                id: 21,
+                ok: false,
+                value,
+            } = outbound
+            {
+                assert!(value["message"]
+                    .as_str()
+                    .unwrap()
+                    .contains("Invalid plugin filename extension"));
+                return;
+            }
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "async response did not arrive before the deadline"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+}
+
+#[test]
+#[cfg(windows)]
+fn async_dispatch_falls_back_for_sync_commands() {
+    let host = Arc::new(host_with_app_data(temp_dir("async-fallback")));
+    let outbound = host.dispatch_ipc_message_async(
+        r#"{"id":7,"kind":"invoke","payload":{"command":"init","payload":null}}"#,
+    );
+
+    assert_eq!(
+        outbound[0],
+        WindowsIpcOutbound::Response {
+            id: 7,
+            ok: true,
+            value: expected_init_contract(),
+        }
+    );
+    assert!(host.drain_pending_responses().is_empty());
 }
