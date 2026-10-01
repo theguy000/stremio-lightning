@@ -238,8 +238,7 @@ jobs:
             $required = @(
               "stremio-lightning-windows.exe",
               "libmpv-2.dll",
-              "resources/stremio-runtime.exe",
-              "resources/server.cjs",
+              "resources/stream-server.exe",
               "resources/ffmpeg.exe",
               "resources/ffprobe.exe"
             )

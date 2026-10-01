@@ -3,10 +3,8 @@ use std::path::{Path, PathBuf};
 pub const RESOURCES_DIR_NAME: &str = "resources";
 pub const MPV_DEV_DIR_NAME: &str = "mpv-dev";
 pub const LIBMPV_DLL_NAME: &str = "libmpv-2.dll";
-pub const STREMIO_RUNTIME_NAME: &str = "stremio-runtime.exe";
-pub const SERVER_SCRIPT_NAME: &str = "server.cjs";
+pub const STREAM_SERVER_NAME: &str = "stream-server.exe";
 pub const FFMPEG_NAME: &str = "ffmpeg.exe";
-pub const FFPROBE_NAME: &str = "ffprobe.exe";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WindowsResourceLayout {
@@ -65,20 +63,12 @@ impl WindowsResourceLayout {
         }
     }
 
-    pub fn stremio_runtime(&self) -> PathBuf {
-        self.resources_dir().join(STREMIO_RUNTIME_NAME)
-    }
-
-    pub fn server_script(&self) -> PathBuf {
-        self.resources_dir().join(SERVER_SCRIPT_NAME)
+    pub fn stream_server(&self) -> PathBuf {
+        self.resources_dir().join(STREAM_SERVER_NAME)
     }
 
     pub fn ffmpeg(&self) -> PathBuf {
         self.resources_dir().join(FFMPEG_NAME)
-    }
-
-    pub fn ffprobe(&self) -> PathBuf {
-        self.resources_dir().join(FFPROBE_NAME)
     }
 }
 
@@ -107,8 +97,8 @@ mod tests {
             PathBuf::from("crates/stremio-lightning-windows/resources/libmpv-2.dll")
         );
         assert_eq!(
-            layout.stremio_runtime(),
-            PathBuf::from("crates/stremio-lightning-windows/resources/stremio-runtime.exe")
+            layout.stream_server(),
+            PathBuf::from("crates/stremio-lightning-windows/resources/stream-server.exe")
         );
         assert_eq!(
             layout.mpv_dev_dir(),

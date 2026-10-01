@@ -22,6 +22,27 @@ cargo xtask setup-windows
 
 The command populates `crates/stremio-lightning-windows/`.
 
+## Streaming Engine
+
+Windows launches only the open-source `stream-server` engine. The legacy
+bundled `server.js` + Node runtime are no longer shipped or supported; there is
+no backend selection or fallback.
+
+- `STREMIO_LIGHTNING_STREAM_SERVER_BIN` overrides the `stream-server` binary
+  path.
+- There is no automatic fallback: if `stream-server.exe` is missing, the app
+  starts without a streaming server.
+- The shell prepends its resources directory to the engine's `PATH` so the
+  bundled `ffmpeg`/`ffprobe` are found (`stream-server` reads them from `PATH`,
+  not `FFMPEG_BIN`).
+- `cargo xtask setup-windows` downloads a pinned, checksum-verified
+  `stream-server.exe`.
+
+See `scripts/parity/` for the endpoint parity harness. Because Windows setup no
+longer installs the legacy engine, a two-engine comparison needs `--legacy-root`
+pointing at a folder that still contains the legacy files; use
+`--only stream-server` to snapshot the current engine alone.
+
 ## Run Locally
 
 ```powershell

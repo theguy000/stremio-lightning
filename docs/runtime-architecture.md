@@ -41,7 +41,8 @@ See the [plugin API guide](plugin-api.md) for exposed capability groups.
 - macOS uses WKWebView and packages an app-specific runtime in the `.app`
   bundle.
 - Windows uses WebView2 and assembles its runtime resources beside the shell
-  executable.
+  executable, then launches the open-source `stream-server` engine exclusively.
+  The legacy bundled `server.js` + Node runtime are not shipped on Windows.
 
 Platform implementation and setup details are documented in the
 [Linux](platforms/linux.md), [macOS](platforms/macos.md), and

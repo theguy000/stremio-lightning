@@ -7,7 +7,8 @@
     "build:bridge": "node scripts/build-bridge.mjs",
     "build:ui": "vite build",
     "dev:ui": "vite build --watch",
-    "test:ui": "npm run build:bridge && vitest run"
+    "test:ui": "npm run build:bridge && vitest run",
+    "test:parity": "node scripts/parity/run.mjs"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.0.0",

@@ -5,8 +5,6 @@
 
 set -euo pipefail
 
-SERVICE_VERSION="v0.1.21"
-SERVICE_REPO="Stremio/stremio-service"
 WINDOWS_DIR="crates/stremio-lightning-windows"
 TEMP_DIR=$(mktemp -d)
 
@@ -58,23 +56,6 @@ require_command unzip
 rm -rf "$WINDOWS_DIR/resources" "$WINDOWS_DIR/mpv-dev"
 mkdir -p "$WINDOWS_DIR/resources" "$WINDOWS_DIR/mpv-dev"
 
-echo "==> Downloading stremio-service $SERVICE_VERSION (Windows)..."
-if command -v gh &>/dev/null; then
-    gh release download "$SERVICE_VERSION" --repo "$SERVICE_REPO" --pattern "stremio-service-windows.zip" --dir "$TEMP_DIR"
-else
-    echo "Notice: gh CLI not found, using direct curl download..."
-    curl -fsSL "https://github.com/$SERVICE_REPO/releases/download/$SERVICE_VERSION/stremio-service-windows.zip" -o "$TEMP_DIR/stremio-service-windows.zip"
-fi
-unzip -o "$TEMP_DIR/stremio-service-windows.zip" -d "$TEMP_DIR/service"
-
-STREMIO_RUNTIME_EXE=$(first_match "$TEMP_DIR/service" "stremio-runtime.exe")
-SERVER_JS=$(first_match "$TEMP_DIR/service" "server.js")
-
-if [[ -z "$STREMIO_RUNTIME_EXE" || -z "$SERVER_JS" ]]; then
-    echo "ERROR: Could not find stremio-runtime.exe or server.js in downloaded service archive" >&2
-    exit 1
-fi
-
 echo "==> Downloading static FFmpeg (Windows)..."
 curl -L "$FFMPEG_WIN_URL" -o "$TEMP_DIR/ffmpeg.zip"
 unzip -o "$TEMP_DIR/ffmpeg.zip" -d "$TEMP_DIR/ffmpeg"
@@ -123,17 +104,35 @@ if [[ -z "$MPV_LIB" || ! -f "$MPV_LIB" ]]; then
     fi
 fi
 
-cp "$STREMIO_RUNTIME_EXE" "$WINDOWS_DIR/resources/stremio-runtime.exe"
-cp "$SERVER_JS" "$WINDOWS_DIR/resources/server.cjs"
 cp "$FFMPEG_EXE" "$WINDOWS_DIR/resources/ffmpeg.exe"
 cp "$FFPROBE_EXE" "$WINDOWS_DIR/resources/ffprobe.exe"
 cp "$LIBMPV_DLL" "$WINDOWS_DIR/resources/libmpv-2.dll"
 cp "$MPV_LIB" "$WINDOWS_DIR/mpv-dev/mpv.lib"
 [[ -n "$MPV_DEF" ]] && cp "$MPV_DEF" "$WINDOWS_DIR/mpv-dev/mpv.def"
 
+# The open-source stream-server engine is the only Windows streaming backend.
+# The download and checksum are required; there is no legacy fallback.
+STREAM_SERVER_VERSION="v0.1.8"
+STREAM_SERVER_SHA256="90b7a14b282a9e649fba5adb6112c2c191dba884ec762f8650f45ccf06e17e09"
+STREAM_SERVER_URL="https://github.com/stremio-native/stream-server/releases/download/$STREAM_SERVER_VERSION/stream-server-windows-amd64.exe"
+
+echo "==> Downloading stream-server $STREAM_SERVER_VERSION..."
+if ! curl -fsSL "$STREAM_SERVER_URL" -o "$WINDOWS_DIR/resources/stream-server.exe"; then
+    echo "ERROR: Failed to download stream-server from $STREAM_SERVER_URL" >&2
+    rm -f "$WINDOWS_DIR/resources/stream-server.exe"
+    exit 1
+fi
+
+actual_sha=$(sha256sum "$WINDOWS_DIR/resources/stream-server.exe" | awk '{print $1}')
+if [[ "$actual_sha" != "$STREAM_SERVER_SHA256" ]]; then
+    echo "ERROR: stream-server checksum mismatch (expected $STREAM_SERVER_SHA256, got $actual_sha)" >&2
+    rm -f "$WINDOWS_DIR/resources/stream-server.exe"
+    exit 1
+fi
+echo "    stream-server.exe ready"
+
 for required_file in \
-    "$WINDOWS_DIR/resources/stremio-runtime.exe" \
-    "$WINDOWS_DIR/resources/server.cjs" \
+    "$WINDOWS_DIR/resources/stream-server.exe" \
     "$WINDOWS_DIR/resources/ffmpeg.exe" \
     "$WINDOWS_DIR/resources/ffprobe.exe" \
     "$WINDOWS_DIR/resources/libmpv-2.dll" \

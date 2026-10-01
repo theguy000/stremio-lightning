@@ -48,11 +48,7 @@ fn prepare_windows_portable_layout(root: &Path) -> Result<PathBuf> {
     let portable_dir = dist_dir.join("stremio-lightning-windows-portable");
 
     required_file(
-        &windows_dir.join("resources/stremio-runtime.exe"),
-        "cargo xtask setup-windows",
-    )?;
-    required_file(
-        &windows_dir.join("resources/server.cjs"),
+        &windows_dir.join("resources/stream-server.exe"),
         "cargo xtask setup-windows",
     )?;
     required_file(
@@ -90,17 +86,12 @@ fn prepare_windows_portable_layout(root: &Path) -> Result<PathBuf> {
         portable_dir.join("libmpv-2.dll"),
     )?;
 
-    // Server/runtime files go into a resources/ subdirectory
-    // (Packaged layout expects base_dir/resources/stremio-runtime.exe etc.)
+    // Engine/runtime files go into a resources/ subdirectory
+    // (Packaged layout expects base_dir/resources/stream-server.exe etc.)
     let portable_resources = portable_dir.join("resources");
     fs::create_dir_all(&portable_resources)?;
 
-    for name in [
-        "stremio-runtime.exe",
-        "server.cjs",
-        "ffmpeg.exe",
-        "ffprobe.exe",
-    ] {
+    for name in ["stream-server.exe", "ffmpeg.exe", "ffprobe.exe"] {
         copy_file(
             windows_dir.join(format!("resources/{name}")),
             portable_resources.join(name),

@@ -10,6 +10,9 @@ use stremio_lightning_core::streaming_logs::{
 };
 use thiserror::Error;
 
+/// Optional environment override for the stream-server executable path.
+pub const STREAM_SERVER_BIN_ENV: &str = "STREMIO_LIGHTNING_STREAM_SERVER_BIN";
+
 #[derive(Debug, Error)]
 pub enum ServerError {
     #[error("Failed to start streaming server: {0}")]
@@ -47,10 +50,8 @@ impl From<ServerError> for String {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WindowsServerConfig {
     pub disabled: bool,
-    pub runtime_path: PathBuf,
-    pub script_path: PathBuf,
+    pub stream_server_path: PathBuf,
     pub ffmpeg_path: PathBuf,
-    pub ffprobe_path: PathBuf,
     pub log_dir: PathBuf,
 }
 
@@ -58,10 +59,10 @@ impl WindowsServerConfig {
     pub fn from_resources(layout: &WindowsResourceLayout) -> Self {
         Self {
             disabled: false,
-            runtime_path: layout.stremio_runtime(),
-            script_path: layout.server_script(),
+            stream_server_path: std::env::var_os(STREAM_SERVER_BIN_ENV)
+                .map(PathBuf::from)
+                .unwrap_or_else(|| layout.stream_server()),
             ffmpeg_path: layout.ffmpeg(),
-            ffprobe_path: layout.ffprobe(),
             log_dir: default_log_dir(),
         }
     }
@@ -267,23 +268,32 @@ impl<P: ProcessSpawner> Drop for WindowsStreamingServer<P> {
 }
 
 pub fn command_spec(config: &WindowsServerConfig) -> CommandSpec {
+    let stdout_log = config.log_dir.join("stremio-server.stdout.log");
+    let stderr_log = config.log_dir.join("stremio-server.stderr.log");
+
     let mut env = BTreeMap::new();
-    env.insert("NO_CORS".to_string(), "1".to_string());
-    env.insert(
-        "FFMPEG_BIN".to_string(),
-        config.ffmpeg_path.to_string_lossy().into_owned(),
-    );
-    env.insert(
-        "FFPROBE_BIN".to_string(),
-        config.ffprobe_path.to_string_lossy().into_owned(),
-    );
+    // stream-server resolves ffmpeg/ffprobe from PATH, not FFMPEG_BIN, so
+    // prepend the directory holding the bundled media tools.
+    env.insert("PATH".to_string(), stream_server_path_env(config));
 
     CommandSpec {
-        program: config.runtime_path.clone(),
-        args: vec![config.script_path.clone()],
+        program: config.stream_server_path.clone(),
+        args: vec![PathBuf::from("--no-tray")],
         env,
-        stdout_log: config.log_dir.join("stremio-server.stdout.log"),
-        stderr_log: config.log_dir.join("stremio-server.stderr.log"),
+        stdout_log,
+        stderr_log,
+    }
+}
+
+fn stream_server_path_env(config: &WindowsServerConfig) -> String {
+    let tools_dir = match config.ffmpeg_path.parent() {
+        Some(parent) => parent.to_path_buf(),
+        None => config.ffmpeg_path.clone(),
+    };
+
+    match std::env::var("PATH") {
+        Ok(existing) if !existing.is_empty() => format!("{};{existing}", tools_dir.display()),
+        _ => tools_dir.display().to_string(),
     }
 }
 
@@ -490,45 +500,33 @@ mod tests {
     fn test_config() -> WindowsServerConfig {
         WindowsServerConfig {
             disabled: false,
-            runtime_path: PathBuf::from("C:/app/resources/stremio-runtime.exe"),
-            script_path: PathBuf::from("C:/app/resources/server.cjs"),
+            stream_server_path: PathBuf::from("C:/app/resources/stream-server.exe"),
             ffmpeg_path: PathBuf::from("C:/app/resources/ffmpeg.exe"),
-            ffprobe_path: PathBuf::from("C:/app/resources/ffprobe.exe"),
             log_dir: PathBuf::from("C:/logs"),
         }
     }
 
     #[test]
-    fn command_spec_passes_runtime_script_and_media_tools() {
+    fn command_spec_uses_stream_server_binary_without_ffmpeg_bin() {
         let spec = command_spec(&test_config());
 
         assert_eq!(
             spec.program,
-            PathBuf::from("C:/app/resources/stremio-runtime.exe")
+            PathBuf::from("C:/app/resources/stream-server.exe")
         );
-        assert_eq!(
-            spec.args,
-            vec![PathBuf::from("C:/app/resources/server.cjs")]
-        );
-        assert_eq!(spec.env.get("NO_CORS").unwrap(), "1");
-        assert_eq!(
-            spec.env.get("FFMPEG_BIN").unwrap(),
-            "C:/app/resources/ffmpeg.exe"
-        );
-        assert_eq!(
-            spec.env.get("FFPROBE_BIN").unwrap(),
-            "C:/app/resources/ffprobe.exe"
-        );
+        assert_eq!(spec.args, vec![PathBuf::from("--no-tray")]);
+        assert!(spec
+            .env
+            .get("PATH")
+            .unwrap()
+            .starts_with("C:/app/resources"));
+        assert!(!spec.env.contains_key("FFMPEG_BIN"));
+        assert!(!spec.env.contains_key("FFPROBE_BIN"));
         assert_eq!(
             spec.stdout_log,
             PathBuf::from("C:/logs/stremio-server.stdout.log")
         );
-        assert_eq!(
-            spec.stderr_log,
-            PathBuf::from("C:/logs/stremio-server.stderr.log")
-        );
     }
-
     #[test]
     fn start_is_idempotent_while_process_is_running() {
         let spawner = FakeProcessSpawner::default();
