@@ -4,27 +4,26 @@ pub(crate) fn is_allowed_webview_navigation(app_url: &str, target_url: &str) -> 
         return true;
     }
 
-    match (url_origin(app_url), url_origin(target)) {
-        (Some(app_origin), Some(target_origin)) => app_origin == target_origin,
+    match (url_origin_parts(app_url), url_origin_parts(target)) {
+        (Some((app_scheme, app_authority)), Some((target_scheme, target_authority))) => {
+            app_scheme.eq_ignore_ascii_case(target_scheme)
+                && app_authority.eq_ignore_ascii_case(target_authority)
+        }
         _ => false,
     }
 }
 
-pub(crate) fn url_origin(url: &str) -> Option<String> {
+fn url_origin_parts(url: &str) -> Option<(&str, &str)> {
     let scheme_end = url.find("://")?;
-    let scheme = url[..scheme_end].to_ascii_lowercase();
-    if scheme != "http" && scheme != "https" {
+    let scheme = &url[..scheme_end];
+    if !scheme.eq_ignore_ascii_case("http") && !scheme.eq_ignore_ascii_case("https") {
         return None;
     }
 
-    let authority_start = scheme_end + 3;
-    let authority = url[authority_start..]
-        .split(['/', '?', '#'])
-        .next()?
-        .to_ascii_lowercase();
+    let authority = url[scheme_end + 3..].split(['/', '?', '#']).next()?;
     if authority.is_empty() || authority.contains('@') {
         return None;
     }
 
-    Some(format!("{scheme}://{authority}"))
+    Some((scheme, authority))
 }

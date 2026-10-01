@@ -15,6 +15,7 @@ mod platform {
         mpv_end_file_reason, Format, Mpv, SetData,
     };
     use serde_json::{json, Value};
+    use std::borrow::Cow;
     use std::ffi::CString;
     use std::ptr;
     use std::sync::atomic::{AtomicPtr, Ordering};
@@ -376,9 +377,9 @@ mod platform {
             PlayerCommand::SetProperty(name, value) => set_property(mpv, &name, value),
             PlayerCommand::Command(values) => {
                 let (name, args) = super::super::command_name_and_args(&values)?;
-                let refs = args.iter().map(String::as_str).collect::<Vec<_>>();
-                mpv.command(&name, &refs)
-                    .map_err(|error| PlayerError::ExecuteCommand(name, error.to_string()))
+                let refs = args.iter().map(Cow::as_ref).collect::<Vec<_>>();
+                mpv.command(name, &refs)
+                    .map_err(|error| PlayerError::ExecuteCommand(name.to_string(), error.to_string()))
             }
             PlayerCommand::Stop => mpv
                 .command("stop", &[])

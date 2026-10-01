@@ -68,14 +68,10 @@ fn clears_secondary_subtitle_after_sub_add() {
 
 #[test]
 fn extracts_mpv_command_name_and_string_args() {
-    assert_eq!(
-        command_name_and_args(&[json!("loadfile"), json!("file:///video.mp4"), json!(true)])
-            .unwrap(),
-        (
-            "loadfile".to_string(),
-            vec!["file:///video.mp4".to_string(), "true".to_string()]
-        )
-    );
+    let values = [json!("loadfile"), json!("file:///video.mp4"), json!(true)];
+    let (name, args) = command_name_and_args(&values).unwrap();
+    assert_eq!(name, "loadfile");
+    assert_eq!(args, ["file:///video.mp4", "true"]);
 }
 
 #[test]

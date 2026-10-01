@@ -85,10 +85,16 @@ mod windows_impl {
         web_resource_response_received: Option<i64>,
     }
 
+    #[derive(Default)]
+    struct PostScratch {
+        utf16: Vec<u16>,
+        utf8: Vec<u8>,
+    }
+
     struct WebView2Runtime {
         controller: Option<ICoreWebView2Controller>,
         webview: Option<ICoreWebView2>,
-        scratch: Vec<u16>,
+        scratch: PostScratch,
         event_tokens: WebView2EventTokens,
     }
 
@@ -106,7 +112,7 @@ mod windows_impl {
             let mut runtime = Self {
                 controller: Some(controller),
                 webview: None,
-                scratch: Vec::new(),
+                scratch: PostScratch::default(),
                 event_tokens: WebView2EventTokens::default(),
             };
 
@@ -671,7 +677,7 @@ mod windows_impl {
 
     fn add_message_handler(webview: &ICoreWebView2, host: Arc<Host>) -> Result<i64, WebViewError> {
         let mut token = 0;
-        let mut scratch: Vec<u16> = Vec::new();
+        let mut scratch = PostScratch::default();
         // SAFETY: webview is a valid COM interface; handler closure is boxed and retained.
         unsafe {
             webview
@@ -724,7 +730,7 @@ mod windows_impl {
         app_url: String,
     ) -> Result<i64, WebViewError> {
         let mut token = 0;
-        let mut scratch: Vec<u16> = Vec::new();
+        let mut scratch = PostScratch::default();
         // SAFETY: webview is a valid COM interface; handler closure is boxed and retained.
         unsafe {
             webview
@@ -764,7 +770,7 @@ mod windows_impl {
         host: Arc<Host>,
     ) -> Result<i64, WebViewError> {
         let mut token = 0;
-        let mut scratch: Vec<u16> = Vec::new();
+        let mut scratch = PostScratch::default();
         // SAFETY: webview is a valid COM interface; handler closure is boxed and retained.
         unsafe {
             webview
@@ -798,7 +804,7 @@ mod windows_impl {
         webview: &ICoreWebView2,
         host: &Host,
         uri: String,
-        scratch: &mut Vec<u16>,
+        scratch: &mut PostScratch,
     ) -> Result<(), String> {
         if uri
             .get(.."stremio://".len())
@@ -816,16 +822,19 @@ mod windows_impl {
     fn post_outbound_messages(
         webview: &ICoreWebView2,
         messages: Vec<WindowsIpcOutbound>,
-        scratch: &mut Vec<u16>,
+        scratch: &mut PostScratch,
     ) -> Result<(), WebViewError> {
         for outbound in messages {
-            let serialized = serde_json::to_string(&outbound)
+            scratch.utf8.clear();
+            serde_json::to_writer(&mut scratch.utf8, &outbound)
                 .map_err(|error| WebViewError::SerializeIpcResponse(error.to_string()))?;
-            fill_utf16_scratch(scratch, &serialized);
-            // SAFETY: webview is a valid COM interface; scratch is a null-terminated UTF-16 string.
+            // SAFETY: serde_json writes valid UTF-8 into the scratch buffer.
+            let serialized = unsafe { std::str::from_utf8_unchecked(&scratch.utf8) };
+            fill_utf16_scratch(&mut scratch.utf16, serialized);
+            // SAFETY: webview is a valid COM interface; scratch.utf16 is a null-terminated UTF-16 string.
             unsafe {
                 webview
-                    .PostWebMessageAsJson(PCWSTR(scratch.as_ptr()))
+                    .PostWebMessageAsJson(PCWSTR(scratch.utf16.as_ptr()))
                     .map_err(|error| WebViewError::PostIpcResponse(error.to_string()))?;
             }
         }

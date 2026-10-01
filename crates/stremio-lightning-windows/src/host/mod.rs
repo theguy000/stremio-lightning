@@ -131,23 +131,20 @@ impl WindowsHost {
     }
 
     pub fn dispatch_ipc_message(&self, raw: &str) -> Vec<WindowsIpcOutbound> {
-        let response = serde_json::from_str::<host_api::IpcRequest>(raw)
-            .map_err(|error| format!("Invalid Windows WebView2 IPC message: {error}"))
-            .and_then(|request| {
-                let id = request.id;
-                self.dispatch_ipc(&request.kind, request.payload)
-                    .map(|value| (id, true, value))
-                    .or_else(|error| Ok((id, false, json!({ "message": error }))))
-            });
+        match serde_json::from_str::<host_api::IpcRequest>(raw) {
+            Ok(request) => self.dispatch_parsed_ipc_message(request),
+            Err(error) => vec![Self::invalid_ipc_message(&error)],
+        }
+    }
 
-        let mut outbound = match response {
-            Ok((id, ok, value)) => vec![WindowsIpcOutbound::Response { id, ok, value }],
-            Err(error) => vec![WindowsIpcOutbound::Event {
-                event: "windows-ipc-error".to_string(),
-                payload: json!({ "message": error }),
-            }],
-        };
+    fn dispatch_parsed_ipc_message(&self, request: host_api::IpcRequest) -> Vec<WindowsIpcOutbound> {
+        let id = request.id;
+        let (ok, value) = self.dispatch_ipc(&request.kind, request.payload).map_or_else(
+            |error| (false, json!({ "message": error })),
+            |value| (true, value),
+        );
 
+        let mut outbound = vec![WindowsIpcOutbound::Response { id, ok, value }];
         outbound.extend(
             self.drain_all_emitted_events()
                 .unwrap_or_default()
@@ -157,23 +154,35 @@ impl WindowsHost {
         outbound
     }
 
+    fn invalid_ipc_message(error: &serde_json::Error) -> WindowsIpcOutbound {
+        WindowsIpcOutbound::Event {
+            event: "windows-ipc-error".to_string(),
+            payload: json!({ "message": format!("Invalid Windows WebView2 IPC message: {error}") }),
+        }
+    }
+
     #[cfg(windows)]
     pub fn dispatch_ipc_message_async(self: &Arc<Self>, raw: &str) -> Vec<WindowsIpcOutbound> {
-        let request = serde_json::from_str::<host_api::IpcRequest>(raw)
-            .ok()
-            .filter(|request| request.kind == "invoke")
-            .and_then(|request| {
-                let payload = host_api::parse_payload::<host_api::InvokeIpcPayload>(
-                    "invoke",
-                    request.payload,
-                )
-                .ok()?;
-                host_api::is_async_command(&payload.command).then_some((request.id, payload))
-            });
-
-        let Some((id, payload)) = request else {
-            return self.dispatch_ipc_message(raw);
+        let request = match serde_json::from_str::<host_api::IpcRequest>(raw) {
+            Ok(request) => request,
+            Err(error) => return vec![Self::invalid_ipc_message(&error)],
         };
+
+        let async_payload = (request.kind == "invoke")
+            .then(|| {
+                host_api::parse_payload::<host_api::InvokeIpcPayload>(
+                    "invoke",
+                    request.payload.clone(),
+                )
+                .ok()
+            })
+            .flatten()
+            .filter(|payload| host_api::is_async_command(&payload.command));
+
+        let Some(payload) = async_payload else {
+            return self.dispatch_parsed_ipc_message(request);
+        };
+        let id = request.id;
 
         let host = Arc::clone(self);
         host_api::async_runtime().spawn(async move {

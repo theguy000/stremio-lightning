@@ -7,6 +7,7 @@ pub use types::{NativePlayerStatus, PlayerError};
 
 use backend::PlayerBackend;
 use serde_json::Value;
+use std::borrow::Cow;
 use stremio_lightning_core::player_api::{
     PlayerCommand, PlayerEnded, PlayerEvent, PlayerPropertyChange,
 };
@@ -46,12 +47,18 @@ impl WindowsPlayer {
         let command = match method {
             "mpv-observe-prop" => PlayerCommand::ObserveProperty(
                 payload
-                    .and_then(|value| value.as_str().map(ToOwned::to_owned))
+                    .and_then(|value| match value {
+                        Value::String(name) => Some(name),
+                        _ => None,
+                    })
                     .ok_or(PlayerError::MissingPayload("mpv-observe-prop"))?,
             ),
             "mpv-set-prop" => {
-                let values = payload
-                    .and_then(|value| value.as_array().cloned())
+                let mut values = payload
+                    .and_then(|value| match value {
+                        Value::Array(values) => Some(values),
+                        _ => None,
+                    })
                     .ok_or(PlayerError::InvalidPayload("mpv-set-prop"))?;
                 let name = values
                     .first()
@@ -59,14 +66,17 @@ impl WindowsPlayer {
                     .ok_or(PlayerError::MissingPropertyName("mpv-set-prop"))?
                     .to_string();
                 let value = values
-                    .get(1)
-                    .cloned()
+                    .get_mut(1)
+                    .map(std::mem::take)
                     .ok_or(PlayerError::MissingPropertyValue("mpv-set-prop"))?;
                 PlayerCommand::SetProperty(name, value)
             }
             "mpv-command" => PlayerCommand::Command(
                 payload
-                    .and_then(|value| value.as_array().cloned())
+                    .and_then(|value| match value {
+                        Value::Array(values) => Some(values),
+                        _ => None,
+                    })
                     .ok_or(PlayerError::InvalidPayload("mpv-command"))?,
             ),
             "native-player-stop" => PlayerCommand::Stop,
@@ -176,18 +186,17 @@ pub(crate) fn sanitize_mpv_log_message(message: &str) -> String {
 
 pub(crate) fn command_name_and_args(
     values: &[Value],
-) -> Result<(String, Vec<String>), PlayerError> {
+) -> Result<(&str, Vec<Cow<'_, str>>), PlayerError> {
     let name = values
         .first()
         .and_then(Value::as_str)
-        .ok_or(PlayerError::MissingCommandName)?
-        .to_string();
+        .ok_or(PlayerError::MissingCommandName)?;
     let args = values
         .iter()
         .skip(1)
         .map(|value| match value {
-            Value::String(value) => value.clone(),
-            other => other.to_string(),
+            Value::String(value) => Cow::Borrowed(value.as_str()),
+            other => Cow::Owned(other.to_string()),
         })
         .collect();
     Ok((name, args))
