@@ -5,10 +5,12 @@ pub mod url_policy;
 #[cfg(test)]
 mod tests;
 
+use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::sync::Mutex;
-use serde_json::{json, Value};
-use stremio_lightning_core::host_api::{self, BaseHost, HostEvent, HostEventRecord, PlatformBridge};
+use stremio_lightning_core::host_api::{
+    self, BaseHost, HostEvent, HostEventRecord, PlatformBridge,
+};
 use stremio_lightning_core::pip::{serialize_picture_in_picture, PipState};
 use stremio_lightning_core::player_api::PlayerEvent;
 
@@ -113,10 +115,7 @@ impl WindowsHost {
     }
 
     #[cfg(windows)]
-    pub fn bind_native_window(
-        &self,
-        hwnd: windows::Win32::Foundation::HWND,
-    ) -> Result<(), String> {
+    pub fn bind_native_window(&self, hwnd: windows::Win32::Foundation::HWND) -> Result<(), String> {
         *self.base.bridge.lock_window_controller()? = Some(NativeWindowController::new(hwnd));
         Ok(())
     }

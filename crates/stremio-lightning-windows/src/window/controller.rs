@@ -11,12 +11,11 @@ mod windows_impl {
     };
     use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
     use windows::Win32::UI::WindowsAndMessaging::{
-        GetWindowLongPtrW, GetWindowPlacement, GetWindowRect, IsZoomed, PostMessageW,
-        SendMessageW, SetWindowLongPtrW, SetWindowPlacement, SetWindowPos, ShowWindow,
-        GWL_EXSTYLE, GWL_STYLE, HTCAPTION, HWND_NOTOPMOST, HWND_TOPMOST, SHOW_WINDOW_CMD,
-        SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE, SW_MAXIMIZE, SW_MINIMIZE,
-        SW_RESTORE, WINDOWPLACEMENT, WM_CLOSE, WM_NCLBUTTONDOWN, WS_EX_TOPMOST,
-        WS_OVERLAPPEDWINDOW, WS_POPUP, WS_VISIBLE,
+        GetWindowLongPtrW, GetWindowPlacement, GetWindowRect, IsZoomed, PostMessageW, SendMessageW,
+        SetWindowLongPtrW, SetWindowPlacement, SetWindowPos, ShowWindow, GWL_EXSTYLE, GWL_STYLE,
+        HTCAPTION, HWND_NOTOPMOST, HWND_TOPMOST, SHOW_WINDOW_CMD, SWP_FRAMECHANGED, SWP_NOMOVE,
+        SWP_NOOWNERZORDER, SWP_NOSIZE, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE, WINDOWPLACEMENT,
+        WM_CLOSE, WM_NCLBUTTONDOWN, WS_EX_TOPMOST, WS_OVERLAPPEDWINDOW, WS_POPUP, WS_VISIBLE,
     };
 
     #[derive(Debug)]

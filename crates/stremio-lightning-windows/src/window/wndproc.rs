@@ -15,7 +15,7 @@ mod windows_impl {
     };
     use super::window_activation_focused;
     use std::{ffi::c_void, ptr::NonNull};
-    use windows::core::{w, PCWSTR};
+    use windows::core::{w, HSTRING, PCWSTR};
     use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
     use windows::Win32::Graphics::Gdi::{GetStockObject, BLACK_BRUSH, HBRUSH};
     use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -27,11 +27,11 @@ mod windows_impl {
         CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetClientRect,
         GetMessageW, GetWindowLongPtrW, IsIconic, LoadCursorW, LoadIconW, PostQuitMessage,
         RegisterClassW, SetForegroundWindow, SetWindowLongPtrW, ShowWindow, TranslateMessage,
-        CREATESTRUCTW, CW_USEDEFAULT, GWLP_USERDATA, IDC_ARROW,
-        MINMAXINFO, MSG, SHOW_WINDOW_CMD, SIZE_MAXIMIZED, SIZE_MINIMIZED, SIZE_RESTORED,
-        SW_MAXIMIZE, SW_RESTORE, WINDOW_EX_STYLE, WM_ACTIVATE, WM_APPCOMMAND, WM_CLOSE,
-        WM_DESTROY, WM_GETMINMAXINFO, WM_NCCREATE, WM_NCDESTROY, WM_SIZE,
-        WNDCLASSW, WS_CLIPCHILDREN, WS_MAXIMIZE, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+        CREATESTRUCTW, CW_USEDEFAULT, GWLP_USERDATA, IDC_ARROW, MINMAXINFO, MSG, SHOW_WINDOW_CMD,
+        SIZE_MAXIMIZED, SIZE_MINIMIZED, SIZE_RESTORED, SW_MAXIMIZE, SW_RESTORE, WINDOW_EX_STYLE,
+        WM_ACTIVATE, WM_APPCOMMAND, WM_CLOSE, WM_DESTROY, WM_GETMINMAXINFO, WM_NCCREATE,
+        WM_NCDESTROY, WM_SIZE, WNDCLASSW, WS_CLIPCHILDREN, WS_MAXIMIZE, WS_OVERLAPPEDWINDOW,
+        WS_VISIBLE,
     };
 
     const APP_ICON_RESOURCE_ID: usize = 101;
@@ -54,9 +54,7 @@ mod windows_impl {
     ) -> Result<(), String> {
         // SAFETY: Sets DPI awareness context before any native window creation.
         unsafe {
-            let _ = SetProcessDpiAwarenessContext(
-                DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
-            );
+            let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         }
 
         let hwnd = create_main_window(config, Box::new(handler))?;
@@ -81,12 +79,10 @@ mod windows_impl {
     }
 
     pub fn set_app_user_model_id(app_id: &str) -> Result<(), String> {
-        let app_id = to_wide_null(app_id);
+        let app_id = HSTRING::from(app_id);
         // SAFETY: app_id is a null-terminated UTF-16 wide string.
         unsafe { SetCurrentProcessExplicitAppUserModelID(PCWSTR(app_id.as_ptr())) }
-            .map_err(|error| {
-                WindowError::AppUserModelId(error.to_string()).to_string()
-            })
+            .map_err(|error| WindowError::AppUserModelId(error.to_string()).to_string())
     }
 
     fn create_main_window(
@@ -127,7 +123,7 @@ mod windows_impl {
             return Err("Failed to register Windows window class".to_string());
         }
 
-        let title = to_wide_null(config.title);
+        let title = HSTRING::from(config.title);
         let state_handle = WindowStateHandle::from_box(Box::new(WindowState {
             config,
             handler: Some(handler),
@@ -224,9 +220,7 @@ mod windows_impl {
                             ),
                         );
                     } else {
-                        notify_handler(hwnd, "resize", |handler| {
-                            handler.on_resized(hwnd, rect)
-                        });
+                        notify_handler(hwnd, "resize", |handler| handler.on_resized(hwnd, rect));
                         if let Some(visual_state) = visual_state {
                             set_dark_title_bar(hwnd, true);
                             notify_handler(hwnd, "state", |handler| {
@@ -368,10 +362,7 @@ mod windows_impl {
         }
     }
 
-    fn with_handler<R>(
-        hwnd: HWND,
-        f: impl FnOnce(&mut dyn NativeWindowHandler) -> R,
-    ) -> Option<R> {
+    fn with_handler<R>(hwnd: HWND, f: impl FnOnce(&mut dyn NativeWindowHandler) -> R) -> Option<R> {
         WindowStateHandle::from_hwnd(hwnd)?.with_mut(|state| {
             let handler = state.handler.as_mut()?;
             Some(f(handler.as_mut()))
@@ -395,18 +386,9 @@ mod windows_impl {
         }
     }
 
-    fn default_window_proc(
-        hwnd: HWND,
-        message: u32,
-        wparam: WPARAM,
-        lparam: LPARAM,
-    ) -> LRESULT {
+    fn default_window_proc(hwnd: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
         // SAFETY: DefWindowProcW safely processes default message handling for hwnd.
         unsafe { DefWindowProcW(hwnd, message, wparam, lparam) }
-    }
-
-    fn to_wide_null(value: &str) -> Vec<u16> {
-        value.encode_utf16().chain(std::iter::once(0)).collect()
     }
 }
 

@@ -44,15 +44,8 @@ impl From<WindowsHostError> for String {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum WindowsIpcOutbound {
-    Response {
-        id: u64,
-        ok: bool,
-        value: Value,
-    },
-    Event {
-        event: String,
-        payload: Value,
-    },
+    Response { id: u64, ok: bool, value: Value },
+    Event { event: String, payload: Value },
 }
 
 impl From<HostEventRecord> for WindowsIpcOutbound {

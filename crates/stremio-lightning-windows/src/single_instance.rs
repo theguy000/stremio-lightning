@@ -1,48 +1,14 @@
 #![cfg_attr(windows, allow(unsafe_code))]
 
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
-
-#[derive(Debug, Error)]
-pub enum SingleInstanceError {
-    #[error("Failed to create single-instance mutex: {0}")]
-    Mutex(String),
-    #[error("Failed to connect to primary Windows shell: {0}")]
-    Connect(String),
-    #[error("Failed to create single-instance pipe: {0}")]
-    PipeCreation(String),
-    #[error("Failed to accept secondary instance pipe: {0}")]
-    PipeAccept(String),
-    #[error("Launch intent error: {0}")]
-    LaunchIntent(String),
-    #[error("I/O error: {0}")]
-    Io(String),
-    #[error("{0}")]
-    Other(String),
-}
-
-impl From<String> for SingleInstanceError {
-    fn from(error: String) -> Self {
-        Self::Other(error)
-    }
-}
-
-impl From<&str> for SingleInstanceError {
-    fn from(error: &str) -> Self {
-        Self::Other(error.to_string())
-    }
-}
-
-impl From<SingleInstanceError> for String {
-    fn from(error: SingleInstanceError) -> Self {
-        error.to_string()
-    }
-}
 
 #[cfg(windows)]
-const MUTEX_NAME: &str = "Local\\StremioLightning.SingleInstance";
+use windows::core::{w, PCWSTR};
+
 #[cfg(windows)]
-const PIPE_NAME: &str = r"\\.\pipe\StremioLightning.SingleInstance";
+const MUTEX_NAME: PCWSTR = w!("Local\\StremioLightning.SingleInstance");
+#[cfg(windows)]
+const PIPE_NAME: PCWSTR = w!(r"\\.\pipe\StremioLightning.SingleInstance");
 #[cfg(windows)]
 const MAX_LAUNCH_INTENT_BYTES: usize = 4096;
 
@@ -85,12 +51,20 @@ where
 }
 
 pub fn classify_launch_argument(argument: &str) -> Option<LaunchIntent> {
-    let lower = argument.to_ascii_lowercase();
-    if lower.starts_with("stremio://") {
+    let starts_with_ignore_ascii_case = |prefix: &str| {
+        argument
+            .get(..prefix.len())
+            .is_some_and(|head| head.eq_ignore_ascii_case(prefix))
+    };
+
+    if starts_with_ignore_ascii_case("stremio://") {
         Some(LaunchIntent::StremioDeepLink(argument.to_string()))
-    } else if lower.starts_with("magnet:") {
+    } else if starts_with_ignore_ascii_case("magnet:") {
         Some(LaunchIntent::Magnet(argument.to_string()))
-    } else if lower.ends_with(".torrent") {
+    } else if argument
+        .get(argument.len().saturating_sub(".torrent".len())..)
+        .is_some_and(|tail| tail.eq_ignore_ascii_case(".torrent"))
+    {
         Some(LaunchIntent::Torrent(argument.to_string()))
     } else if argument.starts_with('-') {
         None
@@ -134,9 +108,8 @@ mod platform {
 
     impl SingleInstanceGuard {
         pub fn acquire(intent: LaunchIntent) -> Result<SingleInstanceRole, String> {
-            let mutex_name = to_wide_null(MUTEX_NAME);
-            // SAFETY: mutex_name is a null-terminated UTF-16 wide string.
-            let mutex = unsafe { CreateMutexW(None, true, PCWSTR(mutex_name.as_ptr())) }
+            // SAFETY: MUTEX_NAME is a compile-time null-terminated UTF-16 wide string.
+            let mutex = unsafe { CreateMutexW(None, true, MUTEX_NAME) }
                 .map_err(|error| format!("Failed to create single-instance mutex: {error}"))?;
 
             // SAFETY: Queries the Win32 last-error state for the current thread.
@@ -194,8 +167,7 @@ mod platform {
     }
 
     fn deliver_to_primary(intent: &LaunchIntent) -> Result<(), String> {
-        let pipe_name = to_wide_null(PIPE_NAME);
-        let pipe = open_primary_pipe(&pipe_name)?;
+        let pipe = open_primary_pipe(PIPE_NAME)?;
 
         let result = write_intent(pipe, intent);
         // SAFETY: pipe is an owned valid Win32 pipe HANDLE closed on delivery exit.
@@ -205,13 +177,13 @@ mod platform {
         result
     }
 
-    fn open_primary_pipe(pipe_name: &[u16]) -> Result<HANDLE, String> {
+    fn open_primary_pipe(pipe_name: PCWSTR) -> Result<HANDLE, String> {
         let deadline = Instant::now() + Duration::from_secs(2);
         loop {
             // SAFETY: pipe_name is a null-terminated UTF-16 wide string pointing to the pipe.
             let file = unsafe {
                 CreateFileW(
-                    PCWSTR(pipe_name.as_ptr()),
+                    pipe_name,
                     FILE_GENERIC_WRITE.0,
                     FILE_SHARE_MODE(0),
                     None,
@@ -232,7 +204,7 @@ mod platform {
                     }
                     if last_error == ERROR_PIPE_BUSY {
                         // SAFETY: Waits up to 100ms for busy pipe.
-                        let _ = unsafe { WaitNamedPipeW(PCWSTR(pipe_name.as_ptr()), 100) };
+                        let _ = unsafe { WaitNamedPipeW(pipe_name, 100) };
                     } else if last_error == ERROR_FILE_NOT_FOUND {
                         thread::sleep(Duration::from_millis(25));
                     } else {
@@ -246,11 +218,10 @@ mod platform {
     }
 
     fn receive_one_intent() -> Result<LaunchIntent, String> {
-        let pipe_name = to_wide_null(PIPE_NAME);
-        // SAFETY: pipe_name is a null-terminated UTF-16 wide string; creates inbound pipe.
+        // SAFETY: PIPE_NAME is a compile-time null-terminated UTF-16 wide string.
         let pipe = unsafe {
             CreateNamedPipeW(
-                PCWSTR(pipe_name.as_ptr()),
+                PIPE_NAME,
                 PIPE_ACCESS_INBOUND,
                 PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
                 1,
@@ -329,10 +300,6 @@ mod platform {
         }
         Ok(())
     }
-
-    fn to_wide_null(value: &str) -> Vec<u16> {
-        value.encode_utf16().chain(std::iter::once(0)).collect()
-    }
 }
 
 #[cfg(test)]
@@ -358,6 +325,32 @@ mod tests {
         assert_eq!(
             classify_launch_argument("--webui-url=https://example.com"),
             None
+        );
+    }
+
+    #[test]
+    fn classifies_launch_arguments_case_insensitively() {
+        assert_eq!(
+            classify_launch_argument("STREMIO://detail/movie/foo"),
+            Some(LaunchIntent::StremioDeepLink(
+                "STREMIO://detail/movie/foo".to_string()
+            ))
+        );
+        assert_eq!(
+            classify_launch_argument("MAGNET:?xt=urn:btih:test"),
+            Some(LaunchIntent::Magnet("MAGNET:?xt=urn:btih:test".to_string()))
+        );
+        assert_eq!(
+            classify_launch_argument("MOVIE.TORRENT"),
+            Some(LaunchIntent::Torrent("MOVIE.TORRENT".to_string()))
+        );
+        assert_eq!(
+            classify_launch_argument("short"),
+            Some(LaunchIntent::FilePath("short".to_string()))
+        );
+        assert_eq!(
+            classify_launch_argument("xxéxxxxx"),
+            Some(LaunchIntent::FilePath("xxéxxxxx".to_string()))
         );
     }
 

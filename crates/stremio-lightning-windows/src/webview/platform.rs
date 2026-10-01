@@ -17,9 +17,9 @@ mod windows_impl {
         UiThreadNotifier, WindowConfig, WindowVisualState,
     };
     use std::path::PathBuf;
+    use std::ptr;
     use std::sync::atomic::Ordering;
     use std::sync::{mpsc, Arc, Mutex};
-    use std::ptr;
     use webview2_com::{
         AcceleratorKeyPressedEventHandler, AddScriptToExecuteOnDocumentCreatedCompletedHandler,
         CoTaskMemPWSTR, CoreWebView2EnvironmentOptions,
@@ -194,8 +194,7 @@ mod windows_impl {
 
             configure_webview(&webview, devtools)?;
             add_injection_scripts(&webview, injection)?;
-            self.event_tokens.message_received =
-                Some(add_message_handler(&webview, host.clone())?);
+            self.event_tokens.message_received = Some(add_message_handler(&webview, host.clone())?);
             self.event_tokens.navigation_starting = Some(add_navigation_starting_handler(
                 &webview,
                 host.clone(),
@@ -205,8 +204,7 @@ mod windows_impl {
                 Some(add_new_window_requested_handler(&webview, host)?);
             self.event_tokens.navigation_completed =
                 Some(add_navigation_completed_handler(&webview)?);
-            self.event_tokens.process_failed =
-                Some(add_process_failed_handler(&webview)?);
+            self.event_tokens.process_failed = Some(add_process_failed_handler(&webview)?);
             self.event_tokens.web_resource_response_received =
                 add_web_resource_response_received_handler(&webview)?;
             navigate(&webview, url)
@@ -234,10 +232,9 @@ mod windows_impl {
                 }
                 if let Some(token) = self.event_tokens.navigation_starting.take() {
                     // SAFETY: webview is a valid COM interface and token was returned by add.
-                    report.record_windows(
-                        "remove WebView2 navigation starting handler",
-                        unsafe { webview.remove_NavigationStarting(token) },
-                    );
+                    report.record_windows("remove WebView2 navigation starting handler", unsafe {
+                        webview.remove_NavigationStarting(token)
+                    });
                 }
                 if let Some(token) = self.event_tokens.new_window_requested.take() {
                     // SAFETY: webview is a valid COM interface and token was returned by add.
@@ -247,10 +244,9 @@ mod windows_impl {
                 }
                 if let Some(token) = self.event_tokens.navigation_completed.take() {
                     // SAFETY: webview is a valid COM interface and token was returned by add.
-                    report.record_windows(
-                        "remove WebView2 navigation completed handler",
-                        unsafe { webview.remove_NavigationCompleted(token) },
-                    );
+                    report.record_windows("remove WebView2 navigation completed handler", unsafe {
+                        webview.remove_NavigationCompleted(token)
+                    });
                 }
                 if let Some(token) = self.event_tokens.process_failed.take() {
                     // SAFETY: webview is a valid COM interface and token was returned by add.
@@ -285,9 +281,7 @@ mod windows_impl {
 
             if let Some(controller) = self.controller.take() {
                 // SAFETY: controller is a valid COM interface being closed on teardown.
-                report.record_windows("close WebView2 controller", unsafe {
-                    controller.Close()
-                });
+                report.record_windows("close WebView2 controller", unsafe { controller.Close() });
             }
             self.webview = None;
             report.log("Windows WebView2 cleanup failed");
@@ -329,13 +323,8 @@ mod windows_impl {
                 .map_err(|error| error.to_string())
         }
 
-        fn start_host_runtime(
-            &self,
-            hwnd: HWND,
-            notifier: UiThreadNotifier,
-        ) -> Result<(), String> {
-            *self.ui_notifier.lock().map_err(|e| e.to_string())? =
-                Some(notifier.clone());
+        fn start_host_runtime(&self, hwnd: HWND, notifier: UiThreadNotifier) -> Result<(), String> {
+            *self.ui_notifier.lock().map_err(|e| e.to_string())? = Some(notifier.clone());
             self.host.bind_native_window(hwnd)?;
             self.host.initialize_native_player(hwnd, notifier)?;
             self.host.start_streaming_server()
@@ -399,11 +388,7 @@ mod windows_impl {
             Ok(())
         }
 
-        fn on_media_key(
-            &mut self,
-            _hwnd: HWND,
-            action: MediaKeyAction,
-        ) -> Result<(), String> {
+        fn on_media_key(&mut self, _hwnd: HWND, action: MediaKeyAction) -> Result<(), String> {
             let action = match action {
                 MediaKeyAction::PlayPause => "play-pause",
                 MediaKeyAction::NextTrack => "next-track",
@@ -446,10 +431,7 @@ mod windows_impl {
         let (tx, rx) = std::sync::mpsc::channel();
         let user_data_dir = webview2_user_data_dir()?;
         std::fs::create_dir_all(&user_data_dir).map_err(|error| {
-            WebViewError::UserDataDirectory(
-                user_data_dir.display().to_string(),
-                error.to_string(),
-            )
+            WebViewError::UserDataDirectory(user_data_dir.display().to_string(), error.to_string())
         })?;
         let user_data_str = user_data_dir
             .to_str()
@@ -554,10 +536,7 @@ mod windows_impl {
                 "WebView2 runtime version is unavailable",
             );
         } else {
-            stremio_lightning_core::logging::update_webview_metadata(
-                "WebView2",
-                Some(&version),
-            );
+            stremio_lightning_core::logging::update_webview_metadata("WebView2", Some(&version));
             stremio_lightning_core::logging::info(
                 "native.webview.windows",
                 format!("WebView2 runtime version: {version}"),
@@ -565,9 +544,7 @@ mod windows_impl {
         }
     }
 
-    fn configure_controller(
-        controller: &ICoreWebView2Controller,
-    ) -> Result<(), WebViewError> {
+    fn configure_controller(controller: &ICoreWebView2Controller) -> Result<(), WebViewError> {
         let controller2 = controller
             .cast::<ICoreWebView2Controller2>()
             .map_err(|error| WebViewError::GetController2(error.to_string()))?;
@@ -610,27 +587,19 @@ mod windows_impl {
                     )),
                     &mut token,
                 )
-                .map_err(|error| {
-                    WebViewError::AttachAcceleratorHandler(error.to_string())
-                })?;
+                .map_err(|error| WebViewError::AttachAcceleratorHandler(error.to_string()))?;
         }
         Ok(token)
     }
 
-    pub(crate) fn should_block_browser_accelerator(
-        virtual_key: u32,
-        control_down: bool,
-    ) -> bool {
+    pub(crate) fn should_block_browser_accelerator(virtual_key: u32, control_down: bool) -> bool {
         if virtual_key == VK_F5.0 as u32 {
             return true;
         }
         control_down && (virtual_key == VK_R.0 as u32 || virtual_key == VK_P.0 as u32)
     }
 
-    fn configure_webview(
-        webview: &ICoreWebView2,
-        devtools: bool,
-    ) -> Result<(), WebViewError> {
+    fn configure_webview(webview: &ICoreWebView2, devtools: bool) -> Result<(), WebViewError> {
         // SAFETY: webview is a valid COM interface.
         let settings = unsafe {
             webview
@@ -639,10 +608,7 @@ mod windows_impl {
         };
         // SAFETY: settings is a valid COM interface; configuring built-in browser UI controls.
         unsafe {
-            apply_webview_setting(
-                "disable status bar",
-                settings.SetIsStatusBarEnabled(false),
-            );
+            apply_webview_setting("disable status bar", settings.SetIsStatusBarEnabled(false));
             apply_webview_setting(
                 "set devtools availability",
                 settings.SetAreDevToolsEnabled(devtools),
@@ -688,10 +654,7 @@ mod windows_impl {
                 // SAFETY: webview is valid COM interface; source is valid CoTaskMemPWSTR.
                 unsafe {
                     webview
-                        .AddScriptToExecuteOnDocumentCreated(
-                            *source.as_ref().as_pcwstr(),
-                            &handler,
-                        )
+                        .AddScriptToExecuteOnDocumentCreated(*source.as_ref().as_pcwstr(), &handler)
                         .map_err(webview2_com::Error::WindowsError)
                 }
             }),
@@ -703,10 +666,7 @@ mod windows_impl {
         Ok(())
     }
 
-    fn add_message_handler(
-        webview: &ICoreWebView2,
-        host: Arc<Host>,
-    ) -> Result<i64, WebViewError> {
+    fn add_message_handler(webview: &ICoreWebView2, host: Arc<Host>) -> Result<i64, WebViewError> {
         let mut token = 0;
         let mut scratch: Vec<u16> = Vec::new();
         // SAFETY: webview is a valid COM interface; handler closure is boxed and retained.
@@ -743,9 +703,7 @@ mod windows_impl {
                     })),
                     &mut token,
                 )
-                .map_err(|error| {
-                    WebViewError::AttachMessageHandler(error.to_string())
-                })?;
+                .map_err(|error| WebViewError::AttachMessageHandler(error.to_string()))?;
         }
         Ok(token)
     }
@@ -793,9 +751,7 @@ mod windows_impl {
                     })),
                     &mut token,
                 )
-                .map_err(|error| {
-                    WebViewError::AttachNavigationHandler(error.to_string())
-                })?;
+                .map_err(|error| WebViewError::AttachNavigationHandler(error.to_string()))?;
         }
         Ok(token)
     }
@@ -818,12 +774,9 @@ mod windows_impl {
                         args.Uri(&mut uri)?;
                         args.SetHandled(true)?;
                         let uri = CoTaskMemPWSTR::from(uri).to_string();
-                        if let Err(error) = handle_external_navigation(
-                            &webview,
-                            &host,
-                            uri,
-                            &mut scratch,
-                        ) {
+                        if let Err(error) =
+                            handle_external_navigation(&webview, &host, uri, &mut scratch)
+                        {
                             stremio_lightning_core::logging::error(
                                 "native.webview.windows",
                                 format!("Failed to handle new window URL: {error}"),
@@ -833,9 +786,7 @@ mod windows_impl {
                     })),
                     &mut token,
                 )
-                .map_err(|error| {
-                    WebViewError::AttachNewWindowHandler(error.to_string())
-                })?;
+                .map_err(|error| WebViewError::AttachNewWindowHandler(error.to_string()))?;
         }
         Ok(token)
     }
@@ -884,9 +835,7 @@ mod windows_impl {
         scratch.push(0);
     }
 
-    fn add_navigation_completed_handler(
-        webview: &ICoreWebView2,
-    ) -> Result<i64, WebViewError> {
+    fn add_navigation_completed_handler(webview: &ICoreWebView2) -> Result<i64, WebViewError> {
         let mut token = 0;
         // SAFETY: webview is a valid COM interface; handler closure is boxed and retained.
         unsafe {
@@ -934,9 +883,7 @@ mod windows_impl {
         Ok(token)
     }
 
-    fn add_process_failed_handler(
-        webview: &ICoreWebView2,
-    ) -> Result<i64, WebViewError> {
+    fn add_process_failed_handler(webview: &ICoreWebView2) -> Result<i64, WebViewError> {
         let mut token = 0;
         // SAFETY: webview is a valid COM interface; handler closure is boxed and retained.
         unsafe {
@@ -946,8 +893,7 @@ mod windows_impl {
                         let Some(args) = args else {
                             return Ok(());
                         };
-                        let mut kind =
-                            COREWEBVIEW2_PROCESS_FAILED_KIND_UNKNOWN_PROCESS_EXITED;
+                        let mut kind = COREWEBVIEW2_PROCESS_FAILED_KIND_UNKNOWN_PROCESS_EXITED;
                         args.ProcessFailedKind(&mut kind)?;
                         stremio_lightning_core::logging::error(
                             "native.webview.windows",
@@ -960,9 +906,7 @@ mod windows_impl {
                     })),
                     &mut token,
                 )
-                .map_err(|error| {
-                    WebViewError::AttachProcessFailedHandler(error.to_string())
-                })?;
+                .map_err(|error| WebViewError::AttachProcessFailedHandler(error.to_string()))?;
         }
         Ok(token)
     }
@@ -973,8 +917,7 @@ mod windows_impl {
         let webview2 = match webview.cast::<ICoreWebView2_2>() {
             Ok(webview2) => webview2,
             Err(error) => {
-                super::super::NATIVE_HTTP_CAPTURE_AVAILABLE
-                    .store(false, Ordering::Relaxed);
+                super::super::NATIVE_HTTP_CAPTURE_AVAILABLE.store(false, Ordering::Relaxed);
                 stremio_lightning_core::logging::warn(
                     "native.webview.windows",
                     format!("WebView2 response diagnostics unavailable: {error}"),
@@ -1013,8 +956,7 @@ mod windows_impl {
             )
         };
         if let Err(error) = registration {
-            super::super::NATIVE_HTTP_CAPTURE_AVAILABLE
-                .store(false, Ordering::Relaxed);
+            super::super::NATIVE_HTTP_CAPTURE_AVAILABLE.store(false, Ordering::Relaxed);
             stremio_lightning_core::logging::warn(
                 "native.webview.windows",
                 format!("WebView2 response diagnostics could not start: {error}"),

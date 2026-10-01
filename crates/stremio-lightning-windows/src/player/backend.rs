@@ -403,20 +403,14 @@ mod platform {
         }
     }
 
-    fn set_property_value<T: SetData>(
-        mpv: &Mpv,
-        name: &str,
-        value: T,
-    ) -> Result<(), PlayerError> {
+    fn set_property_value<T: SetData>(mpv: &Mpv, name: &str, value: T) -> Result<(), PlayerError> {
         mpv.set_property(name, value)
             .map_err(|error| PlayerError::SetProperty(name.to_string(), error.to_string()))
     }
 
     fn observe_format(name: &str) -> Format {
         match name {
-            "pause" | "paused-for-cache" | "seeking" | "eof-reached" | "keepaspect" => {
-                Format::Flag
-            }
+            "pause" | "paused-for-cache" | "seeking" | "eof-reached" | "keepaspect" => Format::Flag,
             "aid" | "vid" | "sid" => Format::Int64,
             "time-pos"
             | "mute"

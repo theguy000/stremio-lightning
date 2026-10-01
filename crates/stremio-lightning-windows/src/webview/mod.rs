@@ -6,9 +6,7 @@ mod tests;
 pub mod types;
 
 pub use adapter::{host_adapter, windows_host_adapter};
-pub use types::{
-    InjectionBundle, WebViewError, HOST_ADAPTER_NAME, WINDOWS_HOST_ADAPTER_NAME,
-};
+pub use types::{InjectionBundle, WebViewError, HOST_ADAPTER_NAME, WINDOWS_HOST_ADAPTER_NAME};
 
 use crate::host::Host;
 use crate::settings::ShellSettings;

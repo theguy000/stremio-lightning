@@ -21,19 +21,18 @@ pub fn validate_external_url(url: &str) -> Result<(), String> {
 
 #[cfg(windows)]
 pub fn open_external_url(url: &str) -> Result<(), String> {
-    use webview2_com::CoTaskMemPWSTR;
-    use windows::core::w;
+    use windows::core::{w, HSTRING, PCWSTR};
     use windows::Win32::UI::Shell::ShellExecuteW;
     use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
-    let url = CoTaskMemPWSTR::from(url.trim());
+    let url = HSTRING::from(url.trim());
     // SAFETY: ShellExecuteW is called with the valid, null-terminated UTF-16 wide string
-    // allocated by CoTaskMemPWSTR, a valid "open" operation verb, and SW_SHOWNORMAL flag.
+    // held by the HSTRING, a valid "open" operation verb, and SW_SHOWNORMAL flag.
     let result = unsafe {
         ShellExecuteW(
             None,
             w!("open"),
-            *url.as_ref().as_pcwstr(),
+            PCWSTR(url.as_ptr()),
             None,
             None,
             SW_SHOWNORMAL,

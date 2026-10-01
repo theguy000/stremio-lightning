@@ -13,11 +13,7 @@ fn injects_windows_adapter_before_shared_bridge() {
     .unwrap();
 
     #[cfg(not(windows))]
-    let shell = WindowsWebView2Shell::new(
-        ShellSettings::from_args([] as [&str; 0]),
-        rx,
-    )
-    .unwrap();
+    let shell = WindowsWebView2Shell::new(ShellSettings::from_args([] as [&str; 0]), rx).unwrap();
 
     let mut expected = vec![WINDOWS_HOST_ADAPTER_NAME];
     expected.extend(bridge_scripts().iter().map(|script| script.name));

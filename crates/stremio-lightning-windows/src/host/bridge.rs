@@ -1,5 +1,5 @@
-use std::sync::{Mutex, MutexGuard};
 use serde_json::Value;
+use std::sync::{Mutex, MutexGuard};
 use stremio_lightning_core::host_api::PlatformBridge;
 use stremio_lightning_core::pip::PipState;
 use stremio_lightning_core::streaming_logs::StreamingLogTails;
