@@ -19,6 +19,11 @@ use crate::pip::serialize_picture_in_picture;
 use crate::player_api::PlayerEvent;
 use crate::{app_update, logging, mods, settings};
 
+enum PlayerStateUpdate {
+    Paused(bool),
+    Active(bool),
+}
+
 pub struct BaseHost<P: PlatformBridge> {
     pub bridge: P,
     pub listeners: Mutex<ListenerRegistry>,
@@ -211,56 +216,50 @@ impl<P: PlatformBridge> BaseHost<P> {
         Ok(())
     }
 
-    fn update_player_state_from_command(
-        &self,
+    fn player_state_update_from_command(
         command: &str,
-        payload: &Option<Value>,
-    ) -> Result<(), String> {
+        payload: Option<&Value>,
+    ) -> Option<PlayerStateUpdate> {
         if command == "mpv-set-prop" {
-            return self.update_player_paused_from_set_prop(payload);
+            let args = payload?.as_array()?;
+            if args.first().and_then(Value::as_str) != Some("pause") {
+                return None;
+            }
+            return args
+                .get(1)
+                .and_then(Value::as_bool)
+                .map(PlayerStateUpdate::Paused);
         }
 
-        let player_active = match command {
-            "native-player-stop" => Some(false),
+        let active = match command {
+            "native-player-stop" => false,
             "mpv-command" => match payload
-                .as_ref()
                 .and_then(Value::as_array)
                 .and_then(|args| args.first())
                 .and_then(Value::as_str)
             {
-                Some("loadfile") => Some(true),
-                Some("stop" | "quit") => Some(false),
-                _ => None,
+                Some("loadfile") => true,
+                Some("stop" | "quit") => false,
+                _ => return None,
             },
-            _ => None,
+            _ => return None,
         };
 
-        if let Some(player_active) = player_active {
-            let mut prefs = self.lock_shell_preferences()?;
-            prefs.player_active = player_active;
-            prefs.auto_paused = false;
-            if !player_active {
-                prefs.player_paused = true;
-            }
-        }
-
-        Ok(())
+        Some(PlayerStateUpdate::Active(active))
     }
 
-    fn update_player_paused_from_set_prop(&self, payload: &Option<Value>) -> Result<(), String> {
-        let Some(args) = payload.as_ref().and_then(Value::as_array) else {
-            return Ok(());
-        };
-        if args.first().and_then(Value::as_str) != Some("pause") {
-            return Ok(());
-        }
-        let Some(paused) = args.get(1).and_then(Value::as_bool) else {
-            return Ok(());
-        };
-
+    fn apply_player_state_update(&self, update: &PlayerStateUpdate) -> Result<(), String> {
         let mut prefs = self.lock_shell_preferences()?;
-        prefs.player_paused = paused;
         prefs.auto_paused = false;
+        match *update {
+            PlayerStateUpdate::Paused(paused) => prefs.player_paused = paused,
+            PlayerStateUpdate::Active(active) => {
+                prefs.player_active = active;
+                if !active {
+                    prefs.player_paused = true;
+                }
+            }
+        }
         Ok(())
     }
 
@@ -689,9 +688,11 @@ impl<P: PlatformBridge> BaseHost<P> {
                 self.lock_shell_preferences()?.pip_disables_auto_pause
             )),
             "mpv-observe-prop" | "mpv-set-prop" | "mpv-command" | "native-player-stop" => {
-                self.bridge
-                    .handle_custom_transport(command, payload.clone())?;
-                self.update_player_state_from_command(command, &payload)?;
+                let state_update = Self::player_state_update_from_command(command, payload.as_ref());
+                self.bridge.handle_custom_transport(command, payload)?;
+                if let Some(update) = state_update {
+                    self.apply_player_state_update(&update)?;
+                }
                 Ok(Value::Null)
             }
             "toggle_devtools" => Ok(Value::Null),
@@ -746,8 +747,11 @@ impl<P: PlatformBridge> BaseHost<P> {
                         self.bridge.is_window_fullscreen()?,
                     )))?;
                 } else {
-                    self.bridge.handle_custom_transport(&method, data.clone())?;
-                    self.update_player_state_from_command(&method, &data)?;
+                    let state_update = Self::player_state_update_from_command(&method, data.as_ref());
+                    self.bridge.handle_custom_transport(&method, data)?;
+                    if let Some(update) = state_update {
+                        self.apply_player_state_update(&update)?;
+                    }
                 }
                 Ok(())
             }

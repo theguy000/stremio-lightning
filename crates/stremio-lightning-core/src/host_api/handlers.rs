@@ -28,7 +28,8 @@ pub fn parse_request(message: &str) -> Result<ParsedRequest, String> {
 
     let args = request
         .args
-        .and_then(|value| value.as_array().cloned())
+        .as_ref()
+        .and_then(Value::as_array)
         .ok_or_else(|| "Missing shell transport args".to_string())?;
     let method = args
         .first()
