@@ -195,3 +195,16 @@ fn unrelated_accelerators_are_left_alone() {
         true,
     ));
 }
+
+#[test]
+#[cfg(windows)]
+fn outbound_scratch_is_reused_and_null_terminated() {
+    let mut scratch = Vec::new();
+    platform::fill_utf16_scratch(&mut scratch, "ab");
+    assert_eq!(scratch, [0x61, 0x62, 0]);
+    let capacity = scratch.capacity();
+
+    platform::fill_utf16_scratch(&mut scratch, "é");
+    assert_eq!(scratch, [0xE9, 0]);
+    assert_eq!(scratch.capacity(), capacity);
+}

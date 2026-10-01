@@ -88,6 +88,7 @@ mod windows_impl {
     struct WebView2Runtime {
         controller: Option<ICoreWebView2Controller>,
         webview: Option<ICoreWebView2>,
+        scratch: Vec<u16>,
         event_tokens: WebView2EventTokens,
     }
 
@@ -105,6 +106,7 @@ mod windows_impl {
             let mut runtime = Self {
                 controller: Some(controller),
                 webview: None,
+                scratch: Vec::new(),
                 event_tokens: WebView2EventTokens::default(),
             };
 
@@ -204,13 +206,13 @@ mod windows_impl {
         }
 
         fn post_outbound_messages(
-            &self,
+            &mut self,
             messages: Vec<WindowsIpcOutbound>,
         ) -> Result<(), WebViewError> {
             let Some(webview) = self.webview.as_ref() else {
                 return Ok(());
             };
-            post_outbound_messages(webview, messages)
+            post_outbound_messages(webview, messages, &mut self.scratch)
         }
 
         fn cleanup(&mut self) {
@@ -320,8 +322,8 @@ mod windows_impl {
                 .map_err(|error| error.to_string())
         }
 
-        fn post_host_events(&self) -> Result<(), String> {
-            let Some(runtime) = self.runtime.as_ref() else {
+        fn post_host_events(&mut self) -> Result<(), String> {
+            let Some(runtime) = self.runtime.as_mut() else {
                 return Ok(());
             };
             runtime
@@ -703,6 +705,7 @@ mod windows_impl {
         host: Arc<Host>,
     ) -> Result<i64, WebViewError> {
         let mut token = 0;
+        let mut scratch: Vec<u16> = Vec::new();
         // SAFETY: webview is a valid COM interface; handler closure is boxed and retained.
         unsafe {
             webview
@@ -724,6 +727,7 @@ mod windows_impl {
                                 if let Err(error) = post_outbound_messages(
                                     &webview,
                                     host.dispatch_ipc_message(&message),
+                                    &mut scratch,
                                 ) {
                                     stremio_lightning_core::logging::error(
                                         "native.webview.windows",
@@ -756,6 +760,7 @@ mod windows_impl {
         app_url: String,
     ) -> Result<i64, WebViewError> {
         let mut token = 0;
+        let mut scratch: Vec<u16> = Vec::new();
         // SAFETY: webview is a valid COM interface; handler closure is boxed and retained.
         unsafe {
             webview
@@ -772,7 +777,7 @@ mod windows_impl {
                         if !is_allowed_webview_navigation(&app_url, &uri) {
                             args.SetCancel(true)?;
                             let result = webview.map_or(Ok(()), |webview| {
-                                handle_external_navigation(&webview, &host, uri)
+                                handle_external_navigation(&webview, &host, uri, &mut scratch)
                             });
                             if let Err(error) = result {
                                 stremio_lightning_core::logging::error(
@@ -797,6 +802,7 @@ mod windows_impl {
         host: Arc<Host>,
     ) -> Result<i64, WebViewError> {
         let mut token = 0;
+        let mut scratch: Vec<u16> = Vec::new();
         // SAFETY: webview is a valid COM interface; handler closure is boxed and retained.
         unsafe {
             webview
@@ -809,7 +815,12 @@ mod windows_impl {
                         args.Uri(&mut uri)?;
                         args.SetHandled(true)?;
                         let uri = CoTaskMemPWSTR::from(uri).to_string();
-                        if let Err(error) = handle_external_navigation(&webview, &host, uri) {
+                        if let Err(error) = handle_external_navigation(
+                            &webview,
+                            &host,
+                            uri,
+                            &mut scratch,
+                        ) {
                             stremio_lightning_core::logging::error(
                                 "native.webview.windows",
                                 format!("Failed to handle new window URL: {error}"),
@@ -830,13 +841,14 @@ mod windows_impl {
         webview: &ICoreWebView2,
         host: &Host,
         uri: String,
+        scratch: &mut Vec<u16>,
     ) -> Result<(), String> {
         if uri
             .get(.."stremio://".len())
             .is_some_and(|value| value.eq_ignore_ascii_case("stremio://"))
         {
             host.emit_launch_intent(LaunchIntent::StremioDeepLink(uri))?;
-            post_outbound_messages(webview, host.drain_ipc_events())
+            post_outbound_messages(webview, host.drain_ipc_events(), scratch)
                 .map_err(|error| error.to_string())
         } else {
             host.invoke("open_external_url", Some(serde_json::json!({ "url": uri })))?;
@@ -847,19 +859,26 @@ mod windows_impl {
     fn post_outbound_messages(
         webview: &ICoreWebView2,
         messages: Vec<WindowsIpcOutbound>,
+        scratch: &mut Vec<u16>,
     ) -> Result<(), WebViewError> {
         for outbound in messages {
             let serialized = serde_json::to_string(&outbound)
                 .map_err(|error| WebViewError::SerializeIpcResponse(error.to_string()))?;
-            let serialized = CoTaskMemPWSTR::from(serialized.as_str());
-            // SAFETY: webview is a valid COM interface; serialized is null-terminated PWSTR.
+            fill_utf16_scratch(scratch, &serialized);
+            // SAFETY: webview is a valid COM interface; scratch is a null-terminated UTF-16 string.
             unsafe {
                 webview
-                    .PostWebMessageAsJson(*serialized.as_ref().as_pcwstr())
+                    .PostWebMessageAsJson(PCWSTR(scratch.as_ptr()))
                     .map_err(|error| WebViewError::PostIpcResponse(error.to_string()))?;
             }
         }
         Ok(())
+    }
+
+    pub(crate) fn fill_utf16_scratch(scratch: &mut Vec<u16>, text: &str) {
+        scratch.clear();
+        scratch.extend(text.encode_utf16());
+        scratch.push(0);
     }
 
     fn add_navigation_completed_handler(
