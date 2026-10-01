@@ -27,7 +27,7 @@ mod windows_impl {
         CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetClientRect,
         GetMessageW, GetWindowLongPtrW, IsIconic, LoadCursorW, LoadIconW, PostQuitMessage,
         RegisterClassW, SetForegroundWindow, SetWindowLongPtrW, ShowWindow, TranslateMessage,
-        CREATESTRUCTW, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, GWLP_USERDATA, IDC_ARROW,
+        CREATESTRUCTW, CW_USEDEFAULT, GWLP_USERDATA, IDC_ARROW,
         MINMAXINFO, MSG, SHOW_WINDOW_CMD, SIZE_MAXIMIZED, SIZE_MINIMIZED, SIZE_RESTORED,
         SW_MAXIMIZE, SW_RESTORE, WINDOW_EX_STYLE, WM_ACTIVATE, WM_APPCOMMAND, WM_CLOSE,
         WM_DESTROY, WM_GETMINMAXINFO, WM_NCCREATE, WM_NCDESTROY, WM_SIZE,
@@ -111,7 +111,6 @@ mod windows_impl {
         .map_err(|error| format!("Failed to load application icon: {error}"))?;
 
         let window_class = WNDCLASSW {
-            style: CS_HREDRAW | CS_VREDRAW,
             lpfnWndProc: Some(window_proc),
             hInstance: instance.into(),
             hIcon: icon,
