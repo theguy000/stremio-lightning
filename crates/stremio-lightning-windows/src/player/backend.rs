@@ -16,51 +16,41 @@ mod platform {
     };
     use serde_json::{json, Value};
     use std::ffi::CString;
-    use std::ptr::NonNull;
+    use std::ptr;
+    use std::sync::atomic::{AtomicPtr, Ordering};
     use std::sync::mpsc::{Receiver, Sender, TryRecvError};
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
     use std::thread::{self, JoinHandle};
     use stremio_lightning_core::player_api::{
         PlayerCommand, PlayerEnded, PlayerEndedError, PlayerEvent, PlayerPropertyChange,
     };
     use windows::Win32::Foundation::HWND;
 
+    // `AtomicPtr` is `Send + Sync` and `mpv_wakeup` is documented as safe to call from any
+    // thread, so the slot needs no lock and no manual thread-safety impls.
     struct MpvWaker {
-        ctx: Mutex<Option<NonNull<libmpv2_sys::mpv_handle>>>,
+        ctx: AtomicPtr<libmpv2_sys::mpv_handle>,
     }
-
-    // SAFETY: The raw mpv handle is only accessed or modified while holding the mutex.
-    // `mpv_wakeup` is documented as thread-safe and safe to call from any thread, and the
-    // handle is invalidated before the owning `Mpv` is dropped.
-    unsafe impl Send for MpvWaker {}
-
-    // SAFETY: Access to the raw mpv handle is synchronized via a Mutex.
-    unsafe impl Sync for MpvWaker {}
 
     impl MpvWaker {
         fn new(mpv: &Mpv) -> Self {
             Self {
-                ctx: Mutex::new(Some(mpv.ctx)),
+                ctx: AtomicPtr::new(mpv.ctx.as_ptr()),
             }
         }
 
         fn wake(&self) {
-            let ctx = self.ctx.lock().map_or_else(
-                |poisoned| *poisoned.into_inner(),
-                |guard| *guard,
-            );
-            if let Some(ctx) = ctx {
-                // SAFETY: The lock guarantees the handle remains valid until `invalidate`
-                // clears it, which happens before the owning `Mpv` instance is dropped.
-                unsafe { libmpv2_sys::mpv_wakeup(ctx.as_ptr()) };
+            let ctx = self.ctx.load(Ordering::Acquire);
+            if !ctx.is_null() {
+                // SAFETY: `mpv_wakeup` is thread-safe and the handle stays valid until
+                // `invalidate` clears the slot, which happens before the owning `Mpv` is
+                // dropped. The atomic load only keeps the pointer read indivisible.
+                unsafe { libmpv2_sys::mpv_wakeup(ctx) };
             }
         }
 
         fn invalidate(&self) {
-            match self.ctx.lock() {
-                Ok(mut guard) => *guard = None,
-                Err(poisoned) => *poisoned.into_inner() = None,
-            }
+            self.ctx.store(ptr::null_mut(), Ordering::Release);
         }
     }
 
