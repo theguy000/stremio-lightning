@@ -13,8 +13,8 @@ mod windows_impl {
     use crate::host::{Host, WindowsIpcOutbound};
     use crate::single_instance::LaunchIntent;
     use crate::window::{
-        focus_window, run_native_window_with_handler, MediaKeyAction, NativeWindowHandler,
-        UiThreadNotifier, WindowConfig, WindowVisualState,
+        focus_window, run_native_window_with_handler, set_window_title, MediaKeyAction,
+        NativeWindowHandler, UiThreadNotifier, WindowConfig, WindowVisualState,
     };
     use std::path::PathBuf;
     use std::ptr;
@@ -24,10 +24,10 @@ mod windows_impl {
         AcceleratorKeyPressedEventHandler, AddScriptToExecuteOnDocumentCreatedCompletedHandler,
         CoTaskMemPWSTR, CoreWebView2EnvironmentOptions,
         CreateCoreWebView2ControllerCompletedHandler,
-        CreateCoreWebView2EnvironmentCompletedHandler, Microsoft::Web::WebView2::Win32::*,
-        NavigationCompletedEventHandler, NavigationStartingEventHandler,
-        NewWindowRequestedEventHandler, ProcessFailedEventHandler, WebMessageReceivedEventHandler,
-        WebResourceResponseReceivedEventHandler,
+        CreateCoreWebView2EnvironmentCompletedHandler, DocumentTitleChangedEventHandler,
+        Microsoft::Web::WebView2::Win32::*, NavigationCompletedEventHandler,
+        NavigationStartingEventHandler, NewWindowRequestedEventHandler, ProcessFailedEventHandler,
+        WebMessageReceivedEventHandler, WebResourceResponseReceivedEventHandler,
     };
     use windows::core::{Interface, PCWSTR, PWSTR};
     use windows::Win32::Foundation::{E_POINTER, HWND, RECT};
@@ -81,6 +81,7 @@ mod windows_impl {
         navigation_starting: Option<i64>,
         new_window_requested: Option<i64>,
         navigation_completed: Option<i64>,
+        document_title_changed: Option<i64>,
         process_failed: Option<i64>,
         web_resource_response_received: Option<i64>,
     }
@@ -117,7 +118,7 @@ mod windows_impl {
             };
 
             runtime.configure_controller()?;
-            runtime.configure_webview(devtools, injection, host, url)?;
+            runtime.configure_webview(hwnd, devtools, injection, host, url)?;
             runtime.resize_to_client_rect(hwnd)?;
             runtime.show()?;
             runtime.focus()?;
@@ -181,6 +182,7 @@ mod windows_impl {
 
         fn configure_webview(
             &mut self,
+            hwnd: HWND,
             devtools: bool,
             injection: &InjectionBundle,
             host: Arc<Host>,
@@ -210,6 +212,8 @@ mod windows_impl {
                 Some(add_new_window_requested_handler(&webview, host)?);
             self.event_tokens.navigation_completed =
                 Some(add_navigation_completed_handler(&webview)?);
+            self.event_tokens.document_title_changed =
+                Some(add_document_title_changed_handler(&webview, hwnd)?);
             self.event_tokens.process_failed = Some(add_process_failed_handler(&webview)?);
             self.event_tokens.web_resource_response_received =
                 add_web_resource_response_received_handler(&webview)?;
@@ -252,6 +256,12 @@ mod windows_impl {
                     // SAFETY: webview is a valid COM interface and token was returned by add.
                     report.record_windows("remove WebView2 navigation completed handler", unsafe {
                         webview.remove_NavigationCompleted(token)
+                    });
+                }
+                if let Some(token) = self.event_tokens.document_title_changed.take() {
+                    // SAFETY: webview is a valid COM interface and token was returned by add.
+                    report.record_windows("remove WebView2 document title changed handler", unsafe {
+                        webview.remove_DocumentTitleChanged(token)
                     });
                 }
                 if let Some(token) = self.event_tokens.process_failed.take() {
@@ -890,6 +900,28 @@ mod windows_impl {
                 )
                 .map_err(|error| {
                     WebViewError::AttachNavigationCompletedHandler(error.to_string())
+                })?;
+        }
+        Ok(token)
+    }
+
+    fn add_document_title_changed_handler(
+        webview: &ICoreWebView2,
+        hwnd: HWND,
+    ) -> Result<i64, WebViewError> {
+        let mut token = 0;
+        // SAFETY: webview is a valid COM interface; handler closure is boxed and retained.
+        unsafe {
+            webview
+                .add_DocumentTitleChanged(
+                    &DocumentTitleChangedEventHandler::create(Box::new(move |_webview, _args| {
+                        set_window_title(hwnd);
+                        Ok(())
+                    })),
+                    &mut token,
+                )
+                .map_err(|error| {
+                    WebViewError::AttachDocumentTitleChangedHandler(error.to_string())
                 })?;
         }
         Ok(token)

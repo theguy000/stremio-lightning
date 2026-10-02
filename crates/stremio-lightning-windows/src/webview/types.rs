@@ -83,6 +83,9 @@ pub enum WebViewError {
     #[error("Failed to attach WebView2 navigation completed handler: {0}")]
     AttachNavigationCompletedHandler(String),
 
+    #[error("Failed to attach WebView2 document title changed handler: {0}")]
+    AttachDocumentTitleChangedHandler(String),
+
     #[error("Failed to attach WebView2 process failure handler: {0}")]
     AttachProcessFailedHandler(String),
 

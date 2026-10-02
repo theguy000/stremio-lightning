@@ -26,7 +26,8 @@ mod windows_impl {
     use windows::Win32::UI::WindowsAndMessaging::{
         CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetClientRect,
         GetMessageW, GetWindowLongPtrW, IsIconic, LoadCursorW, LoadIconW, PostQuitMessage,
-        RegisterClassW, SetForegroundWindow, SetWindowLongPtrW, ShowWindow, TranslateMessage,
+        RegisterClassW, SetForegroundWindow, SetWindowLongPtrW, SetWindowTextW, ShowWindow,
+        TranslateMessage,
         CREATESTRUCTW, CW_USEDEFAULT, GWLP_USERDATA, IDC_ARROW, MINMAXINFO, MSG, SHOW_WINDOW_CMD,
         SIZE_MAXIMIZED, SIZE_MINIMIZED, SIZE_RESTORED, SW_MAXIMIZE, SW_RESTORE, WINDOW_EX_STYLE,
         WM_ACTIVATE, WM_APPCOMMAND, WM_CLOSE, WM_DESTROY, WM_GETMINMAXINFO, WM_NCCREATE,
@@ -83,6 +84,16 @@ mod windows_impl {
         // SAFETY: app_id is a null-terminated UTF-16 wide string.
         unsafe { SetCurrentProcessExplicitAppUserModelID(PCWSTR(app_id.as_ptr())) }
             .map_err(|error| WindowError::AppUserModelId(error.to_string()).to_string())
+    }
+
+    /// Re-applies the shell's own caption after `WebView2` overwrites it with
+    /// the page's `document.title`.
+    pub fn set_window_title(hwnd: HWND) {
+        let title = HSTRING::from(crate::APP_NAME);
+        // SAFETY: hwnd is a valid window handle and title is a null-terminated UTF-16 string.
+        unsafe {
+            let _ = SetWindowTextW(hwnd, PCWSTR(title.as_ptr()));
+        }
     }
 
     fn create_main_window(
