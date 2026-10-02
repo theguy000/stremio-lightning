@@ -6,14 +6,15 @@ use std::sync::{Arc, Mutex};
 use super::handlers::{
     async_runtime, handshake_response, is_async_command, parse_optional_bool, parse_payload,
     parse_request, response_message, safe_native_player_status, serialize_window_visibility,
+    split_invoke_payload,
 };
 use super::types::{
     DownloadModPayload, FocusChangedPayload, FullscreenIpcPayload, GetLogsPayload, HostApiError,
-    HostEvent, HostEventRecord, InvokeIpcPayload, ListenIpcPayload, ListenerRegistry,
-    ModFilePayload, ModTypePayload, ParsedRequest, PlatformBridge, RegisterSettingsPayload,
-    RpcResponse, SaveSettingPayload, SetExtendedDiagnosticsPayload, SettingKeyPayload,
-    ShellPreferenceState, SubmitDiagnosticLogsPayload, UnlistenIpcPayload, ZoomIpcPayload,
-    RPC_TYPE_SIGNAL, SHELL_TRANSPORT_EVENT, TRANSPORT_OBJECT,
+    HostEvent, HostEventRecord, ListenIpcPayload, ListenerRegistry, ModFilePayload, ModTypePayload,
+    ParsedRequest, PlatformBridge, RegisterSettingsPayload, RpcResponse, SaveSettingPayload,
+    SetExtendedDiagnosticsPayload, SettingKeyPayload, ShellPreferenceState,
+    SubmitDiagnosticLogsPayload, UnlistenIpcPayload, ZoomIpcPayload, RPC_TYPE_SIGNAL,
+    SHELL_TRANSPORT_EVENT, TRANSPORT_OBJECT,
 };
 use crate::pip::serialize_picture_in_picture;
 use crate::player_api::PlayerEvent;
@@ -316,8 +317,8 @@ impl<P: PlatformBridge> BaseHost<P> {
     pub fn dispatch_ipc(&self, kind: &str, payload: Option<Value>) -> Result<Value, String> {
         match kind {
             "invoke" => {
-                let payload: InvokeIpcPayload = parse_payload(kind, payload)?;
-                self.invoke(&payload.command, payload.payload)
+                let (command, payload) = split_invoke_payload(payload)?;
+                self.invoke(&command, payload)
             }
             "listen" => {
                 let payload: ListenIpcPayload = parse_payload(kind, payload)?;

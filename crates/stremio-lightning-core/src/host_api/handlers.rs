@@ -122,6 +122,28 @@ pub fn safe_native_player_status(status: &Value) -> String {
 }
 
 /// # Errors
+/// Returns an error when the payload is absent or is missing its `command`.
+pub fn split_invoke_payload(payload: Option<Value>) -> Result<(String, Option<Value>), String> {
+    let Some(mut payload) = payload else {
+        return Err("Missing invoke payload".to_string());
+    };
+    // `serde_json::from_value` would deep-clone the inner payload — media URLs
+    // included — on every invoke, so take both values out of the object we own.
+    let Some(Value::String(command)) = payload
+        .as_object_mut()
+        .and_then(|object| object.remove("command"))
+    else {
+        return Err("Missing invoke command".to_string());
+    };
+    Ok((
+        command,
+        payload
+            .as_object_mut()
+            .and_then(|object| object.remove("payload")),
+    ))
+}
+
+/// # Errors
 /// Returns an error when the payload is absent or cannot be deserialized into `T`.
 pub fn parse_payload<T>(command: &str, payload: Option<Value>) -> Result<T, String>
 where

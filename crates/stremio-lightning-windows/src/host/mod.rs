@@ -198,10 +198,7 @@ impl WindowsHost {
         }
         let id = request.id;
 
-        let payload = match host_api::parse_payload::<host_api::InvokeIpcPayload>(
-            "invoke",
-            request.payload,
-        ) {
+let (command, payload) = match host_api::split_invoke_payload(request.payload) {
             Ok(payload) => payload,
             Err(error) => {
                 return vec![WindowsIpcOutbound::Response {
@@ -214,10 +211,7 @@ impl WindowsHost {
 
         let host = Arc::clone(self);
         host_api::async_runtime().spawn(async move {
-            let result = host
-                .base
-                .invoke_async(&payload.command, payload.payload)
-                .await;
+            let result = host.base.invoke_async(&command, payload).await;
             let outbound = match result {
                 Ok(value) => WindowsIpcOutbound::Response {
                     id,

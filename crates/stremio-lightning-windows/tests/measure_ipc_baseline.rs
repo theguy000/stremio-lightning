@@ -22,7 +22,7 @@ use serde_json::{json, Value};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::Instant;
-use stremio_lightning_core::host_api::{self, InvokeIpcPayload, IpcRequest};
+use stremio_lightning_core::host_api::{self, IpcRequest};
 use stremio_lightning_windows::host::{WindowsHost, WindowsIpcOutbound};
 use stremio_lightning_windows::single_instance::LaunchIntent;
 
@@ -72,6 +72,20 @@ fn bench_1_sync_ipc_single_vs_double_parse() {
     let raw_msg = r#"{"id":1,"kind":"invoke","payload":{"command":"init","payload":null}}"#;
     let iterations = 10_000;
 
+    // The old shape, kept as the live BEFORE: an owned mirror of the invoke
+    // envelope deserialized out of the already-parsed `Value`, which makes
+    // serde_json deep-clone the inner payload.
+    #[derive(serde::Deserialize)]
+    struct InvokeEnvelope {
+        command: String,
+        payload: Option<Value>,
+    }
+    fn old_split(payload: Option<Value>) -> Result<(String, Option<Value>), String> {
+        serde_json::from_value::<InvokeEnvelope>(payload.unwrap_or(Value::Null))
+            .map(|envelope| (envelope.command, envelope.payload))
+            .map_err(|error| format!("Invalid invoke payload: {error}"))
+    }
+
     for _ in 0..100 {
         let _ = host.dispatch_ipc_message_async(raw_msg);
     }
@@ -79,7 +93,18 @@ fn bench_1_sync_ipc_single_vs_double_parse() {
     reset_metrics();
     let start_double = Instant::now();
     for _ in 0..iterations {
-        let _ = host.dispatch_ipc_message_async(raw_msg);
+        let request: IpcRequest = serde_json::from_str(raw_msg).unwrap();
+        let is_async = if request.kind == "invoke" {
+            old_split(request.payload.clone())
+                .is_ok_and(|(command, _)| host_api::is_async_command(&command))
+        } else {
+            false
+        };
+
+        if !is_async {
+            let _ = host.dispatch_ipc(&request.kind, request.payload);
+            let _ = host.drain_ipc_events();
+        }
     }
     let elapsed_double = start_double.elapsed();
     let (allocs_double, bytes_double) = current_metrics();
@@ -89,8 +114,8 @@ fn bench_1_sync_ipc_single_vs_double_parse() {
     for _ in 0..iterations {
         let request: IpcRequest = serde_json::from_str(raw_msg).unwrap();
         let is_async = if request.kind == "invoke" {
-            host_api::parse_payload::<InvokeIpcPayload>("invoke", request.payload.clone())
-                .is_ok_and(|p| host_api::is_async_command(&p.command))
+            host_api::split_invoke_payload(request.payload.clone())
+                .is_ok_and(|(command, _)| host_api::is_async_command(&command))
         } else {
             false
         };

@@ -410,12 +410,6 @@ pub struct RegisterSettingsPayload {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct InvokeIpcPayload {
-    pub command: String,
-    pub payload: Option<Value>,
-}
-
-#[derive(Debug, Deserialize)]
 pub struct ListenIpcPayload {
     pub id: u64,
     pub event: String,
