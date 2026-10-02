@@ -10,7 +10,7 @@ use super::types::{
 /// # Errors
 /// Returns an error when the message is not valid JSON or is missing required fields.
 pub fn parse_request(message: &str) -> Result<ParsedRequest, String> {
-    let request: RpcRequest = serde_json::from_str(message)
+    let mut request: RpcRequest = serde_json::from_str(message)
         .map_err(|e| format!("Failed to parse shell transport message: {e}"))?;
 
     if request.request_type == Some(RPC_TYPE_INIT)
@@ -28,17 +28,16 @@ pub fn parse_request(message: &str) -> Result<ParsedRequest, String> {
         }
     }
 
-    let args = request
-        .args
-        .as_ref()
-        .and_then(Value::as_array)
-        .ok_or_else(|| "Missing shell transport args".to_string())?;
-    let method = args
-        .first()
-        .and_then(Value::as_str)
-        .ok_or_else(|| "Missing shell transport method".to_string())?
-        .to_string();
-    let data = args.get(1).cloned();
+    // Take the args out of the request we own; cloning them would deep-copy the
+    // whole payload (stream URLs included) on every transport message.
+    let mut args = match request.args.take() {
+        Some(Value::Array(args)) => args.into_iter(),
+        _ => return Err("Missing shell transport args".to_string()),
+    };
+    let Some(Value::String(method)) = args.next() else {
+        return Err("Missing shell transport method".to_string());
+    };
+    let data = args.next();
 
     Ok(ParsedRequest::Command { method, data })
 }
