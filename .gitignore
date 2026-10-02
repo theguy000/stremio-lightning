@@ -5,6 +5,7 @@
 
 # Rust
 target/
+dhat-heap*.json
 
 # Node
 node_modules/
