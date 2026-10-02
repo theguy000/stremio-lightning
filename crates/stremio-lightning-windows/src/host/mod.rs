@@ -33,6 +33,8 @@ pub struct WindowsHost {
     #[cfg(windows)]
     pending_responses: Mutex<Vec<WindowsIpcOutbound>>,
     #[cfg(windows)]
+    player_scratch: Mutex<Vec<PlayerEvent>>,
+    #[cfg(windows)]
     ui_notifier: Mutex<Option<crate::window::UiThreadNotifier>>,
 }
 
@@ -95,6 +97,8 @@ impl WindowsHost {
             base: BaseHost::new(bridge, app_data_dir, package_version),
             #[cfg(windows)]
             pending_responses: Mutex::default(),
+            #[cfg(windows)]
+            player_scratch: Mutex::default(),
             #[cfg(windows)]
             ui_notifier: Mutex::default(),
         }
@@ -471,19 +475,27 @@ let (command, payload) = match host_api::split_invoke_payload(request.payload) {
     }
 
     fn emit_player_events(&self) -> Result<(), String> {
-        let events = self.player().lock().map_or_else(
-            |poisoned| poisoned.into_inner().drain_events(),
-            |mut guard| guard.drain_events(),
-        );
+        // Recycled across ticks: taking the player queue by value would hand its
+        // allocation to this loop, so the next push would regrow from zero.
+        let mut events = self
+            .player_scratch
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        events.clear();
+        self.player()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .drain_events_into(&mut events);
 
-        for event in events {
+        for event in events.iter() {
             if matches!(event, PlayerEvent::Ended(_))
                 && self.exit_picture_in_picture_window_for_player_end()?
             {
                 self.emit_picture_in_picture(false)?;
             }
-            self.base.emit_player_event(&event)?;
+            self.base.emit_player_event(event)?;
         }
+        events.clear();
         Ok(())
     }
 

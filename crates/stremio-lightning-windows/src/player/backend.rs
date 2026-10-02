@@ -134,11 +134,12 @@ mod platform {
             Ok(())
         }
 
-        pub fn drain_events(&mut self) -> Vec<PlayerEvent> {
-            let Some(receiver) = self.receiver.as_ref() else {
-                return Vec::new();
-            };
-            receiver.try_iter().collect()
+        /// Moves queued events into `out`. Extending straight from the receiver
+        /// avoids the temporary `collect` a returned `Vec` would need.
+        pub fn drain_events_into(&self, out: &mut Vec<PlayerEvent>) {
+            if let Some(receiver) = self.receiver.as_ref() {
+                out.extend(receiver.try_iter());
+            }
         }
 
         pub fn shutdown(&mut self) {
@@ -478,9 +479,7 @@ mod platform {
             Ok(())
         }
 
-        pub fn drain_events(&mut self) -> Vec<PlayerEvent> {
-            Vec::new()
-        }
+        pub fn drain_events_into(&self, _out: &mut Vec<PlayerEvent>) {}
 
         pub fn shutdown(&mut self) {}
     }

@@ -143,10 +143,11 @@ impl WindowsPlayer {
         &self.commands
     }
 
-    pub fn drain_events(&mut self) -> Vec<PlayerEvent> {
-        let mut events = std::mem::take(&mut self.events);
-        events.extend(self.backend.drain_events());
-        events
+    /// Moves buffered events into `out`. `append` empties this player's buffer
+    /// without releasing it, so the next tick does not regrow from zero.
+    pub fn drain_events_into(&mut self, out: &mut Vec<PlayerEvent>) {
+        out.append(&mut self.events);
+        self.backend.drain_events_into(out);
     }
 
     pub fn shutdown(&mut self) {
