@@ -1028,3 +1028,239 @@ fn bench_8_cli_argument_classification() {
         (bytes_before - bytes_after) as f64 / bytes_before as f64 * 100.0
     );
 }
+
+// =====================================================================
+// 11. Envelope Handling: serde_json::Value tree vs borrowed raw payload
+//
+// Feasibility spike for replacing `IpcRequest.payload: Option<Value>` with a
+// raw JSON slice. Both sides run the identical downstream work (the real
+// `parse_request` on the inner transport message) so the delta is purely the
+// cost of materializing the envelope into a tree.
+// =====================================================================
+#[ignore = "manual perf harness: run with --ignored --nocapture --test-threads=1"]
+#[test]
+fn bench_11_envelope_value_tree_vs_raw_payload() {
+    use serde::Deserialize;
+    use serde_json::value::RawValue;
+
+    let media_url = format!(
+        "https://cdn.example.test/media/{}?token=abcdef0123456789",
+        "segment-path/".repeat(200)
+    );
+    let raw_msg = json!({
+        "id": 7,
+        "kind": "invoke",
+        "payload": {
+            "command": "shell_transport_send",
+            "payload": { "message": json!({
+                "id": 42,
+                "type": 6,
+                "args": ["open-url", media_url],
+            }).to_string() },
+        },
+    })
+    .to_string();
+    let iterations = 10_000;
+
+    // AFTER candidate: envelope fields borrowed, payload kept as raw JSON text.
+    #[derive(Deserialize)]
+    struct RawEnvelope<'a> {
+        #[allow(dead_code)]
+        id: u64,
+        #[serde(borrow)]
+        kind: std::borrow::Cow<'a, str>,
+        #[serde(borrow)]
+        payload: Option<&'a RawValue>,
+    }
+    #[derive(Deserialize)]
+    struct RawInvokePayload<'a> {
+        #[serde(borrow)]
+        command: std::borrow::Cow<'a, str>,
+        #[serde(borrow)]
+        payload: Option<&'a RawValue>,
+    }
+    #[derive(Deserialize)]
+    struct RawTransportSend<'a> {
+        #[serde(borrow)]
+        message: std::borrow::Cow<'a, str>,
+    }
+
+    fn handle_after(raw: &str) -> Result<usize, String> {
+        let envelope: RawEnvelope<'_> =
+            serde_json::from_str(raw).map_err(|error| error.to_string())?;
+        if envelope.kind != "invoke" {
+            return Err("not an invoke".to_string());
+        }
+        let invoke: RawInvokePayload<'_> = serde_json::from_str(
+            envelope.payload.ok_or("missing payload")?.get(),
+        )
+        .map_err(|error| error.to_string())?;
+        if invoke.command != "shell_transport_send" {
+            return Err("not a transport send".to_string());
+        }
+        let send: RawTransportSend<'_> = serde_json::from_str(
+            invoke.payload.ok_or("missing transport payload")?.get(),
+        )
+        .map_err(|error| error.to_string())?;
+        // The real downstream parse, identical on both sides.
+        Ok(match host_api::parse_request(&send.message)? {
+            host_api::ParsedRequest::Handshake => 0,
+            host_api::ParsedRequest::Command { method, data } => method.len() + usize::from(data.is_some()),
+        })
+    }
+
+    fn handle_before(raw: &str) -> Result<usize, String> {
+        let request: IpcRequest = serde_json::from_str(raw).map_err(|error| error.to_string())?;
+        let (command, payload) = host_api::split_invoke_payload(request.payload)?;
+        if command != "shell_transport_send" {
+            return Err("not a transport send".to_string());
+        }
+        let message = payload
+            .as_ref()
+            .and_then(|value| value.get("message"))
+            .and_then(Value::as_str)
+            .ok_or("missing transport message")?;
+        // The real downstream parse, identical on both sides.
+        Ok(match host_api::parse_request(message)? {
+            host_api::ParsedRequest::Handshake => 0,
+            host_api::ParsedRequest::Command { method, data } => method.len() + usize::from(data.is_some()),
+        })
+    }
+
+    assert_eq!(handle_before(&raw_msg), handle_after(&raw_msg));
+    for _ in 0..100 {
+        let _ = handle_before(&raw_msg);
+        let _ = handle_after(&raw_msg);
+    }
+
+    // Envelope-only variants stop before the inner transport parse, so the
+    // envelope cost can be attributed separately from `parse_request`.
+    fn envelope_only_before(raw: &str) -> Result<usize, String> {
+        let request: IpcRequest = serde_json::from_str(raw).map_err(|error| error.to_string())?;
+        let (command, payload) = host_api::split_invoke_payload(request.payload)?;
+        let message = payload
+            .as_ref()
+            .and_then(|value| value.get("message"))
+            .and_then(Value::as_str)
+            .ok_or("missing transport message")?;
+        Ok(command.len() + message.len())
+    }
+
+    fn envelope_only_after(raw: &str) -> Result<usize, String> {
+        let envelope: RawEnvelope<'_> =
+            serde_json::from_str(raw).map_err(|error| error.to_string())?;
+        let invoke: RawInvokePayload<'_> =
+            serde_json::from_str(envelope.payload.ok_or("missing payload")?.get())
+                .map_err(|error| error.to_string())?;
+        let send: RawTransportSend<'_> =
+            serde_json::from_str(invoke.payload.ok_or("missing transport payload")?.get())
+                .map_err(|error| error.to_string())?;
+        Ok(envelope.kind.len() + invoke.command.len() + send.message.len())
+    }
+
+    reset_metrics();
+    let start_env_before = Instant::now();
+    for _ in 0..iterations {
+        std::hint::black_box(envelope_only_before(std::hint::black_box(&raw_msg))).unwrap();
+    }
+    let elapsed_env_before = start_env_before.elapsed();
+    let (env_allocs_before, env_bytes_before) = current_metrics();
+
+    reset_metrics();
+    let start_env_after = Instant::now();
+    for _ in 0..iterations {
+        std::hint::black_box(envelope_only_after(std::hint::black_box(&raw_msg))).unwrap();
+    }
+    let elapsed_env_after = start_env_after.elapsed();
+    let (env_allocs_after, env_bytes_after) = current_metrics();
+
+    reset_metrics();
+    let start_before = Instant::now();
+    for _ in 0..iterations {
+        std::hint::black_box(handle_before(std::hint::black_box(&raw_msg))).unwrap();
+    }
+    let elapsed_before = start_before.elapsed();
+    let (allocs_before, bytes_before) = current_metrics();
+
+    reset_metrics();
+    let start_after = Instant::now();
+    for _ in 0..iterations {
+        std::hint::black_box(handle_after(std::hint::black_box(&raw_msg))).unwrap();
+    }
+    let elapsed_after = start_after.elapsed();
+    let (allocs_after, bytes_after) = current_metrics();
+
+    println!("\n==================================================================");
+    println!(" BENCHMARK 11: Envelope Value Tree vs Borrowed Raw Payload (10,000 msgs)");
+    println!("==================================================================");
+    println!("[BEFORE: IpcRequest.payload: Option<Value>]");
+    println!(
+        "  Time:        {:?} ({:.3} µs / msg)",
+        elapsed_before,
+        elapsed_before.as_secs_f64() * 1_000_000.0 / f64::from(iterations)
+    );
+    println!(
+        "  Allocations: {} blocks ({:.2} blocks / msg)",
+        allocs_before,
+        allocs_before as f64 / f64::from(iterations)
+    );
+    println!(
+        "  Heap Bytes:  {} bytes ({:.1} B / msg)\n",
+        bytes_before,
+        bytes_before as f64 / f64::from(iterations)
+    );
+
+    println!("[AFTER: payload: Option<Box<RawValue>> (borrowed, no tree)]");
+    println!(
+        "  Time:        {:?} ({:.3} µs / msg)",
+        elapsed_after,
+        elapsed_after.as_secs_f64() * 1_000_000.0 / f64::from(iterations)
+    );
+    println!(
+        "  Allocations: {} blocks ({:.2} blocks / msg)",
+        allocs_after,
+        allocs_after as f64 / f64::from(iterations)
+    );
+    println!(
+        "  Heap Bytes:  {} bytes ({:.1} B / msg)\n",
+        bytes_after,
+        bytes_after as f64 / f64::from(iterations)
+    );
+
+    println!("[IMPROVEMENT DELTA — envelope handling only]");
+    println!(
+        "  Envelope cost BEFORE: {:.1} B / msg in {:.2} blocks ({:.3} µs)",
+        env_bytes_before as f64 / f64::from(iterations),
+        env_allocs_before as f64 / f64::from(iterations),
+        elapsed_env_before.as_secs_f64() * 1_000_000.0 / f64::from(iterations)
+    );
+    println!(
+        "  Envelope cost AFTER:  {:.1} B / msg in {:.2} blocks ({:.3} µs)",
+        env_bytes_after as f64 / f64::from(iterations),
+        env_allocs_after as f64 / f64::from(iterations),
+        elapsed_env_after.as_secs_f64() * 1_000_000.0 / f64::from(iterations)
+    );
+    println!(
+        "  -> inner parse_request cost BEFORE: {:.1} B / msg in {:.2} blocks",
+        (bytes_before - env_bytes_before) as f64 / f64::from(iterations),
+        (allocs_before - env_allocs_before) as f64 / f64::from(iterations)
+    );
+    println!("\n[WHOLE MESSAGE: envelope + inner parse]");
+    println!(
+        "  Latency:     {:.2}% faster ({:.3} µs saved / msg)",
+        (1.0 - elapsed_after.as_secs_f64() / elapsed_before.as_secs_f64()) * 100.0,
+        (elapsed_before.as_secs_f64() - elapsed_after.as_secs_f64()) * 1_000_000.0
+            / f64::from(iterations)
+    );
+    println!(
+        "  Allocations: -{} blocks (-{:.1}%)",
+        allocs_before - allocs_after,
+        (allocs_before - allocs_after) as f64 / allocs_before as f64 * 100.0
+    );
+    println!(
+        "  Heap Churn:  -{} bytes (-{:.1}%)\n",
+        bytes_before - bytes_after,
+        (bytes_before - bytes_after) as f64 / bytes_before as f64 * 100.0
+    );
+}
+
