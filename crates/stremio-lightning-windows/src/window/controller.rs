@@ -2,6 +2,13 @@
 
 #[cfg(windows)]
 mod windows_impl {
+    // Win32 ABI conversions: struct size fields and style words are small bitmasks and
+    // constants on every supported target, so these casts cannot lose meaningful data.
+    #![allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_possible_wrap
+    )]
     use super::super::types::{FullscreenSnapshot, PipWindowSnapshot};
     use super::super::wndproc::focus_window;
     use stremio_lightning_core::pip::{PipRestoreSnapshot, PipWindowController};
@@ -29,6 +36,7 @@ mod windows_impl {
     unsafe impl Send for NativeWindowController {}
 
     impl NativeWindowController {
+        #[must_use]
         pub fn new(hwnd: HWND) -> Self {
             Self {
                 hwnd,
@@ -48,6 +56,7 @@ mod windows_impl {
             focus_window(self.hwnd);
         }
 
+        #[must_use]
         pub fn toggle_maximize(&self) -> bool {
             // SAFETY: IsZoomed checks maximized state; ShowWindow updates window show state.
             unsafe {
@@ -81,15 +90,19 @@ mod windows_impl {
             }
         }
 
+        #[must_use]
         pub fn is_maximized(&self) -> bool {
             // SAFETY: IsZoomed safely queries window zoom/maximized state from HWND.
             unsafe { IsZoomed(self.hwnd).as_bool() }
         }
 
+        #[must_use]
         pub fn is_fullscreen(&self) -> bool {
             self.fullscreen.is_some()
         }
 
+        /// # Errors
+        /// Returns an error when the window cannot enter or leave fullscreen.
         pub fn set_fullscreen(&mut self, fullscreen: bool) -> Result<bool, String> {
             if fullscreen == self.is_fullscreen() {
                 return Ok(false);
@@ -110,7 +123,7 @@ mod windows_impl {
             };
             // SAFETY: GetWindowPlacement reads current window placement into mutable buffer.
             unsafe {
-                GetWindowPlacement(self.hwnd, &mut placement)
+                GetWindowPlacement(self.hwnd, &raw mut placement)
                     .map_err(|error| format!("Failed to read window placement: {error}"))?;
             }
 
@@ -124,7 +137,7 @@ mod windows_impl {
                     cbSize: std::mem::size_of::<MONITORINFO>() as u32,
                     ..Default::default()
                 };
-                if !GetMonitorInfoW(monitor, &mut monitor_info).as_bool() {
+                if !GetMonitorInfoW(monitor, &raw mut monitor_info).as_bool() {
                     return Err("Failed to read fullscreen monitor bounds".to_string());
                 }
                 (style, ex_style, monitor_info.rcMonitor)
@@ -164,7 +177,7 @@ mod windows_impl {
             unsafe {
                 SetWindowLongPtrW(self.hwnd, GWL_STYLE, snapshot.style);
                 SetWindowLongPtrW(self.hwnd, GWL_EXSTYLE, snapshot.ex_style);
-                SetWindowPlacement(self.hwnd, &snapshot.placement)
+                SetWindowPlacement(self.hwnd, &raw const snapshot.placement)
                     .map_err(|error| format!("Failed to restore window placement: {error}"))?;
                 SetWindowPos(
                     self.hwnd,
@@ -195,9 +208,9 @@ mod windows_impl {
             let mut rect = RECT::default();
             // SAFETY: Placement and rect buffers are passed for Win32 query functions.
             unsafe {
-                GetWindowPlacement(self.hwnd, &mut placement)
+                GetWindowPlacement(self.hwnd, &raw mut placement)
                     .map_err(|error| format!("Failed to read PiP window placement: {error}"))?;
-                GetWindowRect(self.hwnd, &mut rect)
+                GetWindowRect(self.hwnd, &raw mut rect)
                     .map_err(|error| format!("Failed to read PiP window bounds: {error}"))?;
             }
             let captured_width = rect.right - rect.left;
@@ -262,7 +275,7 @@ mod windows_impl {
             unsafe {
                 SetWindowLongPtrW(self.hwnd, GWL_STYLE, pip.style);
                 SetWindowLongPtrW(self.hwnd, GWL_EXSTYLE, pip.ex_style);
-                SetWindowPlacement(self.hwnd, &pip.placement)
+                SetWindowPlacement(self.hwnd, &raw const pip.placement)
                     .map_err(|error| format!("Failed to restore PiP placement: {error}"))?;
                 SetWindowPos(
                     self.hwnd,

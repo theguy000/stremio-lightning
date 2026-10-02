@@ -1,6 +1,6 @@
-use std::collections::{HashMap, VecDeque};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::{HashMap, VecDeque};
 use thiserror::Error;
 
 use crate::streaming_logs::StreamingLogTails;
@@ -194,59 +194,95 @@ pub trait PlatformBridge: Send + Sync {
     fn is_streaming_server_running(&self) -> bool;
 
     // Window methods
+    /// # Errors
+    /// Returns an error when the platform cannot minimize the window.
     fn minimize_window(&self) -> Result<(), String> {
         Ok(())
     }
+    /// # Errors
+    /// Returns an error when the platform cannot focus the window.
     fn focus_window(&self) -> Result<(), String> {
         Ok(())
     }
+    /// # Errors
+    /// Returns an error when the platform cannot toggle maximization, together with the resulting state.
     fn toggle_window_maximize(&self) -> Result<bool, String> {
         Ok(false)
     }
+    /// # Errors
+    /// Returns an error when the platform cannot close the window.
     fn close_window(&self) -> Result<(), String> {
         Ok(())
     }
+    /// # Errors
+    /// Returns an error when the platform cannot start a window drag.
     fn start_window_dragging(&self) -> Result<(), String> {
         Ok(())
     }
+    /// # Errors
+    /// Returns an error when the window state cannot be read.
     fn is_window_maximized(&self) -> Result<bool, String> {
         Ok(false)
     }
+    /// # Errors
+    /// Returns an error when the window state cannot be read.
     fn is_window_fullscreen(&self) -> Result<bool, String> {
         Ok(false)
     }
+    /// # Errors
+    /// Returns an error when the platform cannot change the fullscreen state.
     fn set_window_fullscreen(&self, _fullscreen: bool) -> Result<(), String> {
         Ok(())
     }
+    /// # Errors
+    /// Returns an error when the platform cannot change the webview zoom level.
     fn set_webview_zoom(&self, _level: f64) -> Result<(), String> {
         Ok(())
     }
 
     // Player/Pip methods
+    /// # Errors
+    /// Returns an error when the platform cannot toggle picture-in-picture, together with the resulting state.
     fn toggle_picture_in_picture(&self) -> Result<bool, String>;
+    /// # Errors
+    /// Returns an error when the picture-in-picture state cannot be read.
     fn is_pip_enabled(&self) -> Result<bool, String>;
+    /// # Errors
+    /// Returns an error when the platform cannot resize the picture-in-picture window.
     fn set_pip_size(&self, _width: i32, _height: i32) -> Result<(), String> {
         Ok(())
     }
 
     // Custom platform controls
+    /// # Errors
+    /// Returns an error when the platform cannot open the URL.
     fn open_external_url(&self, _url: &str) -> Result<(), String> {
         Ok(())
     }
+    /// # Errors
+    /// Returns an error when the streaming server state cannot be read.
     fn streaming_server_status(&self) -> Result<Value, String> {
         Ok(Value::Bool(self.is_streaming_server_running()))
     }
+    /// # Errors
+    /// Returns an error when the streaming server state cannot be read.
     #[deprecated(note = "use `streaming_server_status` instead")]
     fn get_streaming_server_status(&self) -> Result<Value, String> {
         self.streaming_server_status()
     }
 
+    /// # Errors
+    /// Returns an error when the streaming server cannot be started.
     fn start_streaming_server(&self) -> Result<(), String> {
         Ok(())
     }
+    /// # Errors
+    /// Returns an error when the streaming server cannot be stopped.
     fn stop_streaming_server(&self) -> Result<(), String> {
         Ok(())
     }
+    /// # Errors
+    /// Returns an error when the streaming server cannot be restarted.
     fn restart_streaming_server(&self) -> Result<(), String> {
         Ok(())
     }
@@ -267,6 +303,8 @@ pub trait PlatformBridge: Send + Sync {
         false
     }
 
+    /// # Errors
+    /// Returns an error when the streaming server output cannot be read.
     fn streaming_log_tails(
         &self,
         _max_bytes_per_stream: usize,
@@ -274,17 +312,22 @@ pub trait PlatformBridge: Send + Sync {
         Ok(None)
     }
 
+    /// # Errors
+    /// Returns an error when the streaming server output cannot be cleared.
     fn clear_streaming_logs(&self) -> Result<(), String> {
         Ok(())
     }
 
     // Transport commands delegator
+    /// # Errors
+    /// Returns an error when the platform rejects the custom transport message.
     fn handle_custom_transport(&self, _method: &str, _data: Option<Value>) -> Result<(), String> {
         Ok(())
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct ShellPreferenceState {
     pub auto_pause: bool,
     pub pip_disables_auto_pause: bool,

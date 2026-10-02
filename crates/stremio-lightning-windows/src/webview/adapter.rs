@@ -1,7 +1,9 @@
+#[must_use]
 pub fn windows_host_adapter() -> String {
     host_adapter()
 }
 
+#[must_use]
 pub fn host_adapter() -> String {
     r#"(function () {
   "use strict";

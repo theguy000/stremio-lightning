@@ -300,11 +300,11 @@ where
     }
 
     pub fn listen_with_id(&self, id: u64, event: impl Into<String>) -> Result<(), String> {
-        self.base.listen_with_id(id, event)
+        Ok(self.base.listen_with_id(id, event)?)
     }
 
     pub fn unlisten(&self, id: u64) -> Result<(), String> {
-        self.base.unlisten(id)
+        Ok(self.base.unlisten(id)?)
     }
 
     pub fn emit_window_fullscreen_changed(&self, fullscreen: bool) -> Result<(), String> {
@@ -318,10 +318,10 @@ where
     }
 
     pub fn emit_window_maximized_changed(&self, maximized: bool) -> Result<(), String> {
-        self.base.emit_event(
+        Ok(self.base.emit_event(
             "window-maximized-changed",
             json!({ "maximized": maximized }),
-        )
+        )?)
     }
 
     pub fn emit_lifecycle_event(&self, event: AppLifecycleEvent) -> Result<(), String> {
@@ -333,21 +333,21 @@ where
             AppLifecycleEvent::WindowVisible(visible) => self.set_window_visible(visible)?,
             AppLifecycleEvent::Shutdown => {}
         }
-        self.base.emit_event(name, payload)
+        Ok(self.base.emit_event(name, payload)?)
     }
 
     pub fn emit_server_started(&self) -> Result<(), String> {
-        self.base.emit_event(
+        Ok(self.base.emit_event(
             "server-started",
             json!({ "url": self.streaming_server().url() }),
-        )
+        )?)
     }
 
     pub fn emit_server_stopped(&self) -> Result<(), String> {
-        self.base.emit_event(
+        Ok(self.base.emit_event(
             "server-stopped",
             json!({ "url": self.streaming_server().url() }),
-        )
+        )?)
     }
 
     pub fn emit_native_player_property_changed(
@@ -355,14 +355,14 @@ where
         name: impl Into<String>,
         data: Value,
     ) -> Result<(), String> {
-        self.base.emit_event(
+        Ok(self.base.emit_event(
             SHELL_TRANSPORT_EVENT,
             json!({
                 "type": "mpv-prop-change",
                 "name": name.into(),
                 "data": data,
             }),
-        )
+        )?)
     }
 
     pub fn emit_native_player_transport_args(&self, args: Value) -> Result<(), String> {
@@ -374,17 +374,19 @@ where
             .and_then(Value::as_str)
             .ok_or_else(|| "Missing macOS native player event type".to_string())?;
         let payload = values.get(1).cloned().unwrap_or(Value::Null);
-        self.base.emit_event(
+        Ok(self.base.emit_event(
             SHELL_TRANSPORT_EVENT,
             json!({
                 "type": event_type,
                 "payload": payload,
             }),
-        )
+        )?)
     }
 
     fn emit_transport_response(&self, message: String) -> Result<(), String> {
-        self.base.emit_event(SHELL_TRANSPORT_EVENT, json!(message))
+        Ok(self
+            .base
+            .emit_event(SHELL_TRANSPORT_EVENT, json!(message))?)
     }
 
     pub fn minimize_window(&self) -> Result<(), String> {
@@ -453,7 +455,7 @@ where
 
     pub fn drain_emitted_events(&self) -> Result<Vec<HostEventRecord>, String> {
         self.emit_drained_player_events()?;
-        self.base.drain_emitted_events()
+        Ok(self.base.drain_emitted_events()?)
     }
 }
 

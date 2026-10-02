@@ -10,7 +10,7 @@ const MUTEX_NAME: PCWSTR = w!("Local\\StremioLightning.SingleInstance");
 #[cfg(windows)]
 const PIPE_NAME: PCWSTR = w!(r"\\.\pipe\StremioLightning.SingleInstance");
 #[cfg(windows)]
-const MAX_LAUNCH_INTENT_BYTES: usize = 4096;
+const MAX_LAUNCH_INTENT_BYTES: u32 = 4096;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value", rename_all = "kebab-case")]
@@ -23,6 +23,7 @@ pub enum LaunchIntent {
 }
 
 impl LaunchIntent {
+    #[must_use]
     pub fn open_media_value(&self) -> Option<String> {
         match self {
             Self::Focus => None,
@@ -50,6 +51,7 @@ where
         .unwrap_or(LaunchIntent::Focus)
 }
 
+#[must_use]
 pub fn classify_launch_argument(argument: &str) -> Option<LaunchIntent> {
     let starts_with_ignore_ascii_case = |prefix: &str| {
         argument
@@ -107,7 +109,9 @@ mod platform {
     }
 
     impl SingleInstanceGuard {
-        pub fn acquire(intent: LaunchIntent) -> Result<SingleInstanceRole, String> {
+        /// # Errors
+        /// Returns an error when the single-instance mutex cannot be created or acquired.
+        pub fn acquire(intent: &LaunchIntent) -> Result<SingleInstanceRole, String> {
             // SAFETY: MUTEX_NAME is a compile-time null-terminated UTF-16 wide string.
             let mutex = unsafe { CreateMutexW(None, true, MUTEX_NAME) }
                 .map_err(|error| format!("Failed to create single-instance mutex: {error}"))?;
@@ -119,7 +123,7 @@ mod platform {
                 unsafe {
                     let _ = CloseHandle(mutex);
                 }
-                deliver_to_primary(&intent)?;
+                deliver_to_primary(intent)?;
                 Ok(SingleInstanceRole::SecondaryDelivered)
             } else {
                 Ok(SingleInstanceRole::Primary(Self { mutex }))
@@ -225,8 +229,8 @@ mod platform {
                 PIPE_ACCESS_INBOUND,
                 PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
                 1,
-                MAX_LAUNCH_INTENT_BYTES as u32,
-                MAX_LAUNCH_INTENT_BYTES as u32,
+                MAX_LAUNCH_INTENT_BYTES,
+                MAX_LAUNCH_INTENT_BYTES,
                 0,
                 None,
             )
@@ -253,22 +257,22 @@ mod platform {
     fn write_intent(pipe: HANDLE, intent: &LaunchIntent) -> Result<(), String> {
         let body = serde_json::to_vec(intent)
             .map_err(|error| format!("Failed to serialize launch intent: {error}"))?;
-        if body.len() > MAX_LAUNCH_INTENT_BYTES {
-            return Err("Launch intent payload is too large".to_string());
-        }
-        let len = (body.len() as u32).to_le_bytes();
-        write_all(pipe, &len)?;
+        let len = u32::try_from(body.len())
+            .ok()
+            .filter(|len| *len <= MAX_LAUNCH_INTENT_BYTES)
+            .ok_or_else(|| "Launch intent payload is too large".to_string())?;
+        write_all(pipe, &len.to_le_bytes())?;
         write_all(pipe, &body)
     }
 
     fn read_intent(pipe: HANDLE) -> Result<LaunchIntent, String> {
         let mut len = [0_u8; 4];
         read_exact(pipe, &mut len)?;
-        let len = u32::from_le_bytes(len) as usize;
+        let len = u32::from_le_bytes(len);
         if len > MAX_LAUNCH_INTENT_BYTES {
             return Err("Launch intent payload is too large".to_string());
         }
-        let mut body = vec![0_u8; len];
+        let mut body = vec![0_u8; len as usize];
         read_exact(pipe, &mut body)?;
         serde_json::from_slice(&body)
             .map_err(|error| format!("Invalid launch intent payload: {error}"))
@@ -278,7 +282,7 @@ mod platform {
         while !bytes.is_empty() {
             let mut written = 0;
             // SAFETY: pipe is valid open handle; bytes is valid slice; written receives count.
-            unsafe { WriteFile(pipe, Some(bytes), Some(&mut written), None) }
+            unsafe { WriteFile(pipe, Some(bytes), Some(&raw mut written), None) }
                 .map_err(|error| format!("Failed to write launch intent: {error}"))?;
             bytes = &bytes[written as usize..];
         }
@@ -289,7 +293,7 @@ mod platform {
         while !bytes.is_empty() {
             let mut read = 0;
             // SAFETY: pipe is valid open handle; bytes is mutable buffer; read receives count.
-            unsafe { ReadFile(pipe, Some(bytes), Some(&mut read), None) }
+            unsafe { ReadFile(pipe, Some(bytes), Some(&raw mut read), None) }
                 .map_err(|error| format!("Failed to read launch intent: {error}"))?;
             let read = read as usize;
             if read == 0 {

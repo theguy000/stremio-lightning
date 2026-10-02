@@ -54,14 +54,17 @@ impl WindowsHost {
         &self.base.bridge.streaming_server
     }
 
+    #[must_use]
     pub fn new(package_version: &'static str) -> Self {
         Self::with_app_data_dir(package_version, default_app_data_dir())
     }
 
+    #[must_use]
     pub fn with_app_data_dir(package_version: &'static str, app_data_dir: PathBuf) -> Self {
         Self::with_app_data_dir_and_server_disabled(package_version, app_data_dir, false)
     }
 
+    #[must_use]
     pub fn with_streaming_server_disabled(package_version: &'static str, disabled: bool) -> Self {
         Self::with_app_data_dir_and_server_disabled(
             package_version,
@@ -70,6 +73,7 @@ impl WindowsHost {
         )
     }
 
+    #[must_use]
     pub fn with_app_data_dir_and_server_disabled(
         package_version: &'static str,
         app_data_dir: PathBuf,
@@ -96,6 +100,8 @@ impl WindowsHost {
         }
     }
 
+    /// # Errors
+    /// Returns an error when the streaming server cannot be started.
     pub fn start_streaming_server(&self) -> Result<(), String> {
         self.streaming_server().start()?;
         if !self.streaming_server().disabled() {
@@ -104,6 +110,8 @@ impl WindowsHost {
         Ok(())
     }
 
+    /// # Errors
+    /// Returns an error when the shell cannot shut down cleanly.
     pub fn shutdown(&self) -> Result<(), String> {
         if let Ok(mut player) = self.player().lock() {
             player.shutdown();
@@ -111,7 +119,9 @@ impl WindowsHost {
         self.streaming_server().stop()
     }
 
-    pub fn emit_launch_intent(&self, intent: LaunchIntent) -> Result<(), String> {
+    /// # Errors
+    /// Returns an error when the launch intent cannot be queued.
+    pub fn emit_launch_intent(&self, intent: &LaunchIntent) -> Result<(), String> {
         let Some(value) = intent.open_media_value() else {
             return Ok(());
         };
@@ -124,6 +134,8 @@ impl WindowsHost {
         Ok(())
     }
 
+    /// # Errors
+    /// Returns an error when the native window handle cannot be stored.
     #[cfg(windows)]
     pub fn bind_native_window(&self, hwnd: windows::Win32::Foundation::HWND) -> Result<(), String> {
         *self.base.bridge.lock_window_controller()? = Some(NativeWindowController::new(hwnd));
@@ -137,12 +149,17 @@ impl WindowsHost {
         }
     }
 
-    fn dispatch_parsed_ipc_message(&self, request: host_api::IpcRequest) -> Vec<WindowsIpcOutbound> {
+    fn dispatch_parsed_ipc_message(
+        &self,
+        request: host_api::IpcRequest,
+    ) -> Vec<WindowsIpcOutbound> {
         let id = request.id;
-        let (ok, value) = self.dispatch_ipc(&request.kind, request.payload).map_or_else(
-            |error| (false, json!({ "message": error })),
-            |value| (true, value),
-        );
+        let (ok, value) = self
+            .dispatch_ipc(&request.kind, request.payload)
+            .map_or_else(
+                |error| (false, json!({ "message": error })),
+                |value| (true, value),
+            );
 
         let mut outbound = vec![WindowsIpcOutbound::Response { id, ok, value }];
         outbound.extend(
@@ -226,6 +243,8 @@ impl WindowsHost {
         self.drain_ipc_events()
     }
 
+    /// # Errors
+    /// Returns an error when the UI thread notifier cannot be stored.
     #[cfg(windows)]
     pub fn bind_ui_notifier(
         &self,
@@ -243,6 +262,8 @@ impl WindowsHost {
             .unwrap_or_default()
     }
 
+    /// # Errors
+    /// Returns an error when the native player cannot be created.
     #[cfg(windows)]
     pub fn initialize_native_player(
         &self,
@@ -264,14 +285,20 @@ impl WindowsHost {
             .collect()
     }
 
+    /// # Errors
+    /// Returns an error when the emitted event queue cannot be drained.
     pub fn drain_emitted_events(&self) -> Result<Vec<HostEventRecord>, String> {
         self.base.drain_emitted_events().map_err(Into::into)
     }
 
+    /// # Errors
+    /// Returns the error reported by the IPC handler.
     pub fn dispatch_ipc(&self, kind: &str, payload: Option<Value>) -> Result<Value, String> {
         self.base.dispatch_ipc(kind, payload)
     }
 
+    /// # Errors
+    /// Returns the error reported by the IPC handler.
     pub fn dispatch_windows_ipc(
         &self,
         kind: &str,
@@ -280,20 +307,28 @@ impl WindowsHost {
         self.dispatch_ipc(kind, payload)
     }
 
+    /// # Errors
+    /// Returns the error reported by the command handler.
     pub fn invoke(&self, command: &str, payload: Option<Value>) -> Result<Value, String> {
         self.base.invoke(command, payload)
     }
 
+    /// # Errors
+    /// Returns an error when the media key event cannot be forwarded.
     pub fn emit_media_key(&self, action: &str) -> Result<(), String> {
         self.base
             .queue_transport_message(host_api::response_message(json!(["media-key", action])))?;
         Ok(())
     }
 
+    /// # Errors
+    /// Returns an error when the window state cannot be updated.
     pub fn update_window_maximized(&self, maximized: bool) -> Result<(), String> {
         self.set_window_maximized(maximized)
     }
 
+    /// # Errors
+    /// Returns an error when the window state cannot be updated.
     pub fn update_window_focus(&self, focused: bool) -> Result<(), String> {
         let changed = {
             let mut state = self.base.bridge.lock_window_state()?;
@@ -307,6 +342,8 @@ impl WindowsHost {
         Ok(())
     }
 
+    /// # Errors
+    /// Returns an error when the window state cannot be updated.
     pub fn update_window_visible(&self, visible: bool) -> Result<(), String> {
         let changed = {
             let mut state = self.base.bridge.lock_window_state()?;
@@ -321,41 +358,57 @@ impl WindowsHost {
         Ok(())
     }
 
+    /// # Errors
+    /// Returns an error when the window cannot be minimized.
     pub fn minimize_window(&self) -> Result<(), String> {
         self.base.bridge.minimize_window()?;
         self.update_window_visible(false)
     }
 
+    /// # Errors
+    /// Returns an error when the window cannot be focused.
     pub fn focus_window(&self) -> Result<(), String> {
         self.base.bridge.focus_window()?;
         self.update_window_focus(true)
     }
 
+    /// # Errors
+    /// Returns an error when the window cannot be maximized or restored.
     pub fn toggle_window_maximize(&self) -> Result<bool, String> {
         let maximized = self.base.bridge.toggle_window_maximize()?;
         self.set_window_maximized(maximized)?;
         Ok(maximized)
     }
 
+    /// # Errors
+    /// Returns an error when the window cannot be closed.
     pub fn close_window(&self) -> Result<(), String> {
         self.exit_picture_in_picture_window()?;
         self.base.bridge.close_window()?;
         Ok(())
     }
 
+    /// # Errors
+    /// Returns an error when the window drag cannot be started.
     pub fn start_window_dragging(&self) -> Result<(), String> {
         self.base.bridge.start_window_dragging()?;
         Ok(())
     }
 
+    /// # Errors
+    /// Returns an error when the window state cannot be read.
     pub fn is_window_maximized(&self) -> Result<bool, String> {
         self.base.bridge.is_window_maximized()
     }
 
+    /// # Errors
+    /// Returns an error when the window state cannot be read.
     pub fn is_window_fullscreen(&self) -> Result<bool, String> {
         self.base.bridge.is_window_fullscreen()
     }
 
+    /// # Errors
+    /// Returns an error when the window cannot be maximized or restored.
     pub fn set_window_maximized(&self, maximized: bool) -> Result<(), String> {
         let changed = {
             let mut state = self.base.bridge.lock_window_state()?;
@@ -370,6 +423,8 @@ impl WindowsHost {
         Ok(())
     }
 
+    /// # Errors
+    /// Returns an error when the window cannot enter or leave fullscreen.
     pub fn set_window_fullscreen(&self, fullscreen: bool) -> Result<(), String> {
         let state_changed = self.is_window_fullscreen()? != fullscreen;
         self.base.bridge.set_window_fullscreen(fullscreen)?;
@@ -380,12 +435,16 @@ impl WindowsHost {
         Ok(())
     }
 
+    /// # Errors
+    /// Returns an error when the host event queue cannot be written.
     pub fn emit_window_maximized_changed(&self, maximized: bool) -> Result<(), String> {
         self.base
             .emit_host_event(HostEvent::WindowMaximizedChanged, json!(maximized))
             .map_err(Into::into)
     }
 
+    /// # Errors
+    /// Returns an error when the host event queue cannot be written.
     pub fn emit_window_fullscreen_changed(&self, fullscreen: bool) -> Result<(), String> {
         self.base
             .emit_host_event(HostEvent::WindowFullscreenChanged, json!(fullscreen))?;
@@ -396,12 +455,16 @@ impl WindowsHost {
             .map_err(Into::into)
     }
 
+    /// # Errors
+    /// Returns an error when the host event queue cannot be written.
     pub fn emit_server_started(&self) -> Result<(), String> {
         self.base
             .emit_host_event(HostEvent::ServerStarted, Value::Null)
             .map_err(Into::into)
     }
 
+    /// # Errors
+    /// Returns an error when the host event queue cannot be written.
     pub fn emit_server_stopped(&self) -> Result<(), String> {
         self.base
             .emit_host_event(HostEvent::ServerStopped, Value::Null)
@@ -438,6 +501,8 @@ impl WindowsHost {
             .map_err(Into::into)
     }
 
+    /// # Errors
+    /// Returns an error when the picture-in-picture window cannot be toggled.
     pub fn toggle_picture_in_picture_window(&self) -> Result<bool, String> {
         self.base.bridge.toggle_picture_in_picture()
     }
@@ -479,6 +544,7 @@ impl WindowsHost {
     }
 }
 
+#[must_use]
 pub fn default_app_data_dir() -> PathBuf {
     if let Some(path) = std::env::var_os("LOCALAPPDATA") {
         PathBuf::from(path)

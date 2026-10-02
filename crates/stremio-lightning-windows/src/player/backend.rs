@@ -270,7 +270,7 @@ mod platform {
                 log_diagnostic_property_change(name, &change);
                 MpvEventAction::Emit(PlayerEvent::PropertyChange(PlayerPropertyChange {
                     name: name.to_string(),
-                    data: property_data_to_json(name, change),
+                    data: property_data_to_json(name, &change),
                 }))
             }
             Event::EndFile(reason) => {
@@ -378,8 +378,9 @@ mod platform {
             PlayerCommand::Command(values) => {
                 let (name, args) = super::super::command_name_and_args(&values)?;
                 let refs = args.iter().map(Cow::as_ref).collect::<Vec<_>>();
-                mpv.command(name, &refs)
-                    .map_err(|error| PlayerError::ExecuteCommand(name.to_string(), error.to_string()))
+                mpv.command(name, &refs).map_err(|error| {
+                    PlayerError::ExecuteCommand(name.to_string(), error.to_string())
+                })
             }
             PlayerCommand::Stop => mpv
                 .command("stop", &[])
@@ -428,9 +429,9 @@ mod platform {
         }
     }
 
-    fn property_data_to_json(name: &str, data: PropertyData) -> Value {
+    fn property_data_to_json(name: &str, data: &PropertyData) -> Value {
         match data {
-            PropertyData::Flag(value) => Value::Bool(value),
+            PropertyData::Flag(value) => Value::Bool(*value),
             PropertyData::Int64(value) => json!(value),
             PropertyData::Double(value) => json!(value),
             PropertyData::OsdStr(value) | PropertyData::Str(value) => {

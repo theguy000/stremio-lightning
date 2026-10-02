@@ -1,12 +1,14 @@
-use std::sync::OnceLock;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::sync::OnceLock;
 
 use super::types::{
     ParsedRequest, RpcRequest, RpcResponse, RpcResponseData, RpcResponseDataTransport,
     RPC_TYPE_INIT, RPC_TYPE_INVOKE_METHOD, RPC_TYPE_SIGNAL, TRANSPORT_OBJECT,
 };
 
+/// # Errors
+/// Returns an error when the message is not valid JSON or is missing required fields.
 pub fn parse_request(message: &str) -> Result<ParsedRequest, String> {
     let request: RpcRequest = serde_json::from_str(message)
         .map_err(|e| format!("Failed to parse shell transport message: {e}"))?;
@@ -41,6 +43,8 @@ pub fn parse_request(message: &str) -> Result<ParsedRequest, String> {
     Ok(ParsedRequest::Command { method, data })
 }
 
+/// # Panics
+/// Panics if the handshake envelope cannot be serialized, which cannot happen for the fixed shape it builds.
 #[must_use]
 pub fn handshake_response(package_version: &str) -> String {
     serde_json::to_string(&RpcResponse {
@@ -67,6 +71,8 @@ pub fn handshake_response(package_version: &str) -> String {
     .expect("failed to serialize handshake response")
 }
 
+/// # Panics
+/// Panics if the response envelope cannot be serialized, which cannot happen for the fixed shape it builds.
 #[must_use]
 pub fn response_message(args: Value) -> String {
     serde_json::to_string(&RpcResponse {
@@ -116,6 +122,8 @@ pub fn safe_native_player_status(status: &Value) -> String {
     "available".to_string()
 }
 
+/// # Errors
+/// Returns an error when the payload is absent or cannot be deserialized into `T`.
 pub fn parse_payload<T>(command: &str, payload: Option<Value>) -> Result<T, String>
 where
     T: for<'de> Deserialize<'de>,
@@ -141,6 +149,8 @@ pub fn is_async_command(command: &str) -> bool {
     )
 }
 
+/// # Panics
+/// Panics if the shared Tokio runtime cannot be created.
 pub fn async_runtime() -> &'static tokio::runtime::Runtime {
     static TOKIO_RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
     TOKIO_RUNTIME.get_or_init(|| {

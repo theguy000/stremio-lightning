@@ -26,6 +26,8 @@ pub struct WindowsPlayer {
 }
 
 impl WindowsPlayer {
+    /// # Errors
+    /// Returns an error when the native player cannot be initialized.
     #[cfg(windows)]
     pub fn initialize(
         &mut self,
@@ -35,10 +37,13 @@ impl WindowsPlayer {
         self.backend.initialize(hwnd, notifier)
     }
 
+    #[must_use]
     pub fn status(&self) -> NativePlayerStatus {
         self.backend.status()
     }
 
+    /// # Errors
+    /// Returns an error when the transport command cannot be applied.
     pub fn handle_transport(
         &mut self,
         method: &str,
@@ -133,6 +138,7 @@ impl WindowsPlayer {
     }
 
     #[cfg(test)]
+    #[must_use]
     pub fn commands(&self) -> &[PlayerCommand] {
         &self.commands
     }

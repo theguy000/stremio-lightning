@@ -75,7 +75,7 @@ mod platform {
         let args = std::env::args().skip(1).collect::<Vec<_>>();
         let intent = crate::single_instance::launch_intent_from_args(&args);
         let crate::single_instance::SingleInstanceRole::Primary(instance) =
-            crate::single_instance::SingleInstanceGuard::acquire(intent.clone())?
+            crate::single_instance::SingleInstanceGuard::acquire(&intent)?
         else {
             return Ok(());
         };

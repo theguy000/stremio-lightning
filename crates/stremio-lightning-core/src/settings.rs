@@ -1,5 +1,6 @@
 use serde_json::Value;
 use std::collections::HashMap;
+use std::hash::BuildHasher;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -17,25 +18,31 @@ impl Default for SettingsState {
     }
 }
 
+/// # Errors
+/// Returns an error when the plugin name is not a valid filename.
 pub fn plugin_settings_path(plugins_dir: &Path, plugin_name: &str) -> Result<PathBuf, String> {
     crate::validation::validate_filename(plugin_name)?;
-    Ok(plugins_dir.join(format!("{}.plugin.json", plugin_name)))
+    Ok(plugins_dir.join(format!("{plugin_name}.plugin.json")))
 }
 
+/// # Errors
+/// Returns an error when the settings file cannot be read or parsed.
 pub fn load_settings_file(path: &Path) -> Result<Value, String> {
     if !path.exists() {
         return Ok(Value::Null);
     }
 
     let content =
-        std::fs::read_to_string(path).map_err(|e| format!("Failed to read settings: {}", e))?;
-    serde_json::from_str(&content).map_err(|e| format!("Failed to parse settings: {}", e))
+        std::fs::read_to_string(path).map_err(|e| format!("Failed to read settings: {e}"))?;
+    serde_json::from_str(&content).map_err(|e| format!("Failed to parse settings: {e}"))
 }
 
+/// # Errors
+/// Returns an error when the settings file cannot be written.
 pub fn save_setting_file(path: &Path, key: &str, value: Value) -> Result<(), String> {
     let mut settings: serde_json::Map<String, Value> = if path.exists() {
         let content =
-            std::fs::read_to_string(path).map_err(|e| format!("Failed to read settings: {}", e))?;
+            std::fs::read_to_string(path).map_err(|e| format!("Failed to read settings: {e}"))?;
         serde_json::from_str(&content).unwrap_or_default()
     } else {
         serde_json::Map::new()
@@ -44,20 +51,26 @@ pub fn save_setting_file(path: &Path, key: &str, value: Value) -> Result<(), Str
     settings.insert(key.to_string(), value);
 
     let json = serde_json::to_string_pretty(&settings)
-        .map_err(|e| format!("Failed to serialize settings: {}", e))?;
-    std::fs::write(path, json).map_err(|e| format!("Failed to write settings: {}", e))
+        .map_err(|e| format!("Failed to serialize settings: {e}"))?;
+    std::fs::write(path, json).map_err(|e| format!("Failed to write settings: {e}"))
 }
 
+/// # Errors
+/// Returns an error when the settings file cannot be read or the key is missing.
 pub fn setting(plugins_dir: &Path, plugin_name: &str, key: &str) -> Result<Value, String> {
     let config_path = plugin_settings_path(plugins_dir, plugin_name)?;
     let settings = load_settings_file(&config_path)?;
     Ok(settings.get(key).cloned().unwrap_or(Value::Null))
 }
 
+/// # Errors
+/// Returns an error when the settings file cannot be read or the key is missing.
 pub fn get_setting(plugins_dir: &Path, plugin_name: &str, key: &str) -> Result<Value, String> {
     setting(plugins_dir, plugin_name, key)
 }
 
+/// # Errors
+/// Returns an error when the settings file cannot be read or written.
 pub fn save_setting(
     plugins_dir: &Path,
     plugin_name: &str,
@@ -68,8 +81,10 @@ pub fn save_setting(
     save_setting_file(&config_path, key, value)
 }
 
+/// # Errors
+/// Returns an error when the settings schema cannot be stored.
 pub fn register_settings(
-    schemas: &Mutex<HashMap<String, Value>>,
+    schemas: &Mutex<HashMap<String, Value, impl BuildHasher>>,
     plugin_name: String,
     schema: Value,
 ) -> Result<(), String> {
@@ -80,12 +95,20 @@ pub fn register_settings(
     Ok(())
 }
 
-pub fn registered_settings(schemas: &Mutex<HashMap<String, Value>>) -> Result<Value, String> {
+/// # Errors
+/// Returns an error when the stored schemas cannot be read.
+pub fn registered_settings(
+    schemas: &Mutex<HashMap<String, Value, impl BuildHasher>>,
+) -> Result<Value, String> {
     let map = schemas.lock().map_err(|e| e.to_string())?;
     serde_json::to_value(&*map).map_err(|e| format!("Failed to serialize schemas: {e}"))
 }
 
-pub fn get_registered_settings(schemas: &Mutex<HashMap<String, Value>>) -> Result<Value, String> {
+/// # Errors
+/// Returns an error when the stored schemas cannot be read.
+pub fn get_registered_settings(
+    schemas: &Mutex<HashMap<String, Value, impl BuildHasher>>,
+) -> Result<Value, String> {
     registered_settings(schemas)
 }
 

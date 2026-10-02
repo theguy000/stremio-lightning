@@ -58,6 +58,7 @@ impl From<HostEventRecord> for WindowsIpcOutbound {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct WindowRuntimeState {
     pub visible: bool,
     pub maximized: bool,

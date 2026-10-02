@@ -111,6 +111,8 @@ pub struct InjectionBundle {
 }
 
 impl InjectionBundle {
+    /// # Errors
+    /// Returns an error when the bundled web assets cannot be read.
     pub fn load() -> Result<Self, WebViewError> {
         let mut scripts = vec![InjectionScript {
             name: HOST_ADAPTER_NAME,
@@ -125,12 +127,14 @@ impl InjectionBundle {
         Ok(Self { scripts })
     }
 
+    #[must_use]
     pub fn scripts(&self) -> &[InjectionScript] {
         &self.scripts
     }
 
     /// Concatenates every injection source into a single script so the shell can
-    /// register them with one WebView2 round-trip instead of one per script.
+    /// register them with one `WebView2` round-trip instead of one per script.
+    #[must_use]
     pub fn combined_source(&self) -> String {
         self.scripts
             .iter()
@@ -139,6 +143,7 @@ impl InjectionBundle {
             .join("\n;\n")
     }
 
+    #[must_use]
     pub fn script_names(&self) -> Vec<&'static str> {
         self.scripts.iter().map(|script| script.name).collect()
     }

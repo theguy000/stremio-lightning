@@ -52,6 +52,7 @@ unsafe impl Send for UiThreadNotifier {}
 
 #[cfg(windows)]
 impl UiThreadNotifier {
+    #[must_use]
     pub fn new(hwnd: HWND) -> Self {
         Self {
             hwnd,
@@ -61,6 +62,8 @@ impl UiThreadNotifier {
 
     /// Queues a wake-up unless one is already pending. Every update is drained
     /// when the window wakes, so dropping redundant wake-ups loses nothing.
+    /// # Errors
+    /// Returns an error when the resize notification cannot be scheduled.
     pub fn notify(&self) -> Result<(), WindowError> {
         if !self.wake.try_begin() {
             return Ok(());

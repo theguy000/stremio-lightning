@@ -15,13 +15,12 @@ fn configure_windows_build() {
     let mpv_dev_dir = std::path::Path::new(&manifest_dir).join("mpv-dev");
 
     let mpv_lib = mpv_dev_dir.join("mpv.lib");
-    if !mpv_lib.exists() {
-        panic!(
-            "mpv.lib not found at {}\n\
-             Run `cargo xtask setup-windows` to download Windows shell dependencies.",
-            mpv_lib.display()
-        );
-    }
+    assert!(
+        mpv_lib.exists(),
+        "mpv.lib not found at {}\n\
+         Run `cargo xtask setup-windows` to download Windows shell dependencies.",
+        mpv_lib.display()
+    );
 
     println!("cargo:rustc-link-search=native={}", mpv_dev_dir.display());
     println!("cargo:rustc-link-lib=dylib=mpv");

@@ -17,4 +17,6 @@ pub use controller::NativeWindowController;
 #[cfg(windows)]
 pub use types::{MediaKeyAction, NativeWindowHandler, WindowVisualState};
 #[cfg(windows)]
-pub use wndproc::{focus_window, run_native_window_with_handler, set_app_user_model_id, set_window_title};
+pub use wndproc::{
+    focus_window, run_native_window_with_handler, set_app_user_model_id, set_window_title,
+};

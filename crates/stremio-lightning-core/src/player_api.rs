@@ -46,6 +46,7 @@ pub enum PlayerEvent {
 }
 
 impl PlayerEvent {
+    #[must_use]
     pub fn transport_args(&self) -> Value {
         match self {
             Self::PropertyChange(payload) => json!(["mpv-prop-change", payload]),

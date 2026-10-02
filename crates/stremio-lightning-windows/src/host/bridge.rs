@@ -24,18 +24,24 @@ pub struct WindowsShellBridge {
 pub type WindowsBridge = WindowsShellBridge;
 
 impl WindowsShellBridge {
+    /// # Errors
+    /// Returns an error when the player mutex is poisoned.
     pub fn lock_player(&self) -> Result<MutexGuard<'_, WindowsPlayer>, String> {
         self.player
             .lock()
             .map_err(|e| format!("Windows player lock poisoned: {e}"))
     }
 
+    /// # Errors
+    /// Returns an error when the window state mutex is poisoned.
     pub fn lock_window_state(&self) -> Result<MutexGuard<'_, WindowRuntimeState>, String> {
         self.window_state
             .lock()
             .map_err(|e| format!("Windows window state lock poisoned: {e}"))
     }
 
+    /// # Errors
+    /// Returns an error when the window controller mutex is poisoned.
     #[cfg(windows)]
     pub fn lock_window_controller(
         &self,

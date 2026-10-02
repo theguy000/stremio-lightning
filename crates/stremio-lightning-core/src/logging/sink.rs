@@ -5,9 +5,8 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 
 use super::types::{
-    unix_timestamp_ms, DiagnosticLimits, LimitDecision, LogEntry, LogLevel,
-    LoggingConfig, PersistentLine, SessionMetadata,
-    DIAGNOSTIC_SCHEMA_VERSION, MAX_ENTRIES, SESSION_FILE_PREFIX,
+    unix_timestamp_ms, DiagnosticLimits, LimitDecision, LogEntry, LogLevel, LoggingConfig,
+    PersistentLine, SessionMetadata, DIAGNOSTIC_SCHEMA_VERSION, MAX_ENTRIES, SESSION_FILE_PREFIX,
 };
 
 #[derive(Debug, Default)]
@@ -23,6 +22,7 @@ impl LogBuffer {
         self.entries.push_back(entry);
     }
 
+    #[must_use]
     pub fn snapshot_after(&self, after_id: u64) -> Vec<LogEntry> {
         self.entries
             .iter()
@@ -45,6 +45,8 @@ pub struct PersistentSink {
 }
 
 impl PersistentSink {
+    /// # Errors
+    /// Returns an error when the session log file cannot be created.
     pub fn new(config: LoggingConfig, limits: DiagnosticLimits) -> Result<Self, String> {
         let directory = config.directory.clone();
         fs::create_dir_all(&directory)
@@ -54,6 +56,8 @@ impl PersistentSink {
         Self::from_metadata(directory, metadata, limits)
     }
 
+    /// # Errors
+    /// Returns an error when the session log file cannot be created.
     pub fn from_metadata(
         directory: PathBuf,
         metadata: SessionMetadata,
@@ -71,6 +75,8 @@ impl PersistentSink {
         Ok(sink)
     }
 
+    /// # Errors
+    /// Returns an error when the record cannot be appended to the session log.
     pub fn append_record(
         &mut self,
         receipt_id: u64,
@@ -91,27 +97,30 @@ impl PersistentSink {
             producer: producer.to_string(),
         })?;
         if fs::metadata(&self.active_path)
-            .map(|metadata| metadata.len() > self.limits.session_bytes)
-            .unwrap_or(false)
+            .is_ok_and(|metadata| metadata.len() > self.limits.session_bytes)
         {
             self.compact()?;
         }
         self.enforce_retention()
     }
 
+    /// # Errors
+    /// Returns an error when the metadata line cannot be written.
     pub fn update_webview_metadata(
         &mut self,
         engine: String,
         version: Option<String>,
     ) -> Result<(), String> {
-        self.metadata.webview_engine = engine.clone();
-        self.metadata.webview_version = version.clone();
+        self.metadata.webview_engine.clone_from(&engine);
+        self.metadata.webview_version.clone_from(&version);
         self.append(&PersistentLine::Metadata {
             webview_engine: engine,
             webview_version: version,
         })
     }
 
+    /// # Errors
+    /// Returns an error when the line cannot be appended to the session log.
     pub fn append(&self, line: &PersistentLine) -> Result<(), String> {
         let mut serialized = serde_json::to_vec(line)
             .map_err(|error| format!("failed to serialize diagnostic record: {error}"))?;
@@ -125,6 +134,8 @@ impl PersistentSink {
             .map_err(|error| format!("failed to write diagnostics file: {error}"))
     }
 
+    /// # Errors
+    /// Returns an error when the session header cannot be written.
     pub fn write_fresh_header(&mut self) -> Result<(), String> {
         self.metadata.started_at =
             unix_timestamp_ms().max(self.metadata.started_at.saturating_add(1));
@@ -143,6 +154,8 @@ impl PersistentSink {
             .map_err(|error| format!("failed to create diagnostics session: {error}"))
     }
 
+    /// # Errors
+    /// Returns an error when the session log cannot be compacted or replaced.
     pub fn compact(&self) -> Result<(), String> {
         let file = File::open(&self.active_path)
             .map_err(|error| format!("failed to open diagnostics file for compaction: {error}"))?;
@@ -150,16 +163,18 @@ impl PersistentSink {
             metadata: self.metadata.clone(),
         })
         .map_err(|error| format!("failed to serialize diagnostics header: {error}"))?;
-        let available = self
-            .limits
-            .session_bytes
-            .saturating_sub((header.len() + 1) as u64) as usize;
+        let available = usize::try_from(
+            self.limits
+                .session_bytes
+                .saturating_sub(u64::try_from(header.len() + 1).unwrap_or(u64::MAX)),
+        )
+        .unwrap_or(usize::MAX);
         let mut records = VecDeque::new();
         let mut bytes = 0usize;
         for line in BufReader::new(file).lines().map_while(Result::ok) {
             if !matches!(
                 serde_json::from_str::<PersistentLine>(&line),
-                Ok(PersistentLine::Record { .. }) | Ok(PersistentLine::Metadata { .. })
+                Ok(PersistentLine::Record { .. } | PersistentLine::Metadata { .. })
             ) {
                 continue;
             }
@@ -192,6 +207,8 @@ impl PersistentSink {
             .map_err(|error| format!("failed to replace compacted diagnostics file: {error}"))
     }
 
+    /// # Errors
+    /// Returns an error when the session log cannot be removed.
     pub fn clear(&mut self) -> Result<(), String> {
         let mut first_error = None;
         for path in session_files(&self.directory)? {
@@ -210,6 +227,8 @@ impl PersistentSink {
         }
     }
 
+    /// # Errors
+    /// Returns an error when older session files cannot be removed.
     pub fn enforce_retention(&self) -> Result<(), String> {
         let mut files = session_files(&self.directory)?;
         files.sort_by(|left, right| right.file_name().cmp(&left.file_name()));
@@ -334,6 +353,8 @@ pub fn session_path(directory: &Path, started_at: u64, session_id: &str) -> Path
     ))
 }
 
+/// # Errors
+/// Returns an error when the diagnostics directory cannot be listed.
 pub fn session_files(directory: &Path) -> Result<Vec<PathBuf>, String> {
     let entries = match fs::read_dir(directory) {
         Ok(entries) => entries,
@@ -353,13 +374,12 @@ pub fn session_files(directory: &Path) -> Result<Vec<PathBuf>, String> {
         .collect())
 }
 
+/// # Errors
+/// Returns an error when existing session files cannot be trimmed or removed.
 pub fn bound_existing_sessions(directory: &Path, limits: DiagnosticLimits) -> Result<(), String> {
     recover_replacement_files(directory)?;
     for path in session_files(directory)? {
-        if fs::metadata(&path)
-            .map(|metadata| metadata.len() <= limits.session_bytes)
-            .unwrap_or(false)
-        {
+        if fs::metadata(&path).is_ok_and(|metadata| metadata.len() <= limits.session_bytes) {
             continue;
         }
         let metadata = File::open(&path)
@@ -394,6 +414,8 @@ pub fn bound_existing_sessions(directory: &Path, limits: DiagnosticLimits) -> Re
     Ok(())
 }
 
+/// # Errors
+/// Returns an error when leftover replacement files cannot be cleaned up.
 pub fn recover_replacement_files(directory: &Path) -> Result<(), String> {
     let entries = fs::read_dir(directory)
         .map_err(|error| format!("failed to inspect diagnostic replacements: {error}"))?;
@@ -423,6 +445,8 @@ pub fn recover_replacement_files(directory: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// # Errors
+/// Returns the underlying I/O error when the destination cannot be replaced.
 pub fn replace_file_safely(source: &Path, destination: &Path) -> std::io::Result<()> {
     match fs::rename(source, destination) {
         Ok(()) => return Ok(()),
@@ -440,6 +464,8 @@ pub fn replace_file_safely(source: &Path, destination: &Path) -> std::io::Result
     remove_if_exists(&backup)
 }
 
+/// # Errors
+/// Returns the underlying I/O error when the file cannot be removed.
 pub fn remove_if_exists(path: &Path) -> std::io::Result<()> {
     match fs::remove_file(path) {
         Ok(()) => Ok(()),

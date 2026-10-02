@@ -1,15 +1,13 @@
+use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::sync::Mutex;
-use serde_json::{json, Value};
 
 use super::bridge::BaseHost;
 use super::handlers::{
     handshake_response, is_async_command, parse_request, response_message,
     serialize_window_visibility, stremio_deep_link_transport_args,
 };
-use super::types::{
-    HostCommand, HostEvent, ParsedRequest, PlatformBridge, SHELL_TRANSPORT_EVENT,
-};
+use super::types::{HostCommand, HostEvent, ParsedRequest, PlatformBridge, SHELL_TRANSPORT_EVENT};
 use crate::logging;
 
 #[derive(Default)]
@@ -53,11 +51,7 @@ impl PlatformBridge for TestBridge {
         Ok(self.pip_enabled)
     }
 
-    fn handle_custom_transport(
-        &self,
-        method: &str,
-        _data: Option<Value>,
-    ) -> Result<(), String> {
+    fn handle_custom_transport(&self, method: &str, _data: Option<Value>) -> Result<(), String> {
         if self.fail_custom_transport {
             Err(format!("transport failed for {method}"))
         } else {
@@ -233,8 +227,7 @@ fn serializes_handshake_shape() {
 #[test]
 fn serializes_event_shape() {
     let payload: Value =
-        serde_json::from_str(&response_message(json!(["open-media", "stremio://foo"])))
-            .unwrap();
+        serde_json::from_str(&response_message(json!(["open-media", "stremio://foo"]))).unwrap();
     assert_eq!(
         payload,
         json!({

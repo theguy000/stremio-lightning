@@ -6,12 +6,12 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use super::sanitizer::{sanitize_identifier, sanitize_message, sanitize_source};
 use super::sink::session_files;
 use super::types::{
-    format_timestamp, truncate_utf8, unix_timestamp_ms, DiagnosticReportRuntime,
-    LogEntry, PersistentLine, SessionMetadata, APPLICATION_REPORT_LIMIT_BYTES,
-    DIAGNOSTIC_SCHEMA_VERSION, REPORT_LIMIT_BYTES, RETAINED_SESSION_COUNT,
-    SERVER_REPORT_LIMIT_BYTES,
+    format_timestamp, truncate_utf8, unix_timestamp_ms, DiagnosticReportRuntime, LogEntry,
+    PersistentLine, SessionMetadata, APPLICATION_REPORT_LIMIT_BYTES, DIAGNOSTIC_SCHEMA_VERSION,
+    REPORT_LIMIT_BYTES, RETAINED_SESSION_COUNT, SERVER_REPORT_LIMIT_BYTES,
 };
 
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 pub fn build_report(
     metadata: Option<&SessionMetadata>,
     directory: Option<&Path>,
@@ -90,10 +90,7 @@ pub fn build_report(
     );
     push_line(
         &mut report,
-        &format!(
-            "extended-diagnostics: {}",
-            extended.load(Ordering::Relaxed)
-        ),
+        &format!("extended-diagnostics: {}", extended.load(Ordering::Relaxed)),
         REPORT_LIMIT_BYTES,
     );
     push_line(
@@ -143,11 +140,8 @@ pub fn build_report(
                     if report.len() >= APPLICATION_REPORT_LIMIT_BYTES {
                         break;
                     }
-                    match append_session_report(
-                        &mut report,
-                        &path,
-                        APPLICATION_REPORT_LIMIT_BYTES,
-                    ) {
+                    match append_session_report(&mut report, &path, APPLICATION_REPORT_LIMIT_BYTES)
+                    {
                         Ok(wrote) => wrote_session |= wrote,
                         Err(_) => push_line(
                             &mut report,
@@ -188,6 +182,8 @@ pub fn build_report(
     truncate_utf8(&report, REPORT_LIMIT_BYTES)
 }
 
+/// # Errors
+/// Returns an error when the report cannot be assembled from the diagnostics directory.
 pub fn append_session_report(
     report: &mut String,
     path: &Path,
@@ -253,7 +249,7 @@ pub fn append_server_report(report: &mut String, title: &str, content: Result<St
     push_line(report, &format!("\n=== {title} ==="), REPORT_LIMIT_BYTES);
     match content {
         Ok(content) if content.trim().is_empty() => {
-            push_line(report, "[No retained output.]", REPORT_LIMIT_BYTES)
+            push_line(report, "[No retained output.]", REPORT_LIMIT_BYTES);
         }
         Ok(content) => {
             let content = sanitize_report_block(&content, SERVER_REPORT_LIMIT_BYTES);
@@ -267,6 +263,7 @@ pub fn append_server_report(report: &mut String, title: &str, content: Result<St
     }
 }
 
+#[must_use]
 pub fn sanitize_report_block(value: &str, limit: usize) -> String {
     let mut output = String::with_capacity(value.len().min(limit));
     for line in value.lines() {

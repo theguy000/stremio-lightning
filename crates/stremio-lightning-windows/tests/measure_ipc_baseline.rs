@@ -9,15 +9,22 @@
 
 #![cfg(all(windows, feature = "dhat-heap"))]
 #![allow(unsafe_code)]
+// Benchmark maths divides integer counters by the iteration count, and each bench keeps
+// its BEFORE/AFTER helpers next to the numbers they produce.
+#![allow(
+    clippy::cast_precision_loss,
+    clippy::items_after_statements,
+    clippy::too_many_lines
+)]
 
+use dhat::{Alloc, HeapStats};
+use serde_json::{json, Value};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::Instant;
-use dhat::{Alloc, HeapStats};
-use stremio_lightning_core::host_api::{self, IpcRequest, InvokeIpcPayload};
+use stremio_lightning_core::host_api::{self, InvokeIpcPayload, IpcRequest};
 use stremio_lightning_windows::host::{WindowsHost, WindowsIpcOutbound};
 use stremio_lightning_windows::single_instance::LaunchIntent;
-use serde_json::{json, Value};
 
 #[global_allocator]
 static ALLOC: Alloc = Alloc;
@@ -35,14 +42,16 @@ fn reset_metrics() {
 
 fn current_metrics() -> (usize, usize) {
     let stats = HeapStats::get();
+    let blocks = stats.total_blocks - BASELINE_BLOCKS.load(Ordering::SeqCst);
+    let bytes = stats.total_bytes - BASELINE_BYTES.load(Ordering::SeqCst);
     (
-        (stats.total_blocks - BASELINE_BLOCKS.load(Ordering::SeqCst)) as usize,
-        (stats.total_bytes - BASELINE_BYTES.load(Ordering::SeqCst)) as usize,
+        usize::try_from(blocks).unwrap_or(usize::MAX),
+        usize::try_from(bytes).unwrap_or(usize::MAX),
     )
 }
 
 fn temp_dir(name: &str) -> std::path::PathBuf {
-    let path = std::env::temp_dir().join(format!("stremio-perf-test-{}", name));
+    let path = std::env::temp_dir().join(format!("stremio-perf-test-{name}"));
     let _ = std::fs::remove_dir_all(&path);
     let _ = std::fs::create_dir_all(&path);
     path
@@ -81,8 +90,7 @@ fn bench_1_sync_ipc_single_vs_double_parse() {
         let request: IpcRequest = serde_json::from_str(raw_msg).unwrap();
         let is_async = if request.kind == "invoke" {
             host_api::parse_payload::<InvokeIpcPayload>("invoke", request.payload.clone())
-                .ok()
-                .is_some_and(|p| host_api::is_async_command(&p.command))
+                .is_ok_and(|p| host_api::is_async_command(&p.command))
         } else {
             false
         };
@@ -99,20 +107,59 @@ fn bench_1_sync_ipc_single_vs_double_parse() {
     println!(" BENCHMARK 1: Sync IPC Double-Parse vs Single-Parse (10,000 ops)");
     println!("==================================================================");
     println!("[BEFORE: Double-Parse (dispatch_ipc_message_async -> dispatch_ipc_message)]");
-    println!("  Time:        {:?} ({:.3} µs / call)", elapsed_double, elapsed_double.as_secs_f64() * 1_000_000.0 / iterations as f64);
-    println!("  Allocations: {} blocks ({:.1} blocks / call)", allocs_double, allocs_double as f64 / iterations as f64);
-    println!("  Heap Bytes:  {} bytes ({:.1} B / call)\n", bytes_double, bytes_double as f64 / iterations as f64);
+    println!(
+        "  Time:        {:?} ({:.3} µs / call)",
+        elapsed_double,
+        elapsed_double.as_secs_f64() * 1_000_000.0 / f64::from(iterations)
+    );
+    println!(
+        "  Allocations: {} blocks ({:.1} blocks / call)",
+        allocs_double,
+        allocs_double as f64 / f64::from(iterations)
+    );
+    println!(
+        "  Heap Bytes:  {} bytes ({:.1} B / call)\n",
+        bytes_double,
+        bytes_double as f64 / f64::from(iterations)
+    );
 
     println!("[AFTER: Single-Parse (Direct Dispatch)]");
-    println!("  Time:        {:?} ({:.3} µs / call)", elapsed_single, elapsed_single.as_secs_f64() * 1_000_000.0 / iterations as f64);
-    println!("  Allocations: {} blocks ({:.1} blocks / call)", allocs_single, allocs_single as f64 / iterations as f64);
-    println!("  Heap Bytes:  {} bytes ({:.1} B / call)\n", bytes_single, bytes_single as f64 / iterations as f64);
+    println!(
+        "  Time:        {:?} ({:.3} µs / call)",
+        elapsed_single,
+        elapsed_single.as_secs_f64() * 1_000_000.0 / f64::from(iterations)
+    );
+    println!(
+        "  Allocations: {} blocks ({:.1} blocks / call)",
+        allocs_single,
+        allocs_single as f64 / f64::from(iterations)
+    );
+    println!(
+        "  Heap Bytes:  {} bytes ({:.1} B / call)\n",
+        bytes_single,
+        bytes_single as f64 / f64::from(iterations)
+    );
 
     let time_saved = (1.0 - elapsed_single.as_secs_f64() / elapsed_double.as_secs_f64()) * 100.0;
     println!("[IMPROVEMENT DELTA]");
-    println!("  Latency:     {:.2}% faster ({:.3} µs saved / call)", time_saved, (elapsed_double.as_secs_f64() - elapsed_single.as_secs_f64()) * 1_000_000.0 / iterations as f64);
-    println!("  Allocations: -{} blocks (-{:.1} blocks / call, -{:.1}%)", allocs_double.saturating_sub(allocs_single), (allocs_double.saturating_sub(allocs_single)) as f64 / iterations as f64, (allocs_double.saturating_sub(allocs_single)) as f64 / allocs_double as f64 * 100.0);
-    println!("  Heap Churn:  -{} bytes (-{:.1} B / call, -{:.1}%)\n", bytes_double.saturating_sub(bytes_single), (bytes_double.saturating_sub(bytes_single)) as f64 / iterations as f64, (bytes_double.saturating_sub(bytes_single)) as f64 / bytes_double as f64 * 100.0);
+    println!(
+        "  Latency:     {:.2}% faster ({:.3} µs saved / call)",
+        time_saved,
+        (elapsed_double.as_secs_f64() - elapsed_single.as_secs_f64()) * 1_000_000.0
+            / f64::from(iterations)
+    );
+    println!(
+        "  Allocations: -{} blocks (-{:.1} blocks / call, -{:.1}%)",
+        allocs_double.saturating_sub(allocs_single),
+        (allocs_double.saturating_sub(allocs_single)) as f64 / f64::from(iterations),
+        (allocs_double.saturating_sub(allocs_single)) as f64 / allocs_double as f64 * 100.0
+    );
+    println!(
+        "  Heap Churn:  -{} bytes (-{:.1} B / call, -{:.1}%)\n",
+        bytes_double.saturating_sub(bytes_single),
+        (bytes_double.saturating_sub(bytes_single)) as f64 / f64::from(iterations),
+        (bytes_double.saturating_sub(bytes_single)) as f64 / bytes_double as f64 * 100.0
+    );
 }
 
 // =====================================================================
@@ -137,10 +184,10 @@ fn bench_2_player_transport_payload_cloning() {
     let start_zero_clone = Instant::now();
     for _ in 0..iterations {
         let p = Some(payload.clone());
-        let _values = match p {
-            Some(Value::Array(arr)) => arr,
-            _ => unreachable!(),
+        let Some(Value::Array(arr)) = p else {
+            unreachable!()
         };
+        let _ = std::hint::black_box(&arr);
     }
     let elapsed_zero_clone = start_zero_clone.elapsed();
     let (allocs_zero_clone, bytes_zero_clone) = current_metrics();
@@ -149,20 +196,58 @@ fn bench_2_player_transport_payload_cloning() {
     println!(" BENCHMARK 2: Player Transport Payload Cloning (10,000 ops)");
     println!("==================================================================");
     println!("[BEFORE: as_array().cloned()]");
-    println!("  Time:        {:?} ({:.3} µs / op)", elapsed_cloned, elapsed_cloned.as_secs_f64() * 1_000_000.0 / iterations as f64);
-    println!("  Allocations: {} blocks ({:.1} blocks / op)", allocs_cloned, allocs_cloned as f64 / iterations as f64);
-    println!("  Heap Bytes:  {} bytes ({:.1} B / op)\n", bytes_cloned, bytes_cloned as f64 / iterations as f64);
+    println!(
+        "  Time:        {:?} ({:.3} µs / op)",
+        elapsed_cloned,
+        elapsed_cloned.as_secs_f64() * 1_000_000.0 / f64::from(iterations)
+    );
+    println!(
+        "  Allocations: {} blocks ({:.1} blocks / op)",
+        allocs_cloned,
+        allocs_cloned as f64 / f64::from(iterations)
+    );
+    println!(
+        "  Heap Bytes:  {} bytes ({:.1} B / op)\n",
+        bytes_cloned,
+        bytes_cloned as f64 / f64::from(iterations)
+    );
 
     println!("[AFTER: Pattern Match Take (Zero-Clone)]");
-    println!("  Time:        {:?} ({:.3} µs / op)", elapsed_zero_clone, elapsed_zero_clone.as_secs_f64() * 1_000_000.0 / iterations as f64);
-    println!("  Allocations: {} blocks ({:.1} blocks / op)", allocs_zero_clone, allocs_zero_clone as f64 / iterations as f64);
-    println!("  Heap Bytes:  {} bytes ({:.1} B / op)\n", bytes_zero_clone, bytes_zero_clone as f64 / iterations as f64);
+    println!(
+        "  Time:        {:?} ({:.3} µs / op)",
+        elapsed_zero_clone,
+        elapsed_zero_clone.as_secs_f64() * 1_000_000.0 / f64::from(iterations)
+    );
+    println!(
+        "  Allocations: {} blocks ({:.1} blocks / op)",
+        allocs_zero_clone,
+        allocs_zero_clone as f64 / f64::from(iterations)
+    );
+    println!(
+        "  Heap Bytes:  {} bytes ({:.1} B / op)\n",
+        bytes_zero_clone,
+        bytes_zero_clone as f64 / f64::from(iterations)
+    );
 
-    let time_saved = (1.0 - elapsed_zero_clone.as_secs_f64() / elapsed_cloned.as_secs_f64()) * 100.0;
+    let time_saved =
+        (1.0 - elapsed_zero_clone.as_secs_f64() / elapsed_cloned.as_secs_f64()) * 100.0;
     println!("[IMPROVEMENT DELTA]");
-    println!("  Latency:     {:.2}% faster ({:.3} µs saved / op)", time_saved, (elapsed_cloned.as_secs_f64() - elapsed_zero_clone.as_secs_f64()) * 1_000_000.0 / iterations as f64);
-    println!("  Allocations: -{} blocks (-{:.1} blocks / op, -50.0%)", allocs_cloned - allocs_zero_clone, (allocs_cloned - allocs_zero_clone) as f64 / iterations as f64);
-    println!("  Heap Churn:  -{} bytes (-{:.1} B / op, -50.0%)\n", bytes_cloned - bytes_zero_clone, (bytes_cloned - bytes_zero_clone) as f64 / iterations as f64);
+    println!(
+        "  Latency:     {:.2}% faster ({:.3} µs saved / op)",
+        time_saved,
+        (elapsed_cloned.as_secs_f64() - elapsed_zero_clone.as_secs_f64()) * 1_000_000.0
+            / f64::from(iterations)
+    );
+    println!(
+        "  Allocations: -{} blocks (-{:.1} blocks / op, -50.0%)",
+        allocs_cloned - allocs_zero_clone,
+        (allocs_cloned - allocs_zero_clone) as f64 / f64::from(iterations)
+    );
+    println!(
+        "  Heap Churn:  -{} bytes (-{:.1} B / op, -50.0%)\n",
+        bytes_cloned - bytes_zero_clone,
+        (bytes_cloned - bytes_zero_clone) as f64 / f64::from(iterations)
+    );
 }
 
 // =====================================================================
@@ -208,20 +293,56 @@ fn bench_3_outbound_serialization_to_string_vs_to_writer() {
     println!(" BENCHMARK 3: Outbound Serialization (10,000 events)");
     println!("==================================================================");
     println!("[BEFORE: serde_json::to_string (&outbound)]");
-    println!("  Time:        {:?} ({:.3} µs / event)", elapsed_to_string, elapsed_to_string.as_secs_f64() * 1_000_000.0 / iterations as f64);
-    println!("  Allocations: {} blocks ({:.1} blocks / event)", allocs_to_string, allocs_to_string as f64 / iterations as f64);
-    println!("  Heap Bytes:  {} bytes ({:.1} B / event)\n", bytes_to_string, bytes_to_string as f64 / iterations as f64);
+    println!(
+        "  Time:        {:?} ({:.3} µs / event)",
+        elapsed_to_string,
+        elapsed_to_string.as_secs_f64() * 1_000_000.0 / f64::from(iterations)
+    );
+    println!(
+        "  Allocations: {} blocks ({:.1} blocks / event)",
+        allocs_to_string,
+        allocs_to_string as f64 / f64::from(iterations)
+    );
+    println!(
+        "  Heap Bytes:  {} bytes ({:.1} B / event)\n",
+        bytes_to_string,
+        bytes_to_string as f64 / f64::from(iterations)
+    );
 
     println!("[AFTER: serde_json::to_writer (&mut scratch_utf8)]");
-    println!("  Time:        {:?} ({:.3} µs / event)", elapsed_to_writer, elapsed_to_writer.as_secs_f64() * 1_000_000.0 / iterations as f64);
-    println!("  Allocations: {} blocks ({:.1} blocks / event)", allocs_to_writer, allocs_to_writer as f64 / iterations as f64);
-    println!("  Heap Bytes:  {} bytes ({:.1} B / event)\n", bytes_to_writer, bytes_to_writer as f64 / iterations as f64);
+    println!(
+        "  Time:        {:?} ({:.3} µs / event)",
+        elapsed_to_writer,
+        elapsed_to_writer.as_secs_f64() * 1_000_000.0 / f64::from(iterations)
+    );
+    println!(
+        "  Allocations: {} blocks ({:.1} blocks / event)",
+        allocs_to_writer,
+        allocs_to_writer as f64 / f64::from(iterations)
+    );
+    println!(
+        "  Heap Bytes:  {} bytes ({:.1} B / event)\n",
+        bytes_to_writer,
+        bytes_to_writer as f64 / f64::from(iterations)
+    );
 
-    let time_saved = (1.0 - elapsed_to_writer.as_secs_f64() / elapsed_to_string.as_secs_f64()) * 100.0;
+    let time_saved =
+        (1.0 - elapsed_to_writer.as_secs_f64() / elapsed_to_string.as_secs_f64()) * 100.0;
     println!("[IMPROVEMENT DELTA]");
-    println!("  Latency:     {:.2}% faster ({:.3} µs saved / event)", time_saved, (elapsed_to_string.as_secs_f64() - elapsed_to_writer.as_secs_f64()) * 1_000_000.0 / iterations as f64);
-    println!("  Allocations: -{} blocks (-100.0% OF HEAP ALLOCATIONS DROPPED)", allocs_to_string - allocs_to_writer);
-    println!("  Heap Churn:  -{} bytes (-100.0% HEAP MEMORY ELIMINATED)\n", bytes_to_string - bytes_to_writer);
+    println!(
+        "  Latency:     {:.2}% faster ({:.3} µs saved / event)",
+        time_saved,
+        (elapsed_to_string.as_secs_f64() - elapsed_to_writer.as_secs_f64()) * 1_000_000.0
+            / f64::from(iterations)
+    );
+    println!(
+        "  Allocations: -{} blocks (-100.0% OF HEAP ALLOCATIONS DROPPED)",
+        allocs_to_string - allocs_to_writer
+    );
+    println!(
+        "  Heap Churn:  -{} bytes (-100.0% HEAP MEMORY ELIMINATED)\n",
+        bytes_to_string - bytes_to_writer
+    );
 }
 
 // =====================================================================
@@ -230,7 +351,7 @@ fn bench_3_outbound_serialization_to_string_vs_to_writer() {
 #[ignore = "manual perf harness: run with --ignored --nocapture --test-threads=1"]
 #[test]
 fn bench_4_mpv_command_args_extraction() {
-    let values = vec![
+    let values = [
         Value::String("seek".to_string()),
         Value::String("60".to_string()),
         Value::String("absolute".to_string()),
@@ -242,11 +363,7 @@ fn bench_4_mpv_command_args_extraction() {
     let start_before = Instant::now();
     for _ in 0..iterations {
         // 1. command_name_and_args: allocates String, Vec<String>, and clones each arg
-        let name = values
-            .first()
-            .and_then(Value::as_str)
-            .unwrap()
-            .to_string();
+        let name = values.first().and_then(Value::as_str).unwrap().to_string();
         let args: Vec<String> = values
             .iter()
             .skip(1)
@@ -288,20 +405,55 @@ fn bench_4_mpv_command_args_extraction() {
     println!(" BENCHMARK 4: MPV Command Args Extraction (10,000 commands)");
     println!("==================================================================");
     println!("[BEFORE: command_name_and_args (Vec<String> + Vec<&str>)]");
-    println!("  Time:        {:?} ({:.3} µs / cmd)", elapsed_before, elapsed_before.as_secs_f64() * 1_000_000.0 / iterations as f64);
-    println!("  Allocations: {} blocks ({:.1} blocks / cmd)", allocs_before, allocs_before as f64 / iterations as f64);
-    println!("  Heap Bytes:  {} bytes ({:.1} B / cmd)\n", bytes_before, bytes_before as f64 / iterations as f64);
+    println!(
+        "  Time:        {:?} ({:.3} µs / cmd)",
+        elapsed_before,
+        elapsed_before.as_secs_f64() * 1_000_000.0 / f64::from(iterations)
+    );
+    println!(
+        "  Allocations: {} blocks ({:.1} blocks / cmd)",
+        allocs_before,
+        allocs_before as f64 / f64::from(iterations)
+    );
+    println!(
+        "  Heap Bytes:  {} bytes ({:.1} B / cmd)\n",
+        bytes_before,
+        bytes_before as f64 / f64::from(iterations)
+    );
 
     println!("[AFTER: Borrowed Stack Array &[&str] (Zero-Alloc)]");
-    println!("  Time:        {:?} ({:.3} µs / cmd)", elapsed_after, elapsed_after.as_secs_f64() * 1_000_000.0 / iterations as f64);
-    println!("  Allocations: {} blocks ({:.1} blocks / cmd)", allocs_after, allocs_after as f64 / iterations as f64);
-    println!("  Heap Bytes:  {} bytes ({:.1} B / cmd)\n", bytes_after, bytes_after as f64 / iterations as f64);
+    println!(
+        "  Time:        {:?} ({:.3} µs / cmd)",
+        elapsed_after,
+        elapsed_after.as_secs_f64() * 1_000_000.0 / f64::from(iterations)
+    );
+    println!(
+        "  Allocations: {} blocks ({:.1} blocks / cmd)",
+        allocs_after,
+        allocs_after as f64 / f64::from(iterations)
+    );
+    println!(
+        "  Heap Bytes:  {} bytes ({:.1} B / cmd)\n",
+        bytes_after,
+        bytes_after as f64 / f64::from(iterations)
+    );
 
     let time_saved = (1.0 - elapsed_after.as_secs_f64() / elapsed_before.as_secs_f64()) * 100.0;
     println!("[IMPROVEMENT DELTA]");
-    println!("  Latency:     {:.2}% faster ({:.3} µs saved / cmd)", time_saved, (elapsed_before.as_secs_f64() - elapsed_after.as_secs_f64()) * 1_000_000.0 / iterations as f64);
-    println!("  Allocations: -{} blocks (-100.0% OF HEAP ALLOCATIONS DROPPED)", allocs_before - allocs_after);
-    println!("  Heap Churn:  -{} bytes (-100.0% HEAP MEMORY ELIMINATED)\n", bytes_before - bytes_after);
+    println!(
+        "  Latency:     {:.2}% faster ({:.3} µs saved / cmd)",
+        time_saved,
+        (elapsed_before.as_secs_f64() - elapsed_after.as_secs_f64()) * 1_000_000.0
+            / f64::from(iterations)
+    );
+    println!(
+        "  Allocations: -{} blocks (-100.0% OF HEAP ALLOCATIONS DROPPED)",
+        allocs_before - allocs_after
+    );
+    println!(
+        "  Heap Churn:  -{} bytes (-100.0% HEAP MEMORY ELIMINATED)\n",
+        bytes_before - bytes_after
+    );
 }
 
 // =====================================================================
@@ -350,20 +502,55 @@ fn bench_5_mpv_property_name_allocation() {
     println!(" BENCHMARK 5: MPV Property Name Allocation (10,000 property ticks)");
     println!("==================================================================");
     println!("[BEFORE: name.to_string()]");
-    println!("  Time:        {:?} ({:.3} µs / tick)", elapsed_before, elapsed_before.as_secs_f64() * 1_000_000.0 / iterations as f64);
-    println!("  Allocations: {} blocks ({:.1} blocks / tick)", allocs_before, allocs_before as f64 / iterations as f64);
-    println!("  Heap Bytes:  {} bytes ({:.1} B / tick)\n", bytes_before, bytes_before as f64 / iterations as f64);
+    println!(
+        "  Time:        {:?} ({:.3} µs / tick)",
+        elapsed_before,
+        elapsed_before.as_secs_f64() * 1_000_000.0 / f64::from(iterations)
+    );
+    println!(
+        "  Allocations: {} blocks ({:.1} blocks / tick)",
+        allocs_before,
+        allocs_before as f64 / f64::from(iterations)
+    );
+    println!(
+        "  Heap Bytes:  {} bytes ({:.1} B / tick)\n",
+        bytes_before,
+        bytes_before as f64 / f64::from(iterations)
+    );
 
     println!("[AFTER: Static String Match (&'static str)]");
-    println!("  Time:        {:?} ({:.3} µs / tick)", elapsed_after, elapsed_after.as_secs_f64() * 1_000_000.0 / iterations as f64);
-    println!("  Allocations: {} blocks ({:.1} blocks / tick)", allocs_after, allocs_after as f64 / iterations as f64);
-    println!("  Heap Bytes:  {} bytes ({:.1} B / tick)\n", bytes_after, bytes_after as f64 / iterations as f64);
+    println!(
+        "  Time:        {:?} ({:.3} µs / tick)",
+        elapsed_after,
+        elapsed_after.as_secs_f64() * 1_000_000.0 / f64::from(iterations)
+    );
+    println!(
+        "  Allocations: {} blocks ({:.1} blocks / tick)",
+        allocs_after,
+        allocs_after as f64 / f64::from(iterations)
+    );
+    println!(
+        "  Heap Bytes:  {} bytes ({:.1} B / tick)\n",
+        bytes_after,
+        bytes_after as f64 / f64::from(iterations)
+    );
 
     let time_saved = (1.0 - elapsed_after.as_secs_f64() / elapsed_before.as_secs_f64()) * 100.0;
     println!("[IMPROVEMENT DELTA]");
-    println!("  Latency:     {:.2}% faster ({:.3} µs saved / tick)", time_saved, (elapsed_before.as_secs_f64() - elapsed_after.as_secs_f64()) * 1_000_000.0 / iterations as f64);
-    println!("  Allocations: -{} blocks (-100.0% OF HEAP ALLOCATIONS DROPPED)", allocs_before - allocs_after);
-    println!("  Heap Churn:  -{} bytes (-100.0% HEAP MEMORY ELIMINATED)\n", bytes_before - bytes_after);
+    println!(
+        "  Latency:     {:.2}% faster ({:.3} µs saved / tick)",
+        time_saved,
+        (elapsed_before.as_secs_f64() - elapsed_after.as_secs_f64()) * 1_000_000.0
+            / f64::from(iterations)
+    );
+    println!(
+        "  Allocations: -{} blocks (-100.0% OF HEAP ALLOCATIONS DROPPED)",
+        allocs_before - allocs_after
+    );
+    println!(
+        "  Heap Churn:  -{} bytes (-100.0% HEAP MEMORY ELIMINATED)\n",
+        bytes_before - bytes_after
+    );
 }
 
 // =====================================================================
@@ -401,18 +588,33 @@ fn bench_6_url_policy_cotask_vs_hstring() {
     println!(" BENCHMARK 6: External URL Wide-String Conversion (10,000 URLs)");
     println!("==================================================================");
     println!("[BEFORE: CoTaskMemPWSTR::from (COM Task Allocator)]");
-    println!("  Time:        {:?} ({:.3} µs / url)", elapsed_before, elapsed_before.as_secs_f64() * 1_000_000.0 / iterations as f64);
-    println!("  Allocations: {} blocks (Note: CoTaskMemAlloc operates outside Rust stdlib allocator)", allocs_before);
-    println!("  Heap Bytes:  {} bytes\n", bytes_before);
+    println!(
+        "  Time:        {:?} ({:.3} µs / url)",
+        elapsed_before,
+        elapsed_before.as_secs_f64() * 1_000_000.0 / f64::from(iterations)
+    );
+    println!(
+        "  Allocations: {allocs_before} blocks (Note: CoTaskMemAlloc operates outside Rust stdlib allocator)"
+    );
+    println!("  Heap Bytes:  {bytes_before} bytes\n");
 
     println!("[AFTER: windows::core::HSTRING::from (Windows Core Heap)]");
-    println!("  Time:        {:?} ({:.3} µs / url)", elapsed_after, elapsed_after.as_secs_f64() * 1_000_000.0 / iterations as f64);
-    println!("  Allocations: {} blocks", allocs_after);
-    println!("  Heap Bytes:  {} bytes\n", bytes_after);
+    println!(
+        "  Time:        {:?} ({:.3} µs / url)",
+        elapsed_after,
+        elapsed_after.as_secs_f64() * 1_000_000.0 / f64::from(iterations)
+    );
+    println!("  Allocations: {allocs_after} blocks");
+    println!("  Heap Bytes:  {bytes_after} bytes\n");
 
     let time_saved = (1.0 - elapsed_after.as_secs_f64() / elapsed_before.as_secs_f64()) * 100.0;
     println!("[IMPROVEMENT DELTA]");
-    println!("  Latency:     {:.2}% faster ({:.3} µs saved / url)\n", time_saved, (elapsed_before.as_secs_f64() - elapsed_after.as_secs_f64()) * 1_000_000.0 / iterations as f64);
+    println!(
+        "  Latency:     {:.2}% faster ({:.3} µs saved / url)\n",
+        time_saved,
+        (elapsed_before.as_secs_f64() - elapsed_after.as_secs_f64()) * 1_000_000.0
+            / f64::from(iterations)
+    );
 }
 
 // =====================================================================
@@ -433,7 +635,10 @@ fn bench_7_navigation_url_origin_parsing() {
             return None;
         }
         let authority_start = scheme_end + 3;
-        let authority = url[authority_start..].split(['/', '?', '#']).next()?.to_ascii_lowercase();
+        let authority = url[authority_start..]
+            .split(['/', '?', '#'])
+            .next()?
+            .to_ascii_lowercase();
         if authority.is_empty() || authority.contains('@') {
             return None;
         }
@@ -456,7 +661,7 @@ fn bench_7_navigation_url_origin_parsing() {
     let (allocs_before, bytes_before) = current_metrics();
 
     // AFTER: Precomputed app_origin & zero-allocation borrowed slices
-    fn url_origin_zero_copy<'a>(url: &'a str) -> Option<(&'a str, &'a str)> {
+    fn url_origin_zero_copy(url: &str) -> Option<(&str, &str)> {
         let scheme_end = url.find("://")?;
         let scheme = &url[..scheme_end];
         if !scheme.eq_ignore_ascii_case("http") && !scheme.eq_ignore_ascii_case("https") {
@@ -474,7 +679,9 @@ fn bench_7_navigation_url_origin_parsing() {
 
     fn is_allowed_after(app_scheme: &str, app_auth: &str, target_url: &str) -> bool {
         match url_origin_zero_copy(target_url) {
-            Some((ts, ta)) => ts.eq_ignore_ascii_case(app_scheme) && ta.eq_ignore_ascii_case(app_auth),
+            Some((ts, ta)) => {
+                ts.eq_ignore_ascii_case(app_scheme) && ta.eq_ignore_ascii_case(app_auth)
+            }
             None => false,
         }
     }
@@ -491,20 +698,55 @@ fn bench_7_navigation_url_origin_parsing() {
     println!(" BENCHMARK 7: Navigation URL Origin Parsing (10,000 navigations)");
     println!("==================================================================");
     println!("[BEFORE: 6 String Allocations per Navigation]");
-    println!("  Time:        {:?} ({:.3} µs / nav)", elapsed_before, elapsed_before.as_secs_f64() * 1_000_000.0 / iterations as f64);
-    println!("  Allocations: {} blocks ({:.1} blocks / nav)", allocs_before, allocs_before as f64 / iterations as f64);
-    println!("  Heap Bytes:  {} bytes ({:.1} B / nav)\n", bytes_before, bytes_before as f64 / iterations as f64);
+    println!(
+        "  Time:        {:?} ({:.3} µs / nav)",
+        elapsed_before,
+        elapsed_before.as_secs_f64() * 1_000_000.0 / f64::from(iterations)
+    );
+    println!(
+        "  Allocations: {} blocks ({:.1} blocks / nav)",
+        allocs_before,
+        allocs_before as f64 / f64::from(iterations)
+    );
+    println!(
+        "  Heap Bytes:  {} bytes ({:.1} B / nav)\n",
+        bytes_before,
+        bytes_before as f64 / f64::from(iterations)
+    );
 
     println!("[AFTER: Precomputed Origin & Zero-Copy Slices]");
-    println!("  Time:        {:?} ({:.3} µs / nav)", elapsed_after, elapsed_after.as_secs_f64() * 1_000_000.0 / iterations as f64);
-    println!("  Allocations: {} blocks ({:.1} blocks / nav)", allocs_after, allocs_after as f64 / iterations as f64);
-    println!("  Heap Bytes:  {} bytes ({:.1} B / nav)\n", bytes_after, bytes_after as f64 / iterations as f64);
+    println!(
+        "  Time:        {:?} ({:.3} µs / nav)",
+        elapsed_after,
+        elapsed_after.as_secs_f64() * 1_000_000.0 / f64::from(iterations)
+    );
+    println!(
+        "  Allocations: {} blocks ({:.1} blocks / nav)",
+        allocs_after,
+        allocs_after as f64 / f64::from(iterations)
+    );
+    println!(
+        "  Heap Bytes:  {} bytes ({:.1} B / nav)\n",
+        bytes_after,
+        bytes_after as f64 / f64::from(iterations)
+    );
 
     let time_saved = (1.0 - elapsed_after.as_secs_f64() / elapsed_before.as_secs_f64()) * 100.0;
     println!("[IMPROVEMENT DELTA]");
-    println!("  Latency:     {:.2}% faster ({:.3} µs saved / nav)", time_saved, (elapsed_before.as_secs_f64() - elapsed_after.as_secs_f64()) * 1_000_000.0 / iterations as f64);
-    println!("  Allocations: -{} blocks (-100.0% OF HEAP ALLOCATIONS DROPPED)", allocs_before - allocs_after);
-    println!("  Heap Churn:  -{} bytes (-100.0% HEAP MEMORY ELIMINATED)\n", bytes_before - bytes_after);
+    println!(
+        "  Latency:     {:.2}% faster ({:.3} µs saved / nav)",
+        time_saved,
+        (elapsed_before.as_secs_f64() - elapsed_after.as_secs_f64()) * 1_000_000.0
+            / f64::from(iterations)
+    );
+    println!(
+        "  Allocations: -{} blocks (-100.0% OF HEAP ALLOCATIONS DROPPED)",
+        allocs_before - allocs_after
+    );
+    println!(
+        "  Heap Churn:  -{} bytes (-100.0% HEAP MEMORY ELIMINATED)\n",
+        bytes_before - bytes_after
+    );
 }
 
 // =====================================================================
@@ -519,7 +761,10 @@ fn bench_9_real_inbound_transport_send() {
         true,
     ));
 
-    let long_url = format!("https://cdn.example.test/media/{}", "segment-path/".repeat(200));
+    let long_url = format!(
+        "https://cdn.example.test/media/{}",
+        "segment-path/".repeat(200)
+    );
     let rpc_message = json!({
         "id": 42,
         "type": 6,
@@ -550,11 +795,26 @@ fn bench_9_real_inbound_transport_send() {
     let (allocs, bytes) = current_metrics();
 
     println!("\n==================================================================");
-    println!(" BENCHMARK 9: Real Inbound shell_transport_send ({} byte payload)", raw_msg.len());
+    println!(
+        " BENCHMARK 9: Real Inbound shell_transport_send ({} byte payload)",
+        raw_msg.len()
+    );
     println!("==================================================================");
-    println!("  Time:        {:?} ({:.3} µs / msg)", elapsed, elapsed.as_secs_f64() * 1_000_000.0 / iterations as f64);
-    println!("  Allocations: {} blocks ({:.2} blocks / msg)", allocs, allocs as f64 / iterations as f64);
-    println!("  Heap Bytes:  {} bytes ({:.1} B / msg)\n", bytes, bytes as f64 / iterations as f64);
+    println!(
+        "  Time:        {:?} ({:.3} µs / msg)",
+        elapsed,
+        elapsed.as_secs_f64() * 1_000_000.0 / f64::from(iterations)
+    );
+    println!(
+        "  Allocations: {} blocks ({:.2} blocks / msg)",
+        allocs,
+        allocs as f64 / f64::from(iterations)
+    );
+    println!(
+        "  Heap Bytes:  {} bytes ({:.1} B / msg)\n",
+        bytes,
+        bytes as f64 / f64::from(iterations)
+    );
     assert!(raw_msg.len() > 2000, "payload should be representative");
 }
 
@@ -583,7 +843,7 @@ fn bench_10_real_player_tick_pipeline() {
     for index in 0..iterations {
         {
             let mut player = host.player().lock().unwrap();
-            player.emit_property_change("time-pos", json!(index as f64 / 10.0));
+            player.emit_property_change("time-pos", json!(f64::from(index) / 10.0));
         }
         for outbound in host.drain_ipc_events() {
             scratch.clear();
@@ -596,9 +856,21 @@ fn bench_10_real_player_tick_pipeline() {
     println!("\n==================================================================");
     println!(" BENCHMARK 10: Real Player Property Tick Pipeline (10,000 ticks)");
     println!("==================================================================");
-    println!("  Time:        {:?} ({:.3} µs / tick)", elapsed, elapsed.as_secs_f64() * 1_000_000.0 / iterations as f64);
-    println!("  Allocations: {} blocks ({:.2} blocks / tick)", allocs, allocs as f64 / iterations as f64);
-    println!("  Heap Bytes:  {} bytes ({:.1} B / tick)\n", bytes, bytes as f64 / iterations as f64);
+    println!(
+        "  Time:        {:?} ({:.3} µs / tick)",
+        elapsed,
+        elapsed.as_secs_f64() * 1_000_000.0 / f64::from(iterations)
+    );
+    println!(
+        "  Allocations: {} blocks ({:.2} blocks / tick)",
+        allocs,
+        allocs as f64 / f64::from(iterations)
+    );
+    println!(
+        "  Heap Bytes:  {} bytes ({:.1} B / tick)\n",
+        bytes,
+        bytes as f64 / f64::from(iterations)
+    );
 }
 
 // =====================================================================
@@ -644,11 +916,19 @@ fn bench_8_cli_argument_classification() {
 
     // AFTER: zero-allocation prefix / suffix matching
     fn classify_after(argument: &str) -> Option<LaunchIntent> {
-        if argument.get(..10).is_some_and(|p| p.eq_ignore_ascii_case("stremio://")) {
+        if argument
+            .get(..10)
+            .is_some_and(|p| p.eq_ignore_ascii_case("stremio://"))
+        {
             Some(LaunchIntent::StremioDeepLink(argument.to_string()))
-        } else if argument.get(..7).is_some_and(|p| p.eq_ignore_ascii_case("magnet:")) {
+        } else if argument
+            .get(..7)
+            .is_some_and(|p| p.eq_ignore_ascii_case("magnet:"))
+        {
             Some(LaunchIntent::Magnet(argument.to_string()))
-        } else if argument.len() >= 8 && argument[argument.len() - 8..].eq_ignore_ascii_case(".torrent") {
+        } else if argument.len() >= 8
+            && argument[argument.len() - 8..].eq_ignore_ascii_case(".torrent")
+        {
             Some(LaunchIntent::Torrent(argument.to_string()))
         } else if argument.starts_with('-') {
             None
@@ -671,18 +951,55 @@ fn bench_8_cli_argument_classification() {
     println!(" BENCHMARK 8: CLI Argument Classification (50,000 args checked)");
     println!("==================================================================");
     println!("[BEFORE: argument.to_ascii_lowercase()]");
-    println!("  Time:        {:?} ({:.3} µs / batch)", elapsed_before, elapsed_before.as_secs_f64() * 1_000_000.0 / iterations as f64);
-    println!("  Allocations: {} blocks ({:.1} blocks / batch)", allocs_before, allocs_before as f64 / iterations as f64);
-    println!("  Heap Bytes:  {} bytes ({:.1} B / batch)\n", bytes_before, bytes_before as f64 / iterations as f64);
+    println!(
+        "  Time:        {:?} ({:.3} µs / batch)",
+        elapsed_before,
+        elapsed_before.as_secs_f64() * 1_000_000.0 / f64::from(iterations)
+    );
+    println!(
+        "  Allocations: {} blocks ({:.1} blocks / batch)",
+        allocs_before,
+        allocs_before as f64 / f64::from(iterations)
+    );
+    println!(
+        "  Heap Bytes:  {} bytes ({:.1} B / batch)\n",
+        bytes_before,
+        bytes_before as f64 / f64::from(iterations)
+    );
 
     println!("[AFTER: eq_ignore_ascii_case Zero-Alloc Slices]");
-    println!("  Time:        {:?} ({:.3} µs / batch)", elapsed_after, elapsed_after.as_secs_f64() * 1_000_000.0 / iterations as f64);
-    println!("  Allocations: {} blocks ({:.1} blocks / batch)", allocs_after, allocs_after as f64 / iterations as f64);
-    println!("  Heap Bytes:  {} bytes ({:.1} B / batch)\n", bytes_after, bytes_after as f64 / iterations as f64);
+    println!(
+        "  Time:        {:?} ({:.3} µs / batch)",
+        elapsed_after,
+        elapsed_after.as_secs_f64() * 1_000_000.0 / f64::from(iterations)
+    );
+    println!(
+        "  Allocations: {} blocks ({:.1} blocks / batch)",
+        allocs_after,
+        allocs_after as f64 / f64::from(iterations)
+    );
+    println!(
+        "  Heap Bytes:  {} bytes ({:.1} B / batch)\n",
+        bytes_after,
+        bytes_after as f64 / f64::from(iterations)
+    );
 
     let time_saved = (1.0 - elapsed_after.as_secs_f64() / elapsed_before.as_secs_f64()) * 100.0;
     println!("[IMPROVEMENT DELTA]");
-    println!("  Latency:     {:.2}% faster ({:.3} µs saved / batch)", time_saved, (elapsed_before.as_secs_f64() - elapsed_after.as_secs_f64()) * 1_000_000.0 / iterations as f64);
-    println!("  Allocations: -{} blocks (-{:.1}% of allocations dropped)", allocs_before - allocs_after, (allocs_before - allocs_after) as f64 / allocs_before as f64 * 100.0);
-    println!("  Heap Churn:  -{} bytes (-{:.1}% heap churn dropped)\n", bytes_before - bytes_after, (bytes_before - bytes_after) as f64 / bytes_before as f64 * 100.0);
+    println!(
+        "  Latency:     {:.2}% faster ({:.3} µs saved / batch)",
+        time_saved,
+        (elapsed_before.as_secs_f64() - elapsed_after.as_secs_f64()) * 1_000_000.0
+            / f64::from(iterations)
+    );
+    println!(
+        "  Allocations: -{} blocks (-{:.1}% of allocations dropped)",
+        allocs_before - allocs_after,
+        (allocs_before - allocs_after) as f64 / allocs_before as f64 * 100.0
+    );
+    println!(
+        "  Heap Churn:  -{} bytes (-{:.1}% heap churn dropped)\n",
+        bytes_before - bytes_after,
+        (bytes_before - bytes_after) as f64 / bytes_before as f64 * 100.0
+    );
 }

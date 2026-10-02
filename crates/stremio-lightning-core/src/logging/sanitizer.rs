@@ -1,7 +1,9 @@
-use std::sync::OnceLock;
-use regex::Regex;
 use super::types::{truncate_utf8, MAX_MESSAGE_LENGTH, MAX_SOURCE_LENGTH};
+use regex::Regex;
+use std::sync::OnceLock;
 
+/// # Panics
+/// Panics if one of the compiled-in redaction regexes is invalid, which cannot happen for the fixed patterns.
 #[must_use]
 pub fn sanitize_message(message: &str) -> (String, bool) {
     static URL_CREDENTIALS: OnceLock<Regex> = OnceLock::new();
@@ -19,7 +21,7 @@ pub fn sanitize_message(message: &str) -> (String, bool) {
     }
     clean = URL_CREDENTIALS
         .get_or_init(|| {
-            Regex::new(r#"(?i)\b((?:https?|ftp|rtsp)://)[^/\s:@]+:[^@\s/]+@"#)
+            Regex::new(r"(?i)\b((?:https?|ftp|rtsp)://)[^/\s:@]+:[^@\s/]+@")
                 .expect("valid URL credential redaction regex")
         })
         .replace_all(&clean, "$1[redacted]@")
@@ -38,9 +40,7 @@ pub fn sanitize_message(message: &str) -> (String, bool) {
         .replace_all(&clean, "$1$2[redacted]")
         .into_owned();
     clean = WINDOWS_PATHS
-        .get_or_init(|| {
-            Regex::new(r#"(?i)\b[a-z]:\\[^\r\n\t,;\)\]]+"#).expect("valid path regex")
-        })
+        .get_or_init(|| Regex::new(r"(?i)\b[a-z]:\\[^\r\n\t,;\)\]]+").expect("valid path regex"))
         .replace_all(&clean, "[redacted local path]")
         .into_owned();
     clean = HOME_PATHS

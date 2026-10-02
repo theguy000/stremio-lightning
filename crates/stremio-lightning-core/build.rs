@@ -14,7 +14,12 @@ fn main() {
         .and_then(normalize_version)
         .or_else(github_tag_version)
         .or_else(git_tag_version)
-        .or_else(|| env::var("CARGO_PKG_VERSION").ok().as_deref().and_then(normalize_version))
+        .or_else(|| {
+            env::var("CARGO_PKG_VERSION")
+                .ok()
+                .as_deref()
+                .and_then(normalize_version)
+        })
         .unwrap_or_else(|| "0.0.0".to_string());
 
     println!("cargo:rustc-env=STREMIO_LIGHTNING_VERSION={version}");
@@ -22,7 +27,12 @@ fn main() {
 
 fn github_tag_version() -> Option<String> {
     (env::var("GITHUB_REF_TYPE").as_deref() == Ok("tag"))
-        .then(|| env::var("GITHUB_REF_NAME").ok().as_deref().and_then(normalize_version))
+        .then(|| {
+            env::var("GITHUB_REF_NAME")
+                .ok()
+                .as_deref()
+                .and_then(normalize_version)
+        })
         .flatten()
 }
 

@@ -1,5 +1,7 @@
 #![cfg_attr(windows, allow(unsafe_code))]
 
+/// # Errors
+/// Returns an error when the URL scheme is not allowed.
 pub fn validate_external_url(url: &str) -> Result<(), String> {
     let trimmed = url.trim();
     if trimmed.is_empty() || trimmed.contains(|c: char| c.is_control()) {
@@ -19,6 +21,8 @@ pub fn validate_external_url(url: &str) -> Result<(), String> {
     }
 }
 
+/// # Errors
+/// Returns an error when the URL scheme is not allowed or the system cannot open it.
 #[cfg(windows)]
 pub fn open_external_url(url: &str) -> Result<(), String> {
     use windows::core::{w, HSTRING, PCWSTR};

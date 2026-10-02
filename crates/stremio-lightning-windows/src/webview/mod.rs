@@ -34,6 +34,8 @@ pub struct WindowsWebView2Shell {
 }
 
 impl WindowsWebView2Shell {
+    /// # Errors
+    /// Returns an error when the shell settings are invalid or the shell cannot be constructed.
     #[cfg(windows)]
     pub fn new(
         settings: ShellSettings,
@@ -99,6 +101,7 @@ impl WindowsWebView2Shell {
         })
     }
 
+    #[must_use]
     pub fn document_start_script_names(&self) -> Vec<&'static str> {
         self.injection
             .scripts()
@@ -107,6 +110,8 @@ impl WindowsWebView2Shell {
             .collect()
     }
 
+    /// # Errors
+    /// Returns an error when the `WebView2` environment or controller cannot be created, or the run loop fails.
     pub fn run(self) -> Result<(), WebViewError> {
         platform::run_webview2_shell(
             &self.url,

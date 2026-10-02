@@ -13,13 +13,12 @@ use std::sync::{Mutex, Once, OnceLock};
 pub use report::build_report;
 pub use sanitizer::{looks_like_url, sanitize_identifier, sanitize_message, sanitize_source};
 pub use types::{
-    format_timestamp, generate_session_id, truncate_utf8, unix_timestamp_ms,
-    DiagnosticLimits, DiagnosticReportRuntime, ExternalLogEntry, LimitDecision, LogEntry,
-    LogLevel, LoggingConfig, LoggingError, PersistentLine, SessionMetadata,
-    APPLICATION_REPORT_LIMIT_BYTES, DIAGNOSTIC_SCHEMA_VERSION, MAX_ENTRIES,
-    MAX_EXTERNAL_BATCH_BYTES, MAX_EXTERNAL_BATCH_ENTRIES, MAX_MESSAGE_LENGTH, MAX_SOURCE_LENGTH,
-    REPORT_LIMIT_BYTES, RETAINED_SESSION_COUNT, SERVER_REPORT_LIMIT_BYTES, SESSION_FILE_PREFIX,
-    SESSION_LIMIT_BYTES,
+    format_timestamp, generate_session_id, truncate_utf8, unix_timestamp_ms, DiagnosticLimits,
+    DiagnosticReportRuntime, ExternalLogEntry, LimitDecision, LogEntry, LogLevel, LoggingConfig,
+    LoggingError, PersistentLine, SessionMetadata, APPLICATION_REPORT_LIMIT_BYTES,
+    DIAGNOSTIC_SCHEMA_VERSION, MAX_ENTRIES, MAX_EXTERNAL_BATCH_BYTES, MAX_EXTERNAL_BATCH_ENTRIES,
+    MAX_MESSAGE_LENGTH, MAX_SOURCE_LENGTH, REPORT_LIMIT_BYTES, RETAINED_SESSION_COUNT,
+    SERVER_REPORT_LIMIT_BYTES, SESSION_FILE_PREFIX, SESSION_LIMIT_BYTES,
 };
 
 use sink::{ExternalLimitState, LogBuffer, PersistentSink};
@@ -64,6 +63,8 @@ impl Logger {
         lock_unpoisoned(&self.buffer).snapshot_after(after_id)
     }
 
+    /// # Errors
+    /// Returns an error when the diagnostics directory or session file cannot be created.
     pub fn initialize(&self, config: LoggingConfig) -> Result<(), String> {
         let buffered = self.snapshot_after(0);
         let mut state = lock_unpoisoned(&self.diagnostics);
@@ -140,6 +141,8 @@ impl Logger {
         print_entry(&entry);
     }
 
+    /// # Errors
+    /// Returns an error when diagnostics files cannot be removed.
     pub fn clear(&self) -> Result<(), String> {
         lock_unpoisoned(&self.buffer).clear();
         {
@@ -185,8 +188,8 @@ impl Logger {
         let result = {
             let mut state = lock_unpoisoned(&self.diagnostics);
             if let Some(metadata) = state.metadata.as_mut() {
-                metadata.webview_engine = engine.clone();
-                metadata.webview_version = version.clone();
+                metadata.webview_engine.clone_from(&engine);
+                metadata.webview_version.clone_from(&version);
             }
             state
                 .sink
@@ -199,6 +202,8 @@ impl Logger {
         }
     }
 
+    /// # Errors
+    /// Returns an error when external entries cannot be appended to the log.
     pub fn submit_external(&self, entries: Vec<ExternalLogEntry>) -> Result<(), String> {
         if entries.len() > MAX_EXTERNAL_BATCH_ENTRIES {
             return Err(format!(
@@ -295,6 +300,8 @@ pub fn logger() -> &'static Logger {
     LOGGER.get_or_init(Logger::default)
 }
 
+/// # Errors
+/// Returns an error when the diagnostics directory or session file cannot be created.
 pub fn initialize(config: LoggingConfig) -> Result<(), String> {
     let result = logger().initialize(config);
     install_panic_hook();
@@ -344,19 +351,25 @@ pub fn webview_metadata() -> (String, Option<String>) {
     lock_unpoisoned(&logger().diagnostics)
         .metadata
         .as_ref()
-        .map(|metadata| {
-            (
-                metadata.webview_engine.clone(),
-                metadata.webview_version.clone(),
-            )
-        })
-        .unwrap_or_else(|| ("unavailable".to_string(), None))
+        .map_or_else(
+            || ("unavailable".to_string(), None),
+            |metadata| {
+                (
+                    metadata.webview_engine.clone(),
+                    metadata.webview_version.clone(),
+                )
+            },
+        )
 }
 
+/// # Errors
+/// Returns an error when external entries cannot be appended to the log.
 pub fn submit_external(entries: Vec<ExternalLogEntry>) -> Result<(), String> {
     logger().submit_external(entries)
 }
 
+/// # Errors
+/// Returns an error when diagnostics files cannot be removed.
 pub fn clear_diagnostics() -> Result<(), String> {
     logger().clear()
 }
@@ -452,23 +465,23 @@ fn install_panic_hook() {
                         .map(String::as_str)
                 })
                 .unwrap_or("non-string panic payload");
-            let location = panic_info
-                .location()
-                .map(|location| format!("{}:{}", location.file(), location.line()))
-                .unwrap_or_else(|| "unknown location".to_string());
-            record_panic(format!("Unhandled panic at {location}: {payload}"));
+            let location = panic_info.location().map_or_else(
+                || "unknown location".to_string(),
+                |location| format!("{}:{}", location.file(), location.line()),
+            );
+            record_panic(&format!("Unhandled panic at {location}: {payload}"));
             previous(panic_info);
         }));
     });
 }
 
-fn record_panic(message: String) {
+fn record_panic(message: &str) {
     let entry = LogEntry {
         id: logger().next_id.fetch_add(1, Ordering::Relaxed) + 1,
         timestamp: unix_timestamp_ms(),
         level: LogLevel::Error,
         source: "native.panic".to_string(),
-        message: sanitize_message(&message).0,
+        message: sanitize_message(message).0,
     };
     match logger().buffer.try_lock() {
         Ok(mut buffer) => buffer.push(entry.clone()),

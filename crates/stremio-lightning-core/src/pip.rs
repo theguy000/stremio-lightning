@@ -36,10 +36,13 @@ impl Default for PipStateInner {
 }
 
 impl PipState {
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// # Errors
+    /// Returns an error when the picture-in-picture state cannot be read.
     pub fn is_enabled(&self) -> Result<bool, String> {
         self.inner
             .lock()
@@ -47,6 +50,8 @@ impl PipState {
             .map_err(|e| e.to_string())
     }
 
+    /// # Errors
+    /// Returns an error when the state cannot be toggled, together with the resulting state.
     pub fn toggle(&self) -> Result<bool, String> {
         let mut inner = self.inner.lock().map_err(|e| e.to_string())?;
         inner.enabled = !inner.enabled;
@@ -56,6 +61,8 @@ impl PipState {
         Ok(inner.enabled)
     }
 
+    /// # Errors
+    /// Returns an error when the mode is unsupported or the state cannot be written.
     pub fn set_mode(
         &self,
         enabled: bool,
@@ -71,6 +78,8 @@ impl PipState {
         Ok(())
     }
 
+    /// # Errors
+    /// Returns an error when the current picture-in-picture state cannot be read.
     pub fn snapshot(&self) -> Result<Option<PipRestoreSnapshot>, String> {
         self.inner
             .lock()
@@ -78,6 +87,8 @@ impl PipState {
             .map_err(|e| e.to_string())
     }
 
+    /// # Errors
+    /// Returns an error when the snapshot cannot be written to disk.
     pub fn save_snapshot(&self, snapshot: PipRestoreSnapshot) -> Result<(), String> {
         log_snapshot_saved(&snapshot);
         self.inner
@@ -87,6 +98,8 @@ impl PipState {
         Ok(())
     }
 
+    /// # Errors
+    /// Returns an error when the current picture-in-picture state cannot be read.
     pub fn take_snapshot(&self) -> Result<Option<PipRestoreSnapshot>, String> {
         let snapshot = self
             .inner
@@ -98,6 +111,8 @@ impl PipState {
         Ok(snapshot)
     }
 
+    /// # Errors
+    /// Returns an error when the size is invalid or cannot be applied.
     pub fn set_size(&self, width: i32, height: i32) -> Result<(), String> {
         let mut inner = self.inner.lock().map_err(|e| e.to_string())?;
         if width > 0 && height > 0 {
@@ -107,16 +122,22 @@ impl PipState {
         Ok(())
     }
 
+    /// # Errors
+    /// Returns an error when the picture-in-picture size cannot be read.
     pub fn size(&self) -> Result<(i32, i32), String> {
         let inner = self.inner.lock().map_err(|e| e.to_string())?;
         Ok((inner.width, inner.height))
     }
 
+    /// # Errors
+    /// Returns an error when the picture-in-picture size cannot be read.
     #[deprecated(note = "use `size` instead")]
     pub fn get_size(&self) -> Result<(i32, i32), String> {
         self.size()
     }
 
+    /// # Errors
+    /// Returns an error when the window picture-in-picture mode cannot be exited.
     pub fn exit_window_pip(
         &self,
         controller: &mut impl PipWindowController,
@@ -138,6 +159,8 @@ impl PipState {
         Ok(true)
     }
 
+    /// # Errors
+    /// Returns an error when the window picture-in-picture mode cannot be exited.
     pub fn exit_window_pip_for_player_end(
         &self,
         controller: &mut impl PipWindowController,
@@ -145,6 +168,8 @@ impl PipState {
         self.exit_window_pip(controller)
     }
 
+    /// # Errors
+    /// Returns an error when the window picture-in-picture mode cannot be toggled.
     pub fn toggle_window_pip(
         &self,
         controller: &mut impl PipWindowController,
@@ -191,17 +216,22 @@ fn log_snapshot_restored(snapshot: Option<&PipRestoreSnapshot>) {
     }
 }
 
+#[must_use]
 pub fn serialize_picture_in_picture(enabled: bool) -> Value {
-    if enabled {
-        PlayerEvent::ShowPictureInPicture(Value::Object(Default::default()))
+    let event = if enabled {
+        PlayerEvent::ShowPictureInPicture(Value::Object(serde_json::Map::new()))
     } else {
-        PlayerEvent::HidePictureInPicture(Value::Object(Default::default()))
-    }
-    .transport_args()
+        PlayerEvent::HidePictureInPicture(Value::Object(serde_json::Map::new()))
+    };
+    event.transport_args()
 }
 
 pub trait PipWindowController {
+    /// # Errors
+    /// Returns an error when the platform cannot enter picture-in-picture, together with the state needed to restore it.
     fn enter_pip(&mut self, width: i32, height: i32) -> Result<PipRestoreSnapshot, String>;
+    /// # Errors
+    /// Returns an error when the platform cannot leave picture-in-picture or restore the previous state.
     fn exit_pip(&mut self, snapshot: PipRestoreSnapshot) -> Result<(), String>;
 }
 

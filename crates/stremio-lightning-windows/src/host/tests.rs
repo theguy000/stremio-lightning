@@ -242,8 +242,10 @@ fn listener_registration_controls_events() {
 #[test]
 fn queues_open_media_until_shell_transport_is_ready() {
     let host = WindowsHost::default();
-    host.emit_launch_intent(LaunchIntent::Magnet("magnet:?xt=urn:btih:test".to_string()))
-        .unwrap();
+    host.emit_launch_intent(&LaunchIntent::Magnet(
+        "magnet:?xt=urn:btih:test".to_string(),
+    ))
+    .unwrap();
 
     assert!(host.drain_ipc_events().is_empty());
 
@@ -292,7 +294,7 @@ fn queues_addon_install_for_stremio_manifest_links() {
         Some(json!({ "message": r#"{"id":1,"type":6,"args":["app-ready"]}"# })),
     )
     .unwrap();
-    host.emit_launch_intent(LaunchIntent::StremioDeepLink(
+    host.emit_launch_intent(&LaunchIntent::StremioDeepLink(
         "stremio://addon.example/manifest.json".to_string(),
     ))
     .unwrap();
@@ -485,13 +487,13 @@ console.log("sample");"#,
         &root,
         "sample.theme.css",
         mods::ModType::Theme,
-        br#"/**
+        br"/**
  * @name Sample Theme
  * @description Demo theme
  * @author Tester
  * @version 1.0.0
  */
-:root { --sl-test-color: red; }"#,
+:root { --sl-test-color: red; }",
     )
     .unwrap();
     host.invoke(

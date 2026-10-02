@@ -46,32 +46,36 @@ impl RotatingLogWriter {
         writer
     }
 
+    #[must_use]
     pub fn path(&self) -> &Path {
         &self.path
     }
 
+    #[must_use]
     pub fn backup_path(&self) -> &Path {
         &self.backup_path
     }
 
+    /// # Errors
+    /// Returns the underlying I/O error when the line cannot be written.
     pub fn write_line(&self, line: &str) -> io::Result<()> {
         let line = sanitize_server_line_with_limit(line, self.line_limit_bytes);
         self.write_sanitized_line(&line)
     }
 
+    /// # Errors
+    /// Returns the underlying I/O error when the line cannot be written.
     pub fn write_sanitized_line(&self, line: &str) -> io::Result<()> {
         let maximum_line_bytes = self
             .line_limit_bytes
-            .min(self.limit_bytes.saturating_sub(1) as usize);
+            .min(usize::try_from(self.limit_bytes.saturating_sub(1)).unwrap_or(usize::MAX));
         let mut record = truncate_utf8(line, maximum_line_bytes);
         record.push('\n');
         let record = record.as_bytes();
         let _guard = self.lock.lock().map_err(lock_error)?;
 
         ensure_parent_exists(&self.path)?;
-        let current_size = fs::metadata(&self.path)
-            .map(|metadata| metadata.len())
-            .unwrap_or(0);
+        let current_size = fs::metadata(&self.path).map_or(0, |metadata| metadata.len());
         if current_size > 0 && current_size.saturating_add(record.len() as u64) > self.limit_bytes {
             self.rotate_locked()?;
         }
@@ -83,6 +87,8 @@ impl RotatingLogWriter {
         file.write_all(record)
     }
 
+    /// # Errors
+    /// Returns the underlying I/O error when the log file cannot be cleared.
     pub fn clear(&self) -> io::Result<()> {
         let _guard = self.lock.lock().map_err(lock_error)?;
         remove_if_exists(&self.path)?;
@@ -91,11 +97,11 @@ impl RotatingLogWriter {
 
     fn rotate_locked(&self) -> io::Result<()> {
         remove_if_exists(&self.backup_path)?;
-        if fs::metadata(&self.path)
-            .map(|metadata| metadata.len() > self.limit_bytes)
-            .unwrap_or(false)
-        {
-            let tail = read_tail(&self.path, self.limit_bytes as usize)?;
+        if fs::metadata(&self.path).is_ok_and(|metadata| metadata.len() > self.limit_bytes) {
+            let tail = read_tail(
+                &self.path,
+                usize::try_from(self.limit_bytes).unwrap_or(usize::MAX),
+            )?;
             fs::write(&self.backup_path, tail)?;
             remove_if_exists(&self.path)?;
             return Ok(());
@@ -142,14 +148,17 @@ impl StreamingLogFiles {
         }
     }
 
+    #[must_use]
     pub fn stdout(&self) -> &RotatingLogWriter {
         &self.stdout
     }
 
+    #[must_use]
     pub fn stderr(&self) -> &RotatingLogWriter {
         &self.stderr
     }
 
+    #[must_use]
     pub fn paths(&self) -> StreamingLogPaths {
         StreamingLogPaths {
             stdout: self.stdout.path.clone(),
@@ -159,11 +168,15 @@ impl StreamingLogFiles {
         }
     }
 
+    /// # Errors
+    /// Returns the underlying I/O error when the log files cannot be cleared.
     pub fn clear(&self) -> io::Result<()> {
         self.stdout.clear()?;
         self.stderr.clear()
     }
 
+    /// # Errors
+    /// Returns the underlying I/O error when the retained log tails cannot be read.
     pub fn tails(&self, max_bytes_per_stream: usize) -> io::Result<StreamingLogTails> {
         Ok(StreamingLogTails {
             stdout: read_sanitized_tail(&self.stdout, max_bytes_per_stream)?,
@@ -181,6 +194,8 @@ pub struct ManagedChild {
 }
 
 impl ManagedChild {
+    /// # Errors
+    /// Returns an error when the log files cannot be prepared for the child process.
     pub fn spawn(command: &mut Command, logs: StreamingLogFiles) -> Result<Self, String> {
         command.stdout(Stdio::piped());
         command.stderr(Stdio::piped());
@@ -190,6 +205,8 @@ impl ManagedChild {
         Self::from_child(child, logs)
     }
 
+    /// # Errors
+    /// Returns an error when the child stdout and stderr pipes cannot be attached.
     pub fn from_child(mut child: Child, logs: StreamingLogFiles) -> Result<Self, String> {
         let stdout = child
             .stdout
@@ -208,6 +225,8 @@ impl ManagedChild {
         })
     }
 
+    /// # Errors
+    /// Returns an error when the child process cannot be stopped.
     pub fn stop(&mut self) -> Result<(), String> {
         let mut result = Ok(());
         if self
@@ -227,12 +246,16 @@ impl ManagedChild {
         result
     }
 
+    /// # Errors
+    /// Returns an error when the child process state cannot be read.
     pub fn has_exited(&mut self) -> Result<bool, String> {
         self.try_wait()
             .map(|status| status.is_some())
             .map_err(|error| format!("Failed to inspect streaming server: {error}"))
     }
 
+    /// # Errors
+    /// Returns an error when the child process state cannot be read.
     pub fn process_has_exited(&mut self) -> Result<bool, String> {
         self.child
             .try_wait()
@@ -240,6 +263,8 @@ impl ManagedChild {
             .map_err(|error| format!("Failed to inspect streaming server: {error}"))
     }
 
+    /// # Errors
+    /// Returns an error when the child process cannot be waited on.
     pub fn wait_for_exit(&mut self) -> Result<(), String> {
         if self
             .child
@@ -255,6 +280,8 @@ impl ManagedChild {
         Ok(())
     }
 
+    /// # Errors
+    /// Returns the underlying I/O error when the child process state cannot be read.
     pub fn try_wait(&mut self) -> io::Result<Option<ExitStatus>> {
         let status = self.child.try_wait()?;
         if status.is_some() {
@@ -425,6 +452,7 @@ fn write_drained_line(
 }
 
 /// Removes credentials and local paths from untrusted server output.
+#[must_use]
 pub fn sanitize_server_line(line: &str) -> String {
     sanitize_server_line_with_limit(line, STREAM_LOG_LINE_LIMIT_BYTES)
 }
@@ -513,13 +541,16 @@ fn sanitize_existing_file(
     if !path.exists() {
         return Ok(());
     }
-    let tail = read_tail(path, limit_bytes as usize)?;
+    let tail = read_tail(path, usize::try_from(limit_bytes).unwrap_or(usize::MAX))?;
     let sanitized = String::from_utf8_lossy(&tail)
         .lines()
         .map(|line| sanitize_server_line_with_limit(line, line_limit_bytes))
         .collect::<Vec<_>>()
         .join("\n");
-    let mut sanitized = truncate_utf8(&sanitized, limit_bytes.saturating_sub(1) as usize);
+    let mut sanitized = truncate_utf8(
+        &sanitized,
+        usize::try_from(limit_bytes.saturating_sub(1)).unwrap_or(usize::MAX),
+    );
     if !sanitized.is_empty() {
         sanitized.push('\n');
     }

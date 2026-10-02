@@ -1,5 +1,6 @@
-use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
+use std::fmt::Write as _;
+use std::path::PathBuf;
 use thiserror::Error;
 
 pub const MAX_ENTRIES: usize = 2_000;
@@ -143,6 +144,7 @@ pub struct SessionMetadata {
 }
 
 impl SessionMetadata {
+    #[must_use]
     pub fn from_config(config: LoggingConfig) -> Self {
         Self {
             schema_version: DIAGNOSTIC_SCHEMA_VERSION,
@@ -210,11 +212,15 @@ pub enum LimitDecision {
 pub fn generate_session_id() -> String {
     let mut bytes = [0u8; 16];
     if getrandom::fill(&mut bytes).is_err() {
-        let fallback = unix_timestamp_ms() ^ ((std::process::id() as u64) << 32);
+        let fallback = unix_timestamp_ms() ^ (u64::from(std::process::id()) << 32);
         bytes[..8].copy_from_slice(&fallback.to_le_bytes());
         bytes[8..].copy_from_slice(&fallback.rotate_left(29).to_le_bytes());
     }
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+    let mut session_id = String::with_capacity(32);
+    for byte in bytes {
+        let _ = write!(session_id, "{byte:02x}");
+    }
+    session_id
 }
 
 #[must_use]
@@ -231,7 +237,7 @@ pub fn unix_timestamp_ms() -> u64 {
 pub fn format_timestamp(timestamp_ms: u64) -> String {
     let seconds = timestamp_ms / 1_000;
     let milliseconds = timestamp_ms % 1_000;
-    let days = (seconds / 86_400) as i64;
+    let days = i64::try_from(seconds / 86_400).unwrap_or(i64::MAX);
     let seconds_of_day = seconds % 86_400;
     let hour = seconds_of_day / 3_600;
     let minute = (seconds_of_day % 3_600) / 60;

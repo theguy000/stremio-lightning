@@ -26,6 +26,7 @@ impl WindowsResourceLayout {
         }
     }
 
+    #[must_use]
     pub fn from_manifest_dir() -> Self {
         Self::new(env!("CARGO_MANIFEST_DIR"))
     }
@@ -37,18 +38,22 @@ impl WindowsResourceLayout {
         }
     }
 
+    #[must_use]
     pub fn from_runtime() -> Self {
-        runtime_layout_from_exe_path(std::env::current_exe().ok())
+        runtime_layout_from_exe_path(std::env::current_exe().ok().as_deref())
     }
 
+    #[must_use]
     pub fn crate_dir(&self) -> &Path {
         &self.base_dir
     }
 
+    #[must_use]
     pub fn resources_dir(&self) -> PathBuf {
         self.base_dir.join(RESOURCES_DIR_NAME)
     }
 
+    #[must_use]
     pub fn mpv_dev_dir(&self) -> PathBuf {
         match self.kind {
             WindowsResourceLayoutKind::Development => self.base_dir.join(MPV_DEV_DIR_NAME),
@@ -56,6 +61,7 @@ impl WindowsResourceLayout {
         }
     }
 
+    #[must_use]
     pub fn libmpv_dll(&self) -> PathBuf {
         match self.kind {
             WindowsResourceLayoutKind::Development => self.resources_dir().join(LIBMPV_DLL_NAME),
@@ -63,18 +69,19 @@ impl WindowsResourceLayout {
         }
     }
 
+    #[must_use]
     pub fn stream_server(&self) -> PathBuf {
         self.resources_dir().join(STREAM_SERVER_NAME)
     }
 
+    #[must_use]
     pub fn ffmpeg(&self) -> PathBuf {
         self.resources_dir().join(FFMPEG_NAME)
     }
 }
 
-fn runtime_layout_from_exe_path(exe_path: Option<PathBuf>) -> WindowsResourceLayout {
+fn runtime_layout_from_exe_path(exe_path: Option<&Path>) -> WindowsResourceLayout {
     if let Some(exe_dir) = exe_path
-        .as_deref()
         .and_then(Path::parent)
         .filter(|exe_dir| exe_dir.join(RESOURCES_DIR_NAME).is_dir())
     {

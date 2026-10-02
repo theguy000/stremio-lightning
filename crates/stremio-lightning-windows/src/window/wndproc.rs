@@ -27,12 +27,11 @@ mod windows_impl {
         CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetClientRect,
         GetMessageW, GetWindowLongPtrW, IsIconic, LoadCursorW, LoadIconW, PostQuitMessage,
         RegisterClassW, SetForegroundWindow, SetWindowLongPtrW, SetWindowTextW, ShowWindow,
-        TranslateMessage,
-        CREATESTRUCTW, CW_USEDEFAULT, GWLP_USERDATA, IDC_ARROW, MINMAXINFO, MSG, SHOW_WINDOW_CMD,
-        SIZE_MAXIMIZED, SIZE_MINIMIZED, SIZE_RESTORED, SW_MAXIMIZE, SW_RESTORE, WINDOW_EX_STYLE,
-        WM_ACTIVATE, WM_APPCOMMAND, WM_CLOSE, WM_DESTROY, WM_GETMINMAXINFO, WM_NCCREATE,
-        WM_NCDESTROY, WM_SIZE, WNDCLASSW, WS_CLIPCHILDREN, WS_MAXIMIZE, WS_OVERLAPPEDWINDOW,
-        WS_VISIBLE,
+        TranslateMessage, CREATESTRUCTW, CW_USEDEFAULT, GWLP_USERDATA, IDC_ARROW, MINMAXINFO, MSG,
+        SHOW_WINDOW_CMD, SIZE_MAXIMIZED, SIZE_MINIMIZED, SIZE_RESTORED, SW_MAXIMIZE, SW_RESTORE,
+        WINDOW_EX_STYLE, WM_ACTIVATE, WM_APPCOMMAND, WM_CLOSE, WM_DESTROY, WM_GETMINMAXINFO,
+        WM_NCCREATE, WM_NCDESTROY, WM_SIZE, WNDCLASSW, WS_CLIPCHILDREN, WS_MAXIMIZE,
+        WS_OVERLAPPEDWINDOW, WS_VISIBLE,
     };
 
     const APP_ICON_RESOURCE_ID: usize = 101;
@@ -45,10 +44,14 @@ mod windows_impl {
         }
     }
 
+    /// # Errors
+    /// Returns an error when the window class or window cannot be created.
     pub fn run_native_window(config: WindowConfig) -> Result<(), String> {
         run_native_window_with_handler(config, NoopWindowHandler)
     }
 
+    /// # Errors
+    /// Returns an error when the window class or window cannot be created.
     pub fn run_native_window_with_handler(
         config: WindowConfig,
         handler: impl NativeWindowHandler + 'static,
@@ -79,6 +82,8 @@ mod windows_impl {
         }
     }
 
+    /// # Errors
+    /// Returns an error when the process app user model id cannot be set.
     pub fn set_app_user_model_id(app_id: &str) -> Result<(), String> {
         let app_id = HSTRING::from(app_id);
         // SAFETY: app_id is a null-terminated UTF-16 wide string.
@@ -129,7 +134,7 @@ mod windows_impl {
         };
 
         // SAFETY: Registers window class for StremioLightningWindow.
-        let atom = unsafe { RegisterClassW(&window_class) };
+        let atom = unsafe { RegisterClassW(&raw const window_class) };
         if atom == 0 {
             return Err("Failed to register Windows window class".to_string());
         }

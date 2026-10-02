@@ -110,10 +110,16 @@ pub enum MediaKeyAction {
 
 #[cfg(windows)]
 pub trait NativeWindowHandler {
+    /// # Errors
+    /// Returns an error when the created window cannot be configured.
     fn on_created(&mut self, hwnd: HWND) -> Result<(), String>;
+    /// # Errors
+    /// Returns an error when the window cannot be resized.
     fn on_resized(&mut self, _hwnd: HWND, _client_rect: RECT) -> Result<(), String> {
         Ok(())
     }
+    /// # Errors
+    /// Returns an error when the changed window state cannot be applied.
     fn on_window_state_changed(
         &mut self,
         _hwnd: HWND,
@@ -121,15 +127,21 @@ pub trait NativeWindowHandler {
     ) -> Result<(), String> {
         Ok(())
     }
+    /// # Errors
+    /// Returns an error when the focus change cannot be applied.
     fn on_focus_changed(&mut self, _hwnd: HWND, _focused: bool) -> Result<(), String> {
         Ok(())
     }
+    /// # Errors
+    /// Returns an error when the media key cannot be handled.
     fn on_media_key(&mut self, _hwnd: HWND, _action: MediaKeyAction) -> Result<(), String> {
         Ok(())
     }
     /// Called when a coalesced UI-thread wake-up is delivered. Implementations
-    /// that own a [`UiThreadNotifier`] must clear its pending marker before
+    /// that own a [`UiThreadNotifier`](super::UiThreadNotifier) must clear its pending marker before
     /// draining updates, so wake-ups posted during processing are not lost.
+    /// # Errors
+    /// Returns an error when the UI thread wake cannot be processed.
     fn on_ui_thread_wake(&mut self, _hwnd: HWND) -> Result<(), String> {
         Ok(())
     }

@@ -5,9 +5,8 @@ use std::sync::Arc;
 
 use super::sink::{session_files, ExternalLimitState, PersistentSink};
 use super::types::{
-    unix_timestamp_ms, DiagnosticLimits, DiagnosticReportRuntime,
-    ExternalLogEntry, LimitDecision, LogEntry, LogLevel, LoggingConfig, MAX_ENTRIES,
-    REPORT_LIMIT_BYTES,
+    unix_timestamp_ms, DiagnosticLimits, DiagnosticReportRuntime, ExternalLogEntry, LimitDecision,
+    LogEntry, LogLevel, LoggingConfig, MAX_ENTRIES, REPORT_LIMIT_BYTES,
 };
 use super::{lock_unpoisoned, sanitize_text, Logger};
 

@@ -12,6 +12,8 @@ impl From<ValidationError> for String {
     }
 }
 
+/// # Errors
+/// Returns an error when the filename is empty, contains path separators, or contains reserved characters.
 pub fn validate_filename(filename: &str) -> Result<(), ValidationError> {
     if filename.is_empty()
         || filename.contains('/')

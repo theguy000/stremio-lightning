@@ -77,6 +77,7 @@ pub enum ModType {
 }
 
 impl ModType {
+    #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Plugin => "plugin",
@@ -84,6 +85,7 @@ impl ModType {
         }
     }
 
+    #[must_use]
     pub fn directory_name(self) -> &'static str {
         match self {
             Self::Plugin => "plugins",
@@ -91,6 +93,7 @@ impl ModType {
         }
     }
 
+    #[must_use]
     pub fn file_extension(self) -> &'static str {
         match self {
             Self::Plugin => ".plugin.js",
@@ -106,17 +109,20 @@ impl FromStr for ModType {
         match value {
             "plugin" => Ok(Self::Plugin),
             "theme" => Ok(Self::Theme),
-            _ => Err(format!("Unknown mod type: {}", value)),
+            _ => Err(format!("Unknown mod type: {value}")),
         }
     }
 }
 
+#[must_use]
 pub fn mods_dir(app_data_dir: &Path, mod_type: ModType) -> PathBuf {
     app_data_dir
         .join("stremio-lightning")
         .join(mod_type.directory_name())
 }
 
+/// # Errors
+/// Returns an error when the mod directories cannot be created.
 pub fn ensure_dirs(app_data_dir: &Path) -> Result<(), String> {
     for mod_type in [ModType::Plugin, ModType::Theme] {
         std::fs::create_dir_all(mods_dir(app_data_dir, mod_type))
@@ -128,6 +134,8 @@ pub fn ensure_dirs(app_data_dir: &Path) -> Result<(), String> {
 static BLOCK_RE: OnceLock<Regex> = OnceLock::new();
 static TAG_RE: OnceLock<Regex> = OnceLock::new();
 
+/// # Panics
+/// Panics if the compiled-in metadata regex is invalid, which cannot happen for the fixed pattern.
 pub fn parse_metadata(content: &str) -> Option<ModMetadata> {
     let block_re = BLOCK_RE
         .get_or_init(|| Regex::new(r"(?s)/\*\*(.*?)\*/").expect("block regex should compile"));
@@ -164,6 +172,7 @@ pub fn parse_metadata(content: &str) -> Option<ModMetadata> {
     })
 }
 
+#[must_use]
 pub fn is_newer_version(v1: &str, v2: &str) -> bool {
     let parse = |v: &str| -> Vec<(u64, bool)> {
         v.strip_prefix('v')
@@ -197,22 +206,23 @@ pub fn is_newer_version(v1: &str, v2: &str) -> bool {
     false
 }
 
+/// # Errors
+/// Returns an error when the mod directory cannot be listed or a mod file cannot be read.
 pub fn list_mods(app_data_dir: &Path, mod_type: ModType) -> Result<Vec<InstalledMod>, String> {
     let dir = mods_dir(app_data_dir, mod_type);
     if !dir.exists() {
         return Ok(Vec::new());
     }
 
-    let entries =
-        std::fs::read_dir(&dir).map_err(|e| format!("Failed to read directory: {}", e))?;
+    let entries = std::fs::read_dir(&dir).map_err(|e| format!("Failed to read directory: {e}"))?;
     let mut mods = Vec::new();
     for entry in entries {
-        let entry = entry.map_err(|e| format!("Failed to read entry: {}", e))?;
+        let entry = entry.map_err(|e| format!("Failed to read entry: {e}"))?;
         let filename = entry.file_name().to_string_lossy().to_string();
 
         if filename.ends_with(mod_type.file_extension()) {
             let content = std::fs::read_to_string(entry.path())
-                .map_err(|e| format!("Failed to read file {}: {}", filename, e))?;
+                .map_err(|e| format!("Failed to read file {filename}: {e}"))?;
             mods.push(InstalledMod {
                 filename,
                 mod_type: mod_type.as_str().to_string(),
@@ -224,6 +234,8 @@ pub fn list_mods(app_data_dir: &Path, mod_type: ModType) -> Result<Vec<Installed
     Ok(mods)
 }
 
+/// # Errors
+/// Returns an error when the filename is invalid or the mod file cannot be read.
 pub fn read_mod_content(
     app_data_dir: &Path,
     filename: &str,
@@ -231,9 +243,11 @@ pub fn read_mod_content(
 ) -> Result<String, String> {
     validate_mod_filename(filename, mod_type)?;
     std::fs::read_to_string(mods_dir(app_data_dir, mod_type).join(filename))
-        .map_err(|e| format!("Failed to read file: {}", e))
+        .map_err(|e| format!("Failed to read file: {e}"))
 }
 
+/// # Errors
+/// Returns an error when the filename is invalid or the mod file cannot be written.
 pub fn write_mod_content(
     app_data_dir: &Path,
     filename: &str,
@@ -242,10 +256,12 @@ pub fn write_mod_content(
 ) -> Result<(), String> {
     validate_mod_filename(filename, mod_type)?;
     let dir = mods_dir(app_data_dir, mod_type);
-    std::fs::create_dir_all(&dir).map_err(|e| format!("Failed to create mod dir: {}", e))?;
-    std::fs::write(dir.join(filename), content).map_err(|e| format!("Failed to write file: {}", e))
+    std::fs::create_dir_all(&dir).map_err(|e| format!("Failed to create mod dir: {e}"))?;
+    std::fs::write(dir.join(filename), content).map_err(|e| format!("Failed to write file: {e}"))
 }
 
+/// # Errors
+/// Returns an error when the mod cannot be downloaded or written to disk.
 pub async fn download_mod(
     app_data_dir: &Path,
     url: &str,
@@ -258,7 +274,7 @@ pub async fn download_mod(
         .get(url)
         .send()
         .await
-        .map_err(|e| format!("Failed to download: {}", e))?;
+        .map_err(|e| format!("Failed to download: {e}"))?;
 
     if !response.status().is_success() {
         return Err(format!(
@@ -270,16 +286,17 @@ pub async fn download_mod(
     let content = response
         .bytes()
         .await
-        .map_err(|e| format!("Failed to read response body: {}", e))?;
+        .map_err(|e| format!("Failed to read response body: {e}"))?;
     write_mod_content(app_data_dir, &filename, mod_type, &content)?;
     Ok(filename)
 }
 
+/// # Errors
+/// Returns an error when the filename is invalid or the mod cannot be removed.
 pub fn delete_mod(app_data_dir: &Path, filename: &str, mod_type: ModType) -> Result<(), String> {
     validate_mod_filename(filename, mod_type)?;
     let dir = mods_dir(app_data_dir, mod_type);
-    std::fs::remove_file(dir.join(filename))
-        .map_err(|e| format!("Failed to delete file: {}", e))?;
+    std::fs::remove_file(dir.join(filename)).map_err(|e| format!("Failed to delete file: {e}"))?;
 
     if mod_type == ModType::Plugin {
         let config_name = filename.replace(".plugin.js", ".plugin.json");
@@ -310,6 +327,8 @@ fn cached_registry(cache_mutex: &std::sync::Mutex<Option<RegistryCache>>) -> Opt
     }
 }
 
+/// # Errors
+/// Returns an error when the registry cannot be fetched, parsed, or cached.
 pub async fn fetch_registry() -> Result<Registry, String> {
     let cache_mutex = REGISTRY_CACHE.get_or_init(|| std::sync::Mutex::new(None));
     let fetch_mutex = REGISTRY_FETCH_MUTEX.get_or_init(|| tokio::sync::Mutex::new(()));
@@ -336,7 +355,7 @@ pub async fn fetch_registry() -> Result<Registry, String> {
         .get(url)
         .send()
         .await
-        .map_err(|e| format!("Failed to fetch registry: {}", e))?;
+        .map_err(|e| format!("Failed to fetch registry: {e}"))?;
 
     if !response.status().is_success() {
         return Err(format!(
@@ -348,7 +367,7 @@ pub async fn fetch_registry() -> Result<Registry, String> {
     let registry = response
         .json::<Registry>()
         .await
-        .map_err(|e| format!("Failed to parse registry: {}", e))?;
+        .map_err(|e| format!("Failed to parse registry: {e}"))?;
 
     // 5. Save registry to cache
     if let Ok(mut guard) = cache_mutex.lock() {
@@ -382,13 +401,13 @@ async fn check_mod_updates_internal(
             .get(update_url)
             .send()
             .await
-            .map_err(|e| format!("Failed to fetch update: {}", e))?;
+            .map_err(|e| format!("Failed to fetch update: {e}"))?;
 
         if remote_response.status().is_success() {
             let remote_content = remote_response
                 .text()
                 .await
-                .map_err(|e| format!("Failed to read remote content: {}", e))?;
+                .map_err(|e| format!("Failed to read remote content: {e}"))?;
             if let Some(remote_meta) = parse_metadata(&remote_content) {
                 if is_newer_version(&remote_meta.version, &installed_version) {
                     has_update = true;
@@ -419,6 +438,8 @@ async fn check_mod_updates_internal(
     })
 }
 
+/// # Errors
+/// Returns an error when the remote update index cannot be fetched or parsed.
 pub async fn check_mod_updates(
     app_data_dir: &Path,
     mod_type: ModType,
@@ -477,6 +498,8 @@ fn registry_match<'a>(
 
 pub use crate::validation::validate_filename;
 
+/// # Errors
+/// Returns an error when the filename is empty, contains path separators, or has the wrong extension.
 pub fn validate_mod_filename(filename: &str, mod_type: ModType) -> Result<(), String> {
     validate_filename(filename)?;
     if !filename.ends_with(mod_type.file_extension()) {
@@ -485,6 +508,8 @@ pub fn validate_mod_filename(filename: &str, mod_type: ModType) -> Result<(), St
     Ok(())
 }
 
+/// # Errors
+/// Returns an error when the URL has no usable file name.
 pub fn filename_from_url(url: &str) -> Result<String, String> {
     let path = url.split('?').next().unwrap_or(url);
     if path.contains("/../") || path.ends_with("/..") || path.contains('\\') || path.contains('\0')
@@ -692,12 +717,12 @@ mod tests {
             &root,
             "plugin1.plugin.js",
             ModType::Plugin,
-            br#"/**
+            br"/**
  * @name Plugin One
  * @description Demo
  * @author Alice
  * @version 1.0.0
- */"#,
+ */",
         )
         .unwrap();
 
@@ -705,12 +730,12 @@ mod tests {
             &root,
             "plugin2.plugin.js",
             ModType::Plugin,
-            br#"/**
+            br"/**
  * @name Plugin Two
  * @description Demo
  * @author Bob
  * @version 1.1.0
- */"#,
+ */",
         )
         .unwrap();
 

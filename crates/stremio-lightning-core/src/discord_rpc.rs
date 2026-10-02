@@ -51,6 +51,8 @@ pub struct ButtonPayload {
 }
 
 impl DiscordRpcState {
+    /// # Errors
+    /// Returns an error when the Discord IPC connection cannot be established.
     pub fn start(self: &Arc<Self>) -> Result<(), String> {
         let mut client_guard = self.client.lock().map_err(|e| e.to_string())?;
 
@@ -81,6 +83,8 @@ impl DiscordRpcState {
         }
     }
 
+    /// # Errors
+    /// Returns an error when the Discord IPC connection cannot be closed.
     pub fn stop(&self) -> Result<(), String> {
         self.enabled.store(false, Ordering::SeqCst);
         let mut client_guard = self.client.lock().map_err(|e| e.to_string())?;
@@ -95,7 +99,9 @@ impl DiscordRpcState {
         Ok(())
     }
 
-    pub fn update_activity(self: &Arc<Self>, payload: ActivityPayload) -> Result<(), String> {
+    /// # Errors
+    /// Returns an error when the activity payload is rejected or the connection is unavailable.
+    pub fn update_activity(self: &Arc<Self>, payload: &ActivityPayload) -> Result<(), String> {
         if !self.enabled.load(Ordering::SeqCst) {
             return Ok(());
         }
@@ -113,7 +119,7 @@ impl DiscordRpcState {
             return Ok(());
         };
 
-        let act = self.build_activity(&payload);
+        let act = Self::build_activity(payload);
 
         match client.set_activity(act) {
             Ok(()) => Ok(()),
@@ -130,7 +136,7 @@ impl DiscordRpcState {
         }
     }
 
-    fn build_activity<'a>(&self, payload: &'a ActivityPayload) -> activity::Activity<'a> {
+    fn build_activity(payload: &ActivityPayload) -> activity::Activity<'_> {
         let mut act = activity::Activity::new();
 
         if let Some(ref details) = payload.details {
@@ -219,12 +225,9 @@ impl DiscordRpcState {
                     }
                 }
 
-                let mut client_guard = match state.client.lock() {
-                    Ok(g) => g,
-                    Err(_) => {
-                        state.reconnecting.store(false, Ordering::SeqCst);
-                        return;
-                    }
+                let Ok(mut client_guard) = state.client.lock() else {
+                    state.reconnecting.store(false, Ordering::SeqCst);
+                    return;
                 };
 
                 let Some(ref mut client) = *client_guard else {
@@ -236,15 +239,15 @@ impl DiscordRpcState {
                     continue;
                 }
 
-                let latest_activity = match state.latest_activity.lock() {
-                    Ok(activity) => activity,
-                    Err(_) => {
-                        state.reconnecting.store(false, Ordering::SeqCst);
-                        return;
-                    }
+                let Ok(latest_activity) = state.latest_activity.lock() else {
+                    state.reconnecting.store(false, Ordering::SeqCst);
+                    return;
                 };
                 if let Some(payload) = latest_activity.as_ref() {
-                    if client.set_activity(state.build_activity(payload)).is_err() {
+                    if client
+                        .set_activity(DiscordRpcState::build_activity(payload))
+                        .is_err()
+                    {
                         continue;
                     }
                 }

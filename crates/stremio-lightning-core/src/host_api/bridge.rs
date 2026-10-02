@@ -1,7 +1,7 @@
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 use super::handlers::{
     async_runtime, handshake_response, is_async_command, parse_optional_bool, parse_payload,
@@ -22,6 +22,11 @@ use crate::{app_update, logging, mods, settings};
 enum PlayerStateUpdate {
     Paused(bool),
     Active(bool),
+}
+
+#[derive(Deserialize)]
+struct WrappedActivity {
+    activity: crate::discord_rpc::ActivityPayload,
 }
 
 pub struct BaseHost<P: PlatformBridge> {
@@ -47,6 +52,8 @@ impl<P: PlatformBridge> BaseHost<P> {
         }
     }
 
+    /// # Errors
+    /// Returns an error when the listener registry lock is poisoned.
     pub fn lock_listeners(
         &self,
     ) -> Result<std::sync::MutexGuard<'_, ListenerRegistry>, HostApiError> {
@@ -63,32 +70,42 @@ impl<P: PlatformBridge> BaseHost<P> {
         })
     }
 
+    /// # Errors
+    /// Returns an error when the listener registry lock is poisoned or the id is already registered.
     pub fn listen_with_id(&self, id: u64, event: impl Into<String>) -> Result<(), HostApiError> {
         let mut registry = self.lock_listeners()?;
         registry.listen_with_id(id, event);
-        self.flush_pending_transport_messages(&mut registry);
+        Self::flush_pending_transport_messages(&mut registry);
         Ok(())
     }
 
+    /// # Errors
+    /// Returns an error when the listener registry lock is poisoned.
     pub fn unlisten(&self, id: u64) -> Result<(), HostApiError> {
         self.lock_listeners()?.unlisten(id);
         Ok(())
     }
 
+    /// # Errors
+    /// Returns an error when the host state lock is poisoned.
     pub fn mark_bridge_ready(&self) -> Result<(), HostApiError> {
         let mut registry = self.lock_listeners()?;
         registry.bridge_ready = true;
-        self.flush_pending_transport_messages(&mut registry);
+        Self::flush_pending_transport_messages(&mut registry);
         Ok(())
     }
 
+    /// # Errors
+    /// Returns an error when the host state lock is poisoned.
     pub fn mark_transport_ready(&self) -> Result<(), HostApiError> {
         let mut registry = self.lock_listeners()?;
         registry.transport_ready = true;
-        self.flush_pending_transport_messages(&mut registry);
+        Self::flush_pending_transport_messages(&mut registry);
         Ok(())
     }
 
+    /// # Errors
+    /// Returns an error when the host state lock is poisoned.
     pub fn queue_transport_message(&self, message: String) -> Result<(), HostApiError> {
         self.update_player_paused_from_transport(&Value::String(message.clone()))?;
         let mut registry = self.lock_listeners()?;
@@ -96,16 +113,20 @@ impl<P: PlatformBridge> BaseHost<P> {
             registry.pending_transport_messages.pop_front();
         }
         registry.pending_transport_messages.push_back(message);
-        self.flush_pending_transport_messages(&mut registry);
+        Self::flush_pending_transport_messages(&mut registry);
         Ok(())
     }
 
+    /// # Errors
+    /// Returns an error when the host state lock is poisoned.
     pub fn emit_transport_message(&self, message: String) -> Result<(), HostApiError> {
         self.emit_event(SHELL_TRANSPORT_EVENT, Value::String(message))
     }
 
     /// Emits a native player event as a `shell-transport-message` without
     /// re-parsing the serialized envelope just to track pause state.
+    /// # Errors
+    /// Returns an error when the host state lock is poisoned.
     pub fn emit_player_event(&self, event: &PlayerEvent) -> Result<(), HostApiError> {
         self.update_player_state_from_player_event(event)?;
         let message = player_event_message(event);
@@ -114,7 +135,7 @@ impl<P: PlatformBridge> BaseHost<P> {
         Ok(())
     }
 
-    fn flush_pending_transport_messages(&self, registry: &mut ListenerRegistry) {
+    fn flush_pending_transport_messages(registry: &mut ListenerRegistry) {
         if !registry.bridge_ready
             || !registry.transport_ready
             || !registry
@@ -263,6 +284,8 @@ impl<P: PlatformBridge> BaseHost<P> {
         Ok(())
     }
 
+    /// # Errors
+    /// Returns an error when the host state lock is poisoned.
     pub fn emit_event(&self, event: impl Into<String>, payload: Value) -> Result<(), HostApiError> {
         let event = event.into();
         if event == SHELL_TRANSPORT_EVENT {
@@ -272,20 +295,24 @@ impl<P: PlatformBridge> BaseHost<P> {
         Ok(())
     }
 
+    /// # Errors
+    /// Returns an error when the host state lock is poisoned.
     pub fn emit_host_event(&self, event: HostEvent, payload: Value) -> Result<(), HostApiError> {
         let event = serde_json::to_value(event)?
             .as_str()
-            .ok_or_else(|| {
-                HostApiError::InvalidRequest("Host event is not a string".to_string())
-            })?
+            .ok_or_else(|| HostApiError::InvalidRequest("Host event is not a string".to_string()))?
             .to_string();
         self.emit_event(event, payload)
     }
 
+    /// # Errors
+    /// Returns an error when the host state lock is poisoned.
     pub fn drain_emitted_events(&self) -> Result<Vec<HostEventRecord>, HostApiError> {
         Ok(self.lock_listeners()?.drain_emitted())
     }
 
+    /// # Errors
+    /// Returns the error reported by the IPC handler, or a parse error when the payload is malformed.
     pub fn dispatch_ipc(&self, kind: &str, payload: Option<Value>) -> Result<Value, String> {
         match kind {
             "invoke" => {
@@ -343,25 +370,24 @@ impl<P: PlatformBridge> BaseHost<P> {
             "window.setFullscreen" => {
                 let payload: FullscreenIpcPayload = parse_payload(kind, payload)?;
                 self.bridge.set_window_fullscreen(payload.fullscreen)?;
-                match self.bridge.platform_name() {
-                    "macos" => {
-                        self.emit_event(
-                            "window-fullscreen-changed",
-                            json!({ "fullscreen": payload.fullscreen }),
-                        )?;
-                        self.emit_transport_message(response_message(
-                            serialize_window_visibility(true, payload.fullscreen),
-                        ))?;
-                    }
-                    _ => {
-                        self.emit_host_event(
-                            HostEvent::WindowFullscreenChanged,
-                            json!(payload.fullscreen),
-                        )?;
-                        self.emit_transport_message(response_message(
-                            serialize_window_visibility(true, payload.fullscreen),
-                        ))?;
-                    }
+                if self.bridge.platform_name() == "macos" {
+                    self.emit_event(
+                        "window-fullscreen-changed",
+                        json!({ "fullscreen": payload.fullscreen }),
+                    )?;
+                    self.emit_transport_message(response_message(serialize_window_visibility(
+                        true,
+                        payload.fullscreen,
+                    )))?;
+                } else {
+                    self.emit_host_event(
+                        HostEvent::WindowFullscreenChanged,
+                        json!(payload.fullscreen),
+                    )?;
+                    self.emit_transport_message(response_message(serialize_window_visibility(
+                        true,
+                        payload.fullscreen,
+                    )))?;
                 }
                 Ok(Value::Null)
             }
@@ -377,6 +403,8 @@ impl<P: PlatformBridge> BaseHost<P> {
         }
     }
 
+    /// # Errors
+    /// Returns the error reported by the command handler.
     pub fn invoke(&self, command: &str, payload: Option<Value>) -> Result<Value, String> {
         if is_async_command(command) {
             let runtime = async_runtime();
@@ -386,6 +414,8 @@ impl<P: PlatformBridge> BaseHost<P> {
         }
     }
 
+    /// # Errors
+    /// Returns the error reported by the command handler.
     pub async fn invoke_async(
         &self,
         command: &str,
@@ -421,6 +451,9 @@ impl<P: PlatformBridge> BaseHost<P> {
         }
     }
 
+    /// # Errors
+    /// Returns the error reported by the command handler.
+    #[allow(clippy::too_many_lines)]
     pub fn invoke_sync(&self, command: &str, payload: Option<Value>) -> Result<Value, String> {
         match command {
             "get_logs" => {
@@ -456,13 +489,12 @@ impl<P: PlatformBridge> BaseHost<P> {
                         &self.bridge.native_player_status(),
                     ),
                     streaming_server_running: self.bridge.is_streaming_server_running(),
-                    server_stdout: tails
-                        .as_ref()
-                        .map(|tails| Ok(tails.stdout.clone()))
-                        .unwrap_or_else(|| Err("unavailable".to_string())),
+                    server_stdout: tails.as_ref().map_or_else(
+                        || Err("unavailable".to_string()),
+                        |tails| Ok(tails.stdout.clone()),
+                    ),
                     server_stderr: tails
-                        .map(|tails| Ok(tails.stderr))
-                        .unwrap_or_else(|| Err("unavailable".to_string())),
+                        .map_or_else(|| Err("unavailable".to_string()), |tails| Ok(tails.stderr)),
                 });
                 Ok(json!(report))
             }
@@ -688,7 +720,8 @@ impl<P: PlatformBridge> BaseHost<P> {
                 self.lock_shell_preferences()?.pip_disables_auto_pause
             )),
             "mpv-observe-prop" | "mpv-set-prop" | "mpv-command" | "native-player-stop" => {
-                let state_update = Self::player_state_update_from_command(command, payload.as_ref());
+                let state_update =
+                    Self::player_state_update_from_command(command, payload.as_ref());
                 self.bridge.handle_custom_transport(command, payload)?;
                 if let Some(update) = state_update {
                     self.apply_player_state_update(&update)?;
@@ -708,12 +741,8 @@ impl<P: PlatformBridge> BaseHost<P> {
                 if payload.is_none() || payload == Some(Value::Null) {
                     return Ok(Value::Null);
                 }
-                #[derive(Deserialize)]
-                struct WrappedActivity {
-                    activity: crate::discord_rpc::ActivityPayload,
-                }
                 let parsed: WrappedActivity = parse_payload(command, payload)?;
-                self.discord_rpc.update_activity(parsed.activity)?;
+                self.discord_rpc.update_activity(&parsed.activity)?;
                 Ok(Value::Null)
             }
             other => {
@@ -730,6 +759,8 @@ impl<P: PlatformBridge> BaseHost<P> {
         }
     }
 
+    /// # Errors
+    /// Returns an error when the message is not valid JSON or the shell rejects it.
     pub fn handle_shell_transport_message(&self, message: &str) -> Result<(), String> {
         match parse_request(message)? {
             ParsedRequest::Handshake => {
@@ -747,7 +778,8 @@ impl<P: PlatformBridge> BaseHost<P> {
                         self.bridge.is_window_fullscreen()?,
                     )))?;
                 } else {
-                    let state_update = Self::player_state_update_from_command(&method, data.as_ref());
+                    let state_update =
+                        Self::player_state_update_from_command(&method, data.as_ref());
                     self.bridge.handle_custom_transport(&method, data)?;
                     if let Some(update) = state_update {
                         self.apply_player_state_update(&update)?;
@@ -758,6 +790,8 @@ impl<P: PlatformBridge> BaseHost<P> {
         }
     }
 
+    /// # Errors
+    /// Returns an error when the window state lock is poisoned.
     pub fn update_window_focus(&self, focused: bool) -> Result<(), String> {
         self.emit_event("window-focus-changed", json!(focused))?;
 

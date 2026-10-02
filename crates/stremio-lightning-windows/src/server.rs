@@ -60,18 +60,19 @@ impl WindowsServerConfig {
         Self {
             disabled: false,
             stream_server_path: std::env::var_os(STREAM_SERVER_BIN_ENV)
-                .map(PathBuf::from)
-                .unwrap_or_else(|| layout.stream_server()),
+                .map_or_else(|| layout.stream_server(), PathBuf::from),
             ffmpeg_path: layout.ffmpeg(),
             log_dir: default_log_dir(),
         }
     }
 
+    #[must_use]
     pub fn disabled(mut self, disabled: bool) -> Self {
         self.disabled = disabled;
         self
     }
 
+    #[must_use]
     pub fn command_spec(&self) -> CommandSpec {
         command_spec(self)
     }
@@ -89,11 +90,17 @@ pub struct CommandSpec {
 pub trait ProcessSpawner: Send + Sync + 'static {
     type Child: ProcessChild;
 
+    /// # Errors
+    /// Returns an error when the server process cannot be spawned.
     fn spawn(&self, spec: CommandSpec) -> Result<Self::Child, String>;
 }
 
 pub trait ProcessChild: Send + 'static {
+    /// # Errors
+    /// Returns an error when the server process cannot be stopped.
     fn stop(&mut self) -> Result<(), String>;
+    /// # Errors
+    /// Returns an error when the server process state cannot be read.
     fn has_exited(&mut self) -> Result<bool, String>;
 }
 
@@ -171,6 +178,7 @@ pub struct WindowsStreamingServer<P: ProcessSpawner> {
 }
 
 impl WindowsStreamingServer<RealProcessSpawner> {
+    #[must_use]
     pub fn from_resources(layout: &WindowsResourceLayout, disabled: bool) -> Self {
         Self::new(
             RealProcessSpawner,
@@ -192,6 +200,8 @@ impl<P: ProcessSpawner> WindowsStreamingServer<P> {
         }
     }
 
+    /// # Errors
+    /// Returns an error when the streaming server process cannot be started.
     pub fn start(&self) -> Result<(), String> {
         if self.config.disabled {
             return Ok(());
@@ -211,6 +221,8 @@ impl<P: ProcessSpawner> WindowsStreamingServer<P> {
         Ok(())
     }
 
+    /// # Errors
+    /// Returns an error when the streaming server process cannot be stopped.
     pub fn stop(&self) -> Result<(), String> {
         let mut child = self.child.lock().map_err(|e| e.to_string())?;
         if let Some(mut child) = child.take() {
@@ -219,6 +231,8 @@ impl<P: ProcessSpawner> WindowsStreamingServer<P> {
         Ok(())
     }
 
+    /// # Errors
+    /// Returns an error when the streaming server process cannot be restarted.
     pub fn restart(&self) -> Result<(), String> {
         self.stop()?;
         self.start()
@@ -228,6 +242,8 @@ impl<P: ProcessSpawner> WindowsStreamingServer<P> {
         self.refresh_running_state().unwrap_or(false)
     }
 
+    /// # Errors
+    /// Returns an error when the streaming server process state cannot be read.
     pub fn refresh_running_state(&self) -> Result<bool, String> {
         let mut child = self.child.lock().map_err(|e| e.to_string())?;
         if let Some(existing) = child.as_mut() {
@@ -248,12 +264,16 @@ impl<P: ProcessSpawner> WindowsStreamingServer<P> {
         self.log_files.paths()
     }
 
+    /// # Errors
+    /// Returns an error when the streaming server output cannot be read.
     pub fn log_tails(&self, max_bytes_per_stream: usize) -> Result<StreamingLogTails, String> {
         self.log_files
             .tails(max_bytes_per_stream)
             .map_err(|error| format!("Failed to read Windows streaming server log tails: {error}"))
     }
 
+    /// # Errors
+    /// Returns an error when the streaming server output cannot be cleared.
     pub fn clear_logs(&self) -> Result<(), String> {
         self.log_files
             .clear()
@@ -267,6 +287,7 @@ impl<P: ProcessSpawner> Drop for WindowsStreamingServer<P> {
     }
 }
 
+#[must_use]
 pub fn command_spec(config: &WindowsServerConfig) -> CommandSpec {
     let stdout_log = config.log_dir.join("stremio-server.stdout.log");
     let stderr_log = config.log_dir.join("stremio-server.stderr.log");
@@ -374,6 +395,8 @@ impl WindowsJob {
 }
 
 #[cfg(windows)]
+// The Win32 ABI takes this length as a u32; the struct is a fixed small constant.
+#[allow(clippy::cast_possible_truncation)]
 fn assign_child_to_job(child: &Child) -> Result<WindowsJob, String> {
     use std::mem::size_of;
     use std::os::windows::io::AsRawHandle;
@@ -397,7 +420,7 @@ fn assign_child_to_job(child: &Child) -> Result<WindowsJob, String> {
         SetInformationJobObject(
             job.0,
             JobObjectExtendedLimitInformation,
-            &limits as *const _ as *const _,
+            (&raw const limits).cast(),
             size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
         )
         .map_err(|e| format!("Failed to configure Windows streaming server job object: {e}"))?;
@@ -429,12 +452,14 @@ pub struct FakeProcessSpawner {
 }
 
 impl FakeProcessSpawner {
+    #[must_use]
     pub fn calls(&self) -> Vec<CommandSpec> {
         self.calls
             .lock()
             .map_or_else(|p| p.into_inner().clone(), |g| g.clone())
     }
 
+    #[must_use]
     pub fn stopped(&self) -> Vec<usize> {
         self.stopped
             .lock()

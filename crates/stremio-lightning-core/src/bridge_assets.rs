@@ -16,6 +16,7 @@ pub struct InjectionScript {
     pub source: String,
 }
 
+#[must_use]
 pub fn bridge_scripts() -> Vec<InjectionScript> {
     vec![
         InjectionScript {
@@ -68,6 +69,8 @@ pub fn bridge_scripts() -> Vec<InjectionScript> {
 pub const MOD_UI_NAME: &str = "mod-ui-svelte.iife.js";
 const MOD_UI_PATH: &str = "../../src/dist/mod-ui-svelte.iife.js";
 
+/// # Errors
+/// Returns an error when the bundled mod UI source cannot be read.
 pub fn load_mod_ui_source() -> Result<String, String> {
     let manifest_dir = std::env!("CARGO_MANIFEST_DIR");
     let path = std::path::PathBuf::from(manifest_dir).join(MOD_UI_PATH);

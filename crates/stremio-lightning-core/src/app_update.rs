@@ -21,6 +21,8 @@ struct UpdateManifest {
     release_url: String,
 }
 
+/// # Errors
+/// Returns an error when the release feed cannot be fetched or parsed.
 pub async fn check_app_update(current_version: &str) -> Result<AppUpdateInfo, String> {
     let current_version_norm = normalize_version(current_version);
     if current_version_norm == "0.0.0"
