@@ -185,6 +185,12 @@ impl ListenerRegistry {
     pub fn drain_emitted(&mut self) -> Vec<HostEventRecord> {
         std::mem::take(&mut self.emitted)
     }
+
+    /// Moves buffered events into `out`. `append` empties this queue without
+    /// releasing its allocation, so the next emit does not regrow from zero.
+    pub fn drain_emitted_into(&mut self, out: &mut Vec<HostEventRecord>) {
+        out.append(&mut self.emitted);
+    }
 }
 
 pub trait PlatformBridge: Send + Sync {

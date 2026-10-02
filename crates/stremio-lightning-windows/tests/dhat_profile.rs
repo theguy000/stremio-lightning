@@ -80,6 +80,8 @@ fn profile_production_workload() {
 
     let mut utf8 = Vec::with_capacity(4096);
     let mut utf16 = Vec::with_capacity(4096);
+    // Same buffer the WebView2 message handler keeps for the app's lifetime.
+    let mut outbound = Vec::with_capacity(16);
 
     // Outbound: one mpv property tick per iteration, exactly as backend.rs emits them.
     for tick in 0..TICKS {
@@ -87,23 +89,23 @@ fn profile_production_workload() {
             .lock()
             .unwrap()
             .emit_property_change("time-pos", json!(tick as f64 / 10.0));
-        for outbound in host.drain_ipc_events() {
-            post_like_platform(&mut utf8, &mut utf16, &outbound);
-        }
+        outbound.clear();
+        host.drain_ipc_events_into(&mut outbound);
+        post_like_platform(&mut utf8, &mut utf16, &outbound);
     }
 
     // Outbound: command replies, the other continuous webview message source.
     for _ in 0..ROUND_TRIPS {
-        for outbound in host.dispatch_ipc_message_async(&status_reply) {
-            post_like_platform(&mut utf8, &mut utf16, &outbound);
-        }
+        outbound.clear();
+        host.dispatch_ipc_message_async_into(&status_reply, &mut outbound);
+        post_like_platform(&mut utf8, &mut utf16, &outbound);
     }
 
     // Inbound: the page forwarding transport messages through the shell.
     for _ in 0..ROUND_TRIPS {
-        for outbound in host.dispatch_ipc_message_async(&inbound) {
-            post_like_platform(&mut utf8, &mut utf16, &outbound);
-        }
+        outbound.clear();
+        host.dispatch_ipc_message_async_into(&inbound, &mut outbound);
+        post_like_platform(&mut utf8, &mut utf16, &outbound);
     }
 
     drop(host);
@@ -111,13 +113,19 @@ fn profile_production_workload() {
 }
 
 /// The serialization steps platform.rs runs before `PostWebMessageAsJson`.
-fn post_like_platform(utf8: &mut Vec<u8>, utf16: &mut Vec<u16>, outbound: &WindowsIpcOutbound) {
-    utf8.clear();
-    serde_json::to_writer(&mut *utf8, outbound).unwrap();
-    // SAFETY: serde_json writes valid UTF-8 into the scratch buffer.
-    let serialized = unsafe { std::str::from_utf8_unchecked(utf8) };
-    utf16.clear();
-    utf16.extend(serialized.encode_utf16());
-    utf16.push(0);
-    assert!(!std::hint::black_box(utf16.as_ptr()).is_null());
+fn post_like_platform(
+    utf8: &mut Vec<u8>,
+    utf16: &mut Vec<u16>,
+    outbound: &[WindowsIpcOutbound],
+) {
+    for message in outbound {
+        utf8.clear();
+        serde_json::to_writer(&mut *utf8, message).unwrap();
+        // SAFETY: serde_json writes valid UTF-8 into the scratch buffer.
+        let serialized = unsafe { std::str::from_utf8_unchecked(utf8) };
+        utf16.clear();
+        utf16.extend(serialized.encode_utf16());
+        utf16.push(0);
+        assert!(!std::hint::black_box(utf16.as_ptr()).is_null());
+    }
 }

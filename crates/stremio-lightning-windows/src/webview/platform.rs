@@ -225,7 +225,7 @@ mod windows_impl {
 
         fn post_outbound_messages(
             &mut self,
-            messages: Vec<WindowsIpcOutbound>,
+            messages: &[WindowsIpcOutbound],
         ) -> Result<(), WebViewError> {
             let Some(webview) = self.webview.as_ref() else {
                 return Ok(());
@@ -338,10 +338,10 @@ mod windows_impl {
             let Some(runtime) = self.runtime.as_mut() else {
                 return Ok(());
             };
-            let mut outbound = self.host.drain_pending_responses();
-            outbound.extend(self.host.drain_ipc_events());
+            let mut pending = self.host.drain_pending_responses();
+            self.host.drain_ipc_events_into(&mut pending);
             runtime
-                .post_outbound_messages(outbound)
+                .post_outbound_messages(&pending)
                 .map_err(|error| error.to_string())
         }
 
@@ -692,6 +692,9 @@ mod windows_impl {
     fn add_message_handler(webview: &ICoreWebView2, host: Arc<Host>) -> Result<i64, WebViewError> {
         let mut token = 0;
         let mut scratch = PostScratch::default();
+        // Reused for every inbound message: the page sends one for the app's
+        // lifetime, so the reply list never needs to be reallocated.
+        let mut outbound = Vec::new();
         // SAFETY: webview is a valid COM interface; handler closure is boxed and retained.
         unsafe {
             webview
@@ -710,11 +713,11 @@ mod windows_impl {
                                         );
                                     }
                                 }
-                                if let Err(error) = post_outbound_messages(
-                                    &webview,
-                                    host.dispatch_ipc_message_async(&message),
-                                    &mut scratch,
-                                ) {
+                                outbound.clear();
+                                host.dispatch_ipc_message_async_into(&message, &mut outbound);
+                                if let Err(error) =
+                                    post_outbound_messages(&webview, &outbound, &mut scratch)
+                                {
                                     stremio_lightning_core::logging::error(
                                         "native.webview.windows",
                                         format!("Failed to post IPC response: {error}"),
@@ -825,7 +828,8 @@ mod windows_impl {
             .is_some_and(|value| value.eq_ignore_ascii_case("stremio://"))
         {
             host.emit_launch_intent(&LaunchIntent::StremioDeepLink(uri))?;
-            post_outbound_messages(webview, host.drain_ipc_events(), scratch)
+            let outbound = host.drain_ipc_events();
+            post_outbound_messages(webview, &outbound, scratch)
                 .map_err(|error| error.to_string())
         } else {
             host.invoke("open_external_url", Some(serde_json::json!({ "url": uri })))?;
@@ -833,15 +837,15 @@ mod windows_impl {
         }
     }
 
-    fn post_outbound_messages(
-        webview: &ICoreWebView2,
-        messages: Vec<WindowsIpcOutbound>,
-        scratch: &mut PostScratch,
-    ) -> Result<(), WebViewError> {
-        for outbound in messages {
-            scratch.utf8.clear();
-            serde_json::to_writer(&mut scratch.utf8, &outbound)
-                .map_err(|error| WebViewError::SerializeIpcResponse(error.to_string()))?;
+fn post_outbound_messages(
+    webview: &ICoreWebView2,
+    messages: &[WindowsIpcOutbound],
+    scratch: &mut PostScratch,
+) -> Result<(), WebViewError> {
+    for outbound in messages {
+        scratch.utf8.clear();
+        serde_json::to_writer(&mut scratch.utf8, outbound)
+            .map_err(|error| WebViewError::SerializeIpcResponse(error.to_string()))?;
             // SAFETY: serde_json writes valid UTF-8 into the scratch buffer.
             let serialized = unsafe { std::str::from_utf8_unchecked(&scratch.utf8) };
             fill_utf16_scratch(&mut scratch.utf16, serialized);

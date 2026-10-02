@@ -312,6 +312,19 @@ impl<P: PlatformBridge> BaseHost<P> {
         Ok(self.lock_listeners()?.drain_emitted())
     }
 
+    /// Moves buffered events into `out`, keeping the registry's buffer for the
+    /// next emit. Callers that drain on every tick should reuse `out` for the
+    /// same reason.
+    /// # Errors
+    /// Returns an error when the host state lock is poisoned.
+    pub fn drain_emitted_events_into(
+        &self,
+        out: &mut Vec<HostEventRecord>,
+    ) -> Result<(), HostApiError> {
+        self.lock_listeners()?.drain_emitted_into(out);
+        Ok(())
+    }
+
     /// # Errors
     /// Returns the error reported by the IPC handler, or a parse error when the payload is malformed.
     pub fn dispatch_ipc(&self, kind: &str, payload: Option<Value>) -> Result<Value, String> {

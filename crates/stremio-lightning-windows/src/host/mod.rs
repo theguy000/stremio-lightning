@@ -35,6 +35,8 @@ pub struct WindowsHost {
     #[cfg(windows)]
     player_scratch: Mutex<Vec<PlayerEvent>>,
     #[cfg(windows)]
+    record_scratch: Mutex<Vec<HostEventRecord>>,
+    #[cfg(windows)]
     ui_notifier: Mutex<Option<crate::window::UiThreadNotifier>>,
 }
 
@@ -100,6 +102,8 @@ impl WindowsHost {
             #[cfg(windows)]
             player_scratch: Mutex::default(),
             #[cfg(windows)]
+            record_scratch: Mutex::default(),
+            #[cfg(windows)]
             ui_notifier: Mutex::default(),
         }
     }
@@ -147,16 +151,19 @@ impl WindowsHost {
     }
 
     pub fn dispatch_ipc_message(&self, raw: &str) -> Vec<WindowsIpcOutbound> {
+        let mut outbound = Vec::new();
         match serde_json::from_str::<host_api::IpcRequest>(raw) {
-            Ok(request) => self.dispatch_parsed_ipc_message(request),
-            Err(error) => vec![Self::invalid_ipc_message(&error)],
+            Ok(request) => self.dispatch_parsed_ipc_message(request, &mut outbound),
+            Err(error) => outbound.push(Self::invalid_ipc_message(&error)),
         }
+        outbound
     }
 
     fn dispatch_parsed_ipc_message(
         &self,
         request: host_api::IpcRequest,
-    ) -> Vec<WindowsIpcOutbound> {
+        out: &mut Vec<WindowsIpcOutbound>,
+    ) {
         let id = request.id;
         let (ok, value) = self
             .dispatch_ipc(&request.kind, request.payload)
@@ -165,14 +172,8 @@ impl WindowsHost {
                 |value| (true, value),
             );
 
-        let mut outbound = vec![WindowsIpcOutbound::Response { id, ok, value }];
-        outbound.extend(
-            self.drain_all_emitted_events()
-                .unwrap_or_default()
-                .into_iter()
-                .map(WindowsIpcOutbound::from),
-        );
-        outbound
+        out.push(WindowsIpcOutbound::Response { id, ok, value });
+        self.collect_emitted_ipc(out);
     }
 
     fn invalid_ipc_message(error: &serde_json::Error) -> WindowsIpcOutbound {
@@ -182,11 +183,27 @@ impl WindowsHost {
         }
     }
 
-    #[cfg(windows)]
+#[cfg(windows)]
     pub fn dispatch_ipc_message_async(self: &Arc<Self>, raw: &str) -> Vec<WindowsIpcOutbound> {
+        let mut outbound = Vec::new();
+        self.dispatch_ipc_message_async_into(raw, &mut outbound);
+        outbound
+    }
+
+    /// Like [`Self::dispatch_ipc_message_async`] but appends into a caller-owned
+    /// buffer, which the `WebView2` message handler keeps for the app's lifetime.
+    #[cfg(windows)]
+    pub fn dispatch_ipc_message_async_into(
+        self: &Arc<Self>,
+        raw: &str,
+        out: &mut Vec<WindowsIpcOutbound>,
+    ) {
         let request = match serde_json::from_str::<host_api::IpcRequest>(raw) {
             Ok(request) => request,
-            Err(error) => return vec![Self::invalid_ipc_message(&error)],
+            Err(error) => {
+                out.push(Self::invalid_ipc_message(&error));
+                return;
+            }
         };
 
         let is_async = request.kind == "invoke"
@@ -198,18 +215,20 @@ impl WindowsHost {
                 .is_some_and(host_api::is_async_command);
 
         if !is_async {
-            return self.dispatch_parsed_ipc_message(request);
+            self.dispatch_parsed_ipc_message(request, out);
+            return;
         }
         let id = request.id;
 
-let (command, payload) = match host_api::split_invoke_payload(request.payload) {
+        let (command, payload) = match host_api::split_invoke_payload(request.payload) {
             Ok(payload) => payload,
             Err(error) => {
-                return vec![WindowsIpcOutbound::Response {
+                out.push(WindowsIpcOutbound::Response {
                     id,
                     ok: false,
                     value: json!({ "message": error }),
-                }];
+                });
+                return;
             }
         };
 
@@ -238,7 +257,7 @@ let (command, payload) = match host_api::split_invoke_payload(request.payload) {
             }
         });
 
-        self.drain_ipc_events()
+        self.collect_emitted_ipc(out);
     }
 
     /// # Errors
@@ -276,11 +295,14 @@ let (command, payload) = match host_api::split_invoke_payload(request.payload) {
     }
 
     pub fn drain_ipc_events(&self) -> Vec<WindowsIpcOutbound> {
-        self.drain_all_emitted_events()
-            .unwrap_or_default()
-            .into_iter()
-            .map(WindowsIpcOutbound::from)
-            .collect()
+        let mut outbound = Vec::new();
+        self.collect_emitted_ipc(&mut outbound);
+        outbound
+    }
+
+    /// Like [`Self::drain_ipc_events`] but appends into a caller-owned buffer.
+    pub fn drain_ipc_events_into(&self, out: &mut Vec<WindowsIpcOutbound>) {
+        self.collect_emitted_ipc(out);
     }
 
     /// # Errors
@@ -469,9 +491,27 @@ let (command, payload) = match host_api::split_invoke_payload(request.payload) {
             .map_err(Into::into)
     }
 
-    fn drain_all_emitted_events(&self) -> Result<Vec<HostEventRecord>, String> {
-        self.emit_player_events()?;
-        self.base.drain_emitted_events().map_err(Into::into)
+    /// Appends the freshly emitted records to `out` as IPC messages.
+    ///
+    /// The record queue is drained through a recycled scratch buffer: taking the
+    /// queue by value would hand its allocation to the caller, so the next
+    /// property tick would regrow it from zero.
+    fn collect_emitted_ipc(&self, out: &mut Vec<WindowsIpcOutbound>) {
+        if let Err(error) = self.emit_player_events() {
+            stremio_lightning_core::logging::error(
+                "native.host.windows",
+                format!("Failed to emit player events: {error}"),
+            );
+            return;
+        }
+        let Ok(mut records) = self.record_scratch.lock() else {
+            return;
+        };
+        records.clear();
+        if self.base.drain_emitted_events_into(&mut records).is_err() {
+            return;
+        }
+        out.extend(records.drain(..).map(WindowsIpcOutbound::from));
     }
 
     fn emit_player_events(&self) -> Result<(), String> {
