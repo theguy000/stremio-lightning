@@ -23,7 +23,8 @@ mod platform {
     use std::sync::Arc;
     use std::thread::{self, JoinHandle};
     use stremio_lightning_core::player_api::{
-        PlayerCommand, PlayerEnded, PlayerEndedError, PlayerEvent, PlayerPropertyChange,
+        is_json_string_property, mpv_property_format, EndFileCause, MpvPropertyFormat,
+        PlayerCommand, PlayerEnded, PlayerEvent, PlayerPropertyChange,
     };
     use windows::Win32::Foundation::HWND;
 
@@ -276,7 +277,9 @@ mod platform {
             }
             Event::EndFile(reason) => {
                 log_end_file(reason);
-                MpvEventAction::Emit(PlayerEvent::Ended(end_file_reason(reason)))
+                MpvEventAction::Emit(PlayerEvent::Ended(PlayerEnded::from_cause(end_file_cause(
+                    reason,
+                ))))
             }
             Event::StartFile => {
                 stremio_lightning_core::logging::info(
@@ -412,21 +415,11 @@ mod platform {
     }
 
     fn observe_format(name: &str) -> Format {
-        match name {
-            "pause" | "paused-for-cache" | "seeking" | "eof-reached" | "keepaspect" => Format::Flag,
-            "aid" | "vid" | "sid" => Format::Int64,
-            "time-pos"
-            | "mute"
-            | "volume"
-            | "duration"
-            | "sub-delay"
-            | "sub-scale"
-            | "cache-buffering-state"
-            | "demuxer-cache-time"
-            | "sub-pos"
-            | "speed"
-            | "panscan" => Format::Double,
-            _ => Format::String,
+        match mpv_property_format(name) {
+            MpvPropertyFormat::Flag => Format::Flag,
+            MpvPropertyFormat::Int => Format::Int64,
+            MpvPropertyFormat::Double => Format::Double,
+            MpvPropertyFormat::String => Format::String,
         }
     }
 
@@ -436,7 +429,7 @@ mod platform {
             PropertyData::Int64(value) => json!(value),
             PropertyData::Double(value) => json!(value),
             PropertyData::OsdStr(value) | PropertyData::Str(value) => {
-                if matches!(name, "track-list" | "video-params" | "metadata") {
+                if is_json_string_property(name) {
                     serde_json::from_str(value).unwrap_or_else(|_| Value::String(value.to_string()))
                 } else {
                     Value::String(value.to_string())
@@ -445,19 +438,15 @@ mod platform {
         }
     }
 
-    fn end_file_reason(reason: libmpv2::EndFileReason) -> PlayerEnded {
-        let is_error = reason == mpv_end_file_reason::Error;
-        PlayerEnded {
-            reason: match reason {
-                mpv_end_file_reason::Error => "error",
-                mpv_end_file_reason::Quit => "quit",
-                _ => "other",
-            }
-            .to_string(),
-            error: is_error.then(|| PlayerEndedError {
-                message: "MPV playback error".to_string(),
-                critical: true,
-            }),
+    fn end_file_cause(reason: libmpv2::EndFileReason) -> EndFileCause {
+        if reason == mpv_end_file_reason::Eof {
+            EndFileCause::Eof
+        } else if reason == mpv_end_file_reason::Error {
+            EndFileCause::Error
+        } else if reason == mpv_end_file_reason::Quit {
+            EndFileCause::Quit
+        } else {
+            EndFileCause::Other
         }
     }
 }

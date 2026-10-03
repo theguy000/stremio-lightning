@@ -192,8 +192,10 @@ mod windows_impl {
             url: &str,
         ) -> Result<(), WebViewError> {
             // SAFETY: self.controller() returns an active valid COM interface.
+            let controller = self.controller()?.clone();
+            // SAFETY: controller is an active valid COM interface.
             self.webview = Some(unsafe {
-                self.controller()?
+                controller
                     .CoreWebView2()
                     .map_err(|error| WebViewError::GetInstance(error.to_string()))?
             });
@@ -205,7 +207,8 @@ mod windows_impl {
 
             configure_webview(&webview, devtools)?;
             add_injection_scripts(&webview, injection)?;
-            self.event_tokens.message_received = Some(add_message_handler(&webview, host.clone())?);
+            self.event_tokens.message_received =
+                Some(add_message_handler(&webview, &controller, host.clone())?);
             self.event_tokens.navigation_starting = Some(add_navigation_starting_handler(
                 &webview,
                 host.clone(),
@@ -594,7 +597,7 @@ mod windows_impl {
             controller
                 .add_AcceleratorKeyPressed(
                     &AcceleratorKeyPressedEventHandler::create(Box::new(
-                        move |_controller, args| {
+                        move |controller, args| {
                             let Some(args) = args else {
                                 return Ok(());
                             };
@@ -602,8 +605,20 @@ mod windows_impl {
                             let mut virtual_key = 0u32;
                             args.VirtualKey(&raw mut virtual_key)?;
                             let control_down = GetKeyState(i32::from(VK_CONTROL.0)) < 0;
-                            if should_block_browser_accelerator(virtual_key, control_down) {
-                                args.SetHandled(true)?;
+
+                            // The shell owns these keys, so the page never sees the
+                            // browser default for them.
+                            match browser_accelerator_action(virtual_key, control_down) {
+                                AcceleratorAction::Pass => {}
+                                AcceleratorAction::Block => {
+                                    args.SetHandled(true)?;
+                                }
+                                AcceleratorAction::Reload => {
+                                    args.SetHandled(true)?;
+                                    if let Some(controller) = controller {
+                                        reload_webview(&controller);
+                                    }
+                                }
                             }
                             Ok(())
                         },
@@ -615,11 +630,50 @@ mod windows_impl {
         Ok(token)
     }
 
-    pub(crate) fn should_block_browser_accelerator(virtual_key: u32, control_down: bool) -> bool {
-        if virtual_key == u32::from(VK_F5.0) {
-            return true;
+    fn reload_webview(controller: &ICoreWebView2Controller) {
+        // SAFETY: controller is a valid COM interface; `CoreWebView2` returns the
+        // webview it drives and `Reload` takes no arguments.
+        unsafe {
+            if let Ok(webview) = controller.CoreWebView2() {
+                if let Err(error) = webview.Reload() {
+                    stremio_lightning_core::logging::error(
+                        "native.webview.windows",
+                        format!("Failed to reload the webview: {error}"),
+                    );
+                }
+            }
         }
-        control_down && (virtual_key == u32::from(VK_R.0) || virtual_key == u32::from(VK_P.0))
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub(crate) enum AcceleratorAction {
+        /// Let the page and the browser handle the key.
+        Pass,
+        /// Swallow the key without doing anything.
+        Block,
+        Reload,
+    }
+
+    /// `F5` and `Ctrl+R` reload like any other browser and `Ctrl+P` stays blocked
+    /// because the shell has no print path. The hard-reload chords (`Ctrl+F5`,
+    /// `Ctrl+Shift+R`) are deliberately left alone: `WebView2` already bypasses the
+    /// cache for them on its own.
+    pub(crate) fn browser_accelerator_action(
+        virtual_key: u32,
+        control_down: bool,
+    ) -> AcceleratorAction {
+        if control_down {
+            return match virtual_key {
+                key if key == u32::from(VK_R.0) => AcceleratorAction::Reload,
+                key if key == u32::from(VK_P.0) => AcceleratorAction::Block,
+                _ => AcceleratorAction::Pass,
+            };
+        }
+
+        match virtual_key {
+            key if key == u32::from(VK_F5.0) => AcceleratorAction::Reload,
+            _ => AcceleratorAction::Pass,
+        }
     }
 
     fn configure_webview(webview: &ICoreWebView2, devtools: bool) -> Result<(), WebViewError> {
@@ -689,12 +743,17 @@ mod windows_impl {
         Ok(())
     }
 
-    fn add_message_handler(webview: &ICoreWebView2, host: Arc<Host>) -> Result<i64, WebViewError> {
+    fn add_message_handler(
+        webview: &ICoreWebView2,
+        controller: &ICoreWebView2Controller,
+        host: Arc<Host>,
+    ) -> Result<i64, WebViewError> {
         let mut token = 0;
         let mut scratch = PostScratch::default();
         // Reused for every inbound message: the page sends one for the app's
         // lifetime, so the reply list never needs to be reallocated.
         let mut outbound = Vec::new();
+        let controller = controller.clone();
         // SAFETY: webview is a valid COM interface; handler closure is boxed and retained.
         unsafe {
             webview
@@ -712,6 +771,9 @@ mod windows_impl {
                                             format!("Failed to open DevTools: {error}"),
                                         );
                                     }
+                                }
+                                if let Some(level) = zoom_level_from_message(&message) {
+                                    set_webview_zoom(&controller, level);
                                 }
                                 outbound.clear();
                                 host.dispatch_ipc_message_async_into(&message, &mut outbound);
@@ -739,6 +801,30 @@ mod windows_impl {
             && serde_json::from_str::<serde_json::Value>(message).is_ok_and(|value| {
                 value["kind"] == "invoke" && value["payload"]["command"] == "toggle_devtools"
             })
+    }
+
+    /// Reads the zoom factor out of a `webview.setZoom` invoke so it can be applied
+    /// here, on the UI thread, rather than through `PlatformBridge`, which has no
+    /// `WebView2` controller to reach.
+    fn zoom_level_from_message(message: &str) -> Option<f64> {
+        let value: serde_json::Value = serde_json::from_str(message).ok()?;
+        if value["kind"] != "invoke" || value["payload"]["command"] != "webview.setZoom" {
+            return None;
+        }
+        value["payload"]["payload"]["level"].as_f64()
+    }
+
+    fn set_webview_zoom(controller: &ICoreWebView2Controller, level: f64) {
+        // SAFETY: controller is a valid COM interface; `SetZoomFactor` takes a
+        // plain f64 where 1.0 is 100%.
+        unsafe {
+            if let Err(error) = controller.SetZoomFactor(level) {
+                stremio_lightning_core::logging::error(
+                    "native.webview.windows",
+                    format!("Failed to set the webview zoom level: {error}"),
+                );
+            }
+        }
     }
 
     fn add_navigation_starting_handler(
@@ -829,23 +915,22 @@ mod windows_impl {
         {
             host.emit_launch_intent(&LaunchIntent::StremioDeepLink(uri))?;
             let outbound = host.drain_ipc_events();
-            post_outbound_messages(webview, &outbound, scratch)
-                .map_err(|error| error.to_string())
+            post_outbound_messages(webview, &outbound, scratch).map_err(|error| error.to_string())
         } else {
             host.invoke("open_external_url", Some(serde_json::json!({ "url": uri })))?;
             Ok(())
         }
     }
 
-fn post_outbound_messages(
-    webview: &ICoreWebView2,
-    messages: &[WindowsIpcOutbound],
-    scratch: &mut PostScratch,
-) -> Result<(), WebViewError> {
-    for outbound in messages {
-        scratch.utf8.clear();
-        serde_json::to_writer(&mut scratch.utf8, outbound)
-            .map_err(|error| WebViewError::SerializeIpcResponse(error.to_string()))?;
+    fn post_outbound_messages(
+        webview: &ICoreWebView2,
+        messages: &[WindowsIpcOutbound],
+        scratch: &mut PostScratch,
+    ) -> Result<(), WebViewError> {
+        for outbound in messages {
+            scratch.utf8.clear();
+            serde_json::to_writer(&mut scratch.utf8, outbound)
+                .map_err(|error| WebViewError::SerializeIpcResponse(error.to_string()))?;
             // SAFETY: serde_json writes valid UTF-8 into the scratch buffer.
             let serialized = unsafe { std::str::from_utf8_unchecked(&scratch.utf8) };
             fill_utf16_scratch(&mut scratch.utf16, serialized);

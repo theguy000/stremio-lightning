@@ -407,7 +407,10 @@ impl<P: PlatformBridge> BaseHost<P> {
             }
             "webview.setZoom" => {
                 let payload: ZoomIpcPayload = parse_payload(kind, payload)?;
-                if !payload.level.is_finite() || payload.level <= 0.0 {
+                // `level` is a zoom factor where 1.0 is 100%; the range keeps a
+                // hostile or buggy page from asking for an unusable scale.
+                // WebView2 takes the factor, WebKitGTK wants `log2` of it.
+                if !payload.level.is_finite() || !(0.25..=4.0).contains(&payload.level) {
                     return Err("Invalid webview zoom level".to_string());
                 }
                 self.bridge.set_webview_zoom(payload.level)?;

@@ -3,7 +3,8 @@ use serde_json::Value;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 use stremio_lightning_core::player_api::{
-    PlayerCommand as TransportPlayerCommand, PlayerEnded, PlayerEvent, PlayerPropertyChange,
+    EndFileCause, PlayerCommand as TransportPlayerCommand, PlayerEnded, PlayerEvent,
+    PlayerPropertyChange,
 };
 
 const PRIMARY_SUBTITLE_PROPERTY: &str = "sid";
@@ -170,12 +171,8 @@ pub fn serialize_property_change(name: impl Into<String>, data: Value) -> Value 
     .transport_args()
 }
 
-pub fn serialize_ended(reason: impl Into<String>) -> Value {
-    PlayerEvent::Ended(PlayerEnded {
-        reason: reason.into(),
-        error: None,
-    })
-    .transport_args()
+pub fn serialize_ended(ended: PlayerEnded) -> Value {
+    PlayerEvent::Ended(ended).transport_args()
 }
 
 pub fn command_from_transport(method: String, data: Option<Value>) -> TransportPlayerCommand {
@@ -382,8 +379,15 @@ mod tests {
             json!(["mpv-prop-change", {"name": "pause", "data": true}])
         );
         assert_eq!(
-            serialize_ended("eof"),
+            serialize_ended(PlayerEnded::from_cause(EndFileCause::Eof)),
             json!(["mpv-event-ended", {"reason": "eof"}])
+        );
+        assert_eq!(
+            serialize_ended(PlayerEnded::from_cause(EndFileCause::Error)),
+            json!(["mpv-event-ended", {
+                "reason": "error",
+                "error": { "message": "MPV playback error", "critical": true },
+            }])
         );
     }
 

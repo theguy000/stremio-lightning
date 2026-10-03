@@ -3,22 +3,7 @@
 /// # Errors
 /// Returns an error when the URL scheme is not allowed.
 pub fn validate_external_url(url: &str) -> Result<(), String> {
-    let trimmed = url.trim();
-    if trimmed.is_empty() || trimmed.contains(|c: char| c.is_control()) {
-        return Err("Rejected non-whitelisted open_external_url URL".to_string());
-    }
-
-    let allowed = ["http://", "https://", "mailto:"].iter().any(|prefix| {
-        trimmed
-            .get(..prefix.len())
-            .is_some_and(|s| s.eq_ignore_ascii_case(prefix))
-    });
-
-    if allowed {
-        Ok(())
-    } else {
-        Err("Rejected non-whitelisted open_external_url URL".to_string())
-    }
+    stremio_lightning_core::navigation::validate_external_url(url)
 }
 
 /// # Errors

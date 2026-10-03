@@ -8,7 +8,7 @@ use gtk::prelude::*;
 use libc::{setlocale, LC_NUMERIC};
 use libmpv2::events::{Event, PropertyData};
 use libmpv2::render::{OpenGLInitParams, RenderContext, RenderParam, RenderParamApiType};
-use libmpv2::{Format, Mpv};
+use libmpv2::{mpv_end_file_reason, Format, Mpv};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::cell::{Cell, RefCell};
@@ -20,6 +20,9 @@ use std::sync::mpsc;
 use std::sync::OnceLock;
 use std::time::Duration;
 use stremio_lightning_core::pip::{PipRestoreSnapshot, PipWindowController};
+use stremio_lightning_core::player_api::{
+    is_json_string_property, mpv_property_format, EndFileCause, MpvPropertyFormat, PlayerEnded,
+};
 use stremio_lightning_identity::{APP_ID, APP_NAME};
 use webkit::prelude::*;
 use webkit::{
@@ -41,30 +44,6 @@ const MIN_WINDOW_HEIGHT: i32 = 600;
 thread_local! {
     static LAST_NORMAL_SIZE: RefCell<Option<(i32, i32)>> = const { RefCell::new(None) };
 }
-const MPV_FLOAT_PROPERTIES: &[&str] = &[
-    "time-pos",
-    "duration",
-    "volume",
-    "speed",
-    "sub-pos",
-    "sub-scale",
-    "sub-delay",
-    "cache-buffering-state",
-    "demuxer-cache-time",
-    "panscan",
-];
-const MPV_INT_PROPERTIES: &[&str] = &["aid", "vid", "sid", "secondary-sid"];
-const MPV_BOOL_PROPERTIES: &[&str] = &[
-    "pause",
-    "buffering",
-    "seeking",
-    "osc",
-    "input-default-bindings",
-    "input-vo-keyboard",
-    "eof-reached",
-    "paused-for-cache",
-    "keepaspect",
-];
 #[derive(Debug, Deserialize)]
 struct IpcRequest {
     id: u64,
@@ -143,8 +122,15 @@ fn build_window(
     install_source_tree_window_icon(&window);
 
     let fullscreen = Rc::new(Cell::new(false));
+    let last_visible = Rc::new(Cell::new(None));
     let overlay = gtk::Overlay::new();
-    let webview = build_webview(config, runtime.clone(), window.clone(), fullscreen.clone())?;
+    let webview = build_webview(
+        config,
+        runtime.clone(),
+        window.clone(),
+        fullscreen.clone(),
+        last_visible,
+    )?;
     let (video, video_state) = build_native_video(
         player,
         runtime.clone(),
@@ -224,6 +210,28 @@ fn build_window(
     Ok(())
 }
 
+/// Emits `window-visible-changed` at most once per transition. The GTK signals
+/// and the `window.minimize` / `window.focus` bridge commands can both report the
+/// same transition, and the web side expects a change notification, not a repeat.
+fn emit_window_visibility_changed(
+    webview: &WebKitWebView,
+    runtime: &LinuxWebviewRuntime<MpvPlayerBackend, RealProcessSpawner>,
+    last_visible: &Cell<Option<bool>>,
+    visible: bool,
+) {
+    if last_visible.replace(Some(visible)) == Some(visible) {
+        return;
+    }
+
+    if let Err(error) = runtime.emit_window_visible_changed(visible) {
+        stremio_lightning_core::logging::error(
+            "native.window",
+            format!("[StremioLightning] Failed to emit window visibility change: {error}"),
+        );
+    }
+    drain_host_events(webview, runtime);
+}
+
 fn configure_application_icon_name() -> &'static str {
     let Some(display) = Display::default() else {
         stremio_lightning_core::logging::warn(
@@ -260,6 +268,7 @@ fn build_webview(
     runtime: Rc<LinuxWebviewRuntime<MpvPlayerBackend, RealProcessSpawner>>,
     window: gtk::ApplicationWindow,
     fullscreen: Rc<Cell<bool>>,
+    last_visible: Rc<Cell<Option<bool>>>,
 ) -> Result<WebKitWebView, String> {
     let user_content = webkit::UserContentManager::new();
     user_content.register_script_message_handler(IPC_HANDLER_NAME, None);
@@ -299,8 +308,51 @@ fn build_webview(
         let runtime = runtime.clone();
         let window = window.clone();
         let fullscreen = fullscreen.clone();
+        let last_visible = last_visible.clone();
         user_content.connect_script_message_received(Some(IPC_HANDLER_NAME), move |_, value| {
-            handle_ipc_message(&webview, &runtime, &window, &fullscreen, &value.to_string());
+            handle_ipc_message(
+                &webview,
+                &runtime,
+                &window,
+                &fullscreen,
+                &last_visible,
+                &value.to_string(),
+            );
+        });
+    }
+
+    // GTK4 exposes no `minimized` notify on `GtkWindow`, so visibility is tracked
+    // from the map/unmap pair instead; it also covers taskbar minimize, fullscreen
+    // and PiP, which all map or unmap the same window.
+    {
+        let webview = webview.clone();
+        let runtime = runtime.clone();
+        let last_visible = last_visible.clone();
+        window.clone().connect_map(move |_| {
+            emit_window_visibility_changed(&webview, &runtime, &last_visible, true);
+        });
+    }
+
+    {
+        let webview = webview.clone();
+        let runtime = runtime.clone();
+        let last_visible = last_visible.clone();
+        window.clone().connect_unmap(move |_| {
+            emit_window_visibility_changed(&webview, &runtime, &last_visible, false);
+        });
+    }
+
+    {
+        let webview = webview.clone();
+        let runtime = runtime.clone();
+        window.clone().connect_maximized_notify(move |window| {
+            if let Err(error) = runtime.emit_window_maximized_changed(window.is_maximized()) {
+                stremio_lightning_core::logging::error(
+                    "native.window",
+                    format!("[StremioLightning] Failed to emit maximize change: {error}"),
+                );
+            }
+            drain_host_events(&webview, &runtime);
         });
     }
 
@@ -325,12 +377,20 @@ fn build_webview(
     }
 
     let runtime_for_navigation = runtime.clone();
+    let app_url = config.url.clone();
+    // A `file://` developer smoke page has no http(s) origin to compare against,
+    // and the allowlist would then reject every target, so navigation is only
+    // restricted once the app really runs on an origin.
+    let restrict_navigation =
+        !stremio_lightning_core::navigation::has_unrestricted_app_url(&app_url);
     webview.connect_decide_policy(move |webview, decision, decision_type| {
         let uri = decision
             .downcast_ref::<NavigationPolicyDecision>()
             .and_then(|decision| decision.navigation_action())
             .and_then(|action| action.request())
             .and_then(|request| request.uri());
+
+        let is_new_window = decision_type == PolicyDecisionType::NewWindowAction;
 
         if let Some(uri) = uri {
             if uri
@@ -348,17 +408,33 @@ fn build_webview(
                 return true;
             }
 
-            if decision_type == PolicyDecisionType::NewWindowAction {
-                if let Err(error) = open_external_uri(uri.as_str()) {
-                    stremio_lightning_core::logging::error(
-                        "native.window",
-                        format!("[StremioLightning] Failed to open external URL: {error}"),
-                    );
-                }
+            // Anything outside the app origin is cancelled and handed to the OS,
+            // so a remote page can never render inside the shell with the native
+            // bridge injected into it. New-window targets always take that path.
+            if !is_new_window
+                && (!restrict_navigation
+                    || stremio_lightning_core::navigation::is_allowed_webview_navigation(
+                        &app_url, &uri,
+                    ))
+            {
+                return false;
             }
+
+            decision.ignore();
+            stremio_lightning_core::logging::info(
+                "native.webview.linux",
+                format!("Leaving the app origin for an external target: {uri}"),
+            );
+            if let Err(error) = open_allowed_external_uri(&uri) {
+                stremio_lightning_core::logging::error(
+                    "native.webview.linux",
+                    format!("[StremioLightning] Failed to open external URL: {error}"),
+                );
+            }
+            return true;
         }
 
-        if decision_type == PolicyDecisionType::NewWindowAction {
+        if is_new_window {
             decision.ignore();
             return true;
         }
@@ -521,6 +597,7 @@ fn handle_ipc_message(
     runtime: &LinuxWebviewRuntime<MpvPlayerBackend, RealProcessSpawner>,
     window: &gtk::ApplicationWindow,
     fullscreen: &Rc<Cell<bool>>,
+    last_visible: &Rc<Cell<Option<bool>>>,
     raw: &str,
 ) {
     let response = serde_json::from_str::<WebkitIpcRequest>(raw)
@@ -534,6 +611,7 @@ fn handle_ipc_message(
                     request.payload,
                     window,
                     fullscreen,
+                    last_visible,
                     webview,
                 )
                 .and_then(|value| {
@@ -567,6 +645,7 @@ trait NativeWindowIpc {
         payload: Option<Value>,
         window: &gtk::ApplicationWindow,
         fullscreen: &Rc<Cell<bool>>,
+        last_visible: &Rc<Cell<Option<bool>>>,
         webview: &WebKitWebView,
     ) -> Result<Value, String>;
 }
@@ -578,6 +657,7 @@ impl NativeWindowIpc for LinuxWebviewRuntime<MpvPlayerBackend, RealProcessSpawne
         payload: Option<Value>,
         window: &gtk::ApplicationWindow,
         fullscreen: &Rc<Cell<bool>>,
+        last_visible: &Rc<Cell<Option<bool>>>,
         webview: &WebKitWebView,
     ) -> Result<Value, String> {
         match kind {
@@ -611,6 +691,19 @@ impl NativeWindowIpc for LinuxWebviewRuntime<MpvPlayerBackend, RealProcessSpawne
                     return Ok(Value::Null);
                 }
 
+                if invoke_command(payload.as_ref()) == Some("webview.setZoom") {
+                    let level = payload
+                        .as_ref()
+                        .and_then(|value| value.get("payload"))
+                        .and_then(|value| value.get("level"))
+                        .and_then(Value::as_f64)
+                        .ok_or_else(|| "Invalid webview.setZoom payload".to_string())?;
+                    // WebKitGTK's zoom level is a logarithmic scale where 0.0 is
+                    // 100%, while the bridge sends a plain factor.
+                    webview.set_zoom_level(level.log2());
+                    return Ok(Value::Null);
+                }
+
                 LinuxWebviewRuntime::dispatch_ipc(self, kind, payload)
             }
             "window.isFullscreen" => Ok(json!(fullscreen.get())),
@@ -635,6 +728,16 @@ impl NativeWindowIpc for LinuxWebviewRuntime<MpvPlayerBackend, RealProcessSpawne
                 Ok(Value::Null)
             }
             "window.isMaximized" => Ok(json!(window.is_maximized())),
+            "window.minimize" => {
+                window.minimize();
+                emit_window_visibility_changed(webview, self, last_visible, false);
+                Ok(Value::Null)
+            }
+            "window.focus" => {
+                window.present();
+                emit_window_visibility_changed(webview, self, last_visible, true);
+                Ok(Value::Null)
+            }
             "window.toggleMaximize" => {
                 if window.is_maximized() {
                     window.unmaximize();
@@ -852,6 +955,13 @@ fn open_external_uri(uri: &str) -> Result<(), String> {
         .map_err(|error| error.to_string())
 }
 
+/// Runs the shared scheme allowlist before touching the OS, so a `file://` or
+/// `javascript:` navigation target can never be launched either.
+fn open_allowed_external_uri(uri: &str) -> Result<(), String> {
+    stremio_lightning_core::navigation::validate_external_url(uri)?;
+    open_external_uri(uri)
+}
+
 fn resolve_ipc_script(id: u64, ok: bool, value: Value) -> String {
     format!(
         "window.__STREMIO_LIGHTNING_LINUX_IPC_RESOLVE__({id}, {ok}, {value});",
@@ -963,14 +1073,11 @@ impl NativeVideoState {
     }
 
     fn observe_property(&self, name: &str) {
-        let format = if MPV_BOOL_PROPERTIES.contains(&name) {
-            Format::Flag
-        } else if MPV_INT_PROPERTIES.contains(&name) {
-            Format::Int64
-        } else if MPV_FLOAT_PROPERTIES.contains(&name) {
-            Format::Double
-        } else {
-            Format::String
+        let format = match mpv_property_format(name) {
+            MpvPropertyFormat::Flag => Format::Flag,
+            MpvPropertyFormat::Int => Format::Int64,
+            MpvPropertyFormat::Double => Format::Double,
+            MpvPropertyFormat::String => Format::String,
         };
 
         if let Err(error) = self.mpv.borrow().observe_property(name, format, 0) {
@@ -1179,7 +1286,7 @@ fn install_mpv_event_drain(
 
         while state.poll_event(|event| match event {
             Event::PropertyChange { name, change, .. } => {
-                if let Some(value) = property_data_to_json(change) {
+                if let Some(value) = property_data_to_json(name, change) {
                     if let Err(error) = runtime.emit_native_player_property_changed(name, value) {
                         stremio_lightning_core::logging::error(
                             "native.player",
@@ -1190,7 +1297,7 @@ fn install_mpv_event_drain(
                     }
                 }
             }
-            Event::EndFile(_) => {
+            Event::EndFile(reason) => {
                 let mut controller = NativeWindowController {
                     webview: &webview,
                     runtime: &runtime,
@@ -1204,7 +1311,8 @@ fn install_mpv_event_drain(
                         format!("[StremioLightning] Failed to exit PiP after MPV ended: {error}"),
                     );
                 }
-                if let Err(error) = runtime.emit_native_player_ended("eof") {
+                let ended = PlayerEnded::from_cause(end_file_cause(reason));
+                if let Err(error) = runtime.emit_native_player_ended(ended) {
                     stremio_lightning_core::logging::error(
                         "native.player",
                         format!("[StremioLightning] Failed to emit MPV ended event: {error}"),
@@ -1219,15 +1327,31 @@ fn install_mpv_event_drain(
     });
 }
 
-fn property_data_to_json(change: PropertyData) -> Option<Value> {
+fn property_data_to_json(name: &str, change: PropertyData) -> Option<Value> {
     match change {
-        PropertyData::Str(value) => {
-            Some(serde_json::from_str(value).unwrap_or_else(|_| Value::String(value.to_string())))
+        PropertyData::Str(value) | PropertyData::OsdStr(value) => {
+            Some(if is_json_string_property(name) {
+                serde_json::from_str(value).unwrap_or_else(|_| Value::String(value.to_string()))
+            } else {
+                Value::String(value.to_string())
+            })
         }
         PropertyData::Flag(value) => Some(Value::Bool(value)),
         PropertyData::Int64(value) => Some(json!(value)),
         PropertyData::Double(value) => serde_json::Number::from_f64(value).map(Value::Number),
         _ => None,
+    }
+}
+
+fn end_file_cause(reason: libmpv2::EndFileReason) -> EndFileCause {
+    if reason == mpv_end_file_reason::Eof {
+        EndFileCause::Eof
+    } else if reason == mpv_end_file_reason::Error {
+        EndFileCause::Error
+    } else if reason == mpv_end_file_reason::Quit {
+        EndFileCause::Quit
+    } else {
+        EndFileCause::Other
     }
 }
 
@@ -1322,24 +1446,46 @@ mod tests {
     }
 
     #[test]
-    fn mpv_property_type_lists_match_official_loading_properties() {
-        assert!(MPV_BOOL_PROPERTIES.contains(&"buffering"));
-        assert!(MPV_BOOL_PROPERTIES.contains(&"seeking"));
-        assert!(MPV_BOOL_PROPERTIES.contains(&"paused-for-cache"));
-        assert!(MPV_BOOL_PROPERTIES.contains(&"eof-reached"));
-        assert!(MPV_INT_PROPERTIES.contains(&"aid"));
-        assert!(MPV_INT_PROPERTIES.contains(&"vid"));
-        assert!(MPV_INT_PROPERTIES.contains(&"sid"));
-        assert!(MPV_INT_PROPERTIES.contains(&"secondary-sid"));
-        assert!(MPV_FLOAT_PROPERTIES.contains(&"cache-buffering-state"));
-        assert!(MPV_FLOAT_PROPERTIES.contains(&"demuxer-cache-time"));
+    fn mpv_property_formats_cover_the_official_loading_properties() {
+        for name in ["buffering", "seeking", "paused-for-cache", "eof-reached"] {
+            assert_eq!(mpv_property_format(name), MpvPropertyFormat::Flag, "{name}");
+        }
+        for name in ["aid", "vid", "sid", "secondary-sid"] {
+            assert_eq!(mpv_property_format(name), MpvPropertyFormat::Int, "{name}");
+        }
+        for name in ["cache-buffering-state", "demuxer-cache-time"] {
+            assert_eq!(
+                mpv_property_format(name),
+                MpvPropertyFormat::Double,
+                "{name}"
+            );
+        }
+        // `mute` is an MPV flag, so it must not arrive as a number or a string.
+        assert_eq!(mpv_property_format("mute"), MpvPropertyFormat::Flag);
     }
 
     #[test]
     fn serializes_integer_property_changes_as_json_numbers() {
         assert_eq!(
-            property_data_to_json(PropertyData::Int64(7)),
+            property_data_to_json("aid", PropertyData::Int64(7)),
             Some(json!(7))
+        );
+        assert_eq!(
+            property_data_to_json("mute", PropertyData::Flag(true)),
+            Some(json!(true))
+        );
+    }
+
+    #[test]
+    fn maps_end_file_reasons_onto_the_shared_vocabulary() {
+        assert_eq!(end_file_cause(mpv_end_file_reason::Eof), EndFileCause::Eof);
+        assert_eq!(
+            end_file_cause(mpv_end_file_reason::Error),
+            EndFileCause::Error
+        );
+        assert_eq!(
+            end_file_cause(mpv_end_file_reason::Quit),
+            EndFileCause::Quit
         );
     }
 

@@ -16,6 +16,7 @@ pub struct AppConfig {
     pub url: String,
     pub devtools: bool,
     pub headless_bootstrap: bool,
+    pub streaming_server_disabled: bool,
     pub launch_url: Option<String>,
 }
 
@@ -25,6 +26,7 @@ impl Default for AppConfig {
             url: DEFAULT_URL.to_string(),
             devtools: true,
             headless_bootstrap: false,
+            streaming_server_disabled: false,
             launch_url: None,
         }
     }
@@ -49,6 +51,8 @@ where
             config.devtools = true;
         } else if arg == "--headless-bootstrap" {
             config.headless_bootstrap = true;
+        } else if arg == "--streaming-server-disabled" {
+            config.streaming_server_disabled = true;
         } else if arg
             .get(.."stremio://".len())
             .is_some_and(|value| value.eq_ignore_ascii_case("stremio://"))
@@ -82,7 +86,7 @@ pub fn run(config: AppConfig) -> Result<(), String> {
     let player = MpvPlayerBackend::default();
     let host = Arc::new(Host::new(
         player.clone(),
-        StreamingServer::new(RealProcessSpawner),
+        StreamingServer::new(RealProcessSpawner).disabled(config.streaming_server_disabled),
     ));
     if let Err(error) = host.start_streaming_server() {
         stremio_lightning_core::logging::error(
@@ -170,6 +174,18 @@ mod tests {
     fn accepts_developer_url() {
         let config = parse_args(["stremio-lightning-linux", "--url", "file:///tmp/smoke.html"]);
         assert_eq!(config.url, "file:///tmp/smoke.html");
+    }
+
+    #[test]
+    fn accepts_streaming_server_disabled_flag() {
+        let config = parse_args(["stremio-lightning-linux", "--streaming-server-disabled"]);
+        assert!(config.streaming_server_disabled);
+    }
+
+    #[test]
+    fn starts_with_the_streaming_server_enabled() {
+        let config = parse_args(["stremio-lightning-linux"]);
+        assert!(!config.streaming_server_disabled);
     }
 
     #[test]

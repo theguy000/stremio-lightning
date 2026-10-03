@@ -24,7 +24,7 @@
       "diagnostics": {
         "persistent": false,
         "nativeHttpCapture": false,
-        "nativeNetworkFailureCapture": false,
+        "nativeNetworkFailureCapture": true,
         "webviewEngine": "WebView2",
         "webviewVersion": null
       }

@@ -11,6 +11,7 @@ use stremio_lightning_core::host_api::{
 use stremio_lightning_core::pip::{
     serialize_picture_in_picture, PipRestoreSnapshot, PipState, PipWindowController,
 };
+use stremio_lightning_core::player_api::PlayerEnded;
 use stremio_lightning_core::streaming_logs::StreamingLogTails;
 
 pub struct LinuxBridge<B, P>
@@ -162,6 +163,9 @@ where
     }
 
     pub fn start_streaming_server(&self) -> Result<(), String> {
+        if self.streaming_server().is_disabled() {
+            return Ok(());
+        }
         self.streaming_server().start()?;
         self.emit_server_started()?;
         Ok(())
@@ -221,8 +225,8 @@ where
         self.emit_transport_event(serialize_property_change(name, data))
     }
 
-    pub fn emit_native_player_ended(&self, reason: impl Into<String>) -> Result<(), String> {
-        self.emit_transport_event(serialize_ended(reason))
+    pub fn emit_native_player_ended(&self, ended: PlayerEnded) -> Result<(), String> {
+        self.emit_transport_event(serialize_ended(ended))
     }
 
     pub fn set_picture_in_picture(
@@ -270,6 +274,14 @@ where
             .emit_host_event(HostEvent::WindowMaximizedChanged, json!(maximized))
     }
 
+    /// Mirrors the Windows shell: core has no typed `HostEvent` for window
+    /// visibility, so this uses the raw event name.
+    pub fn emit_window_visible_changed(&self, visible: bool) -> Result<(), String> {
+        self.base
+            .emit_event("window-visible-changed", json!(visible))
+            .map_err(Into::into)
+    }
+
     pub fn emit_window_fullscreen_changed(&self, fullscreen: bool) -> Result<(), String> {
         self.base
             .emit_host_event(HostEvent::WindowFullscreenChanged, json!(fullscreen))?;
@@ -299,22 +311,7 @@ pub(crate) fn default_app_data_dir() -> PathBuf {
 }
 
 fn validate_external_url(url: &str) -> Result<(), String> {
-    let trimmed = url.trim();
-    let allowed = [
-        "http://", "https://", "rtp://", "rtsp://", "ftp://", "ipfs://",
-    ]
-    .iter()
-    .any(|prefix| {
-        trimmed
-            .get(..prefix.len())
-            .is_some_and(|s| s.eq_ignore_ascii_case(prefix))
-    });
-
-    if allowed {
-        Ok(())
-    } else {
-        Err("Rejected non-whitelisted open_external_url URL".to_string())
-    }
+    stremio_lightning_core::navigation::validate_external_url(url)
 }
 
 #[cfg(test)]
@@ -384,6 +381,33 @@ mod tests {
             .build()
             .unwrap()
             .block_on(future)
+    }
+
+    #[test]
+    fn disabled_streaming_server_never_starts_or_announces_itself() {
+        std::env::set_var("STREMIO_TEST_SPAWN_CHILD", "1");
+        std::env::set_var("STREMIO_TEST_CHILD_MODE", "keep-running");
+
+        let app_data_dir = temp_dir("server-disabled");
+        let player = MpvPlayerBackend::default();
+        let server = StreamingServer::with_paths(
+            RealProcessSpawner,
+            app_data_dir.clone(),
+            app_data_dir.clone(),
+        )
+        .disabled(true);
+        let host = LinuxHost::with_app_data_dir(player, server, app_data_dir.clone());
+
+        host.listen("server-started").unwrap();
+        host.start_streaming_server().unwrap();
+        host.invoke("start_streaming_server", None).unwrap();
+
+        assert!(!host.streaming_server().is_running());
+        assert!(host.drain_emitted_events().unwrap().is_empty());
+
+        let _ = fs::remove_dir_all(&app_data_dir);
+        std::env::remove_var("STREMIO_TEST_SPAWN_CHILD");
+        std::env::remove_var("STREMIO_TEST_CHILD_MODE");
     }
 
     #[test]

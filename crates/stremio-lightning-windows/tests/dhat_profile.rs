@@ -44,12 +44,8 @@ fn profile_production_workload() {
         Some(json!({ "id": 1, "event": "shell-transport-message" })),
     )
     .unwrap();
-    host.base
-        .mark_bridge_ready()
-        .unwrap();
-    host.base
-        .mark_transport_ready()
-        .unwrap();
+    host.base.mark_bridge_ready().unwrap();
+    host.base.mark_transport_ready().unwrap();
 
     let media_url = format!(
         "https://cdn.example.test/media/{}?token=abcdef0123456789",
@@ -113,11 +109,7 @@ fn profile_production_workload() {
 }
 
 /// The serialization steps platform.rs runs before `PostWebMessageAsJson`.
-fn post_like_platform(
-    utf8: &mut Vec<u8>,
-    utf16: &mut Vec<u16>,
-    outbound: &[WindowsIpcOutbound],
-) {
+fn post_like_platform(utf8: &mut Vec<u8>, utf16: &mut Vec<u16>, outbound: &[WindowsIpcOutbound]) {
     for message in outbound {
         utf8.clear();
         serde_json::to_writer(&mut *utf8, message).unwrap();

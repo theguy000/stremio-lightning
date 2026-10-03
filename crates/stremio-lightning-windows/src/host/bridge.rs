@@ -203,7 +203,9 @@ impl PlatformBridge for WindowsShellBridge {
     }
 
     fn native_network_failure_diagnostics(&self) -> bool {
-        false
+        // The WebResourceResponseReceived handler records status codes and failure
+        // reasons, so `init` can advertise the same capability Linux does.
+        true
     }
 
     fn streaming_log_tails(

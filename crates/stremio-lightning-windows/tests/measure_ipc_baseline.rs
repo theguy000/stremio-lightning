@@ -1091,21 +1091,21 @@ fn bench_11_envelope_value_tree_vs_raw_payload() {
         if envelope.kind != "invoke" {
             return Err("not an invoke".to_string());
         }
-        let invoke: RawInvokePayload<'_> = serde_json::from_str(
-            envelope.payload.ok_or("missing payload")?.get(),
-        )
-        .map_err(|error| error.to_string())?;
+        let invoke: RawInvokePayload<'_> =
+            serde_json::from_str(envelope.payload.ok_or("missing payload")?.get())
+                .map_err(|error| error.to_string())?;
         if invoke.command != "shell_transport_send" {
             return Err("not a transport send".to_string());
         }
-        let send: RawTransportSend<'_> = serde_json::from_str(
-            invoke.payload.ok_or("missing transport payload")?.get(),
-        )
-        .map_err(|error| error.to_string())?;
+        let send: RawTransportSend<'_> =
+            serde_json::from_str(invoke.payload.ok_or("missing transport payload")?.get())
+                .map_err(|error| error.to_string())?;
         // The real downstream parse, identical on both sides.
         Ok(match host_api::parse_request(&send.message)? {
             host_api::ParsedRequest::Handshake => 0,
-            host_api::ParsedRequest::Command { method, data } => method.len() + usize::from(data.is_some()),
+            host_api::ParsedRequest::Command { method, data } => {
+                method.len() + usize::from(data.is_some())
+            }
         })
     }
 
@@ -1123,7 +1123,9 @@ fn bench_11_envelope_value_tree_vs_raw_payload() {
         // The real downstream parse, identical on both sides.
         Ok(match host_api::parse_request(message)? {
             host_api::ParsedRequest::Handshake => 0,
-            host_api::ParsedRequest::Command { method, data } => method.len() + usize::from(data.is_some()),
+            host_api::ParsedRequest::Command { method, data } => {
+                method.len() + usize::from(data.is_some())
+            }
         })
     }
 
@@ -1263,4 +1265,3 @@ fn bench_11_envelope_value_tree_vs_raw_payload() {
         (bytes_before - bytes_after) as f64 / bytes_before as f64 * 100.0
     );
 }
-

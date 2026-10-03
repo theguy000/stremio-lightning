@@ -84,11 +84,17 @@ pub struct StreamingServer<P: ProcessSpawner> {
     project_root: PathBuf,
     log_dir: PathBuf,
     log_files: StreamingLogFiles,
+    disabled: bool,
 }
 
 impl<P: ProcessSpawner> StreamingServer<P> {
     pub fn new(spawner: P) -> Self {
         Self::with_paths(spawner, default_project_root(), default_log_dir())
+    }
+
+    pub fn disabled(mut self, disabled: bool) -> Self {
+        self.disabled = disabled;
+        self
     }
 
     pub fn with_project_root(spawner: P, project_root: PathBuf) -> Self {
@@ -105,10 +111,15 @@ impl<P: ProcessSpawner> StreamingServer<P> {
                 log_dir.join("stremio-server.stderr.log"),
             ),
             log_dir,
+            disabled: false,
         }
     }
 
     pub fn start(&self) -> Result<(), String> {
+        if self.disabled {
+            return Ok(());
+        }
+
         let mut child = self.child.lock().map_err(|e| e.to_string())?;
         if let Some(existing) = child.as_mut() {
             if existing.has_exited()? {
@@ -139,6 +150,10 @@ impl<P: ProcessSpawner> StreamingServer<P> {
 
     pub fn is_running(&self) -> bool {
         self.refresh_running_state().unwrap_or(false)
+    }
+
+    pub fn is_disabled(&self) -> bool {
+        self.disabled
     }
 
     pub fn refresh_running_state(&self) -> Result<bool, String> {

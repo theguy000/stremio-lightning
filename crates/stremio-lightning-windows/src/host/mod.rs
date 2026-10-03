@@ -183,7 +183,7 @@ impl WindowsHost {
         }
     }
 
-#[cfg(windows)]
+    #[cfg(windows)]
     pub fn dispatch_ipc_message_async(self: &Arc<Self>, raw: &str) -> Vec<WindowsIpcOutbound> {
         let mut outbound = Vec::new();
         self.dispatch_ipc_message_async_into(raw, &mut outbound);

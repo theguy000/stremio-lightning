@@ -52,7 +52,7 @@ fn expected_init_contract() -> Value {
         "diagnostics": {
             "persistent": false,
             "nativeHttpCapture": false,
-            "nativeNetworkFailureCapture": false,
+            "nativeNetworkFailureCapture": true,
             "webviewEngine": "WebView2",
             "webviewVersion": null,
         },
@@ -438,6 +438,21 @@ fn external_url_policy_rejects_unsafe_schemes() {
     assert!(validate_external_url("javascript:alert(1)").is_err());
     assert!(validate_external_url("ms-settings:privacy").is_err());
     assert!(validate_external_url("https://example.com/\ncalc").is_err());
+}
+
+#[test]
+fn external_url_policy_accepts_the_shared_stream_schemes() {
+    for url in [
+        "rtsp://example.com:5544/stream",
+        "rtp://example.com:5544",
+        "ftp://example.com/file.mkv",
+        "ipfs://bafybeigdyrzt",
+    ] {
+        assert!(
+            validate_external_url(url).is_ok(),
+            "expected {url} to be allowed on both shells"
+        );
+    }
 }
 
 #[test]

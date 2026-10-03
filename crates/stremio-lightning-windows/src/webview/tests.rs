@@ -160,36 +160,43 @@ fn webview_failure_statuses_are_classified() {
 
 #[test]
 #[cfg(windows)]
-fn reload_and_print_accelerators_are_blocked() {
+fn reload_accelerators_reload_like_a_browser() {
+    use platform::AcceleratorAction;
     use windows::Win32::UI::Input::KeyboardAndMouse::{VK_F5, VK_P, VK_R};
 
-    assert!(platform::should_block_browser_accelerator(
-        u32::from(VK_F5.0),
-        false,
-    ));
-    assert!(platform::should_block_browser_accelerator(
-        u32::from(VK_R.0),
-        true,
-    ));
-    assert!(platform::should_block_browser_accelerator(
-        u32::from(VK_P.0),
-        true,
-    ));
+    assert_eq!(
+        platform::browser_accelerator_action(u32::from(VK_F5.0), false),
+        AcceleratorAction::Reload
+    );
+    assert_eq!(
+        platform::browser_accelerator_action(u32::from(VK_R.0), true),
+        AcceleratorAction::Reload
+    );
+    assert_eq!(
+        platform::browser_accelerator_action(u32::from(VK_P.0), true),
+        AcceleratorAction::Block
+    );
 }
 
 #[test]
 #[cfg(windows)]
 fn unrelated_accelerators_are_left_alone() {
-    use windows::Win32::UI::Input::KeyboardAndMouse::{VK_R, VK_S};
+    use platform::AcceleratorAction;
+    use windows::Win32::UI::Input::KeyboardAndMouse::{VK_F5, VK_R, VK_S};
 
-    assert!(!platform::should_block_browser_accelerator(
-        u32::from(VK_R.0),
-        false,
-    ));
-    assert!(!platform::should_block_browser_accelerator(
-        u32::from(VK_S.0),
-        true,
-    ));
+    assert_eq!(
+        platform::browser_accelerator_action(u32::from(VK_R.0), false),
+        AcceleratorAction::Pass
+    );
+    assert_eq!(
+        platform::browser_accelerator_action(u32::from(VK_S.0), true),
+        AcceleratorAction::Pass
+    );
+    // Ctrl+F5 and Ctrl+Shift+R are left to WebView2, which hard-reloads natively.
+    assert_eq!(
+        platform::browser_accelerator_action(u32::from(VK_F5.0), true),
+        AcceleratorAction::Pass
+    );
 }
 
 #[test]

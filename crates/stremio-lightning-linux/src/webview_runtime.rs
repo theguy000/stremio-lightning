@@ -5,6 +5,7 @@ use serde_json::Value;
 use std::sync::Arc;
 use stremio_lightning_core::bridge_assets::{bridge_scripts, load_mod_ui_source, InjectionScript};
 use stremio_lightning_core::pip::PipWindowController;
+use stremio_lightning_core::player_api::PlayerEnded;
 
 pub const LINUX_HOST_ADAPTER_NAME: &str = "linux-host-adapter";
 pub const HOST_ADAPTER_NAME: &str = LINUX_HOST_ADAPTER_NAME;
@@ -140,8 +141,16 @@ where
         self.host.emit_native_player_property_changed(name, data)
     }
 
-    pub fn emit_native_player_ended(&self, reason: impl Into<String>) -> Result<(), String> {
-        self.host.emit_native_player_ended(reason)
+    pub fn emit_window_maximized_changed(&self, maximized: bool) -> Result<(), String> {
+        self.host.emit_window_maximized_changed(maximized)
+    }
+
+    pub fn emit_window_visible_changed(&self, visible: bool) -> Result<(), String> {
+        self.host.emit_window_visible_changed(visible)
+    }
+
+    pub fn emit_native_player_ended(&self, ended: PlayerEnded) -> Result<(), String> {
+        self.host.emit_native_player_ended(ended)
     }
 
     pub fn toggle_picture_in_picture(
