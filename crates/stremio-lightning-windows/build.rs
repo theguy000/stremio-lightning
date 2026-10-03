@@ -63,7 +63,20 @@ fn is_windows_target() -> bool {
 
 #[cfg(windows)]
 fn embed_windows_resources() {
-    embed_resource::compile("windows-shell.rc", embed_resource::NONE)
+    let version = std::env::var("CARGO_PKG_VERSION").expect("CARGO_PKG_VERSION is set by cargo");
+    let numeric = version.split('-').next().unwrap_or(&version);
+    let mut parts = numeric.split('.');
+    let major = parts.next().unwrap_or("0");
+    let minor = parts.next().unwrap_or("0");
+    let patch = parts.next().unwrap_or("0");
+
+    let macros = [
+        format!("VERSION_MAJOR={major}"),
+        format!("VERSION_MINOR={minor}"),
+        format!("VERSION_PATCH={patch}"),
+        format!("VERSION_STR=\"{version}\""),
+    ];
+    embed_resource::compile("windows-shell.rc", embed_resource::ParamsMacros(macros))
         .manifest_required()
         .expect("failed to embed Windows shell resources");
 }
