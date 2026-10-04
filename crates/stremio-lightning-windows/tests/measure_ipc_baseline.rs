@@ -1265,3 +1265,138 @@ fn bench_11_envelope_value_tree_vs_raw_payload() {
         (bytes_before - bytes_after) as f64 / bytes_before as f64 * 100.0
     );
 }
+
+// =====================================================================
+// 12. Zoom Level Parsing: Unconditional Value Tree vs Substring Guard
+// =====================================================================
+#[ignore = "manual perf harness: run with --ignored --nocapture --test-threads=1"]
+#[test]
+fn bench_12_zoom_level_guard() {
+    let media_url = format!(
+        "https://cdn.example.test/media/{}?token=abcdef0123456789",
+        "segment-path/".repeat(200)
+    );
+    let messages = [
+        json!({
+            "id": 1,
+            "kind": "invoke",
+            "payload": { "command": "get_native_player_status", "payload": null },
+        })
+        .to_string(),
+        json!({
+            "id": 7,
+            "kind": "invoke",
+            "payload": {
+                "command": "shell_transport_send",
+                "payload": { "message": json!({
+                    "id": 42,
+                    "type": 6,
+                    "args": ["open-url", media_url],
+                }).to_string() },
+            },
+        })
+        .to_string(),
+    ];
+    let iterations = 10_000;
+
+    fn zoom_before(message: &str) -> Option<f64> {
+        let value: serde_json::Value = serde_json::from_str(message).ok()?;
+        if value["kind"] != "invoke" || value["payload"]["command"] != "webview.setZoom" {
+            return None;
+        }
+        value["payload"]["payload"]["level"].as_f64()
+    }
+
+    fn zoom_after(message: &str) -> Option<f64> {
+        if !message.contains("webview.setZoom") {
+            return None;
+        }
+        let value: serde_json::Value = serde_json::from_str(message).ok()?;
+        if value["kind"] != "invoke" || value["payload"]["command"] != "webview.setZoom" {
+            return None;
+        }
+        value["payload"]["payload"]["level"].as_f64()
+    }
+
+    for _ in 0..100 {
+        for msg in &messages {
+            let _ = zoom_before(msg);
+            let _ = zoom_after(msg);
+        }
+    }
+
+    reset_metrics();
+    let start_before = Instant::now();
+    for _ in 0..iterations {
+        for msg in &messages {
+            std::hint::black_box(zoom_before(std::hint::black_box(msg)));
+        }
+    }
+    let elapsed_before = start_before.elapsed();
+    let (allocs_before, bytes_before) = current_metrics();
+
+    reset_metrics();
+    let start_after = Instant::now();
+    for _ in 0..iterations {
+        for msg in &messages {
+            std::hint::black_box(zoom_after(std::hint::black_box(msg)));
+        }
+    }
+    let elapsed_after = start_after.elapsed();
+    let (allocs_after, bytes_after) = current_metrics();
+
+    let total_calls = iterations * messages.len();
+    println!("\n==================================================================");
+    println!(" BENCHMARK 12: Zoom Level Parser Guard ({total_calls} messages)");
+    println!("==================================================================");
+    println!("[BEFORE: Unconditional serde_json::Value Tree]");
+    println!(
+        "  Time:        {:?} ({:.3} µs / msg)",
+        elapsed_before,
+        elapsed_before.as_secs_f64() * 1_000_000.0 / total_calls as f64
+    );
+    println!(
+        "  Allocations: {} blocks ({:.1} blocks / msg)",
+        allocs_before,
+        allocs_before as f64 / total_calls as f64
+    );
+    println!(
+        "  Heap Bytes:  {} bytes ({:.1} B / msg)\n",
+        bytes_before,
+        bytes_before as f64 / total_calls as f64
+    );
+
+    println!("[AFTER: Fast-Path Substring Guard (!message.contains)]");
+    println!(
+        "  Time:        {:?} ({:.3} µs / msg)",
+        elapsed_after,
+        elapsed_after.as_secs_f64() * 1_000_000.0 / total_calls as f64
+    );
+    println!(
+        "  Allocations: {} blocks ({:.1} blocks / msg)",
+        allocs_after,
+        allocs_after as f64 / total_calls as f64
+    );
+    println!(
+        "  Heap Bytes:  {} bytes ({:.1} B / msg)\n",
+        bytes_after,
+        bytes_after as f64 / total_calls as f64
+    );
+
+    let time_saved = (1.0 - elapsed_after.as_secs_f64() / elapsed_before.as_secs_f64()) * 100.0;
+    println!("[IMPROVEMENT DELTA]");
+    println!(
+        "  Latency:     {:.2}% faster ({:.3} µs saved / msg)",
+        time_saved,
+        (elapsed_before.as_secs_f64() - elapsed_after.as_secs_f64()) * 1_000_000.0
+            / total_calls as f64
+    );
+    println!(
+        "  Allocations: -{} blocks (-100.0% OF ALLOCATIONS DROPPED)",
+        allocs_before - allocs_after
+    );
+    println!(
+        "  Heap Churn:  -{} bytes (-100.0% HEAP MEMORY ELIMINATED)\n",
+        bytes_before - bytes_after
+    );
+}

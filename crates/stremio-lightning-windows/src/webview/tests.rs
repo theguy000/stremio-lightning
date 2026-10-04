@@ -211,3 +211,21 @@ fn outbound_scratch_is_reused_and_null_terminated() {
     assert_eq!(scratch, [0xE9, 0]);
     assert_eq!(scratch.capacity(), capacity);
 }
+
+#[test]
+#[cfg(windows)]
+fn zoom_level_extracted_for_zoom_messages_and_bypassed_for_others() {
+    let zoom_msg =
+        r#"{"kind":"invoke","payload":{"command":"webview.setZoom","payload":{"level":1.25}}}"#;
+    assert_eq!(platform::zoom_level_from_message(zoom_msg), Some(1.25));
+
+    let status_msg =
+        r#"{"kind":"invoke","payload":{"command":"get_native_player_status","payload":null}}"#;
+    assert_eq!(platform::zoom_level_from_message(status_msg), None);
+
+    let empty_msg = "";
+    assert_eq!(platform::zoom_level_from_message(empty_msg), None);
+
+    let malformed_msg = r#"{"kind":"invoke","payload":{"command":"webview.setZoom","payload":{}}}"#;
+    assert_eq!(platform::zoom_level_from_message(malformed_msg), None);
+}
