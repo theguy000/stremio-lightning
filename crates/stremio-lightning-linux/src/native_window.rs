@@ -30,9 +30,11 @@ use webkit::{
     UserScriptInjectionTime, WebView as WebKitWebView,
 };
 
+mod mpris;
 mod x11;
 
 use self::x11::{install_source_tree_window_icon, request_window_above};
+use stremio_lightning_core::launch_intent::classify_launch_argument;
 
 const IPC_HANDLER_NAME: &str = "ipc";
 const DEV_ICON_NAME: &str = "128x128";
@@ -60,7 +62,33 @@ struct ShellTransportMessage {
     args: Option<Value>,
 }
 
+/// Claims the application's D-Bus name. Returns `None` when another instance
+/// already owns it: the launch argument has been handed over and this process
+/// should exit. Must run before anything expensive (sidecar, mpv) starts.
+pub fn claim_instance(launch_arg: Option<&str>) -> Option<gtk::Application> {
+    glib::set_application_name(APP_NAME);
+    glib::set_prgname(Some(APP_ID));
+    let app = gtk::Application::new(Some(APP_ID), gtk::gio::ApplicationFlags::HANDLES_OPEN);
+    if let Err(error) = app.register(None::<&gtk::gio::Cancellable>) {
+        // No session bus etc.: behave as a stand-alone primary instance.
+        stremio_lightning_core::logging::warn(
+            "native.application",
+            format!("[StremioLightning] Single-instance registration failed: {error}"),
+        );
+        return Some(app);
+    }
+    if !app.is_remote() {
+        return Some(app);
+    }
+    // `run` on a remote instance forwards to the primary (`open` with an
+    // argument, `activate` without) and returns once it has been delivered.
+    let args: Vec<&str> = std::iter::once(APP_ID).chain(launch_arg).collect();
+    app.run_with_args(&args);
+    None
+}
+
 pub fn run_native_window(
+    app: gtk::Application,
     config: AppConfig,
     mut runtime: LinuxWebviewRuntime<MpvPlayerBackend, RealProcessSpawner>,
     player: MpvPlayerBackend,
@@ -68,9 +96,6 @@ pub fn run_native_window(
     load_epoxy()?;
 
     let _state = runtime.load()?;
-    glib::set_application_name(APP_NAME);
-    glib::set_prgname(Some(APP_ID));
-    let app = gtk::Application::new(Some(APP_ID), gtk::gio::ApplicationFlags::NON_UNIQUE);
     let runtime = Rc::new(runtime);
     let startup_error: Rc<RefCell<Option<String>>> = Rc::default();
 
@@ -79,6 +104,10 @@ pub fn run_native_window(
         let player = player.clone();
         let startup_error = startup_error.clone();
         app.connect_activate(move |app| {
+            if let Some(window) = app.active_window() {
+                window.present();
+                return;
+            }
             let icon_name = configure_application_icon_name();
             gtk::Window::set_default_icon_name(icon_name);
             if let Err(error) =
@@ -205,7 +234,48 @@ fn build_window(
         });
     }
 
+    {
+        let webview = webview.clone();
+        let runtime = runtime.clone();
+        app.connect_open(move |app, files, _| {
+            for file in files {
+                let arg = file.path().map_or_else(
+                    || file.uri().to_string(),
+                    |path| path.to_string_lossy().into_owned(),
+                );
+                let Some(intent) = classify_launch_argument(&arg) else {
+                    continue;
+                };
+                if let Err(error) = runtime.emit_launch_intent(&intent) {
+                    stremio_lightning_core::logging::error(
+                        "native.window",
+                        format!("[StremioLightning] Failed to forward launch intent: {error}"),
+                    );
+                }
+            }
+            drain_host_events(&webview, &runtime);
+            if let Some(window) = app.active_window() {
+                window.present();
+            }
+        });
+    }
+
+    {
+        let webview = webview.clone();
+        let runtime = runtime.clone();
+        mpris::own(app, move |action| {
+            if let Err(error) = runtime.emit_media_key(action) {
+                stremio_lightning_core::logging::error(
+                    "native.window",
+                    format!("[StremioLightning] Failed to forward media key: {error}"),
+                );
+            }
+            drain_host_events(&webview, &runtime);
+        });
+    }
+
     window.maximize();
+
     window.present();
     Ok(())
 }
@@ -302,6 +372,30 @@ fn build_webview(
 
     log_webkit_runtime_version();
     attach_webview_failure_hooks(&webview);
+
+    // Capture phase so the shortcut wins over WebKit's own key handling.
+    let shortcuts = gtk::ShortcutController::new();
+    shortcuts.set_propagation_phase(gtk::PropagationPhase::Capture);
+    for (keys, bypass_cache) in [
+        ("F5", false),
+        ("<Control>r", false),
+        ("<Control>F5", true),
+        ("<Control><Shift>r", true),
+    ] {
+        let webview = webview.clone();
+        shortcuts.add_shortcut(gtk::Shortcut::new(
+            gtk::ShortcutTrigger::parse_string(keys),
+            Some(gtk::CallbackAction::new(move |_, _| {
+                if bypass_cache {
+                    webview.reload_from_origin();
+                } else {
+                    webview.reload();
+                }
+                glib::Propagation::Stop
+            })),
+        ));
+    }
+    webview.add_controller(shortcuts);
 
     {
         let webview = webview.clone();

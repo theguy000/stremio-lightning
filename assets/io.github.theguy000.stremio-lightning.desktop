@@ -2,10 +2,10 @@
 Type=Application
 Name=Stremio Lightning
 Comment=Lightweight native Stremio shell
-Exec=stremio-lightning %u
+Exec=stremio-lightning %U
 Icon=io.github.theguy000.stremio-lightning
 Categories=AudioVideo;Video;Player;
 Terminal=false
 StartupNotify=true
 StartupWMClass=io.github.theguy000.stremio-lightning
-MimeType=x-scheme-handler/stremio;
+MimeType=x-scheme-handler/stremio;x-scheme-handler/magnet;application/x-bittorrent;video/mp4;video/x-matroska;video/webm;video/x-msvideo;video/quicktime;

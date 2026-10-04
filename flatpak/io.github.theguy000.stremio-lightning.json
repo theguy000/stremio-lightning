@@ -31,7 +31,8 @@
         "--device=dri",
         "--persist=.stremio-lightning",
         "--filesystem=xdg-download",
-        "--talk-name=org.kde.StatusNotifierWatcher"
+        "--talk-name=org.kde.StatusNotifierWatcher",
+        "--own-name=org.mpris.MediaPlayer2.io.github.theguy000.stremio-lightning"
     ],
     "build-options": {
         "append-path": "/usr/lib/sdk/rust-stable/bin"

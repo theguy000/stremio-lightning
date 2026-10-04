@@ -105,6 +105,17 @@ where
         )
     }
 
+    pub fn emit_launch_intent(
+        &self,
+        intent: &stremio_lightning_core::launch_intent::LaunchIntent,
+    ) -> Result<(), String> {
+        self.host.emit_launch_intent(intent)
+    }
+
+    pub fn emit_media_key(&self, action: &str) -> Result<(), String> {
+        self.host.emit_media_key(action)
+    }
+
     pub fn shutdown(&self) -> Result<(), String> {
         self.host.shutdown()
     }

@@ -7,6 +7,7 @@ pub mod discord_rpc;
 pub mod host_api;
 #[cfg(any(feature = "app-updates", feature = "mods"))]
 pub(crate) mod http;
+pub mod launch_intent;
 pub mod logging;
 #[cfg(feature = "mods")]
 pub mod mods;

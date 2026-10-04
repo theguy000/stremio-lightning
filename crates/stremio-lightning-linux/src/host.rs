@@ -8,6 +8,7 @@ pub use stremio_lightning_core::host_api::SHELL_TRANSPORT_EVENT;
 use stremio_lightning_core::host_api::{
     self, BaseHost, HostEvent, HostEventRecord, PlatformBridge,
 };
+use stremio_lightning_core::launch_intent::LaunchIntent;
 use stremio_lightning_core::pip::{
     serialize_picture_in_picture, PipRestoreSnapshot, PipState, PipWindowController,
 };
@@ -227,6 +228,21 @@ where
 
     pub fn emit_native_player_ended(&self, ended: PlayerEnded) -> Result<(), String> {
         self.emit_transport_event(serialize_ended(ended))
+    }
+
+    pub fn emit_launch_intent(&self, intent: &LaunchIntent) -> Result<(), String> {
+        let Some(value) = intent.open_media_value() else {
+            return Ok(());
+        };
+        self.emit_transport_event(match intent {
+            LaunchIntent::StremioDeepLink(_) => host_api::stremio_deep_link_transport_args(&value),
+            _ => json!(["open-media", value]),
+        })
+    }
+
+    /// `action` is `play-pause`, `next-track` or `previous-track`, as on Windows.
+    pub fn emit_media_key(&self, action: &str) -> Result<(), String> {
+        self.emit_transport_event(json!(["media-key", action]))
     }
 
     pub fn set_picture_in_picture(

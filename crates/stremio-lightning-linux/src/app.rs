@@ -1,5 +1,5 @@
 use crate::host::Host;
-use crate::native_window::run_native_window;
+use crate::native_window::{claim_instance, run_native_window};
 use crate::player::MpvPlayerBackend;
 use crate::render::RenderLoopPlan;
 use crate::streaming_server::{RealProcessSpawner, StreamingServer};
@@ -7,6 +7,7 @@ use crate::webview_runtime::{InjectionBundle, WebviewRuntime};
 use gtk::glib;
 use gtk::prelude::*;
 use std::sync::Arc;
+use stremio_lightning_core::launch_intent::{classify_launch_argument, launch_intent_from_args};
 
 pub const DEFAULT_URL: &str = "http://127.0.0.1:11470/proxy/d=https%3A%2F%2Fweb.stremio.com/";
 const STREMIO_WEB_URL: &str = "https://web.stremio.com/";
@@ -53,10 +54,7 @@ where
             config.headless_bootstrap = true;
         } else if arg == "--streaming-server-disabled" {
             config.streaming_server_disabled = true;
-        } else if arg
-            .get(.."stremio://".len())
-            .is_some_and(|value| value.eq_ignore_ascii_case("stremio://"))
-        {
+        } else if classify_launch_argument(&arg).is_some() {
             config.launch_url = Some(arg);
         }
     }
@@ -83,6 +81,16 @@ pub fn run(config: AppConfig) -> Result<(), String> {
         ),
     );
     stremio_lightning_core::logging::info("native.application", "Starting Linux shell");
+    // Must run before the sidecar starts: a secondary launch hands its argument
+    // to the running instance and exits without touching the streaming server.
+    let app = if config.headless_bootstrap {
+        None
+    } else {
+        match claim_instance(config.launch_url.as_deref()) {
+            Some(app) => Some(app),
+            None => return Ok(()),
+        }
+    };
     let player = MpvPlayerBackend::default();
     let host = Arc::new(Host::new(
         player.clone(),
@@ -95,21 +103,20 @@ pub fn run(config: AppConfig) -> Result<(), String> {
         );
     }
     if let Some(url) = config.launch_url.as_deref() {
-        host.emit_transport_event(
-            stremio_lightning_core::host_api::stremio_deep_link_transport_args(url),
-        )?;
+        host.emit_launch_intent(&launch_intent_from_args([url]))?;
     }
 
     let injection = InjectionBundle::load()?;
     let _render_plan = RenderLoopPlan::default();
 
-    if config.headless_bootstrap {
-        Ok(())
-    } else {
-        let webview =
-            WebviewRuntime::new(config.url.clone(), config.devtools, injection, host.clone());
-        setup_signal_handler();
-        run_native_window(config, webview, player)
+    match app {
+        None => Ok(()),
+        Some(app) => {
+            let webview =
+                WebviewRuntime::new(config.url.clone(), config.devtools, injection, host.clone());
+            setup_signal_handler();
+            run_native_window(app, config, webview, player)
+        }
     }
 }
 
