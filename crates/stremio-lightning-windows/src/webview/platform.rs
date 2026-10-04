@@ -806,7 +806,10 @@ mod windows_impl {
     /// Reads the zoom factor out of a `webview.setZoom` invoke so it can be applied
     /// here, on the UI thread, rather than through `PlatformBridge`, which has no
     /// `WebView2` controller to reach.
-    fn zoom_level_from_message(message: &str) -> Option<f64> {
+    pub(crate) fn zoom_level_from_message(message: &str) -> Option<f64> {
+        if !message.contains("webview.setZoom") {
+            return None;
+        }
         let value: serde_json::Value = serde_json::from_str(message).ok()?;
         if value["kind"] != "invoke" || value["payload"]["command"] != "webview.setZoom" {
             return None;
