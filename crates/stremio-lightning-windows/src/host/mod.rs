@@ -279,6 +279,16 @@ impl WindowsHost {
             .unwrap_or_default()
     }
 
+    /// Moves buffered responses into `out`, keeping the queue's buffer for the
+    /// next push instead of handing its capacity away on every UI wake.
+    #[cfg(windows)]
+    pub fn drain_pending_responses_into(&self, out: &mut Vec<WindowsIpcOutbound>) {
+        let Ok(mut queue) = self.pending_responses.lock() else {
+            return;
+        };
+        out.append(&mut queue);
+    }
+
     /// # Errors
     /// Returns an error when the native player cannot be created.
     #[cfg(windows)]

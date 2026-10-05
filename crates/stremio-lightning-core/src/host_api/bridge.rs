@@ -299,11 +299,7 @@ impl<P: PlatformBridge> BaseHost<P> {
     /// # Errors
     /// Returns an error when the host state lock is poisoned.
     pub fn emit_host_event(&self, event: HostEvent, payload: Value) -> Result<(), HostApiError> {
-        let event = serde_json::to_value(event)?
-            .as_str()
-            .ok_or_else(|| HostApiError::InvalidRequest("Host event is not a string".to_string()))?
-            .to_string();
-        self.emit_event(event, payload)
+        self.emit_event(event.as_str(), payload)
     }
 
     /// # Errors

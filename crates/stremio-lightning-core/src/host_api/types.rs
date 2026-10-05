@@ -91,7 +91,7 @@ pub enum HostCommand {
     ClearDiagnostics,
 }
 
-#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 pub enum HostEvent {
     #[serde(rename = "window-maximized-changed")]
     WindowMaximizedChanged,
@@ -103,6 +103,22 @@ pub enum HostEvent {
     ServerStopped,
     #[serde(rename = "shell-transport-message")]
     ShellTransportMessage,
+}
+
+impl HostEvent {
+    /// The exact string serde emits for this variant. Keeping it beside the
+    /// `rename` attributes is what stops an emitted event name from drifting
+    /// away from its serialized form.
+    #[must_use]
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::WindowMaximizedChanged => "window-maximized-changed",
+            Self::WindowFullscreenChanged => "window-fullscreen-changed",
+            Self::ServerStarted => "server-started",
+            Self::ServerStopped => "server-stopped",
+            Self::ShellTransportMessage => "shell-transport-message",
+        }
+    }
 }
 
 #[derive(Deserialize, Debug, PartialEq)]
@@ -446,4 +462,28 @@ pub struct IpcRequest {
     pub id: u64,
     pub kind: String,
     pub payload: Option<Value>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::HostEvent;
+
+    const ALL: [HostEvent; 5] = [
+        HostEvent::WindowMaximizedChanged,
+        HostEvent::WindowFullscreenChanged,
+        HostEvent::ServerStarted,
+        HostEvent::ServerStopped,
+        HostEvent::ShellTransportMessage,
+    ];
+
+    #[test]
+    fn as_str_matches_the_serialized_form() {
+        for event in ALL {
+            assert_eq!(
+                serde_json::to_string(&event).unwrap(),
+                serde_json::to_string(event.as_str()).unwrap(),
+                "{event:?}"
+            );
+        }
+    }
 }

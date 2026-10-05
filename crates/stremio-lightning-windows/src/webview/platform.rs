@@ -75,6 +75,8 @@ mod windows_impl {
         runtime: Option<WebView2Runtime>,
         launch_intents: mpsc::Receiver<LaunchIntent>,
         ui_notifier: Arc<Mutex<Option<UiThreadNotifier>>>,
+        /// Reused across UI wakes so draining does not allocate a fresh vector each time.
+        outbound_scratch: Vec<WindowsIpcOutbound>,
     }
 
     #[derive(Default)]
@@ -334,6 +336,7 @@ mod windows_impl {
                 runtime: None,
                 launch_intents,
                 ui_notifier,
+                outbound_scratch: Vec::new(),
             }
         }
 
@@ -341,10 +344,12 @@ mod windows_impl {
             let Some(runtime) = self.runtime.as_mut() else {
                 return Ok(());
             };
-            let mut pending = self.host.drain_pending_responses();
-            self.host.drain_ipc_events_into(&mut pending);
+            self.outbound_scratch.clear();
+            self.host
+                .drain_pending_responses_into(&mut self.outbound_scratch);
+            self.host.drain_ipc_events_into(&mut self.outbound_scratch);
             runtime
-                .post_outbound_messages(&pending)
+                .post_outbound_messages(&self.outbound_scratch)
                 .map_err(|error| error.to_string())
         }
 
