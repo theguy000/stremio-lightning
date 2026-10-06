@@ -1438,14 +1438,13 @@ fn property_data_to_json(name: &str, change: PropertyData) -> Option<Value> {
 }
 
 fn end_file_cause(reason: libmpv2::EndFileReason) -> EndFileCause {
-    if reason == mpv_end_file_reason::Eof {
-        EndFileCause::Eof
-    } else if reason == mpv_end_file_reason::Error {
-        EndFileCause::Error
-    } else if reason == mpv_end_file_reason::Quit {
-        EndFileCause::Quit
-    } else {
-        EndFileCause::Other
+    match reason {
+        mpv_end_file_reason::Eof => EndFileCause::Eof,
+        mpv_end_file_reason::Stop => EndFileCause::Stop,
+        mpv_end_file_reason::Redirect => EndFileCause::Redirect,
+        mpv_end_file_reason::Error => EndFileCause::Error,
+        mpv_end_file_reason::Quit => EndFileCause::Quit,
+        _ => EndFileCause::Other,
     }
 }
 
@@ -1573,6 +1572,11 @@ mod tests {
     #[test]
     fn maps_end_file_reasons_onto_the_shared_vocabulary() {
         assert_eq!(end_file_cause(mpv_end_file_reason::Eof), EndFileCause::Eof);
+        assert_eq!(end_file_cause(mpv_end_file_reason::Stop), EndFileCause::Stop);
+        assert_eq!(
+            end_file_cause(mpv_end_file_reason::Redirect),
+            EndFileCause::Redirect
+        );
         assert_eq!(
             end_file_cause(mpv_end_file_reason::Error),
             EndFileCause::Error

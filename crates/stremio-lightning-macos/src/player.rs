@@ -3,7 +3,7 @@ use serde_json::{json, Value};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 use stremio_lightning_core::player_api::{
-    PlayerEnded, PlayerEndedError, PlayerEvent, PlayerPropertyChange,
+    EndFileCause, PlayerEnded, PlayerEndedError, PlayerEvent, PlayerPropertyChange,
 };
 
 const PRIMARY_SUBTITLE_PROPERTY: &str = "sid";
@@ -478,19 +478,14 @@ mod macos_mpv {
     }
 
     fn end_file_reason(reason: libmpv2::EndFileReason) -> PlayerEnded {
-        let is_error = reason == mpv_end_file_reason::Error;
-        PlayerEnded {
-            reason: match reason {
-                mpv_end_file_reason::Error => "error",
-                mpv_end_file_reason::Quit => "quit",
-                _ => "other",
-            }
-            .to_string(),
-            error: is_error.then(|| PlayerEndedError {
-                message: "macOS MPV playback error".to_string(),
-                critical: true,
-            }),
-        }
+        PlayerEnded::from_cause(match reason {
+            mpv_end_file_reason::Eof => EndFileCause::Eof,
+            mpv_end_file_reason::Stop => EndFileCause::Stop,
+            mpv_end_file_reason::Redirect => EndFileCause::Redirect,
+            mpv_end_file_reason::Error => EndFileCause::Error,
+            mpv_end_file_reason::Quit => EndFileCause::Quit,
+            _ => EndFileCause::Other,
+        })
     }
 
     fn push_event(events: &Arc<Mutex<Vec<PlayerEvent>>>, event: PlayerEvent) {

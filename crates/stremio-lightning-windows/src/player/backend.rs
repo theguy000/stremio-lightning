@@ -3,6 +3,9 @@
 #[cfg(windows)]
 pub use platform::PlayerBackend;
 
+#[cfg(all(windows, test))]
+pub(crate) use platform::end_file_cause;
+
 #[cfg(not(windows))]
 pub use platform::PlayerBackend;
 
@@ -438,15 +441,14 @@ mod platform {
         }
     }
 
-    fn end_file_cause(reason: libmpv2::EndFileReason) -> EndFileCause {
-        if reason == mpv_end_file_reason::Eof {
-            EndFileCause::Eof
-        } else if reason == mpv_end_file_reason::Error {
-            EndFileCause::Error
-        } else if reason == mpv_end_file_reason::Quit {
-            EndFileCause::Quit
-        } else {
-            EndFileCause::Other
+    pub(crate) fn end_file_cause(reason: libmpv2::EndFileReason) -> EndFileCause {
+        match reason {
+            mpv_end_file_reason::Eof => EndFileCause::Eof,
+            mpv_end_file_reason::Stop => EndFileCause::Stop,
+            mpv_end_file_reason::Redirect => EndFileCause::Redirect,
+            mpv_end_file_reason::Error => EndFileCause::Error,
+            mpv_end_file_reason::Quit => EndFileCause::Quit,
+            _ => EndFileCause::Other,
         }
     }
 }

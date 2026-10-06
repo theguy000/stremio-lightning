@@ -38,6 +38,8 @@ pub struct PlayerEnded {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EndFileCause {
     Eof,
+    Stop,
+    Redirect,
     Error,
     Quit,
     Other,
@@ -49,6 +51,8 @@ impl PlayerEnded {
         Self {
             reason: match cause {
                 EndFileCause::Eof => "eof",
+                EndFileCause::Stop => "stop",
+                EndFileCause::Redirect => "redirect",
                 EndFileCause::Error => "error",
                 EndFileCause::Quit => "quit",
                 EndFileCause::Other => "other",
@@ -196,6 +200,11 @@ mod tests {
     #[test]
     fn end_of_file_causes_use_one_reason_vocabulary() {
         assert_eq!(PlayerEnded::from_cause(EndFileCause::Eof).reason, "eof");
+        assert_eq!(PlayerEnded::from_cause(EndFileCause::Stop).reason, "stop");
+        assert_eq!(
+            PlayerEnded::from_cause(EndFileCause::Redirect).reason,
+            "redirect"
+        );
         assert_eq!(PlayerEnded::from_cause(EndFileCause::Other).reason, "other");
 
         let ended = PlayerEnded::from_cause(EndFileCause::Error);

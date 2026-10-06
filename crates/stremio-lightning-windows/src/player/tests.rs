@@ -88,3 +88,31 @@ fn preserves_urls_redacts_secrets_and_bounds_mpv_diagnostics() {
     assert!(long.starts_with(&"x".repeat(MAX_MPV_LOG_MESSAGE_LENGTH)));
     assert!(long.ends_with("... [truncated]"));
 }
+
+#[cfg(windows)]
+#[test]
+fn maps_end_file_reasons_to_shared_causes() {
+    use super::backend::end_file_cause;
+    use stremio_lightning_core::player_api::EndFileCause;
+
+    assert_eq!(
+        end_file_cause(libmpv2::mpv_end_file_reason::Eof),
+        EndFileCause::Eof
+    );
+    assert_eq!(
+        end_file_cause(libmpv2::mpv_end_file_reason::Stop),
+        EndFileCause::Stop
+    );
+    assert_eq!(
+        end_file_cause(libmpv2::mpv_end_file_reason::Redirect),
+        EndFileCause::Redirect
+    );
+    assert_eq!(
+        end_file_cause(libmpv2::mpv_end_file_reason::Error),
+        EndFileCause::Error
+    );
+    assert_eq!(
+        end_file_cause(libmpv2::mpv_end_file_reason::Quit),
+        EndFileCause::Quit
+    );
+}
