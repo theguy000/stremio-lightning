@@ -48,10 +48,20 @@
 
 ## Development
 
-Start with the [developer guide](docs/developer-guide.md). Detailed documentation
-is available for [packaging](docs/packaging.md), the
-[plugin API](docs/plugin-api.md), and
-[runtime architecture](docs/runtime-architecture.md).
+### Quick Start
+
+```bash
+# 1. Install frontend dependencies & native runtimes
+npm install
+cargo xtask setup
+
+# 2. Run the shell for your platform
+cargo windows   # Windows
+cargo linux     # Linux
+cargo macos     # macOS
+```
+
+For advanced workflows, testing, and packaging, see the [developer guide](docs/developer-guide.md). Detailed documentation is also available for [packaging](docs/packaging.md), the [plugin API](docs/plugin-api.md), and [runtime architecture](docs/runtime-architecture.md).
 
 
 ## Platform Support
