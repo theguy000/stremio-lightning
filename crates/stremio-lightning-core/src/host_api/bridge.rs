@@ -788,6 +788,9 @@ impl<P: PlatformBridge> BaseHost<P> {
                     "app-ready" | "app-error" => {
                         self.mark_transport_ready()?;
                     }
+                    "quit" => {
+                        self.bridge.close_window()?;
+                    }
                     "win-set-visibility" => {
                         let payload: FullscreenIpcPayload = parse_payload(&method, data)?;
                         self.bridge.set_window_fullscreen(payload.fullscreen)?;

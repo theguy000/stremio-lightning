@@ -19,6 +19,7 @@ struct TestBridge {
     fail_custom_transport: bool,
     fullscreen: Mutex<bool>,
     zoom: Mutex<f64>,
+    closed: Mutex<bool>,
 }
 
 impl PlatformBridge for TestBridge {
@@ -44,6 +45,11 @@ impl PlatformBridge for TestBridge {
 
     fn set_window_fullscreen(&self, fullscreen: bool) -> Result<(), String> {
         *self.fullscreen.lock().unwrap() = fullscreen;
+        Ok(())
+    }
+
+    fn close_window(&self) -> Result<(), String> {
+        *self.closed.lock().unwrap() = true;
         Ok(())
     }
 
@@ -315,6 +321,34 @@ fn handles_win_set_visibility_and_emits_resulting_state_every_time() {
             serialize_window_visibility(true, fullscreen)
         );
     }
+}
+
+#[test]
+fn shell_transport_quit_invokes_close_window() {
+    let host = test_host(TestBridge::default());
+    assert!(!*host.bridge.closed.lock().unwrap());
+
+    host.handle_shell_transport_message(
+        &json!({
+            "id": 1,
+            "type": 6,
+            "args": ["quit"]
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    assert!(*host.bridge.closed.lock().unwrap());
+}
+
+#[test]
+fn window_close_ipc_invokes_close_window() {
+    let host = test_host(TestBridge::default());
+    assert!(!*host.bridge.closed.lock().unwrap());
+
+    host.dispatch_ipc("window.close", None).unwrap();
+
+    assert!(*host.bridge.closed.lock().unwrap());
 }
 
 #[test]
