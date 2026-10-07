@@ -215,9 +215,21 @@ fn outbound_scratch_is_reused_and_null_terminated() {
 #[test]
 #[cfg(windows)]
 fn zoom_level_extracted_for_zoom_messages_and_bypassed_for_others() {
-    let zoom_msg =
+    let direct_zoom_msg =
+        r#"{"kind":"webview.setZoom","payload":{"level":1.25}}"#;
+    assert_eq!(platform::zoom_level_from_message(direct_zoom_msg), Some(1.25));
+
+    let invoke_zoom_msg =
         r#"{"kind":"invoke","payload":{"command":"webview.setZoom","payload":{"level":1.25}}}"#;
-    assert_eq!(platform::zoom_level_from_message(zoom_msg), Some(1.25));
+    assert_eq!(platform::zoom_level_from_message(invoke_zoom_msg), Some(1.25));
+
+    let interface_scale_msg =
+        r#"{"kind":"invoke","payload":{"command":"shell_transport_send","payload":{"message":"{\"id\":0,\"type\":6,\"args\":[\"win-set-interface-scale\",{\"scale\":125}]}"}}}"#;
+    assert_eq!(platform::zoom_level_from_message(interface_scale_msg), Some(1.25));
+
+    let out_of_bounds_scale =
+        r#"{"kind":"invoke","payload":{"command":"shell_transport_send","payload":{"message":"{\"id\":0,\"type\":6,\"args\":[\"win-set-interface-scale\",{\"scale\":500.0}]}"}}}"#;
+    assert_eq!(platform::zoom_level_from_message(out_of_bounds_scale), None);
 
     let status_msg =
         r#"{"kind":"invoke","payload":{"command":"get_native_player_status","payload":null}}"#;

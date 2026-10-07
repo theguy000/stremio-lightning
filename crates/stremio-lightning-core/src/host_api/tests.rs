@@ -18,6 +18,7 @@ struct TestBridge {
     pip_enabled: bool,
     fail_custom_transport: bool,
     fullscreen: Mutex<bool>,
+    zoom: Mutex<f64>,
 }
 
 impl PlatformBridge for TestBridge {
@@ -43,6 +44,11 @@ impl PlatformBridge for TestBridge {
 
     fn set_window_fullscreen(&self, fullscreen: bool) -> Result<(), String> {
         *self.fullscreen.lock().unwrap() = fullscreen;
+        Ok(())
+    }
+
+    fn set_webview_zoom(&self, level: f64) -> Result<(), String> {
+        *self.zoom.lock().unwrap() = level;
         Ok(())
     }
 
@@ -227,7 +233,8 @@ fn serializes_handshake_shape() {
                         [],
                         ["", "shellVersion", "", test_version],
                         ["", "streamingServerUrl", "", "http://127.0.0.1:11470"],
-                        ["", "nativeAssSubtitles", "", "true"]
+                        ["", "nativeAssSubtitles", "", "true"],
+                        ["", "nativeInterfaceScale", "", "true"]
                     ],
                     "signals": [],
                     "methods": [["onEvent"]]
@@ -320,6 +327,42 @@ fn rejects_invalid_win_set_visibility_payload() {
         .unwrap_err();
 
     assert!(error.contains("Invalid win-set-visibility payload"));
+}
+
+#[test]
+fn handles_win_set_interface_scale_and_converts_percentage_to_zoom() {
+    let host = test_host(TestBridge::default());
+    for (scale, expected_zoom) in [(75.0, 0.75), (100.0, 1.0), (125.0, 1.25), (175.0, 1.75)] {
+        host.handle_shell_transport_message(
+            &json!({
+                "id": 1,
+                "type": 6,
+                "args": ["win-set-interface-scale", { "scale": scale }]
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        assert_eq!(*host.bridge.zoom.lock().unwrap(), expected_zoom);
+    }
+}
+
+#[test]
+fn rejects_invalid_win_set_interface_scale_payload() {
+    let host = test_host(TestBridge::default());
+    let error = host
+        .handle_shell_transport_message(
+            r#"{"id":1,"type":6,"args":["win-set-interface-scale",{"scale":"big"}]}"#,
+        )
+        .unwrap_err();
+    assert!(error.contains("Invalid win-set-interface-scale payload"));
+
+    let out_of_bounds = host
+        .handle_shell_transport_message(
+            r#"{"id":1,"type":6,"args":["win-set-interface-scale",{"scale":500.0}]}"#,
+        )
+        .unwrap_err();
+    assert!(out_of_bounds.contains("Invalid interface scale"));
 }
 
 #[test]

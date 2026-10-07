@@ -808,18 +808,37 @@ mod windows_impl {
             })
     }
 
-    /// Reads the zoom factor out of a `webview.setZoom` invoke so it can be applied
-    /// here, on the UI thread, rather than through `PlatformBridge`, which has no
+    /// Reads the zoom factor out of a `webview.setZoom` or `win-set-interface-scale` invoke so
+    /// it can be applied here, on the UI thread, rather than through `PlatformBridge`, which has no
     /// `WebView2` controller to reach.
     pub(crate) fn zoom_level_from_message(message: &str) -> Option<f64> {
-        if !message.contains("webview.setZoom") {
+        if !message.contains("webview.setZoom") && !message.contains("win-set-interface-scale") {
             return None;
         }
         let value: serde_json::Value = serde_json::from_str(message).ok()?;
-        if value["kind"] != "invoke" || value["payload"]["command"] != "webview.setZoom" {
-            return None;
+
+        if value["kind"] == "webview.setZoom" {
+            return value["payload"]["level"].as_f64();
         }
-        value["payload"]["payload"]["level"].as_f64()
+
+        if value["kind"] == "invoke" && value["payload"]["command"] == "webview.setZoom" {
+            return value["payload"]["payload"]["level"].as_f64();
+        }
+
+        if value["kind"] == "invoke" && value["payload"]["command"] == "shell_transport_send" {
+            let inner_msg = value["payload"]["payload"]["message"].as_str()?;
+            let inner: serde_json::Value = serde_json::from_str(inner_msg).ok()?;
+            let args = inner["args"].as_array()?;
+            if args.first().and_then(serde_json::Value::as_str) == Some("win-set-interface-scale") {
+                let scale = args.get(1)?.get("scale")?.as_f64()?;
+                let level = scale / 100.0;
+                if level.is_finite() && (0.25..=4.0).contains(&level) {
+                    return Some(level);
+                }
+            }
+        }
+
+        None
     }
 
     fn set_webview_zoom(controller: &ICoreWebView2Controller, level: f64) {

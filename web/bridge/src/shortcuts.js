@@ -176,14 +176,21 @@ function initShortcuts(ctx) {
 
     if (e.key === "+" || e.key === "=") {
       e.preventDefault();
-      zoomLevel = Math.min(zoomLevel + 0.1, 3.0);
+      zoomLevel = Math.min(+(zoomLevel + 0.25).toFixed(2), 1.5);
       webview.setZoom(zoomLevel);
       return;
     }
 
     if (e.key === "-") {
       e.preventDefault();
-      zoomLevel = Math.max(zoomLevel - 0.1, 0.5);
+      zoomLevel = Math.max(+(zoomLevel - 0.25).toFixed(2), 0.75);
+      webview.setZoom(zoomLevel);
+      return;
+    }
+
+    if (e.key === "0") {
+      e.preventDefault();
+      zoomLevel = 1.0;
       webview.setZoom(zoomLevel);
     }
   });

@@ -72,6 +72,12 @@ pub fn handshake_response(package_version: &str, streaming_server_url: &str) -> 
                         String::new(),
                         "true".to_string(),
                     ],
+                    vec![
+                        String::new(),
+                        "nativeInterfaceScale".to_string(),
+                        String::new(),
+                        "true".to_string(),
+                    ],
                 ],
                 signals: vec![],
                 methods: vec![vec!["onEvent".to_string()]],

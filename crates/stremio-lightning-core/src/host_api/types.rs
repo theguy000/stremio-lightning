@@ -463,6 +463,11 @@ pub struct ZoomIpcPayload {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct InterfaceScalePayload {
+    pub scale: f64,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct IpcRequest {
     pub id: u64,
     pub kind: String,

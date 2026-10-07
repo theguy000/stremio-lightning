@@ -13,7 +13,7 @@ pub use handlers::{
 };
 pub use types::{
     DownloadModPayload, FocusChangedPayload, FullscreenIpcPayload, GetLogsPayload, HostApiError,
-    HostCommand, HostEvent, HostEventRecord, IpcRequest, ListenIpcPayload, ListenerRegistry,
+    HostCommand, HostEvent, HostEventRecord, InterfaceScalePayload, IpcRequest, ListenIpcPayload, ListenerRegistry,
     ModFilePayload, ModTypePayload, ParsedRequest, PlatformBridge, RegisterSettingsPayload,
     RpcRequest, RpcResponse, RpcResponseData, RpcResponseDataTransport, SaveSettingPayload,
     SetExtendedDiagnosticsPayload, SettingKeyPayload, ShellPreferenceState,

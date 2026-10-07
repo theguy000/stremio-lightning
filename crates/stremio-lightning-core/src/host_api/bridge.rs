@@ -10,11 +10,11 @@ use super::handlers::{
 };
 use super::types::{
     DownloadModPayload, FocusChangedPayload, FullscreenIpcPayload, GetLogsPayload, HostApiError,
-    HostEvent, HostEventRecord, ListenIpcPayload, ListenerRegistry, ModFilePayload, ModTypePayload,
-    ParsedRequest, PlatformBridge, RegisterSettingsPayload, RpcResponse, SaveSettingPayload,
-    SetExtendedDiagnosticsPayload, SettingKeyPayload, ShellPreferenceState,
-    SubmitDiagnosticLogsPayload, UnlistenIpcPayload, ZoomIpcPayload, RPC_TYPE_SIGNAL,
-    SHELL_TRANSPORT_EVENT, TRANSPORT_OBJECT,
+    HostEvent, HostEventRecord, InterfaceScalePayload, ListenIpcPayload, ListenerRegistry,
+    ModFilePayload, ModTypePayload, ParsedRequest, PlatformBridge, RegisterSettingsPayload,
+    RpcResponse, SaveSettingPayload, SetExtendedDiagnosticsPayload, SettingKeyPayload,
+    ShellPreferenceState, SubmitDiagnosticLogsPayload, UnlistenIpcPayload, ZoomIpcPayload,
+    RPC_TYPE_SIGNAL, SHELL_TRANSPORT_EVENT, TRANSPORT_OBJECT,
 };
 use crate::pip::serialize_picture_in_picture;
 use crate::player_api::PlayerEvent;
@@ -795,6 +795,14 @@ impl<P: PlatformBridge> BaseHost<P> {
                             true,
                             self.bridge.is_window_fullscreen()?,
                         )))?;
+                    }
+                    "win-set-interface-scale" => {
+                        let payload: InterfaceScalePayload = parse_payload(&method, data)?;
+                        let level = payload.scale / 100.0;
+                        if !level.is_finite() || !(0.25..=4.0).contains(&level) {
+                            return Err("Invalid interface scale".to_string());
+                        }
+                        self.bridge.set_webview_zoom(level)?;
                     }
                     "discord-connect" => {
                         let connected = self.discord_rpc.start().is_ok();

@@ -88,6 +88,10 @@ fn handles_shell_transport_handshake() {
         prop.get(1).and_then(Value::as_str) == Some("streamingServerUrl")
             && prop.get(3).and_then(Value::as_str) == Some("http://127.0.0.1:11470")
     }));
+    assert!(properties.iter().any(|prop| {
+        prop.get(1).and_then(Value::as_str) == Some("nativeInterfaceScale")
+            && prop.get(3).and_then(Value::as_str) == Some("true")
+    }));
 }
 
 fn send_shell_transport_command(host: &WindowsHost, message: &str) -> Result<Value, String> {
