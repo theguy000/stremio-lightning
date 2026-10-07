@@ -81,10 +81,13 @@ fn handles_shell_transport_handshake() {
     )
     .unwrap();
     let response = host.drain_emitted_events().unwrap().remove(0).payload;
-    assert_eq!(
-        serde_json::from_str::<Value>(response.as_str().unwrap()).unwrap()["type"],
-        json!(3)
-    );
+    let payload: Value = serde_json::from_str(response.as_str().unwrap()).unwrap();
+    assert_eq!(payload["type"], json!(3));
+    let properties = payload["data"]["transport"]["properties"].as_array().unwrap();
+    assert!(properties.iter().any(|prop| {
+        prop.get(1).and_then(Value::as_str) == Some("streamingServerUrl")
+            && prop.get(3).and_then(Value::as_str) == Some("http://127.0.0.1:11470")
+    }));
 }
 
 fn send_shell_transport_command(host: &WindowsHost, message: &str) -> Result<Value, String> {

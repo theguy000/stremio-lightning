@@ -45,7 +45,7 @@ pub fn parse_request(message: &str) -> Result<ParsedRequest, String> {
 /// # Panics
 /// Panics if the handshake envelope cannot be serialized, which cannot happen for the fixed shape it builds.
 #[must_use]
-pub fn handshake_response(package_version: &str) -> String {
+pub fn handshake_response(package_version: &str, streaming_server_url: &str) -> String {
     serde_json::to_string(&RpcResponse {
         id: 0,
         object: TRANSPORT_OBJECT.to_string(),
@@ -59,6 +59,12 @@ pub fn handshake_response(package_version: &str) -> String {
                         "shellVersion".to_string(),
                         String::new(),
                         package_version.to_string(),
+                    ],
+                    vec![
+                        String::new(),
+                        "streamingServerUrl".to_string(),
+                        String::new(),
+                        streaming_server_url.to_string(),
                     ],
                     vec![
                         String::new(),

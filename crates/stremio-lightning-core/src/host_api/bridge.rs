@@ -777,7 +777,10 @@ impl<P: PlatformBridge> BaseHost<P> {
     pub fn handle_shell_transport_message(&self, message: &str) -> Result<(), String> {
         match parse_request(message)? {
             ParsedRequest::Handshake => {
-                self.emit_transport_message(handshake_response(self.package_version))?;
+                self.emit_transport_message(handshake_response(
+                    self.package_version,
+                    self.bridge.streaming_server_url(),
+                ))?;
                 Ok(())
             }
             ParsedRequest::Command { method, data } => {

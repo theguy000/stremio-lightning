@@ -10,6 +10,7 @@ pub const RPC_TYPE_INIT: u8 = 3;
 pub const RPC_TYPE_SIGNAL: u8 = 1;
 pub const RPC_TYPE_INVOKE_METHOD: u8 = 6;
 pub const SHELL_TRANSPORT_EVENT: &str = "shell-transport-message";
+pub const DEFAULT_STREAMING_SERVER_URL: &str = "http://127.0.0.1:11470";
 
 #[derive(Debug, Error)]
 pub enum HostApiError {
@@ -214,6 +215,10 @@ pub trait PlatformBridge: Send + Sync {
     fn shell_name(&self) -> &'static str;
     fn native_player_status(&self) -> Value;
     fn is_streaming_server_running(&self) -> bool;
+
+    fn streaming_server_url(&self) -> &str {
+        DEFAULT_STREAMING_SERVER_URL
+    }
 
     // Window methods
     /// # Errors

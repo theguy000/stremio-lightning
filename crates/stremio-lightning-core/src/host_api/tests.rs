@@ -7,7 +7,10 @@ use super::handlers::{
     handshake_response, is_async_command, parse_request, response_message,
     serialize_window_visibility, stremio_deep_link_transport_args,
 };
-use super::types::{HostCommand, HostEvent, ParsedRequest, PlatformBridge, SHELL_TRANSPORT_EVENT};
+use super::types::{
+    HostCommand, HostEvent, ParsedRequest, PlatformBridge, DEFAULT_STREAMING_SERVER_URL,
+    SHELL_TRANSPORT_EVENT,
+};
 use crate::logging;
 
 #[derive(Default)]
@@ -207,7 +210,11 @@ fn parses_current_stremio_command_with_zero_id() {
 #[test]
 fn serializes_handshake_shape() {
     let test_version = "1.2.3";
-    let payload: Value = serde_json::from_str(&handshake_response(test_version)).unwrap();
+    let payload: Value = serde_json::from_str(&handshake_response(
+        test_version,
+        DEFAULT_STREAMING_SERVER_URL,
+    ))
+    .unwrap();
     assert_eq!(
         payload,
         json!({
@@ -219,6 +226,7 @@ fn serializes_handshake_shape() {
                     "properties": [
                         [],
                         ["", "shellVersion", "", test_version],
+                        ["", "streamingServerUrl", "", "http://127.0.0.1:11470"],
                         ["", "nativeAssSubtitles", "", "true"]
                     ],
                     "signals": [],
