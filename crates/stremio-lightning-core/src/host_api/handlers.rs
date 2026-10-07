@@ -60,6 +60,12 @@ pub fn handshake_response(package_version: &str) -> String {
                         String::new(),
                         package_version.to_string(),
                     ],
+                    vec![
+                        String::new(),
+                        "nativeAssSubtitles".to_string(),
+                        String::new(),
+                        "true".to_string(),
+                    ],
                 ],
                 signals: vec![],
                 methods: vec![vec!["onEvent".to_string()]],

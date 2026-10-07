@@ -206,7 +206,8 @@ fn parses_current_stremio_command_with_zero_id() {
 
 #[test]
 fn serializes_handshake_shape() {
-    let payload: Value = serde_json::from_str(&handshake_response("0.1.4")).unwrap();
+    let test_version = "1.2.3";
+    let payload: Value = serde_json::from_str(&handshake_response(test_version)).unwrap();
     assert_eq!(
         payload,
         json!({
@@ -215,7 +216,11 @@ fn serializes_handshake_shape() {
             "type": 3,
             "data": {
                 "transport": {
-                    "properties": [[], ["", "shellVersion", "", "0.1.4"]],
+                    "properties": [
+                        [],
+                        ["", "shellVersion", "", test_version],
+                        ["", "nativeAssSubtitles", "", "true"]
+                    ],
                     "signals": [],
                     "methods": [["onEvent"]]
                 }
