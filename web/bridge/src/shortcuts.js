@@ -103,9 +103,32 @@ function initShortcuts(ctx) {
     true,
   );
 
-  window.addEventListener("blur", function () {
+  var windowWasBlurred = false;
+  var suppressPlayerClickUntil = 0;
+
+  if (window.__stremioLightningShortcutsBlurHandler) {
+    window.removeEventListener("blur", window.__stremioLightningShortcutsBlurHandler);
+  }
+  if (window.__stremioLightningShortcutsFocusHandler) {
+    window.removeEventListener("focus", window.__stremioLightningShortcutsFocusHandler);
+  }
+  if (window.__stremioLightningShortcutsClickHandler) {
+    document.removeEventListener("click", window.__stremioLightningShortcutsClickHandler, true);
+  }
+
+  window.__stremioLightningShortcutsBlurHandler = function () {
     finishSpaceHold(false);
-  });
+    windowWasBlurred = true;
+  };
+  window.addEventListener("blur", window.__stremioLightningShortcutsBlurHandler);
+
+  window.__stremioLightningShortcutsFocusHandler = function () {
+    if (windowWasBlurred) {
+      windowWasBlurred = false;
+      suppressPlayerClickUntil = Date.now() + 250;
+    }
+  };
+  window.addEventListener("focus", window.__stremioLightningShortcutsFocusHandler);
 
   function toggleFullscreen() {
     appWindow.isFullscreen().then(function (fs) {
@@ -113,25 +136,35 @@ function initShortcuts(ctx) {
     });
   }
 
+  window.__stremioLightningShortcutsClickHandler = function (e) {
+    if (Date.now() < suppressPlayerClickUntil && isPlayerRoute()) {
+      suppressPlayerClickUntil = 0;
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      return;
+    }
+    suppressPlayerClickUntil = 0;
+
+    var el = e.target;
+    for (var i = 0; i < 5 && el && el !== document; i++) {
+      var title = el.getAttribute && el.getAttribute("title");
+      if (
+        title &&
+        (title.indexOf("fullscreen") !== -1 ||
+          title.indexOf("Fullscreen") !== -1)
+      ) {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleFullscreen();
+        return;
+      }
+      el = el.parentElement;
+    }
+  };
   document.addEventListener(
     "click",
-    function (e) {
-      var el = e.target;
-      for (var i = 0; i < 5 && el && el !== document; i++) {
-        var title = el.getAttribute && el.getAttribute("title");
-        if (
-          title &&
-          (title.indexOf("fullscreen") !== -1 ||
-            title.indexOf("Fullscreen") !== -1)
-        ) {
-          e.preventDefault();
-          e.stopPropagation();
-          toggleFullscreen();
-          return;
-        }
-        el = el.parentElement;
-      }
-    },
+    window.__stremioLightningShortcutsClickHandler,
     true,
   );
 

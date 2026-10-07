@@ -67,6 +67,24 @@ afterEach(() => {
   delete (window as typeof window & { __onGCastApiAvailable?: unknown }).__onGCastApiAvailable;
   delete (window as typeof window & { StremioLightningOpenStremioUrl?: unknown })
     .StremioLightningOpenStremioUrl;
+  const shortcutsClickHandler = (
+    window as typeof window & { __stremioLightningShortcutsClickHandler?: EventListener }
+  ).__stremioLightningShortcutsClickHandler;
+  if (shortcutsClickHandler) document.removeEventListener('click', shortcutsClickHandler, true);
+  const shortcutsBlurHandler = (
+    window as typeof window & { __stremioLightningShortcutsBlurHandler?: EventListener }
+  ).__stremioLightningShortcutsBlurHandler;
+  if (shortcutsBlurHandler) window.removeEventListener('blur', shortcutsBlurHandler);
+  const shortcutsFocusHandler = (
+    window as typeof window & { __stremioLightningShortcutsFocusHandler?: EventListener }
+  ).__stremioLightningShortcutsFocusHandler;
+  if (shortcutsFocusHandler) window.removeEventListener('focus', shortcutsFocusHandler);
+  delete (window as typeof window & { __stremioLightningShortcutsClickHandler?: unknown })
+    .__stremioLightningShortcutsClickHandler;
+  delete (window as typeof window & { __stremioLightningShortcutsBlurHandler?: unknown })
+    .__stremioLightningShortcutsBlurHandler;
+  delete (window as typeof window & { __stremioLightningShortcutsFocusHandler?: unknown })
+    .__stremioLightningShortcutsFocusHandler;
   delete (
     window as typeof window & { __stremioLightningExternalLinkHandler?: unknown }
   ).__stremioLightningExternalLinkHandler;
@@ -128,6 +146,42 @@ describe('bridge host bootstrap', () => {
       ['mpv-set-prop', ['speed', 1]],
     ]);
     expect(document.querySelector('#sl-speed-hint')?.hasAttribute('hidden')).toBe(true);
+    window.location.hash = '';
+  });
+
+  it('suppresses the window activation click on the player route after blur', () => {
+    window.StremioLightningHost = {
+      invoke: vi.fn().mockResolvedValue(undefined),
+      listen: vi.fn().mockResolvedValue(() => {}),
+      window: appWindow,
+      webview,
+    } as unknown as StremioLightningHost;
+    window.location.hash = '#/player';
+    runBridge();
+
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const targetHandler = vi.fn();
+    target.addEventListener('click', targetHandler);
+
+    // Simulate window blur (e.g. clicking taskbar)
+    window.dispatchEvent(new Event('blur'));
+
+    // Simulate clicking player window to refocus
+    window.dispatchEvent(new Event('focus'));
+    const activationClick = new MouseEvent('click', { bubbles: true, cancelable: true });
+    target.dispatchEvent(activationClick);
+
+    // Activation click must be stopped so it doesn't trigger playback toggle
+    expect(targetHandler).not.toHaveBeenCalled();
+    expect(activationClick.defaultPrevented).toBe(true);
+
+    // Subsequent click once window is focused must pass through normally
+    const normalClick = new MouseEvent('click', { bubbles: true, cancelable: true });
+    target.dispatchEvent(normalClick);
+    expect(targetHandler).toHaveBeenCalledTimes(1);
+    expect(normalClick.defaultPrevented).toBe(false);
+
     window.location.hash = '';
   });
 
