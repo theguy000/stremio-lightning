@@ -364,6 +364,29 @@ fn rejects_invalid_win_set_visibility_payload() {
 }
 
 #[test]
+fn accepts_media_status_and_metadata_transport_messages() {
+    let host = test_host(TestBridge::default());
+    for args in [
+        json!(["media.status", { "paused": true }]),
+        json!(["media.metadata", { "title": "T", "artist": "A", "artUrl": "https://x/y.jpg" }]),
+        // Shapes Stremio Web really sends: `artist` omitted, `artUrl` null.
+        json!(["media.metadata", { "title": "T", "artUrl": null }]),
+    ] {
+        host.handle_shell_transport_message(
+            &json!({ "id": 1, "type": 6, "args": args }).to_string(),
+        )
+        .unwrap();
+    }
+
+    let error = host
+        .handle_shell_transport_message(
+            r#"{"id":1,"type":6,"args":["media.status",{"paused":"yes"}]}"#,
+        )
+        .unwrap_err();
+    assert!(error.contains("Invalid media.status payload"));
+}
+
+#[test]
 fn handles_win_set_interface_scale_and_converts_percentage_to_zoom() {
     let host = test_host(TestBridge::default());
     for (scale, expected_zoom) in [(75.0, 0.75), (100.0, 1.0), (125.0, 1.25), (175.0, 1.75)] {

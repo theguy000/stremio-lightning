@@ -280,6 +280,23 @@ pub trait PlatformBridge: Send + Sync {
         Ok(())
     }
 
+    // OS media controls
+    /// # Errors
+    /// Returns an error when the platform cannot update its media controls playback state.
+    fn update_media_status(&self, _paused: bool) -> Result<(), String> {
+        Ok(())
+    }
+    /// # Errors
+    /// Returns an error when the platform cannot update its media controls metadata.
+    fn update_media_metadata(
+        &self,
+        _title: &str,
+        _artist: Option<&str>,
+        _art_url: Option<&str>,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+
     // Custom platform controls
     /// # Errors
     /// Returns an error when the platform cannot open the URL.
@@ -465,6 +482,23 @@ pub struct ZoomIpcPayload {
 #[derive(Debug, Deserialize)]
 pub struct InterfaceScalePayload {
     pub scale: f64,
+}
+
+/// Sent by Stremio Web's `useMediaSession` as `shell.send('media.status', { paused })`.
+#[derive(Debug, Deserialize)]
+pub struct MediaStatusPayload {
+    pub paused: bool,
+}
+
+/// Sent by Stremio Web's `useMediaSession` as
+/// `shell.send('media.metadata', { title, artist, artUrl })`. `artist` is omitted
+/// and `artUrl` may be `null`.
+#[derive(Debug, Deserialize)]
+pub struct MediaMetadataPayload {
+    pub title: String,
+    pub artist: Option<String>,
+    #[serde(rename = "artUrl")]
+    pub art_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

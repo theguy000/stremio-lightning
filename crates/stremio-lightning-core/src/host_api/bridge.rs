@@ -11,10 +11,11 @@ use super::handlers::{
 use super::types::{
     DownloadModPayload, FocusChangedPayload, FullscreenIpcPayload, GetLogsPayload, HostApiError,
     HostEvent, HostEventRecord, InterfaceScalePayload, ListenIpcPayload, ListenerRegistry,
-    ModFilePayload, ModTypePayload, ParsedRequest, PlatformBridge, RegisterSettingsPayload,
-    RpcResponse, SaveSettingPayload, SetExtendedDiagnosticsPayload, SettingKeyPayload,
-    ShellPreferenceState, SubmitDiagnosticLogsPayload, UnlistenIpcPayload, ZoomIpcPayload,
-    RPC_TYPE_SIGNAL, SHELL_TRANSPORT_EVENT, TRANSPORT_OBJECT,
+    MediaMetadataPayload, MediaStatusPayload, ModFilePayload, ModTypePayload, ParsedRequest,
+    PlatformBridge, RegisterSettingsPayload, RpcResponse, SaveSettingPayload,
+    SetExtendedDiagnosticsPayload, SettingKeyPayload, ShellPreferenceState,
+    SubmitDiagnosticLogsPayload, UnlistenIpcPayload, ZoomIpcPayload, RPC_TYPE_SIGNAL,
+    SHELL_TRANSPORT_EVENT, TRANSPORT_OBJECT,
 };
 use crate::pip::serialize_picture_in_picture;
 use crate::player_api::PlayerEvent;
@@ -830,6 +831,18 @@ impl<P: PlatformBridge> BaseHost<P> {
                     }
                     "discord-clear-activity" => {
                         let _ = self.discord_rpc.clear_activity();
+                    }
+                    "media.status" => {
+                        let payload: MediaStatusPayload = parse_payload(&method, data)?;
+                        self.bridge.update_media_status(payload.paused)?;
+                    }
+                    "media.metadata" => {
+                        let payload: MediaMetadataPayload = parse_payload(&method, data)?;
+                        self.bridge.update_media_metadata(
+                            &payload.title,
+                            payload.artist.as_deref(),
+                            payload.art_url.as_deref(),
+                        )?;
                     }
                     _ => {
                         let state_update =

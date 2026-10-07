@@ -176,6 +176,29 @@ impl PlatformBridge for WindowsShellBridge {
         self.pip_state.set_size(width, height)
     }
 
+    fn update_media_status(&self, paused: bool) -> Result<(), String> {
+        #[cfg(windows)]
+        if let Some(controller) = self.lock_window_controller()?.as_ref() {
+            return controller.set_media_status(paused);
+        }
+        let _ = paused;
+        Ok(())
+    }
+
+    fn update_media_metadata(
+        &self,
+        title: &str,
+        artist: Option<&str>,
+        art_url: Option<&str>,
+    ) -> Result<(), String> {
+        #[cfg(windows)]
+        if let Some(controller) = self.lock_window_controller()?.as_ref() {
+            return controller.set_media_metadata(title, artist, art_url);
+        }
+        let _ = (title, artist, art_url);
+        Ok(())
+    }
+
     fn open_external_url(&self, url: &str) -> Result<(), String> {
         validate_external_url(url)?;
         open_external_url(url)?;

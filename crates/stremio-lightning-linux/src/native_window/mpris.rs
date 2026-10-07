@@ -5,12 +5,37 @@
 
 use gtk::gio::{self, prelude::*};
 use gtk::glib::{self, ToVariant};
+use std::cell::RefCell;
 use std::rc::Rc;
 use stremio_lightning_identity::{APP_ID, APP_NAME};
 
 const OBJECT_PATH: &str = "/org/mpris/MediaPlayer2";
+const TRACK_ID: &str = "/org/stremio/lightning/track";
 const ROOT_IFACE: &str = "org.mpris.MediaPlayer2";
 const PLAYER_IFACE: &str = "org.mpris.MediaPlayer2.Player";
+
+/// What the web app last told us. GTK runs everything on the main thread, as do
+/// the shell transport handlers that feed this, so a thread-local is enough.
+struct MprisState {
+    status: &'static str,
+    title: String,
+    artist: Option<String>,
+    art_url: Option<String>,
+    connection: Option<gio::DBusConnection>,
+}
+
+thread_local! {
+    static STATE: RefCell<MprisState> = const {
+        RefCell::new(MprisState {
+            status: "Stopped",
+            title: String::new(),
+            artist: None,
+            art_url: None,
+            connection: None,
+        })
+    };
+}
+
 const INTROSPECTION: &str = r#"<node>
   <interface name="org.mpris.MediaPlayer2">
     <method name="Raise"/>
@@ -30,6 +55,7 @@ const INTROSPECTION: &str = r#"<node>
     <method name="Stop"/>
     <method name="Play"/>
     <property name="PlaybackStatus" type="s" access="read"/>
+    <property name="Metadata" type="a{sv}" access="read"/>
     <property name="CanGoNext" type="b" access="read"/>
     <property name="CanGoPrevious" type="b" access="read"/>
     <property name="CanPlay" type="b" access="read"/>
@@ -53,13 +79,75 @@ fn media_key_action(method: &str) -> Option<&'static str> {
     }
 }
 
+/// An `a{sv}` MPRIS metadata map. Empty when nothing is loaded.
+fn metadata(state: &MprisState) -> glib::Variant {
+    let dict = glib::VariantDict::new(None);
+    if !state.title.is_empty() {
+        if let Ok(track) = glib::variant::ObjectPath::try_from(TRACK_ID) {
+            dict.insert_value("mpris:trackid", &track.to_variant());
+        }
+        dict.insert_value("xesam:title", &state.title.as_str().to_variant());
+        if let Some(artist) = &state.artist {
+            dict.insert_value("xesam:artist", &[artist.as_str()][..].to_variant());
+        }
+        if let Some(url) = &state.art_url {
+            dict.insert_value("mpris:artUrl", &url.as_str().to_variant());
+        }
+    }
+    dict.end()
+}
+
+/// Publishes `PropertiesChanged` for the player properties.
+fn emit_changed(state: &MprisState) {
+    let Some(connection) = &state.connection else {
+        return;
+    };
+    let changed = glib::VariantDict::new(None);
+    changed.insert_value("PlaybackStatus", &state.status.to_variant());
+    changed.insert_value("Metadata", &metadata(state));
+    let params = glib::Variant::tuple_from_iter([
+        PLAYER_IFACE.to_variant(),
+        changed.end(),
+        Vec::<String>::new().to_variant(),
+    ]);
+    if let Err(error) = connection.emit_signal(
+        None,
+        OBJECT_PATH,
+        "org.freedesktop.DBus.Properties",
+        "PropertiesChanged",
+        Some(&params),
+    ) {
+        stremio_lightning_core::logging::warn(
+            "native.window",
+            format!("[StremioLightning] Failed to emit MPRIS PropertiesChanged: {error}"),
+        );
+    }
+}
+
+pub fn set_status(paused: bool) {
+    STATE.with_borrow_mut(|state| {
+        state.status = if paused { "Paused" } else { "Playing" };
+        emit_changed(state);
+    });
+}
+
+pub fn set_metadata(title: &str, artist: Option<&str>, art_url: Option<&str>) {
+    STATE.with_borrow_mut(|state| {
+        state.title = title.to_owned();
+        state.artist = artist.map(str::to_owned);
+        state.art_url = art_url.map(str::to_owned);
+        emit_changed(state);
+    });
+}
+
 fn property(interface: &str, name: &str) -> glib::Variant {
     match (interface, name) {
         (ROOT_IFACE, "Identity") => APP_NAME.to_variant(),
         (ROOT_IFACE, "CanRaise") => true.to_variant(),
         (ROOT_IFACE, "SupportedUriSchemes") => ["stremio", "magnet"][..].to_variant(),
         (ROOT_IFACE, "SupportedMimeTypes") => ["application/x-bittorrent"][..].to_variant(),
-        (PLAYER_IFACE, "PlaybackStatus") => "Playing".to_variant(),
+        (PLAYER_IFACE, "PlaybackStatus") => STATE.with_borrow(|state| state.status).to_variant(),
+        (PLAYER_IFACE, "Metadata") => STATE.with_borrow(metadata),
         (PLAYER_IFACE, "CanSeek") => false.to_variant(),
         (PLAYER_IFACE, _) => true.to_variant(),
         _ => false.to_variant(),
@@ -76,6 +164,7 @@ pub fn own(app: &gtk::Application, on_key: impl Fn(&str) + 'static) {
         &format!("org.mpris.MediaPlayer2.{APP_ID}"),
         gio::BusNameOwnerFlags::NONE,
         move |connection, _| {
+            STATE.with_borrow_mut(|state| state.connection = Some(connection.clone()));
             let Ok(nodes) = gio::DBusNodeInfo::for_xml(INTROSPECTION) else {
                 return;
             };

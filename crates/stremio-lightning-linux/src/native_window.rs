@@ -30,7 +30,7 @@ use webkit::{
     UserScriptInjectionTime, WebView as WebKitWebView,
 };
 
-mod mpris;
+pub(crate) mod mpris;
 mod x11;
 
 use self::x11::{install_source_tree_window_icon, request_window_above};

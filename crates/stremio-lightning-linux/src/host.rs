@@ -60,6 +60,21 @@ where
         self.pip_state.set_size(width, height)
     }
 
+    fn update_media_status(&self, paused: bool) -> Result<(), String> {
+        crate::native_window::mpris::set_status(paused);
+        Ok(())
+    }
+
+    fn update_media_metadata(
+        &self,
+        title: &str,
+        artist: Option<&str>,
+        art_url: Option<&str>,
+    ) -> Result<(), String> {
+        crate::native_window::mpris::set_metadata(title, artist, art_url);
+        Ok(())
+    }
+
     fn open_external_url(&self, url: &str) -> Result<(), String> {
         validate_external_url(url)?;
         Ok(())

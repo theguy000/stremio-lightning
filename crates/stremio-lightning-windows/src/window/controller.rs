@@ -12,10 +12,15 @@ mod windows_impl {
     use super::super::types::{FullscreenSnapshot, PipWindowSnapshot};
     use super::super::wndproc::focus_window;
     use stremio_lightning_core::pip::{PipRestoreSnapshot, PipWindowController};
+    use windows::core::{factory, HSTRING};
+    use windows::Foundation::Uri;
+    use windows::Media::{MediaPlaybackStatus, MediaPlaybackType, SystemMediaTransportControls};
+    use windows::Storage::Streams::RandomAccessStreamReference;
     use windows::Win32::Foundation::{HWND, LPARAM, RECT, WPARAM};
     use windows::Win32::Graphics::Gdi::{
         GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
     };
+    use windows::Win32::System::WinRT::ISystemMediaTransportControlsInterop;
     use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
     use windows::Win32::UI::WindowsAndMessaging::{
         GetWindowLongPtrW, GetWindowPlacement, GetWindowRect, IsZoomed, PostMessageW, SendMessageW,
@@ -25,11 +30,23 @@ mod windows_impl {
         WM_CLOSE, WM_NCLBUTTONDOWN, WS_EX_TOPMOST, WS_OVERLAPPEDWINDOW, WS_POPUP, WS_VISIBLE,
     };
 
+    fn create_smtc(hwnd: HWND) -> windows::core::Result<SystemMediaTransportControls> {
+        let interop =
+            factory::<SystemMediaTransportControls, ISystemMediaTransportControlsInterop>()?;
+        // SAFETY: hwnd is the valid top-level window this controller owns.
+        let smtc: SystemMediaTransportControls = unsafe { interop.GetForWindow(hwnd)? };
+        smtc.SetIsEnabled(true)?;
+        smtc.SetIsPlayEnabled(true)?;
+        smtc.SetIsPauseEnabled(true)?;
+        Ok(smtc)
+    }
+
     #[derive(Debug)]
     pub struct NativeWindowController {
         hwnd: HWND,
         fullscreen: Option<FullscreenSnapshot>,
         pip: Option<PipWindowSnapshot>,
+        smtc: Option<SystemMediaTransportControls>,
     }
 
     // SAFETY: The host mutex serializes access to the HWND-backed controller state.
@@ -42,7 +59,52 @@ mod windows_impl {
                 hwnd,
                 fullscreen: None,
                 pip: None,
+                smtc: create_smtc(hwnd).ok(),
             }
+        }
+
+        /// # Errors
+        /// Returns an error when Windows rejects the playback status update.
+        pub fn set_media_status(&self, paused: bool) -> Result<(), String> {
+            let Some(smtc) = &self.smtc else {
+                return Ok(());
+            };
+            let status = if paused {
+                MediaPlaybackStatus::Paused
+            } else {
+                MediaPlaybackStatus::Playing
+            };
+            smtc.SetPlaybackStatus(status).map_err(|e| e.to_string())
+        }
+
+        /// # Errors
+        /// Returns an error when Windows rejects the metadata update.
+        pub fn set_media_metadata(
+            &self,
+            title: &str,
+            artist: Option<&str>,
+            art_url: Option<&str>,
+        ) -> Result<(), String> {
+            let Some(smtc) = &self.smtc else {
+                return Ok(());
+            };
+            let e = |e: windows::core::Error| e.to_string();
+            let updater = smtc.DisplayUpdater().map_err(e)?;
+            updater.SetType(MediaPlaybackType::Video).map_err(e)?;
+            let video = updater.VideoProperties().map_err(e)?;
+            video.SetTitle(&HSTRING::from(title)).map_err(e)?;
+            video
+                .SetSubtitle(&HSTRING::from(artist.unwrap_or_default()))
+                .map_err(e)?;
+            // Artwork is best-effort: a bad URL must not drop the title.
+            if let Some(url) = art_url {
+                if let Ok(thumb) = Uri::CreateUri(&HSTRING::from(url))
+                    .and_then(|uri| RandomAccessStreamReference::CreateFromUri(&uri))
+                {
+                    let _ = updater.SetThumbnail(&thumb);
+                }
+            }
+            updater.Update().map_err(e)
         }
 
         pub fn minimize(&self) {
