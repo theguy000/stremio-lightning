@@ -310,6 +310,76 @@ fn rejects_invalid_win_set_visibility_payload() {
 }
 
 #[test]
+fn handles_discord_shell_transport_commands() {
+    let host = test_host(TestBridge::default());
+    host.listen_with_id(10, SHELL_TRANSPORT_EVENT).unwrap();
+
+    // 1. discord-connect emits discord-status
+    host.handle_shell_transport_message(
+        &json!({
+            "id": 1,
+            "type": 6,
+            "args": ["discord-connect", {}]
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let events = host.drain_emitted_events().unwrap();
+    assert_eq!(events.len(), 1);
+    let resp: Value = serde_json::from_str(events[0].payload.as_str().unwrap()).unwrap();
+    assert_eq!(resp["args"][0], "discord-status");
+    assert!(resp["args"][1]["connected"].is_boolean());
+
+    // 2. discord-set-activity accepts payload with image alias
+    host.handle_shell_transport_message(
+        &json!({
+            "id": 2,
+            "type": 6,
+            "args": ["discord-set-activity", {
+                "details": "Movie title",
+                "state": "Watching",
+                "image": "https://example.com/poster.jpg",
+                "startTimestamp": 1000,
+                "endTimestamp": 2000
+            }]
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    // 3. discord-clear-activity clears current activity
+    host.handle_shell_transport_message(
+        &json!({
+            "id": 3,
+            "type": 6,
+            "args": ["discord-clear-activity", {}]
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    // 4. discord-disconnect disconnects and emits discord-status with connected: false
+    host.handle_shell_transport_message(
+        &json!({
+            "id": 4,
+            "type": 6,
+            "args": ["discord-disconnect", {}]
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let events = host.drain_emitted_events().unwrap();
+    assert_eq!(events.len(), 1);
+    let resp: Value = serde_json::from_str(events[0].payload.as_str().unwrap()).unwrap();
+    assert_eq!(
+        resp["args"],
+        json!(["discord-status", { "connected": false }])
+    );
+}
+
+#[test]
 fn poisoned_shell_preferences_return_command_error() {
     let host = test_host(TestBridge::default());
 

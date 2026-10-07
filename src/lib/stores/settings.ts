@@ -1,31 +1,8 @@
 import { writable, get, type Writable } from 'svelte/store';
-import { startDiscordRpc, stopDiscordRpc, setAutoPause, getAutoPause, setPipDisablesAutoPause, getPipDisablesAutoPause, togglePip, getPipMode, setPipSize } from '../ipc';
+import { setAutoPause, getAutoPause, setPipDisablesAutoPause, getPipDisablesAutoPause, togglePip, getPipMode, setPipSize } from '../ipc';
 import { createLogger } from '../logging';
 
 const logger = createLogger('ui.settings');
-
-// Discord RPC
-export const discordRpcEnabled = writable(localStorage.getItem('discordrichpresence') === 'true');
-
-export async function toggleDiscordRpc(enabled: boolean): Promise<void> {
-  if (enabled) {
-    await startDiscordRpc();
-    localStorage.setItem('discordrichpresence', 'true');
-    document.dispatchEvent(new CustomEvent('sl-discord-rpc-enable'));
-    // Notify bridge.js Discord tracker if it exists
-    if (typeof (window as any).StremioEnhancedAPI?._discordTrackerInit === 'function') {
-      (window as any).StremioEnhancedAPI._discordTrackerInit();
-    }
-  } else {
-    await stopDiscordRpc();
-    localStorage.setItem('discordrichpresence', 'false');
-    document.dispatchEvent(new CustomEvent('sl-discord-rpc-disable'));
-    if (typeof (window as any).StremioEnhancedAPI?._discordTrackerStop === 'function') {
-      (window as any).StremioEnhancedAPI._discordTrackerStop();
-    }
-  }
-  discordRpcEnabled.set(enabled);
-}
 
 // Blur settings
 export const blurEnabled = writable(localStorage.getItem('sl-blur-enabled') !== 'false');

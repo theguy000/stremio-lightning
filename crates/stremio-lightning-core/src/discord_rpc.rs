@@ -34,6 +34,7 @@ impl Default for DiscordRpcState {
 pub struct ActivityPayload {
     pub details: Option<String>,
     pub state: Option<String>,
+    #[serde(alias = "image")]
     pub large_image_key: Option<String>,
     pub large_image_text: Option<String>,
     pub small_image_key: Option<String>,
@@ -96,6 +97,17 @@ impl DiscordRpcState {
 
         *client_guard = None;
         *self.latest_activity.lock().map_err(|e| e.to_string())? = None;
+        Ok(())
+    }
+
+    /// # Errors
+    /// Returns an error when the activity state lock is poisoned.
+    pub fn clear_activity(&self) -> Result<(), String> {
+        *self.latest_activity.lock().map_err(|e| e.to_string())? = None;
+        let mut client_guard = self.client.lock().map_err(|e| e.to_string())?;
+        if let Some(ref mut client) = *client_guard {
+            let _ = client.clear_activity();
+        }
         Ok(())
     }
 
@@ -264,4 +276,41 @@ impl DiscordRpcState {
 
 fn reconnect_delay(attempt: usize) -> Duration {
     Duration::from_secs(RECONNECT_DELAYS_SECS[attempt.min(RECONNECT_DELAYS_SECS.len() - 1)])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_activity_payload_with_image_alias_and_camel_case() {
+        let json_str = r#"{
+            "details": "Big Buck Bunny",
+            "state": "Watching",
+            "image": "https://example.com/poster.jpg",
+            "startTimestamp": 1234567890,
+            "endTimestamp": 1234571490
+        }"#;
+
+        let payload: ActivityPayload = serde_json::from_str(json_str).unwrap();
+        assert_eq!(payload.details.as_deref(), Some("Big Buck Bunny"));
+        assert_eq!(payload.state.as_deref(), Some("Watching"));
+        assert_eq!(
+            payload.large_image_key.as_deref(),
+            Some("https://example.com/poster.jpg")
+        );
+        assert_eq!(payload.start_timestamp, Some(1234567890));
+        assert_eq!(payload.end_timestamp, Some(1234571490));
+    }
+
+    #[test]
+    fn clear_activity_resets_latest_activity() {
+        let state = DiscordRpcState::default();
+        let payload: ActivityPayload = serde_json::from_str(r#"{"details":"Movie"}"#).unwrap();
+        *state.latest_activity.lock().unwrap() = Some(payload);
+
+        assert!(state.latest_activity.lock().unwrap().is_some());
+        state.clear_activity().unwrap();
+        assert!(state.latest_activity.lock().unwrap().is_none());
+    }
 }

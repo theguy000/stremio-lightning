@@ -14,7 +14,6 @@ const bridgeModuleNames = [
   'back-button.js',
   'shortcuts.js',
   'pip.js',
-  'discord-rpc.js',
   'update-banner.js',
 ];
 const bridgeModuleSources = bridgeModuleNames.map((name) =>

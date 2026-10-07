@@ -31,11 +31,6 @@
     activeTab = tabId;
   }
 
-  // Emit custom event for bridge.js Discord tracker
-  $effect(() => {
-    window.dispatchEvent(new CustomEvent('sl-mods-panel', { detail: open }));
-  });
-
   // Close on Escape
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === 'Escape' && open) {

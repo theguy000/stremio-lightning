@@ -10,7 +10,7 @@
 
     style = document.createElement("style");
     style.id = "sl-core-ui-styles";
-    style.textContent = ".back-button-container-lDB1N svg {\n  filter:\n    drop-shadow(1px 0 0 rgba(15, 15, 25, 0.25))\n    drop-shadow(-1px 0 0 rgba(15, 15, 25, 0.25))\n    drop-shadow(0 1px 0 rgba(15, 15, 25, 0.25))\n    drop-shadow(0 -1px 0 rgba(15, 15, 25, 0.25)) !important;\n}\n\n#sl-speed-hint {\n  position: fixed;\n  top: calc(24px + env(safe-area-inset-top));\n  left: 50%;\n  z-index: 2147483647;\n  display: flex;\n  align-items: center;\n  justify-content: center;\n  gap: 7px;\n  box-sizing: border-box;\n  width: 104px;\n  padding: 5px 16px;\n  border-radius: 999px;\n  color: #fff;\n  background: rgba(13, 11, 20, 0.58);\n  backdrop-filter: blur(12px);\n  transform: translateX(-50%);\n  pointer-events: none;\n}\n\n#sl-speed-hint[hidden] {\n  display: none;\n}\n\n.sl-speed-hint-value {\n  font-size: 15px;\n  font-weight: 400;\n  line-height: 1;\n  letter-spacing: 0.02em;\n  font-variant-numeric: tabular-nums;\n}\n\n.sl-speed-hint-icon {\n  width: 16px;\n  height: 8px;\n  color: rgba(189, 164, 255, 0.8);\n  transform: translateY(1px);\n}";
+    style.textContent = ".back-button-container-lDB1N svg {\r\n  filter:\r\n    drop-shadow(1px 0 0 rgba(15, 15, 25, 0.25))\r\n    drop-shadow(-1px 0 0 rgba(15, 15, 25, 0.25))\r\n    drop-shadow(0 1px 0 rgba(15, 15, 25, 0.25))\r\n    drop-shadow(0 -1px 0 rgba(15, 15, 25, 0.25)) !important;\r\n}\r\n\r\n#sl-speed-hint {\r\n  position: fixed;\r\n  top: calc(24px + env(safe-area-inset-top));\r\n  left: 50%;\r\n  z-index: 2147483647;\r\n  display: flex;\r\n  align-items: center;\r\n  justify-content: center;\r\n  gap: 7px;\r\n  box-sizing: border-box;\r\n  width: 104px;\r\n  padding: 5px 16px;\r\n  border-radius: 999px;\r\n  color: #fff;\r\n  background: rgba(13, 11, 20, 0.58);\r\n  backdrop-filter: blur(12px);\r\n  transform: translateX(-50%);\r\n  pointer-events: none;\r\n}\r\n\r\n#sl-speed-hint[hidden] {\r\n  display: none;\r\n}\r\n\r\n.sl-speed-hint-value {\r\n  font-size: 15px;\r\n  font-weight: 400;\r\n  line-height: 1;\r\n  letter-spacing: 0.02em;\r\n  font-variant-numeric: tabular-nums;\r\n}\r\n\r\n.sl-speed-hint-icon {\r\n  width: 16px;\r\n  height: 8px;\r\n  color: rgba(189, 164, 255, 0.8);\r\n  transform: translateY(1px);\r\n}";
     document.head.appendChild(style);
   }
 
@@ -28,7 +28,6 @@
       webview: host.webview,
       pipFeatureOn: localStorage.getItem("sl-pip-feature") !== "false",
       shellTransport: null,
-      initDiscordRpc: function () {},
       initUpdateChecker: function () {},
     };
 
@@ -46,11 +45,9 @@
     initBackButton();
     initShortcuts(ctx);
     initPictureInPicture(ctx);
-    initDiscordRpcTracker(ctx);
     initUpdateBanner(ctx);
 
     onWindowLoad(function () {
-      ctx.initDiscordRpc();
       ctx.initUpdateChecker();
     });
   }

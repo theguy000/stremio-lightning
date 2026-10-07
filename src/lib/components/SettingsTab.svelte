@@ -1,7 +1,5 @@
 <script lang="ts">
   import {
-    discordRpcEnabled,
-    toggleDiscordRpc,
     blurEnabled,
     blurIntensity,
     applyBlurIntensity,
@@ -18,7 +16,6 @@
 
   const logger = createLogger('ui.settings');
 
-  let discordOn = $state(false);
   let blurOn = $state(true);
   let blurVal = $state(100);
   let autoPauseOn = $state(true);
@@ -26,24 +23,12 @@
   let pipDisablesAutoPauseOn = $state(true);
   let currentPipSize = $state('medium');
 
-  discordRpcEnabled.subscribe((v) => { discordOn = v; });
   blurEnabled.subscribe((v) => { blurOn = v; });
   blurIntensity.subscribe((v) => { blurVal = v; });
   autoPauseEnabled.subscribe((v) => { autoPauseOn = v; });
   pipFeatureEnabled.subscribe((v) => { pipFeatureOn = v; });
   pipDisablesAutoPause.subscribe((v) => { pipDisablesAutoPauseOn = v; });
   pipWindowSize.subscribe((v) => { currentPipSize = v; });
-
-  async function handleDiscordToggle(e: Event) {
-    const checked = (e.target as HTMLInputElement).checked;
-    try {
-      await toggleDiscordRpc(checked);
-    } catch (err) {
-      logger.error('Failed to toggle Discord RPC:', err);
-      // Revert on failure
-      discordRpcEnabled.set(!checked);
-    }
-  }
 
   function handleBlurToggle(e: Event) {
     const checked = (e.target as HTMLInputElement).checked;
@@ -98,22 +83,6 @@
 <div style="max-width:35rem;">
   <div class="sl-section-header">
     <div class="sl-section-title">Settings</div>
-  </div>
-
-  <h3 style="margin:0 0 0.75rem; font-size:1.1rem; font-weight:500; color:var(--primary-foreground-color, #f2f2f2); opacity:0.6;">Integrations</h3>
-
-  <div class="sl-setting-row">
-    <div class="sl-setting-label">
-      <div class="sl-setting-label-text">Discord Rich Presence</div>
-      <div class="sl-setting-label-desc">Show what you're watching on your Discord profile</div>
-    </div>
-    <div class="sl-setting-control">
-      <!-- svelte-ignore a11y_label_has_associated_control -->
-      <label class="sl-toggle">
-        <input type="checkbox" checked={discordOn} onchange={handleDiscordToggle} />
-        <div class="sl-toggle-track"><div class="sl-toggle-thumb"></div></div>
-      </label>
-    </div>
   </div>
 
   <!-- Player section: settings that control native MPV playback behavior -->

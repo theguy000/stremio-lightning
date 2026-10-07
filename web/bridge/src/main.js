@@ -12,7 +12,6 @@ if (!host) {
     webview: host.webview,
     pipFeatureOn: localStorage.getItem("sl-pip-feature") !== "false",
     shellTransport: null,
-    initDiscordRpc: function () {},
     initUpdateChecker: function () {},
   };
 
@@ -30,11 +29,9 @@ if (!host) {
   initBackButton();
   initShortcuts(ctx);
   initPictureInPicture(ctx);
-  initDiscordRpcTracker(ctx);
   initUpdateBanner(ctx);
 
   onWindowLoad(function () {
-    ctx.initDiscordRpc();
     ctx.initUpdateChecker();
   });
 }

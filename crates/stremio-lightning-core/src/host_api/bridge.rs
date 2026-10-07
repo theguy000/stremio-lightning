@@ -781,21 +781,49 @@ impl<P: PlatformBridge> BaseHost<P> {
                 Ok(())
             }
             ParsedRequest::Command { method, data } => {
-                if method == "app-ready" || method == "app-error" {
-                    self.mark_transport_ready()?;
-                } else if method == "win-set-visibility" {
-                    let payload: FullscreenIpcPayload = parse_payload(&method, data)?;
-                    self.bridge.set_window_fullscreen(payload.fullscreen)?;
-                    self.emit_transport_message(response_message(serialize_window_visibility(
-                        true,
-                        self.bridge.is_window_fullscreen()?,
-                    )))?;
-                } else {
-                    let state_update =
-                        Self::player_state_update_from_command(&method, data.as_ref());
-                    self.bridge.handle_custom_transport(&method, data)?;
-                    if let Some(update) = state_update {
-                        self.apply_player_state_update(&update)?;
+                match method.as_str() {
+                    "app-ready" | "app-error" => {
+                        self.mark_transport_ready()?;
+                    }
+                    "win-set-visibility" => {
+                        let payload: FullscreenIpcPayload = parse_payload(&method, data)?;
+                        self.bridge.set_window_fullscreen(payload.fullscreen)?;
+                        self.emit_transport_message(response_message(serialize_window_visibility(
+                            true,
+                            self.bridge.is_window_fullscreen()?,
+                        )))?;
+                    }
+                    "discord-connect" => {
+                        let connected = self.discord_rpc.start().is_ok();
+                        self.emit_transport_message(response_message(serde_json::json!([
+                            "discord-status",
+                            { "connected": connected }
+                        ])))?;
+                    }
+                    "discord-disconnect" => {
+                        let _ = self.discord_rpc.stop();
+                        self.emit_transport_message(response_message(serde_json::json!([
+                            "discord-status",
+                            { "connected": false }
+                        ])))?;
+                    }
+                    "discord-set-activity" => {
+                        if let Some(payload_value) = data {
+                            let activity: crate::discord_rpc::ActivityPayload =
+                                parse_payload(&method, Some(payload_value))?;
+                            let _ = self.discord_rpc.update_activity(&activity);
+                        }
+                    }
+                    "discord-clear-activity" => {
+                        let _ = self.discord_rpc.clear_activity();
+                    }
+                    _ => {
+                        let state_update =
+                            Self::player_state_update_from_command(&method, data.as_ref());
+                        self.bridge.handle_custom_transport(&method, data)?;
+                        if let Some(update) = state_update {
+                            self.apply_player_state_update(&update)?;
+                        }
                     }
                 }
                 Ok(())
