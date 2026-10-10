@@ -1,11 +1,13 @@
 use serde_json::{json, Value};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
+#[cfg(target_os = "macos")]
+use stremio_lightning_core::player_api::EndFileCause;
 pub use stremio_lightning_core::player_api::{
     handle_transport, NativePlayerStatus, PlayerAction, PlayerBackend as TransportPlayerBackend,
 };
 use stremio_lightning_core::player_api::{
-    EndFileCause, PlayerEnded, PlayerEndedError, PlayerEvent, PlayerPropertyChange,
+    PlayerEnded, PlayerEndedError, PlayerEvent, PlayerPropertyChange,
 };
 
 /// A native player that also queues the events it raises for the host to drain.
