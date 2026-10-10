@@ -80,8 +80,9 @@ jobs:
       - name: Validate Rust before packaging
         run: |
           cargo fmt --all -- --check
-          cargo clippy --workspace --all-targets
-          cargo test --workspace
+          # The Windows crate only builds on Windows; the windows job below covers it.
+          cargo clippy --workspace --exclude stremio-lightning-windows --all-targets
+          cargo test --workspace --exclude stremio-lightning-windows
 
       - name: Download Linux shell dependencies
         run: cargo xtask setup-linux
@@ -207,7 +208,7 @@ jobs:
         shell: pwsh
         run: |
           cargo fmt --all -- --check
-          cargo clippy --workspace --all-targets --target x86_64-pc-windows-msvc
+          cargo clippy -p stremio-lightning-windows --all-targets --target x86_64-pc-windows-msvc
           cargo test -p stremio-lightning-windows --target x86_64-pc-windows-msvc
 
       - name: Package Windows portable artifact
