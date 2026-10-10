@@ -3,12 +3,8 @@ use serde_json::{json, Value};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 use stremio_lightning_core::player_api::{
-    EndFileCause, PlayerEnded, PlayerEndedError, PlayerEvent, PlayerPropertyChange,
+    EndFileCause, PlayerCommand, PlayerEnded, PlayerEndedError, PlayerEvent, PlayerPropertyChange,
 };
-
-const PRIMARY_SUBTITLE_PROPERTY: &str = "sid";
-const SECONDARY_SUBTITLE_PROPERTY: &str = "secondary-sid";
-const SUB_ADD_COMMAND: &str = "sub-add";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NativePlayerStatus {
@@ -542,42 +538,15 @@ pub fn handle_transport<B: PlayerBackend>(
     method: &str,
     data: Option<Value>,
 ) -> Result<(), String> {
-    match method {
-        "mpv-observe-prop" => {
-            let name = data
-                .as_ref()
-                .and_then(Value::as_str)
-                .ok_or_else(|| "Invalid mpv-observe-prop payload".to_string())?;
-            backend.observe_property(name.to_string())
-        }
-        "mpv-set-prop" => {
-            let pair = data
-                .as_ref()
-                .and_then(Value::as_array)
-                .ok_or_else(|| "Invalid mpv-set-prop payload".to_string())?;
-            let name = pair
+    PlayerCommand::from_transport(method, data)?.execute_in_order(|command| match command {
+        PlayerCommand::ObserveProperty(name) => backend.observe_property(name),
+        PlayerCommand::SetProperty(name, value) => backend.set_property(name, value),
+        PlayerCommand::Command(values) => {
+            let name = values
                 .first()
                 .and_then(Value::as_str)
-                .ok_or_else(|| "Missing mpv-set-prop name".to_string())?;
-            let value = pair
-                .get(1)
-                .cloned()
-                .ok_or_else(|| "Missing mpv-set-prop value".to_string())?;
-            if name == PRIMARY_SUBTITLE_PROPERTY {
-                disable_secondary_subtitle(backend)?;
-            }
-            backend.set_property(name.to_string(), value)
-        }
-        "mpv-command" => {
-            let args = data
-                .as_ref()
-                .and_then(Value::as_array)
-                .ok_or_else(|| "Invalid mpv-command payload".to_string())?;
-            let name = args
-                .first()
-                .and_then(Value::as_str)
-                .ok_or_else(|| "Missing mpv-command name".to_string())?;
-            let values = args
+                .ok_or("Missing mpv-command name")?;
+            let args = values
                 .iter()
                 .skip(1)
                 .map(|value| match value {
@@ -585,21 +554,10 @@ pub fn handle_transport<B: PlayerBackend>(
                     other => other.to_string(),
                 })
                 .collect();
-            backend.command(name.to_string(), values)?;
-            if name == SUB_ADD_COMMAND {
-                disable_secondary_subtitle(backend)?;
-            }
-            Ok(())
+            backend.command(name.to_string(), args)
         }
-        "native-player-stop" => backend.stop(),
-        other => Err(format!(
-            "Unsupported macOS player transport method: {other}"
-        )),
-    }
-}
-
-fn disable_secondary_subtitle<B: PlayerBackend>(backend: &B) -> Result<(), String> {
-    backend.set_property(SECONDARY_SUBTITLE_PROPERTY.to_string(), Value::from("no"))
+        PlayerCommand::Stop => backend.stop(),
+    })
 }
 
 pub fn serialize_property_change(name: impl Into<String>, data: Value) -> Value {

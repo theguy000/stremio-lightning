@@ -12,9 +12,6 @@ use stremio_lightning_core::player_api::{
     PlayerCommand, PlayerEnded, PlayerEvent, PlayerPropertyChange,
 };
 
-const PRIMARY_SUBTITLE_PROPERTY: &str = "sid";
-const SECONDARY_SUBTITLE_PROPERTY: &str = "secondary-sid";
-const SUB_ADD_COMMAND: &str = "sub-add";
 const MAX_MPV_LOG_MESSAGE_LENGTH: usize = 2_048;
 
 #[derive(Debug, Default)]
@@ -49,70 +46,9 @@ impl WindowsPlayer {
         method: &str,
         payload: Option<Value>,
     ) -> Result<(), PlayerError> {
-        let command = match method {
-            "mpv-observe-prop" => PlayerCommand::ObserveProperty(
-                payload
-                    .and_then(|value| match value {
-                        Value::String(name) => Some(name),
-                        _ => None,
-                    })
-                    .ok_or(PlayerError::MissingPayload("mpv-observe-prop"))?,
-            ),
-            "mpv-set-prop" => {
-                let mut values = payload
-                    .and_then(|value| match value {
-                        Value::Array(values) => Some(values),
-                        _ => None,
-                    })
-                    .ok_or(PlayerError::InvalidPayload("mpv-set-prop"))?;
-                let name = values
-                    .first()
-                    .and_then(Value::as_str)
-                    .ok_or(PlayerError::MissingPropertyName("mpv-set-prop"))?
-                    .to_string();
-                let value = values
-                    .get_mut(1)
-                    .map(std::mem::take)
-                    .ok_or(PlayerError::MissingPropertyValue("mpv-set-prop"))?;
-                PlayerCommand::SetProperty(name, value)
-            }
-            "mpv-command" => PlayerCommand::Command(
-                payload
-                    .and_then(|value| match value {
-                        Value::Array(values) => Some(values),
-                        _ => None,
-                    })
-                    .ok_or(PlayerError::InvalidPayload("mpv-command"))?,
-            ),
-            "native-player-stop" => PlayerCommand::Stop,
-            other => return Err(PlayerError::UnsupportedCommand(other.to_string())),
-        };
-
+        let command = PlayerCommand::from_transport(method, payload).map_err(PlayerError::Other)?;
         log_player_command(&command);
-
-        if matches!(
-            &command,
-            PlayerCommand::SetProperty(name, _) if name == PRIMARY_SUBTITLE_PROPERTY
-        ) {
-            self.disable_secondary_subtitle()?;
-        }
-        let is_sub_add = matches!(
-            &command,
-            PlayerCommand::Command(values)
-                if values.first().and_then(Value::as_str) == Some(SUB_ADD_COMMAND)
-        );
-        self.handle_command(command)?;
-        if is_sub_add {
-            self.disable_secondary_subtitle()?;
-        }
-        Ok(())
-    }
-
-    fn disable_secondary_subtitle(&mut self) -> Result<(), PlayerError> {
-        self.handle_command(PlayerCommand::SetProperty(
-            SECONDARY_SUBTITLE_PROPERTY.to_string(),
-            Value::from("no"),
-        ))
+        command.execute_in_order(|command| self.handle_command(command))
     }
 
     fn handle_command(&mut self, command: PlayerCommand) -> Result<(), PlayerError> {

@@ -6,23 +6,8 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum PlayerError {
-    #[error("Missing {0} payload")]
-    MissingPayload(&'static str),
-
-    #[error("Invalid {0} payload")]
-    InvalidPayload(&'static str),
-
-    #[error("Missing {0} property name")]
-    MissingPropertyName(&'static str),
-
-    #[error("Missing {0} property value")]
-    MissingPropertyValue(&'static str),
-
     #[error("Missing mpv-command name")]
     MissingCommandName,
-
-    #[error("Unsupported Windows player command: {0}")]
-    UnsupportedCommand(String),
 
     #[error("Windows MPV backend is not initialized")]
     NotInitialized,

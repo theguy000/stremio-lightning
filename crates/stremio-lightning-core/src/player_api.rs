@@ -14,6 +14,73 @@ pub enum PlayerCommand {
     Stop,
 }
 
+impl PlayerCommand {
+    /// Decodes an `mpv-*` or `native-player-stop` shell transport message. Every shell
+    /// decodes through here so payload rules and error wording cannot drift apart.
+    ///
+    /// # Errors
+    /// Returns a message naming the method when it is not a player method or its payload
+    /// has the wrong shape.
+    pub fn from_transport(method: &str, data: Option<Value>) -> Result<Self, String> {
+        match method {
+            "mpv-observe-prop" => match data {
+                Some(Value::String(name)) => Ok(Self::ObserveProperty(name)),
+                _ => Err("Invalid mpv-observe-prop payload".to_string()),
+            },
+            "mpv-set-prop" => {
+                let Some(Value::Array(mut values)) = data else {
+                    return Err("Invalid mpv-set-prop payload".to_string());
+                };
+                let name = values
+                    .first()
+                    .and_then(Value::as_str)
+                    .ok_or("Missing mpv-set-prop name")?
+                    .to_string();
+                let value = values
+                    .get_mut(1)
+                    .map(std::mem::take)
+                    .ok_or("Missing mpv-set-prop value")?;
+                Ok(Self::SetProperty(name, value))
+            }
+            "mpv-command" => match data {
+                Some(Value::Array(values)) if values.first().is_some_and(Value::is_string) => {
+                    Ok(Self::Command(values))
+                }
+                Some(Value::Array(_)) => Err("Missing mpv-command name".to_string()),
+                _ => Err("Invalid mpv-command payload".to_string()),
+            },
+            "native-player-stop" => Ok(Self::Stop),
+            other => Err(format!("Unsupported MPV transport method: {other}")),
+        }
+    }
+
+    /// Runs this command through `execute`, adding the secondary-subtitle rule: mpv's
+    /// secondary subtitle is switched off whenever the primary track changes, before
+    /// `sid` is set and after `sub-add`, so two tracks never render at once.
+    ///
+    /// # Errors
+    /// Returns the first error `execute` reports; later steps are not run.
+    pub fn execute_in_order<E>(
+        self,
+        mut execute: impl FnMut(Self) -> Result<(), E>,
+    ) -> Result<(), E> {
+        let disable_secondary =
+            || Self::SetProperty("secondary-sid".to_string(), Value::from("no"));
+        if matches!(&self, Self::SetProperty(name, _) if name == "sid") {
+            execute(disable_secondary())?;
+        }
+        let after = matches!(
+            &self,
+            Self::Command(values) if values.first().and_then(Value::as_str) == Some("sub-add")
+        );
+        execute(self)?;
+        if after {
+            execute(disable_secondary())?;
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub struct PlayerPropertyChange {
     pub name: String,
@@ -155,6 +222,107 @@ impl PlayerEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn transport_messages_decode_into_player_commands() {
+        let ok = [
+            (
+                "mpv-observe-prop",
+                json!("pause"),
+                PlayerCommand::ObserveProperty("pause".into()),
+            ),
+            (
+                "mpv-set-prop",
+                json!(["pause", true]),
+                PlayerCommand::SetProperty("pause".into(), json!(true)),
+            ),
+            (
+                "mpv-command",
+                json!(["loadfile", "x"]),
+                PlayerCommand::Command(vec![json!("loadfile"), json!("x")]),
+            ),
+        ];
+        for (method, data, expected) in ok {
+            assert_eq!(
+                PlayerCommand::from_transport(method, Some(data)),
+                Ok(expected)
+            );
+        }
+        assert_eq!(
+            PlayerCommand::from_transport("native-player-stop", None),
+            Ok(PlayerCommand::Stop)
+        );
+
+        let bad = [
+            ("mpv-observe-prop", None, "Invalid mpv-observe-prop payload"),
+            (
+                "mpv-set-prop",
+                Some(json!("pause")),
+                "Invalid mpv-set-prop payload",
+            ),
+            (
+                "mpv-set-prop",
+                Some(json!([1, true])),
+                "Missing mpv-set-prop name",
+            ),
+            (
+                "mpv-set-prop",
+                Some(json!(["pause"])),
+                "Missing mpv-set-prop value",
+            ),
+            (
+                "mpv-command",
+                Some(json!({})),
+                "Invalid mpv-command payload",
+            ),
+            ("mpv-command", Some(json!([])), "Missing mpv-command name"),
+            (
+                "mpv-nope",
+                None,
+                "Unsupported MPV transport method: mpv-nope",
+            ),
+        ];
+        for (method, data, message) in bad {
+            assert_eq!(
+                PlayerCommand::from_transport(method, data),
+                Err(message.to_string())
+            );
+        }
+    }
+
+    #[test]
+    fn secondary_subtitle_is_disabled_around_primary_track_changes() {
+        let off = PlayerCommand::SetProperty("secondary-sid".into(), json!("no"));
+        let run = |command: PlayerCommand| {
+            let mut seen = Vec::new();
+            command
+                .execute_in_order(|step| {
+                    seen.push(step);
+                    Ok::<(), String>(())
+                })
+                .unwrap();
+            seen
+        };
+
+        let set_sid = PlayerCommand::SetProperty("sid".into(), json!(3));
+        assert_eq!(run(set_sid.clone()), [off.clone(), set_sid]);
+
+        let sub_add = PlayerCommand::Command(vec![json!("sub-add"), json!("a.srt")]);
+        assert_eq!(run(sub_add.clone()), [sub_add, off]);
+
+        assert_eq!(run(PlayerCommand::Stop), [PlayerCommand::Stop]);
+    }
+
+    #[test]
+    fn a_failed_step_stops_the_sequence() {
+        let mut calls = 0;
+        let result = PlayerCommand::SetProperty("sid".into(), json!(3)).execute_in_order(|_| {
+            calls += 1;
+            Err::<(), _>("boom")
+        });
+        assert_eq!(result, Err("boom"));
+        assert_eq!(calls, 1);
+    }
 
     #[test]
     fn serializes_player_command_names() {
