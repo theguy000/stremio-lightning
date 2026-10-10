@@ -5,7 +5,7 @@
 
 use gtk::gio::{self, prelude::*};
 use gtk::glib::{self, prelude::ToVariant};
-use gtk::prelude::GtkApplicationExt;
+use gtk::prelude::{GtkApplicationExt, GtkWindowExt};
 use std::cell::RefCell;
 use std::rc::Rc;
 use stremio_lightning_identity::{APP_ID, APP_NAME};
