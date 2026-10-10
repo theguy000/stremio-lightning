@@ -1,5 +1,5 @@
 use crate::app::AppConfig;
-use crate::player::{MpvPlayerBackend, PlayerBackend};
+use crate::player::{MpvPlayerBackend, TransportPlayerBackend as _};
 use crate::streaming_server::RealProcessSpawner;
 use crate::webview_runtime::{MacosWebviewRuntime, WebviewLoadState};
 

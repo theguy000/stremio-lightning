@@ -81,6 +81,77 @@ impl PlayerCommand {
     }
 }
 
+/// What a shell's native player reports about itself.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NativePlayerStatus {
+    pub enabled: bool,
+    pub initialized: bool,
+    pub backend: String,
+}
+
+/// A player request as a shell backend receives it, after transport decoding.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PlayerAction {
+    ObserveProperty(String),
+    SetProperty { name: String, value: Value },
+    Command { name: String, args: Vec<String> },
+    Stop,
+}
+
+/// The player operations a shell must provide. [`handle_transport`] turns shell
+/// transport messages into calls on this trait.
+pub trait PlayerBackend: Send + Sync + 'static {
+    fn status(&self) -> NativePlayerStatus;
+
+    /// # Errors
+    /// Returns an error when the backend cannot observe the property.
+    fn observe_property(&self, name: String) -> Result<(), String>;
+
+    /// # Errors
+    /// Returns an error when the backend cannot set the property.
+    fn set_property(&self, name: String, value: Value) -> Result<(), String>;
+
+    /// # Errors
+    /// Returns an error when the backend cannot run the command.
+    fn command(&self, name: String, args: Vec<String>) -> Result<(), String>;
+
+    /// # Errors
+    /// Returns an error when the backend cannot stop playback.
+    fn stop(&self) -> Result<(), String>;
+}
+
+/// Decodes a shell transport message and runs it on `backend`, in the order
+/// [`PlayerCommand::execute_in_order`] defines.
+///
+/// # Errors
+/// Returns the decoding error, or the first error the backend reports.
+pub fn handle_transport<B: PlayerBackend>(
+    backend: &B,
+    method: &str,
+    data: Option<Value>,
+) -> Result<(), String> {
+    PlayerCommand::from_transport(method, data)?.execute_in_order(|command| match command {
+        PlayerCommand::ObserveProperty(name) => backend.observe_property(name),
+        PlayerCommand::SetProperty(name, value) => backend.set_property(name, value),
+        PlayerCommand::Command(values) => {
+            let name = values
+                .first()
+                .and_then(Value::as_str)
+                .ok_or("Missing mpv-command name")?;
+            let args = values
+                .iter()
+                .skip(1)
+                .map(|value| match value {
+                    Value::String(string) => string.clone(),
+                    other => other.to_string(),
+                })
+                .collect();
+            backend.command(name.to_string(), args)
+        }
+        PlayerCommand::Stop => backend.stop(),
+    })
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub struct PlayerPropertyChange {
     pub name: String,
@@ -409,5 +480,132 @@ mod tests {
         for name in ["path", "media-title", "mute", "time-pos"] {
             assert!(!is_json_string_property(name), "{name}");
         }
+    }
+
+    #[derive(Default)]
+    struct RecordingBackend {
+        actions: std::sync::Mutex<Vec<PlayerAction>>,
+    }
+
+    impl RecordingBackend {
+        fn actions(&self) -> Vec<PlayerAction> {
+            self.actions.lock().unwrap().clone()
+        }
+
+        fn record(&self, action: PlayerAction) {
+            self.actions.lock().unwrap().push(action);
+        }
+    }
+
+    impl PlayerBackend for RecordingBackend {
+        fn status(&self) -> NativePlayerStatus {
+            NativePlayerStatus {
+                enabled: true,
+                initialized: true,
+                backend: "recording".to_string(),
+            }
+        }
+
+        fn observe_property(&self, name: String) -> Result<(), String> {
+            self.record(PlayerAction::ObserveProperty(name));
+            Ok(())
+        }
+
+        fn set_property(&self, name: String, value: Value) -> Result<(), String> {
+            self.record(PlayerAction::SetProperty { name, value });
+            Ok(())
+        }
+
+        fn command(&self, name: String, args: Vec<String>) -> Result<(), String> {
+            self.record(PlayerAction::Command { name, args });
+            Ok(())
+        }
+
+        fn stop(&self) -> Result<(), String> {
+            self.record(PlayerAction::Stop);
+            Ok(())
+        }
+    }
+
+    fn secondary_off() -> PlayerAction {
+        PlayerAction::SetProperty {
+            name: "secondary-sid".to_string(),
+            value: json!("no"),
+        }
+    }
+
+    #[test]
+    fn handle_transport_maps_each_method_to_a_backend_call() {
+        let backend = RecordingBackend::default();
+
+        handle_transport(&backend, "mpv-observe-prop", Some(json!("pause"))).unwrap();
+        handle_transport(&backend, "mpv-set-prop", Some(json!(["pause", true]))).unwrap();
+        handle_transport(
+            &backend,
+            "mpv-command",
+            Some(json!(["loadfile", "file:///tmp/sample.mp4", "replace", 1])),
+        )
+        .unwrap();
+        handle_transport(&backend, "native-player-stop", None).unwrap();
+
+        assert_eq!(
+            backend.actions(),
+            vec![
+                PlayerAction::ObserveProperty("pause".to_string()),
+                PlayerAction::SetProperty {
+                    name: "pause".to_string(),
+                    value: json!(true),
+                },
+                PlayerAction::Command {
+                    name: "loadfile".to_string(),
+                    args: vec![
+                        "file:///tmp/sample.mp4".to_string(),
+                        "replace".to_string(),
+                        "1".to_string(),
+                    ],
+                },
+                PlayerAction::Stop,
+            ]
+        );
+    }
+
+    #[test]
+    fn handle_transport_clears_secondary_subtitle_around_track_changes() {
+        let backend = RecordingBackend::default();
+
+        handle_transport(&backend, "mpv-set-prop", Some(json!(["sid", 3]))).unwrap();
+        handle_transport(
+            &backend,
+            "mpv-command",
+            Some(json!(["sub-add", "file:///tmp/sub.srt", "select"])),
+        )
+        .unwrap();
+
+        assert_eq!(
+            backend.actions(),
+            vec![
+                secondary_off(),
+                PlayerAction::SetProperty {
+                    name: "sid".to_string(),
+                    value: json!(3),
+                },
+                PlayerAction::Command {
+                    name: "sub-add".to_string(),
+                    args: vec!["file:///tmp/sub.srt".to_string(), "select".to_string()],
+                },
+                secondary_off(),
+            ]
+        );
+    }
+
+    #[test]
+    fn handle_transport_rejects_bad_messages_without_calling_the_backend() {
+        let backend = RecordingBackend::default();
+
+        assert_eq!(
+            handle_transport(&backend, "mpv-nope", None),
+            Err("Unsupported MPV transport method: mpv-nope".to_string())
+        );
+        assert!(backend.actions().is_empty());
     }
 }
