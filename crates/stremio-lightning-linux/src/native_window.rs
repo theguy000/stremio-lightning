@@ -387,7 +387,7 @@ fn build_webview(
             gtk::ShortcutTrigger::parse_string(keys),
             Some(gtk::CallbackAction::new(move |_, _| {
                 if bypass_cache {
-                    webview.reload_from_origin();
+                    webview.reload_bypass_cache();
                 } else {
                     webview.reload();
                 }
@@ -770,8 +770,8 @@ impl NativeWindowIpc for LinuxWebviewRuntime<MpvPlayerBackend, RealProcessSpawne
                         window,
                         fullscreen,
                     };
-                    let _enabled = self.toggle_picture_in_picture(&mut controller)?;
-                    return Ok(Value::Null);
+                    let enabled = self.toggle_picture_in_picture(&mut controller)?;
+                    return Ok(json!(enabled));
                 }
 
                 if invoke_command(payload.as_ref()) == Some("toggle_devtools") {
@@ -791,6 +791,7 @@ impl NativeWindowIpc for LinuxWebviewRuntime<MpvPlayerBackend, RealProcessSpawne
                         .and_then(|value| value.get("payload"))
                         .and_then(|value| value.get("level"))
                         .and_then(Value::as_f64)
+                        .and_then(stremio_lightning_core::host_api::valid_zoom_level)
                         .ok_or_else(|| "Invalid webview.setZoom payload".to_string())?;
                     // WebKitGTK's zoom level is a logarithmic scale where 0.0 is
                     // 100%, while the bridge sends a plain factor.
@@ -1572,7 +1573,10 @@ mod tests {
     #[test]
     fn maps_end_file_reasons_onto_the_shared_vocabulary() {
         assert_eq!(end_file_cause(mpv_end_file_reason::Eof), EndFileCause::Eof);
-        assert_eq!(end_file_cause(mpv_end_file_reason::Stop), EndFileCause::Stop);
+        assert_eq!(
+            end_file_cause(mpv_end_file_reason::Stop),
+            EndFileCause::Stop
+        );
         assert_eq!(
             end_file_cause(mpv_end_file_reason::Redirect),
             EndFileCause::Redirect

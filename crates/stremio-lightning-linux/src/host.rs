@@ -209,11 +209,11 @@ where
     }
 
     pub fn listen_with_id(&self, id: u64, event: impl Into<String>) -> Result<(), String> {
-        self.base.listen_with_id(id, event)
+        self.base.listen_with_id(id, event).map_err(Into::into)
     }
 
     pub fn unlisten(&self, id: u64) -> Result<(), String> {
-        self.base.unlisten(id)
+        self.base.unlisten(id).map_err(Into::into)
     }
 
     pub fn emitted_events(&self) -> Result<Vec<HostEventRecord>, String> {
@@ -221,7 +221,7 @@ where
     }
 
     pub fn drain_emitted_events(&self) -> Result<Vec<HostEventRecord>, String> {
-        self.base.drain_emitted_events()
+        self.base.drain_emitted_events().map_err(Into::into)
     }
 
     pub fn native_player_status(&self) -> NativePlayerStatus {
@@ -231,6 +231,7 @@ where
     pub fn emit_transport_event(&self, args: Value) -> Result<(), String> {
         self.base
             .queue_transport_message(host_api::response_message(args))
+            .map_err(Into::into)
     }
 
     pub fn emit_native_player_property_changed(
@@ -303,6 +304,7 @@ where
     pub fn emit_window_maximized_changed(&self, maximized: bool) -> Result<(), String> {
         self.base
             .emit_host_event(HostEvent::WindowMaximizedChanged, json!(maximized))
+            .map_err(Into::into)
     }
 
     /// Mirrors the Windows shell: core has no typed `HostEvent` for window
@@ -316,19 +318,23 @@ where
     pub fn emit_window_fullscreen_changed(&self, fullscreen: bool) -> Result<(), String> {
         self.base
             .emit_host_event(HostEvent::WindowFullscreenChanged, json!(fullscreen))?;
-        self.base.emit_transport_message(host_api::response_message(
-            host_api::serialize_window_visibility(true, fullscreen),
-        ))
+        self.base
+            .emit_transport_message(host_api::response_message(
+                host_api::serialize_window_visibility(true, fullscreen),
+            ))
+            .map_err(Into::into)
     }
 
     pub fn emit_server_started(&self) -> Result<(), String> {
         self.base
             .emit_host_event(HostEvent::ServerStarted, Value::Null)
+            .map_err(Into::into)
     }
 
     pub fn emit_server_stopped(&self) -> Result<(), String> {
         self.base
             .emit_host_event(HostEvent::ServerStopped, Value::Null)
+            .map_err(Into::into)
     }
 }
 

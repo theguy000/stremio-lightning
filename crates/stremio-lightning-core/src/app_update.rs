@@ -72,42 +72,38 @@ fn normalize_version(version: &str) -> String {
 }
 
 fn is_newer_version(candidate: &str, installed: &str) -> bool {
-    let parse = |version: &str| -> Vec<(u64, bool)> {
-        version
-            .strip_prefix('v')
-            .unwrap_or(version)
-            .split('.')
-            .map(|part| {
-                let (num_part, is_prerelease) = if let Some(idx) = part.find('-') {
-                    (&part[..idx], true)
-                } else {
-                    (part, false)
-                };
-                (num_part.parse::<u64>().unwrap_or(0), is_prerelease)
-            })
-            .collect()
-    };
+    use std::cmp::Ordering;
 
-    let candidate_parts = parse(candidate);
-    let installed_parts = parse(installed);
-    for index in 0..candidate_parts.len().max(installed_parts.len()) {
-        let (candidate_num, candidate_pre) =
-            candidate_parts.get(index).copied().unwrap_or((0, false));
-        let (installed_num, installed_pre) =
-            installed_parts.get(index).copied().unwrap_or((0, false));
-        if candidate_num > installed_num
-            || (candidate_num == installed_num && !candidate_pre && installed_pre)
-        {
-            return true;
-        }
-        if candidate_num < installed_num
-            || (candidate_num == installed_num && candidate_pre && !installed_pre)
-        {
-            return false;
-        }
+    fn parse(version: &str) -> (Vec<u64>, Option<&str>) {
+        let (core, pre) = version
+            .split_once('-')
+            .map_or((version, None), |(core, pre)| (core, Some(pre)));
+        (
+            core.split('.').map(|p| p.parse().unwrap_or(0)).collect(),
+            pre,
+        )
+    }
+    // Semver precedence: numeric identifiers sort below alphanumeric ones.
+    fn pre_key(pre: &str) -> impl Iterator<Item = (u8, u64, &str)> + '_ {
+        pre.split('.')
+            .map(|id| id.parse().map_or((1, 0, id), |n| (0, n, "")))
     }
 
-    false
+    let ((mut candidate_core, candidate_pre), (mut installed_core, installed_pre)) =
+        (parse(candidate), parse(installed));
+    let len = candidate_core.len().max(installed_core.len());
+    candidate_core.resize(len, 0);
+    installed_core.resize(len, 0);
+
+    candidate_core
+        .cmp(&installed_core)
+        .then_with(|| match (candidate_pre, installed_pre) {
+            (None, None) => Ordering::Equal,
+            (None, Some(_)) => Ordering::Greater,
+            (Some(_), None) => Ordering::Less,
+            (Some(c), Some(i)) => pre_key(c).cmp(pre_key(i)),
+        })
+        == Ordering::Greater
 }
 
 #[cfg(test)]
@@ -158,6 +154,13 @@ mod tests {
         assert!(is_newer_version("1.0.0", "1.0.0-beta.1"));
         assert!(!is_newer_version("1.0.0-beta.1", "1.0.0"));
         assert!(!is_newer_version("1.0.0", "1.0.0"));
+        // Prerelease names order alphabetically, numbers after them.
+        assert!(is_newer_version("1.0.0-rc.1", "1.0.0-beta.2"));
+        assert!(is_newer_version("1.0.0-beta.2", "1.0.0-beta.1"));
+        assert!(is_newer_version("1.0.0-beta.10", "1.0.0-beta.2"));
+        assert!(!is_newer_version("1.0.0-beta.2", "1.0.0-rc.1"));
+        assert!(!is_newer_version("1.0.0-rc.1", "1.0.0-rc.1"));
+        assert!(is_newer_version("1.1", "1.0.9"));
     }
 
     #[tokio::test]

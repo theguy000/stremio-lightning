@@ -2,49 +2,35 @@ use crate::host::Host;
 use crate::player::PlayerBackend;
 use crate::streaming_server::ProcessSpawner;
 use serde_json::Value;
+use std::ops::Deref;
 use std::sync::Arc;
 use std::time::Duration;
-use stremio_lightning_core::bridge_assets::{bridge_scripts, load_mod_ui_source, InjectionScript};
+pub use stremio_lightning_core::bridge_assets::MOD_UI_NAME;
+pub use stremio_lightning_core::webview_runtime::WebviewLoadState;
+use stremio_lightning_core::webview_runtime::{
+    event_dispatch_scripts, InjectionBundle as CoreInjectionBundle, WebviewSession,
+};
 
 pub const MACOS_HOST_ADAPTER_NAME: &str = "macos-host-adapter";
 pub const HOST_ADAPTER_NAME: &str = MACOS_HOST_ADAPTER_NAME;
-pub const MOD_UI_NAME: &str = "mod-ui-svelte.iife.js";
+const DISPATCH_GLOBAL: &str = "__STREMIO_LIGHTNING_MACOS_DISPATCH__";
 
+/// The core injection bundle, built from this shell's host adapter.
 #[derive(Debug, Clone)]
-pub struct InjectionBundle {
-    scripts: Vec<InjectionScript>,
-}
+pub struct InjectionBundle(CoreInjectionBundle);
 
 impl InjectionBundle {
     pub fn load() -> Result<Self, String> {
-        let mut scripts = vec![InjectionScript {
-            name: HOST_ADAPTER_NAME,
-            source: host_adapter(),
-        }];
-        scripts.extend(bridge_scripts());
-        scripts.push(InjectionScript {
-            name: MOD_UI_NAME,
-            source: load_mod_ui_source()?,
-        });
-
-        Ok(Self { scripts })
-    }
-
-    pub fn scripts(&self) -> &[InjectionScript] {
-        &self.scripts
-    }
-
-    pub fn script_names(&self) -> Vec<&'static str> {
-        self.scripts.iter().map(|script| script.name).collect()
+        CoreInjectionBundle::load(HOST_ADAPTER_NAME, host_adapter()).map(Self)
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct WebviewLoadState {
-    pub url: String,
-    pub devtools: bool,
-    pub document_start_scripts: Vec<&'static str>,
-    pub loaded: bool,
+impl Deref for InjectionBundle {
+    type Target = CoreInjectionBundle;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -60,11 +46,8 @@ where
     B: PlayerBackend,
     P: ProcessSpawner,
 {
-    url: String,
-    devtools: bool,
-    injection: InjectionBundle,
+    session: WebviewSession,
     host: Arc<Host<B, P>>,
-    loaded: bool,
 }
 
 pub type WebviewRuntime<B, P> = MacosWebviewRuntime<B, P>;
@@ -81,18 +64,13 @@ where
         host: Arc<Host<B, P>>,
     ) -> Self {
         Self {
-            url: url.into(),
-            devtools,
-            injection,
+            session: WebviewSession::new(url, devtools, injection.0),
             host,
-            loaded: false,
         }
     }
 
     pub fn load(&mut self) -> Result<WebviewLoadState, String> {
-        validate_load_url(&self.url)?;
-        self.loaded = true;
-        Ok(self.load_state())
+        self.session.load()
     }
 
     pub fn bootstrap_headless(mut self) -> Result<WebviewLoadState, String> {
@@ -100,12 +78,7 @@ where
     }
 
     pub fn load_state(&self) -> WebviewLoadState {
-        WebviewLoadState {
-            url: self.url.clone(),
-            devtools: self.devtools,
-            document_start_scripts: self.injection.script_names(),
-            loaded: self.loaded,
-        }
+        self.session.load_state()
     }
 
     pub fn invoke_host_init(&self) -> Result<serde_json::Value, String> {
@@ -121,27 +94,11 @@ where
     }
 
     pub fn script_source(&self, name: &str) -> Option<String> {
-        self.injection
-            .scripts()
-            .iter()
-            .find(|script| script.name == name)
-            .map(|script| script.source.clone())
+        self.session.script_source(name).map(str::to_string)
     }
 
     pub fn drain_event_dispatch_scripts(&self) -> Result<Vec<String>, String> {
-        self.host
-            .drain_emitted_events()?
-            .into_iter()
-            .map(|event| {
-                let event_name = serde_json::to_string(&event.event)
-                    .map_err(|e| format!("Failed to serialize macOS host event name: {e}"))?;
-                let payload = serde_json::to_string(&event.payload)
-                    .map_err(|e| format!("Failed to serialize macOS host event payload: {e}"))?;
-                Ok(format!(
-                    "window.__STREMIO_LIGHTNING_MACOS_DISPATCH__({event_name}, {payload});"
-                ))
-            })
-            .collect()
+        event_dispatch_scripts(DISPATCH_GLOBAL, self.host.drain_emitted_events()?)
     }
 
     pub fn web_ui_smoke_report(&self) -> WebUiSmokeReport {
@@ -153,7 +110,7 @@ where
                 .script_source(MOD_UI_NAME)
                 .map(|source| !source.trim().is_empty())
                 .unwrap_or(false),
-            document_start_scripts: self.injection.script_names(),
+            document_start_scripts: self.load_state().document_start_scripts,
         }
     }
 
@@ -252,14 +209,6 @@ fn host_adapter() -> String {
         .to_string()
 }
 
-fn validate_load_url(url: &str) -> Result<(), String> {
-    if url.starts_with("http://") || url.starts_with("https://") || url.starts_with("file://") {
-        Ok(())
-    } else {
-        Err(format!("Unsupported macOS webview URL: {url}"))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -267,6 +216,7 @@ mod tests {
     use crate::player::FakePlayerBackend;
     use crate::streaming_server::{FakeProcessSpawner, StreamingServer};
     use serde_json::json;
+    use stremio_lightning_core::bridge_assets::bridge_scripts;
 
     #[test]
     fn injection_order_puts_macos_adapter_before_bridge() {
@@ -304,14 +254,6 @@ mod tests {
         assert!(state.loaded);
         assert!(state.devtools);
         assert_eq!(state.url, "file:///tmp/smoke.html");
-    }
-
-    #[test]
-    fn rejects_unsupported_url_scheme() {
-        assert_eq!(
-            validate_load_url("stremio://detail/movie").unwrap_err(),
-            "Unsupported macOS webview URL: stremio://detail/movie"
-        );
     }
 
     #[test]

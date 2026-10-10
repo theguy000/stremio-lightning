@@ -12,12 +12,12 @@ pub use handlers::{
     split_invoke_payload, stremio_deep_link_transport_args,
 };
 pub use types::{
-    DownloadModPayload, FocusChangedPayload, FullscreenIpcPayload, GetLogsPayload, HostApiError,
-    HostCommand, HostEvent, HostEventRecord, InterfaceScalePayload, IpcRequest, ListenIpcPayload, ListenerRegistry,
-    ModFilePayload, ModTypePayload, ParsedRequest, PlatformBridge, RegisterSettingsPayload,
-    RpcRequest, RpcResponse, RpcResponseData, RpcResponseDataTransport, SaveSettingPayload,
-    SetExtendedDiagnosticsPayload, SettingKeyPayload, ShellPreferenceState,
-    SubmitDiagnosticLogsPayload, UnlistenIpcPayload, ZoomIpcPayload,
+    valid_zoom_level, DownloadModPayload, FocusChangedPayload, FullscreenIpcPayload,
+    GetLogsPayload, HostApiError, HostEvent, HostEventRecord, InterfaceScalePayload, IpcRequest,
+    ListenIpcPayload, ListenerRegistry, ModFilePayload, ModTypePayload, ParsedRequest,
+    PlatformBridge, RegisterSettingsPayload, RpcRequest, RpcResponse, RpcResponseData,
+    RpcResponseDataTransport, SaveSettingPayload, SetExtendedDiagnosticsPayload, SettingKeyPayload,
+    ShellPreferenceState, SubmitDiagnosticLogsPayload, UnlistenIpcPayload, ZoomIpcPayload,
     DEFAULT_STREAMING_SERVER_URL, RPC_TYPE_INIT, RPC_TYPE_INVOKE_METHOD, RPC_TYPE_SIGNAL,
     SHELL_TRANSPORT_EVENT, TRANSPORT_OBJECT,
 };

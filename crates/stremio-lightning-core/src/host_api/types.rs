@@ -50,48 +50,6 @@ impl From<HostApiError> for String {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum HostCommand {
-    Init,
-    ToggleDevtools,
-    OpenExternalUrl,
-    ShellTransportSend,
-    ShellBridgeReady,
-    GetNativePlayerStatus,
-    StartStreamingServer,
-    StopStreamingServer,
-    RestartStreamingServer,
-    GetStreamingServerStatus,
-    GetPlugins,
-    GetThemes,
-    DownloadMod,
-    DeleteMod,
-    GetModContent,
-    GetRegistry,
-    CheckModUpdates,
-    GetSetting,
-    SaveSetting,
-    RegisterSettings,
-    GetRegisteredSettings,
-    StartDiscordRpc,
-    StopDiscordRpc,
-    UpdateDiscordActivity,
-    CheckAppUpdate,
-    SetAutoPause,
-    GetAutoPause,
-    SetPipDisablesAutoPause,
-    GetPipDisablesAutoPause,
-    TogglePip,
-    GetPipMode,
-    SetPipSize,
-    GetLogs,
-    SubmitDiagnosticLogs,
-    SetExtendedDiagnostics,
-    GetDiagnosticReport,
-    ClearDiagnostics,
-}
-
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 pub enum HostEvent {
     #[serde(rename = "window-maximized-changed")]
@@ -482,6 +440,12 @@ pub struct ZoomIpcPayload {
 #[derive(Debug, Deserialize)]
 pub struct InterfaceScalePayload {
     pub scale: f64,
+}
+
+/// Zoom factor (1.0 is 100%) if inside the range every shell may apply; NaN and infinities are not.
+#[must_use]
+pub fn valid_zoom_level(level: f64) -> Option<f64> {
+    (0.25..=4.0).contains(&level).then_some(level)
 }
 
 /// Sent by Stremio Web's `useMediaSession` as `shell.send('media.status', { paused })`.

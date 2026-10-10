@@ -817,28 +817,24 @@ mod windows_impl {
         }
         let value: serde_json::Value = serde_json::from_str(message).ok()?;
 
-        if value["kind"] == "webview.setZoom" {
-            return value["payload"]["level"].as_f64();
-        }
-
-        if value["kind"] == "invoke" && value["payload"]["command"] == "webview.setZoom" {
-            return value["payload"]["payload"]["level"].as_f64();
-        }
-
-        if value["kind"] == "invoke" && value["payload"]["command"] == "shell_transport_send" {
+        let level = if value["kind"] == "webview.setZoom" {
+            value["payload"]["level"].as_f64()?
+        } else if value["kind"] == "invoke" && value["payload"]["command"] == "webview.setZoom" {
+            value["payload"]["payload"]["level"].as_f64()?
+        } else if value["kind"] == "invoke" && value["payload"]["command"] == "shell_transport_send"
+        {
             let inner_msg = value["payload"]["payload"]["message"].as_str()?;
             let inner: serde_json::Value = serde_json::from_str(inner_msg).ok()?;
             let args = inner["args"].as_array()?;
-            if args.first().and_then(serde_json::Value::as_str) == Some("win-set-interface-scale") {
-                let scale = args.get(1)?.get("scale")?.as_f64()?;
-                let level = scale / 100.0;
-                if level.is_finite() && (0.25..=4.0).contains(&level) {
-                    return Some(level);
-                }
+            if args.first().and_then(serde_json::Value::as_str) != Some("win-set-interface-scale") {
+                return None;
             }
-        }
+            args.get(1)?.get("scale")?.as_f64()? / 100.0
+        } else {
+            return None;
+        };
 
-        None
+        stremio_lightning_core::host_api::valid_zoom_level(level)
     }
 
     fn set_webview_zoom(controller: &ICoreWebView2Controller, level: f64) {

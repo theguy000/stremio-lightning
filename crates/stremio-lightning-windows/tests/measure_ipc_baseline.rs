@@ -854,7 +854,7 @@ fn bench_10_real_player_tick_pipeline() {
         temp_dir("player-tick-pipeline"),
         true,
     );
-    host.dispatch_windows_ipc(
+    host.dispatch_ipc(
         "listen",
         Some(json!({ "id": 1, "event": "shell-transport-message" })),
     )

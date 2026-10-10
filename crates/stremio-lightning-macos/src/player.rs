@@ -1,37 +1,17 @@
-use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
+pub use stremio_lightning_core::player_api::{
+    handle_transport, NativePlayerStatus, PlayerAction, PlayerBackend as TransportPlayerBackend,
+};
 use stremio_lightning_core::player_api::{
     EndFileCause, PlayerEnded, PlayerEndedError, PlayerEvent, PlayerPropertyChange,
 };
 
-const PRIMARY_SUBTITLE_PROPERTY: &str = "sid";
-const SECONDARY_SUBTITLE_PROPERTY: &str = "secondary-sid";
-const SUB_ADD_COMMAND: &str = "sub-add";
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct NativePlayerStatus {
-    pub enabled: bool,
-    pub initialized: bool,
-    pub backend: String,
-}
-
-pub trait PlayerBackend: Clone + Send + Sync + 'static {
-    fn status(&self) -> NativePlayerStatus;
-    fn observe_property(&self, name: String) -> Result<(), String>;
-    fn set_property(&self, name: String, value: Value) -> Result<(), String>;
-    fn command(&self, name: String, args: Vec<String>) -> Result<(), String>;
-    fn stop(&self) -> Result<(), String>;
+/// A native player that also queues the events it raises for the host to drain.
+/// Transport requests go through the core [`TransportPlayerBackend`] operations.
+pub trait PlayerBackend: TransportPlayerBackend + Clone {
     fn drain_events(&self) -> Result<Vec<PlayerEvent>, String>;
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum PlayerAction {
-    ObserveProperty(String),
-    SetProperty { name: String, value: Value },
-    Command { name: String, args: Vec<String> },
-    Stop,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -145,7 +125,7 @@ impl FakePlayerBackend {
     }
 }
 
-impl PlayerBackend for FakePlayerBackend {
+impl TransportPlayerBackend for FakePlayerBackend {
     fn status(&self) -> NativePlayerStatus {
         NativePlayerStatus {
             enabled: true,
@@ -185,7 +165,9 @@ impl PlayerBackend for FakePlayerBackend {
             .push(PlayerAction::Stop);
         Ok(())
     }
+}
 
+impl PlayerBackend for FakePlayerBackend {
     fn drain_events(&self) -> Result<Vec<PlayerEvent>, String> {
         Ok(std::mem::take(
             &mut *self.events.lock().map_err(|e| e.to_string())?,
@@ -505,7 +487,7 @@ mod macos_mpv {
     }
 }
 
-impl PlayerBackend for MpvPlayerBackend {
+impl TransportPlayerBackend for MpvPlayerBackend {
     fn status(&self) -> NativePlayerStatus {
         NativePlayerStatus {
             enabled: true,
@@ -529,77 +511,14 @@ impl PlayerBackend for MpvPlayerBackend {
     fn stop(&self) -> Result<(), String> {
         self.send(MpvBackendCommand::Stop)
     }
+}
 
+impl PlayerBackend for MpvPlayerBackend {
     fn drain_events(&self) -> Result<Vec<PlayerEvent>, String> {
         Ok(std::mem::take(
             &mut *self.events.lock().map_err(|e| e.to_string())?,
         ))
     }
-}
-
-pub fn handle_transport<B: PlayerBackend>(
-    backend: &B,
-    method: &str,
-    data: Option<Value>,
-) -> Result<(), String> {
-    match method {
-        "mpv-observe-prop" => {
-            let name = data
-                .as_ref()
-                .and_then(Value::as_str)
-                .ok_or_else(|| "Invalid mpv-observe-prop payload".to_string())?;
-            backend.observe_property(name.to_string())
-        }
-        "mpv-set-prop" => {
-            let pair = data
-                .as_ref()
-                .and_then(Value::as_array)
-                .ok_or_else(|| "Invalid mpv-set-prop payload".to_string())?;
-            let name = pair
-                .first()
-                .and_then(Value::as_str)
-                .ok_or_else(|| "Missing mpv-set-prop name".to_string())?;
-            let value = pair
-                .get(1)
-                .cloned()
-                .ok_or_else(|| "Missing mpv-set-prop value".to_string())?;
-            if name == PRIMARY_SUBTITLE_PROPERTY {
-                disable_secondary_subtitle(backend)?;
-            }
-            backend.set_property(name.to_string(), value)
-        }
-        "mpv-command" => {
-            let args = data
-                .as_ref()
-                .and_then(Value::as_array)
-                .ok_or_else(|| "Invalid mpv-command payload".to_string())?;
-            let name = args
-                .first()
-                .and_then(Value::as_str)
-                .ok_or_else(|| "Missing mpv-command name".to_string())?;
-            let values = args
-                .iter()
-                .skip(1)
-                .map(|value| match value {
-                    Value::String(value) => value.clone(),
-                    other => other.to_string(),
-                })
-                .collect();
-            backend.command(name.to_string(), values)?;
-            if name == SUB_ADD_COMMAND {
-                disable_secondary_subtitle(backend)?;
-            }
-            Ok(())
-        }
-        "native-player-stop" => backend.stop(),
-        other => Err(format!(
-            "Unsupported macOS player transport method: {other}"
-        )),
-    }
-}
-
-fn disable_secondary_subtitle<B: PlayerBackend>(backend: &B) -> Result<(), String> {
-    backend.set_property(SECONDARY_SUBTITLE_PROPERTY.to_string(), Value::from("no"))
 }
 
 pub fn serialize_property_change(name: impl Into<String>, data: Value) -> Value {
@@ -668,98 +587,6 @@ impl VideoVisibilityState {
 mod tests {
     use super::*;
     use serde_json::json;
-
-    #[test]
-    fn maps_observe_property() {
-        let backend = FakePlayerBackend::initialized();
-        handle_transport(&backend, "mpv-observe-prop", Some(json!("pause"))).unwrap();
-        assert_eq!(
-            backend.actions(),
-            vec![PlayerAction::ObserveProperty("pause".to_string())]
-        );
-    }
-
-    #[test]
-    fn maps_set_property() {
-        let backend = FakePlayerBackend::initialized();
-        handle_transport(&backend, "mpv-set-prop", Some(json!(["pause", true]))).unwrap();
-        assert_eq!(
-            backend.actions(),
-            vec![PlayerAction::SetProperty {
-                name: "pause".to_string(),
-                value: json!(true),
-            }]
-        );
-    }
-
-    #[test]
-    fn clears_secondary_subtitle_before_setting_sid() {
-        let backend = FakePlayerBackend::initialized();
-        handle_transport(&backend, "mpv-set-prop", Some(json!(["sid", 3]))).unwrap();
-        assert_eq!(
-            backend.actions(),
-            vec![
-                PlayerAction::SetProperty {
-                    name: "secondary-sid".to_string(),
-                    value: json!("no"),
-                },
-                PlayerAction::SetProperty {
-                    name: "sid".to_string(),
-                    value: json!(3),
-                },
-            ]
-        );
-    }
-
-    #[test]
-    fn maps_loadfile_command() {
-        let backend = FakePlayerBackend::initialized();
-        handle_transport(
-            &backend,
-            "mpv-command",
-            Some(json!(["loadfile", "file:///tmp/sample.mp4", "replace"])),
-        )
-        .unwrap();
-        assert_eq!(
-            backend.actions(),
-            vec![PlayerAction::Command {
-                name: "loadfile".to_string(),
-                args: vec!["file:///tmp/sample.mp4".to_string(), "replace".to_string()],
-            }]
-        );
-    }
-
-    #[test]
-    fn clears_secondary_subtitle_after_sub_add() {
-        let backend = FakePlayerBackend::initialized();
-        handle_transport(
-            &backend,
-            "mpv-command",
-            Some(json!(["sub-add", "file:///tmp/sub.srt", "select"])),
-        )
-        .unwrap();
-        assert_eq!(
-            backend.actions(),
-            vec![
-                PlayerAction::Command {
-                    name: "sub-add".to_string(),
-                    args: vec!["file:///tmp/sub.srt".to_string(), "select".to_string()],
-                },
-                PlayerAction::SetProperty {
-                    name: "secondary-sid".to_string(),
-                    value: json!("no"),
-                },
-            ]
-        );
-    }
-
-    #[test]
-    fn maps_stop() {
-        let backend = FakePlayerBackend::initialized();
-        handle_transport(&backend, "native-player-stop", None).unwrap();
-        assert_eq!(backend.actions(), vec![PlayerAction::Stop]);
-        assert!(backend.stopped());
-    }
 
     #[test]
     fn serializes_player_events() {

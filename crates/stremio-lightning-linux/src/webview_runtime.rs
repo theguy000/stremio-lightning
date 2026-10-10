@@ -2,50 +2,36 @@ use crate::host::Host;
 use crate::player::PlayerBackend;
 use crate::streaming_server::ProcessSpawner;
 use serde_json::Value;
+use std::ops::Deref;
 use std::sync::Arc;
-use stremio_lightning_core::bridge_assets::{bridge_scripts, load_mod_ui_source, InjectionScript};
+pub use stremio_lightning_core::bridge_assets::MOD_UI_NAME;
 use stremio_lightning_core::pip::PipWindowController;
 use stremio_lightning_core::player_api::PlayerEnded;
+pub use stremio_lightning_core::webview_runtime::WebviewLoadState;
+use stremio_lightning_core::webview_runtime::{
+    event_dispatch_scripts, InjectionBundle as CoreInjectionBundle, WebviewSession,
+};
 
 pub const LINUX_HOST_ADAPTER_NAME: &str = "linux-host-adapter";
 pub const HOST_ADAPTER_NAME: &str = LINUX_HOST_ADAPTER_NAME;
-pub const MOD_UI_NAME: &str = "mod-ui-svelte.iife.js";
+const DISPATCH_GLOBAL: &str = "__STREMIO_LIGHTNING_LINUX_DISPATCH__";
 
+/// The core injection bundle, built from this shell's host adapter.
 #[derive(Debug, Clone)]
-pub struct InjectionBundle {
-    scripts: Vec<InjectionScript>,
-}
+pub struct InjectionBundle(CoreInjectionBundle);
 
 impl InjectionBundle {
     pub fn load() -> Result<Self, String> {
-        let mut scripts = vec![InjectionScript {
-            name: HOST_ADAPTER_NAME,
-            source: host_adapter(),
-        }];
-        scripts.extend(bridge_scripts());
-        scripts.push(InjectionScript {
-            name: MOD_UI_NAME,
-            source: load_mod_ui_source()?,
-        });
-
-        Ok(Self { scripts })
-    }
-
-    pub fn scripts(&self) -> &[InjectionScript] {
-        &self.scripts
-    }
-
-    pub fn script_names(&self) -> Vec<&'static str> {
-        self.scripts.iter().map(|script| script.name).collect()
+        CoreInjectionBundle::load(HOST_ADAPTER_NAME, host_adapter()).map(Self)
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct WebviewLoadState {
-    pub url: String,
-    pub devtools: bool,
-    pub document_start_scripts: Vec<&'static str>,
-    pub loaded: bool,
+impl Deref for InjectionBundle {
+    type Target = CoreInjectionBundle;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
 
 pub struct LinuxWebviewRuntime<B, P>
@@ -53,11 +39,8 @@ where
     B: PlayerBackend,
     P: ProcessSpawner,
 {
-    url: String,
-    devtools: bool,
-    injection: InjectionBundle,
+    session: WebviewSession,
     host: Arc<Host<B, P>>,
-    loaded: bool,
 }
 
 impl<B, P> LinuxWebviewRuntime<B, P>
@@ -72,27 +55,17 @@ where
         host: Arc<Host<B, P>>,
     ) -> Self {
         Self {
-            url: url.into(),
-            devtools,
-            injection,
+            session: WebviewSession::new(url, devtools, injection.0),
             host,
-            loaded: false,
         }
     }
 
     pub fn load(&mut self) -> Result<WebviewLoadState, String> {
-        validate_load_url(&self.url)?;
-        self.loaded = true;
-        Ok(self.load_state())
+        self.session.load()
     }
 
     pub fn load_state(&self) -> WebviewLoadState {
-        WebviewLoadState {
-            url: self.url.clone(),
-            devtools: self.devtools,
-            document_start_scripts: self.injection.script_names(),
-            loaded: self.loaded,
-        }
+        self.session.load_state()
     }
 
     pub fn dispatch_ipc(&self, kind: &str, payload: Option<Value>) -> Result<Value, String> {
@@ -121,27 +94,11 @@ where
     }
 
     pub fn script_source(&self, name: &str) -> Option<String> {
-        self.injection
-            .scripts()
-            .iter()
-            .find(|script| script.name == name)
-            .map(|script| script.source.clone())
+        self.session.script_source(name).map(str::to_string)
     }
 
     pub fn drain_event_dispatch_scripts(&self) -> Result<Vec<String>, String> {
-        self.host
-            .drain_emitted_events()?
-            .into_iter()
-            .map(|event| {
-                let event_name = serde_json::to_string(&event.event)
-                    .map_err(|e| format!("Failed to serialize Linux host event name: {e}"))?;
-                let payload = serde_json::to_string(&event.payload)
-                    .map_err(|e| format!("Failed to serialize Linux host event payload: {e}"))?;
-                Ok(format!(
-                    "window.__STREMIO_LIGHTNING_LINUX_DISPATCH__({event_name}, {payload});"
-                ))
-            })
-            .collect()
+        event_dispatch_scripts(DISPATCH_GLOBAL, self.host.drain_emitted_events()?)
     }
 
     pub fn emit_native_player_property_changed(
@@ -245,16 +202,6 @@ pub fn host_adapter() -> String {
 
 pub type WebviewRuntime<B, P> = LinuxWebviewRuntime<B, P>;
 
-fn validate_load_url(url: &str) -> Result<(), String> {
-    let lower = url.to_lowercase();
-    if lower.starts_with("https://") || lower.starts_with("http://") || lower.starts_with("file://")
-    {
-        Ok(())
-    } else {
-        Err("Linux webview URL must use http, https, or file".to_string())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -263,6 +210,7 @@ mod tests {
     use crate::streaming_server::{RealProcessSpawner, StreamingServer};
     use serde_json::json;
     use std::path::PathBuf;
+    use stremio_lightning_core::bridge_assets::bridge_scripts;
 
     #[test]
     fn injection_order_puts_linux_adapter_before_bridge() {

@@ -1,30 +1,8 @@
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
-use stremio_lightning_core::player_api::{
-    EndFileCause, PlayerCommand as TransportPlayerCommand, PlayerEnded, PlayerEvent,
-    PlayerPropertyChange,
-};
-
-const PRIMARY_SUBTITLE_PROPERTY: &str = "sid";
-const SECONDARY_SUBTITLE_PROPERTY: &str = "secondary-sid";
-const SUB_ADD_COMMAND: &str = "sub-add";
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct NativePlayerStatus {
-    pub enabled: bool,
-    pub initialized: bool,
-    pub backend: String,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum PlayerAction {
-    ObserveProperty(String),
-    SetProperty { name: String, value: Value },
-    Command { name: String, args: Vec<String> },
-    Stop,
-}
+pub use stremio_lightning_core::player_api::{handle_transport, NativePlayerStatus, PlayerBackend};
+use stremio_lightning_core::player_api::{PlayerEnded, PlayerEvent, PlayerPropertyChange};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum MpvBackendCommand {
@@ -32,14 +10,6 @@ pub enum MpvBackendCommand {
     SetProperty { name: String, value: Value },
     Command { name: String, args: Vec<String> },
     Stop,
-}
-
-pub trait PlayerBackend: Send + Sync + 'static {
-    fn status(&self) -> NativePlayerStatus;
-    fn observe_property(&self, name: String) -> Result<(), String>;
-    fn set_property(&self, name: String, value: Value) -> Result<(), String>;
-    fn command(&self, name: String, args: Vec<String>) -> Result<(), String>;
-    fn stop(&self) -> Result<(), String>;
 }
 
 #[derive(Debug, Default, Clone)]
@@ -100,69 +70,6 @@ impl PlayerBackend for MpvPlayerBackend {
     }
 }
 
-pub fn handle_transport<B: PlayerBackend>(
-    backend: &B,
-    method: &str,
-    data: Option<Value>,
-) -> Result<(), String> {
-    match method {
-        "mpv-observe-prop" => {
-            let name = data
-                .as_ref()
-                .and_then(Value::as_str)
-                .ok_or_else(|| "Invalid mpv-observe-prop payload".to_string())?;
-            backend.observe_property(name.to_string())
-        }
-        "mpv-set-prop" => {
-            let pair = data
-                .as_ref()
-                .and_then(Value::as_array)
-                .ok_or_else(|| "Invalid mpv-set-prop payload".to_string())?;
-            let name = pair
-                .first()
-                .and_then(Value::as_str)
-                .ok_or_else(|| "Missing mpv-set-prop name".to_string())?;
-            let value = pair
-                .get(1)
-                .cloned()
-                .ok_or_else(|| "Missing mpv-set-prop value".to_string())?;
-            if name == PRIMARY_SUBTITLE_PROPERTY {
-                disable_secondary_subtitle(backend)?;
-            }
-            backend.set_property(name.to_string(), value)
-        }
-        "mpv-command" => {
-            let args = data
-                .as_ref()
-                .and_then(Value::as_array)
-                .ok_or_else(|| "Invalid mpv-command payload".to_string())?;
-            let name = args
-                .first()
-                .and_then(Value::as_str)
-                .ok_or_else(|| "Missing mpv-command name".to_string())?;
-            let values = args
-                .iter()
-                .skip(1)
-                .map(|value| match value {
-                    Value::String(string) => string.clone(),
-                    other => other.to_string(),
-                })
-                .collect();
-            backend.command(name.to_string(), values)?;
-            if name == SUB_ADD_COMMAND {
-                disable_secondary_subtitle(backend)?;
-            }
-            Ok(())
-        }
-        "native-player-stop" => backend.stop(),
-        other => Err(format!("Unsupported MPV transport method: {other}")),
-    }
-}
-
-fn disable_secondary_subtitle<B: PlayerBackend>(backend: &B) -> Result<(), String> {
-    backend.set_property(SECONDARY_SUBTITLE_PROPERTY.to_string(), Value::from("no"))
-}
-
 pub fn serialize_property_change(name: impl Into<String>, data: Value) -> Value {
     PlayerEvent::PropertyChange(PlayerPropertyChange {
         name: name.into(),
@@ -173,32 +80,6 @@ pub fn serialize_property_change(name: impl Into<String>, data: Value) -> Value 
 
 pub fn serialize_ended(ended: PlayerEnded) -> Value {
     PlayerEvent::Ended(ended).transport_args()
-}
-
-pub fn command_from_transport(method: String, data: Option<Value>) -> TransportPlayerCommand {
-    match method.as_str() {
-        "mpv-observe-prop" => TransportPlayerCommand::ObserveProperty(
-            data.and_then(|value| value.as_str().map(str::to_string))
-                .unwrap_or_default(),
-        ),
-        "mpv-set-prop" => {
-            let mut pair = data
-                .and_then(|value| value.as_array().cloned())
-                .unwrap_or_default()
-                .into_iter();
-            let name = pair
-                .next()
-                .and_then(|value| value.as_str().map(str::to_string))
-                .unwrap_or_default();
-            let value = pair.next().unwrap_or(Value::Null);
-            TransportPlayerCommand::SetProperty(name, value)
-        }
-        "native-player-stop" => TransportPlayerCommand::Stop,
-        _ => TransportPlayerCommand::Command(
-            data.and_then(|value| value.as_array().cloned())
-                .unwrap_or_default(),
-        ),
-    }
 }
 
 #[cfg(target_os = "linux")]
@@ -260,116 +141,40 @@ pub mod mpv_render_ffi {
 mod tests {
     use super::*;
     use serde_json::json;
+    use stremio_lightning_core::player_api::EndFileCause;
 
     #[test]
-    fn maps_observe_property() {
+    fn transport_messages_reach_the_attached_renderer_as_backend_commands() {
         let backend = MpvPlayerBackend::default();
         let (sender, receiver) = std::sync::mpsc::channel();
         backend.attach(sender).unwrap();
 
         handle_transport(&backend, "mpv-observe-prop", Some(json!("pause"))).unwrap();
-        assert_eq!(
-            receiver.recv().unwrap(),
-            MpvBackendCommand::ObserveProperty("pause".to_string())
-        );
-    }
-
-    #[test]
-    fn maps_set_property() {
-        let backend = MpvPlayerBackend::default();
-        let (sender, receiver) = std::sync::mpsc::channel();
-        backend.attach(sender).unwrap();
-
         handle_transport(&backend, "mpv-set-prop", Some(json!(["pause", true]))).unwrap();
-        assert_eq!(
-            receiver.recv().unwrap(),
-            MpvBackendCommand::SetProperty {
-                name: "pause".to_string(),
-                value: json!(true),
-            }
-        );
-    }
-
-    #[test]
-    fn clears_secondary_subtitle_before_setting_sid() {
-        let backend = MpvPlayerBackend::default();
-        let (sender, receiver) = std::sync::mpsc::channel();
-        backend.attach(sender).unwrap();
-
-        handle_transport(&backend, "mpv-set-prop", Some(json!(["sid", 3]))).unwrap();
-        assert_eq!(
-            receiver.recv().unwrap(),
-            MpvBackendCommand::SetProperty {
-                name: "secondary-sid".to_string(),
-                value: json!("no"),
-            }
-        );
-        assert_eq!(
-            receiver.recv().unwrap(),
-            MpvBackendCommand::SetProperty {
-                name: "sid".to_string(),
-                value: json!(3),
-            }
-        );
-    }
-
-    #[test]
-    fn maps_loadfile_command() {
-        let backend = MpvPlayerBackend::default();
-        let (sender, receiver) = std::sync::mpsc::channel();
-        backend.attach(sender).unwrap();
-
         handle_transport(
             &backend,
             "mpv-command",
             Some(json!(["loadfile", "file:///tmp/sample.mp4", "replace"])),
         )
         .unwrap();
-        assert_eq!(
-            receiver.recv().unwrap(),
-            MpvBackendCommand::Command {
-                name: "loadfile".to_string(),
-                args: vec!["file:///tmp/sample.mp4".to_string(), "replace".to_string()],
-            }
-        );
-    }
-
-    #[test]
-    fn clears_secondary_subtitle_after_sub_add() {
-        let backend = MpvPlayerBackend::default();
-        let (sender, receiver) = std::sync::mpsc::channel();
-        backend.attach(sender).unwrap();
-
-        handle_transport(
-            &backend,
-            "mpv-command",
-            Some(json!(["sub-add", "file:///tmp/sub.srt", "select"])),
-        )
-        .unwrap();
-        assert_eq!(
-            receiver.recv().unwrap(),
-            MpvBackendCommand::Command {
-                name: "sub-add".to_string(),
-                args: vec!["file:///tmp/sub.srt".to_string(), "select".to_string()],
-            }
-        );
-        assert_eq!(
-            receiver.recv().unwrap(),
-            MpvBackendCommand::SetProperty {
-                name: "secondary-sid".to_string(),
-                value: json!("no"),
-            }
-        );
-    }
-
-    #[test]
-    fn maps_stop() {
-        let backend = MpvPlayerBackend::default();
-        let (sender, receiver) = std::sync::mpsc::channel();
-        backend.attach(sender).unwrap();
-
         handle_transport(&backend, "native-player-stop", None).unwrap();
-        assert_eq!(receiver.recv().unwrap(), MpvBackendCommand::Stop);
+
+        let received: Vec<_> = receiver.try_iter().collect();
+        assert_eq!(
+            received,
+            vec![
+                MpvBackendCommand::ObserveProperty("pause".to_string()),
+                MpvBackendCommand::SetProperty {
+                    name: "pause".to_string(),
+                    value: json!(true),
+                },
+                MpvBackendCommand::Command {
+                    name: "loadfile".to_string(),
+                    args: vec!["file:///tmp/sample.mp4".to_string(), "replace".to_string()],
+                },
+                MpvBackendCommand::Stop,
+            ]
+        );
     }
 
     #[test]

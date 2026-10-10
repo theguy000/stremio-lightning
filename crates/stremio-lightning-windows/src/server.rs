@@ -2,12 +2,12 @@
 
 use crate::resources::WindowsResourceLayout;
 use std::collections::BTreeMap;
+use std::ops::Deref;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
-use std::sync::{Arc, Mutex};
-use stremio_lightning_core::streaming_logs::{
-    ManagedChild, StreamingLogFiles, StreamingLogPaths, StreamingLogTails,
-};
+use stremio_lightning_core::streaming_logs::{ManagedChild, StreamingLogFiles};
+use stremio_lightning_core::streaming_server::StreamingServerSupervisor;
+pub use stremio_lightning_core::streaming_server::{CommandSpec, ProcessChild, ProcessSpawner};
 use thiserror::Error;
 
 /// Optional environment override for the stream-server executable path.
@@ -78,56 +78,6 @@ impl WindowsServerConfig {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct CommandSpec {
-    pub program: PathBuf,
-    pub args: Vec<PathBuf>,
-    pub env: BTreeMap<String, String>,
-    pub stdout_log: PathBuf,
-    pub stderr_log: PathBuf,
-}
-
-pub trait ProcessSpawner: Send + Sync + 'static {
-    type Child: ProcessChild;
-
-    /// # Errors
-    /// Returns an error when the server process cannot be spawned.
-    fn spawn(&self, spec: CommandSpec) -> Result<Self::Child, String>;
-}
-
-pub trait ProcessChild: Send + 'static {
-    /// # Errors
-    /// Returns an error when the server process cannot be stopped.
-    fn stop(&mut self) -> Result<(), String>;
-    /// # Errors
-    /// Returns an error when the server process state cannot be read.
-    fn has_exited(&mut self) -> Result<bool, String>;
-}
-
-impl ProcessChild for Child {
-    fn stop(&mut self) -> Result<(), String> {
-        if self
-            .try_wait()
-            .map_err(|e| format!("Failed to inspect Windows streaming server: {e}"))?
-            .is_some()
-        {
-            return Ok(());
-        }
-
-        self.kill()
-            .map_err(|e| format!("Failed to stop Windows streaming server: {e}"))?;
-        self.wait()
-            .map_err(|e| format!("Failed to wait for Windows streaming server: {e}"))?;
-        Ok(())
-    }
-
-    fn has_exited(&mut self) -> Result<bool, String> {
-        self.try_wait()
-            .map(|status| status.is_some())
-            .map_err(|e| format!("Failed to inspect Windows streaming server: {e}"))
-    }
-}
-
 #[derive(Debug)]
 pub struct WindowsProcessChild {
     #[cfg(windows)]
@@ -171,10 +121,7 @@ impl ProcessSpawner for RealProcessSpawner {
 
 #[derive(Debug)]
 pub struct WindowsStreamingServer<P: ProcessSpawner> {
-    spawner: P,
-    config: WindowsServerConfig,
-    child: Mutex<Option<P::Child>>,
-    log_files: StreamingLogFiles,
+    supervisor: StreamingServerSupervisor<P>,
 }
 
 impl WindowsStreamingServer<RealProcessSpawner> {
@@ -182,108 +129,25 @@ impl WindowsStreamingServer<RealProcessSpawner> {
     pub fn from_resources(layout: &WindowsResourceLayout, disabled: bool) -> Self {
         Self::new(
             RealProcessSpawner,
-            WindowsServerConfig::from_resources(layout).disabled(disabled),
+            &WindowsServerConfig::from_resources(layout).disabled(disabled),
         )
     }
 }
 
 impl<P: ProcessSpawner> WindowsStreamingServer<P> {
-    pub fn new(spawner: P, config: WindowsServerConfig) -> Self {
+    pub fn new(spawner: P, config: &WindowsServerConfig) -> Self {
         Self {
-            spawner,
-            log_files: StreamingLogFiles::new(
-                config.log_dir.join("stremio-server.stdout.log"),
-                config.log_dir.join("stremio-server.stderr.log"),
-            ),
-            config,
-            child: Mutex::new(None),
+            supervisor: StreamingServerSupervisor::new(spawner, config.command_spec())
+                .disabled(config.disabled),
         }
-    }
-
-    /// # Errors
-    /// Returns an error when the streaming server process cannot be started.
-    pub fn start(&self) -> Result<(), String> {
-        if self.config.disabled {
-            return Ok(());
-        }
-
-        let mut child = self.child.lock().map_err(|e| e.to_string())?;
-        if let Some(existing) = child.as_mut() {
-            if existing.has_exited()? {
-                *child = None;
-            } else {
-                return Ok(());
-            }
-        }
-
-        let spawned = self.spawner.spawn(self.config.command_spec())?;
-        *child = Some(spawned);
-        Ok(())
-    }
-
-    /// # Errors
-    /// Returns an error when the streaming server process cannot be stopped.
-    pub fn stop(&self) -> Result<(), String> {
-        let mut child = self.child.lock().map_err(|e| e.to_string())?;
-        if let Some(mut child) = child.take() {
-            child.stop()?;
-        }
-        Ok(())
-    }
-
-    /// # Errors
-    /// Returns an error when the streaming server process cannot be restarted.
-    pub fn restart(&self) -> Result<(), String> {
-        self.stop()?;
-        self.start()
-    }
-
-    pub fn is_running(&self) -> bool {
-        self.refresh_running_state().unwrap_or(false)
-    }
-
-    /// # Errors
-    /// Returns an error when the streaming server process state cannot be read.
-    pub fn refresh_running_state(&self) -> Result<bool, String> {
-        let mut child = self.child.lock().map_err(|e| e.to_string())?;
-        if let Some(existing) = child.as_mut() {
-            if existing.has_exited()? {
-                *child = None;
-                return Ok(false);
-            }
-            return Ok(true);
-        }
-        Ok(false)
-    }
-
-    pub fn disabled(&self) -> bool {
-        self.config.disabled
-    }
-
-    pub fn log_paths(&self) -> StreamingLogPaths {
-        self.log_files.paths()
-    }
-
-    /// # Errors
-    /// Returns an error when the streaming server output cannot be read.
-    pub fn log_tails(&self, max_bytes_per_stream: usize) -> Result<StreamingLogTails, String> {
-        self.log_files
-            .tails(max_bytes_per_stream)
-            .map_err(|error| format!("Failed to read Windows streaming server log tails: {error}"))
-    }
-
-    /// # Errors
-    /// Returns an error when the streaming server output cannot be cleared.
-    pub fn clear_logs(&self) -> Result<(), String> {
-        self.log_files
-            .clear()
-            .map_err(|error| format!("Failed to clear Windows streaming server logs: {error}"))
     }
 }
 
-impl<P: ProcessSpawner> Drop for WindowsStreamingServer<P> {
-    fn drop(&mut self) {
-        let _ = self.stop();
+impl<P: ProcessSpawner> Deref for WindowsStreamingServer<P> {
+    type Target = StreamingServerSupervisor<P>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.supervisor
     }
 }
 
@@ -444,83 +308,10 @@ fn default_log_dir() -> PathBuf {
         .join("logs")
 }
 
-#[derive(Debug, Default, Clone)]
-pub struct FakeProcessSpawner {
-    calls: Arc<Mutex<Vec<CommandSpec>>>,
-    stopped: Arc<Mutex<Vec<usize>>>,
-    next_child_exited: Arc<Mutex<bool>>,
-}
-
-impl FakeProcessSpawner {
-    #[must_use]
-    pub fn calls(&self) -> Vec<CommandSpec> {
-        self.calls
-            .lock()
-            .map_or_else(|p| p.into_inner().clone(), |g| g.clone())
-    }
-
-    #[must_use]
-    pub fn stopped(&self) -> Vec<usize> {
-        self.stopped
-            .lock()
-            .map_or_else(|p| p.into_inner().clone(), |g| g.clone())
-    }
-
-    pub fn set_next_child_exited(&self, exited: bool) {
-        match self.next_child_exited.lock() {
-            Ok(mut g) => *g = exited,
-            Err(p) => *p.into_inner() = exited,
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct FakeProcessChild {
-    id: usize,
-    stopped: Arc<Mutex<Vec<usize>>>,
-    exited: bool,
-}
-
-impl ProcessSpawner for FakeProcessSpawner {
-    type Child = FakeProcessChild;
-
-    fn spawn(&self, spec: CommandSpec) -> Result<Self::Child, String> {
-        let mut calls = match self.calls.lock() {
-            Ok(g) => g,
-            Err(p) => p.into_inner(),
-        };
-        calls.push(spec);
-        let id = calls.len();
-        let exited = self
-            .next_child_exited
-            .lock()
-            .map_or_else(|p| *p.into_inner(), |g| *g);
-        Ok(FakeProcessChild {
-            id,
-            stopped: self.stopped.clone(),
-            exited,
-        })
-    }
-}
-
-impl ProcessChild for FakeProcessChild {
-    fn stop(&mut self) -> Result<(), String> {
-        match self.stopped.lock() {
-            Ok(mut g) => g.push(self.id),
-            Err(p) => p.into_inner().push(self.id),
-        }
-        self.exited = true;
-        Ok(())
-    }
-
-    fn has_exited(&mut self) -> Result<bool, String> {
-        Ok(self.exited)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use stremio_lightning_core::streaming_server::FakeProcessSpawner;
 
     fn test_config() -> WindowsServerConfig {
         WindowsServerConfig {
@@ -553,38 +344,14 @@ mod tests {
         );
     }
     #[test]
-    fn start_is_idempotent_while_process_is_running() {
-        let spawner = FakeProcessSpawner::default();
-        let server = WindowsStreamingServer::new(spawner.clone(), test_config());
-
-        server.start().unwrap();
-        server.start().unwrap();
-
-        assert_eq!(spawner.calls().len(), 1);
-        assert!(server.is_running());
-    }
-
-    #[test]
-    fn restart_stops_existing_process_and_starts_again() {
-        let spawner = FakeProcessSpawner::default();
-        let server = WindowsStreamingServer::new(spawner.clone(), test_config());
-
-        server.start().unwrap();
-        server.restart().unwrap();
-
-        assert_eq!(spawner.stopped(), vec![1]);
-        assert_eq!(spawner.calls().len(), 2);
-    }
-
-    #[test]
     fn disabled_server_does_not_spawn() {
         let spawner = FakeProcessSpawner::default();
-        let server = WindowsStreamingServer::new(spawner.clone(), test_config().disabled(true));
+        let server = WindowsStreamingServer::new(spawner.clone(), &test_config().disabled(true));
 
         server.start().unwrap();
 
-        assert!(server.disabled());
-        assert!(spawner.calls().is_empty());
+        assert!(server.is_disabled());
+        assert!(spawner.spawned().is_empty());
         assert!(!server.is_running());
     }
 }

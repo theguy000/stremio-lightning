@@ -1,10 +1,10 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::ops::Deref;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command};
-use std::sync::{Arc, Mutex};
-use stremio_lightning_core::streaming_logs::{
-    ManagedChild, StreamingLogFiles, StreamingLogPaths, StreamingLogTails,
+use stremio_lightning_core::streaming_server::{CommandSpec, StreamingServerSupervisor};
+pub use stremio_lightning_core::streaming_server::{
+    FakeProcessSpawner, ProcessSpawner, RealProcessSpawner,
 };
 
 pub const DEFAULT_SERVER_URL: &str = "http://127.0.0.1:11470";
@@ -59,168 +59,10 @@ impl StreamingServerConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CommandSpec {
-    pub program: PathBuf,
-    pub args: Vec<PathBuf>,
-    pub env: BTreeMap<String, String>,
-    pub stdout_log: PathBuf,
-    pub stderr_log: PathBuf,
-}
-
-pub trait ProcessSpawner: Send + Sync + 'static {
-    type Child: ProcessChild;
-
-    fn spawn(&self, spec: CommandSpec) -> Result<Self::Child, String>;
-}
-
-pub trait ProcessChild: Send + 'static {
-    fn stop(&mut self) -> Result<(), String>;
-    fn has_exited(&mut self) -> Result<bool, String>;
-}
-
-impl ProcessChild for Child {
-    fn stop(&mut self) -> Result<(), String> {
-        if self
-            .try_wait()
-            .map_err(|e| format!("Failed to inspect streaming server: {e}"))?
-            .is_some()
-        {
-            return Ok(());
-        }
-
-        self.kill()
-            .map_err(|e| format!("Failed to stop streaming server: {e}"))?;
-        self.wait()
-            .map_err(|e| format!("Failed to wait for streaming server: {e}"))?;
-        Ok(())
-    }
-
-    fn has_exited(&mut self) -> Result<bool, String> {
-        self.try_wait()
-            .map(|status| status.is_some())
-            .map_err(|e| format!("Failed to inspect streaming server: {e}"))
-    }
-}
-
-impl ProcessChild for ManagedChild {
-    fn stop(&mut self) -> Result<(), String> {
-        ManagedChild::stop(self)
-    }
-
-    fn has_exited(&mut self) -> Result<bool, String> {
-        ManagedChild::has_exited(self)
-    }
-}
-
-#[derive(Debug, Default, Clone)]
-pub struct RealProcessSpawner;
-
-impl ProcessSpawner for RealProcessSpawner {
-    type Child = ManagedChild;
-
-    fn spawn(&self, spec: CommandSpec) -> Result<Self::Child, String> {
-        let mut command = Command::new(&spec.program);
-        command.args(&spec.args);
-        command.envs(&spec.env);
-        ManagedChild::spawn(
-            &mut command,
-            StreamingLogFiles::new(spec.stdout_log, spec.stderr_log),
-        )
-    }
-}
-
-#[derive(Debug, Default, Clone)]
-pub struct FakeProcessSpawner {
-    spawned: Arc<Mutex<Vec<CommandSpec>>>,
-    stopped: Arc<Mutex<Vec<usize>>>,
-    fail_next_spawn: Arc<Mutex<Option<String>>>,
-    next_child_exited: Arc<Mutex<bool>>,
-}
-
-impl FakeProcessSpawner {
-    pub fn spawned(&self) -> Vec<CommandSpec> {
-        self.spawned
-            .lock()
-            .expect("fake process spawner poisoned")
-            .clone()
-    }
-
-    pub fn stopped(&self) -> Vec<usize> {
-        self.stopped
-            .lock()
-            .expect("fake process spawner stopped list poisoned")
-            .clone()
-    }
-
-    pub fn fail_next_spawn(&self, error: impl Into<String>) {
-        *self
-            .fail_next_spawn
-            .lock()
-            .expect("fake process spawner failure flag poisoned") = Some(error.into());
-    }
-
-    pub fn set_next_child_exited(&self, exited: bool) {
-        *self
-            .next_child_exited
-            .lock()
-            .expect("fake process spawner exit flag poisoned") = exited;
-    }
-}
-
-impl ProcessSpawner for FakeProcessSpawner {
-    type Child = FakeProcessChild;
-
-    fn spawn(&self, spec: CommandSpec) -> Result<Self::Child, String> {
-        if let Some(error) = self
-            .fail_next_spawn
-            .lock()
-            .map_err(|e| e.to_string())?
-            .take()
-        {
-            return Err(error);
-        }
-
-        let mut spawned = self.spawned.lock().map_err(|e| e.to_string())?;
-        spawned.push(spec);
-        let id = spawned.len();
-        let exited = *self.next_child_exited.lock().map_err(|e| e.to_string())?;
-        Ok(FakeProcessChild {
-            id,
-            stopped: self.stopped.clone(),
-            exited,
-        })
-    }
-}
-
-#[derive(Debug)]
-pub struct FakeProcessChild {
-    id: usize,
-    stopped: Arc<Mutex<Vec<usize>>>,
-    exited: bool,
-}
-
-impl ProcessChild for FakeProcessChild {
-    fn stop(&mut self) -> Result<(), String> {
-        self.stopped
-            .lock()
-            .map_err(|e| e.to_string())?
-            .push(self.id);
-        self.exited = true;
-        Ok(())
-    }
-
-    fn has_exited(&mut self) -> Result<bool, String> {
-        Ok(self.exited)
-    }
-}
-
 #[derive(Debug)]
 pub struct StreamingServer<P: ProcessSpawner> {
-    spawner: P,
-    child: Mutex<Option<P::Child>>,
-    config: StreamingServerConfig,
-    log_files: StreamingLogFiles,
+    supervisor: StreamingServerSupervisor<P>,
+    url: String,
 }
 
 impl<P: ProcessSpawner> StreamingServer<P> {
@@ -236,85 +78,29 @@ impl<P: ProcessSpawner> StreamingServer<P> {
     }
 
     pub fn with_config(spawner: P, config: StreamingServerConfig) -> Self {
-        let log_files = StreamingLogFiles::new(
-            config.log_dir.join("stremio-server.stdout.log"),
-            config.log_dir.join("stremio-server.stderr.log"),
-        );
+        let supervisor = StreamingServerSupervisor::new(spawner, command_spec(&config))
+            .disabled(config.disabled);
         Self {
-            spawner,
-            child: Mutex::new(None),
-            config,
-            log_files,
+            supervisor,
+            url: config.url,
         }
     }
 
     pub fn with_disabled(mut self, disabled: bool) -> Self {
-        self.config.disabled = disabled;
+        self.supervisor = self.supervisor.disabled(disabled);
         self
-    }
-
-    pub fn start(&self) -> Result<(), String> {
-        if self.config.disabled {
-            return Ok(());
-        }
-
-        let mut child = self.child.lock().map_err(|e| e.to_string())?;
-        if let Some(existing) = child.as_mut() {
-            if existing.has_exited()? {
-                *child = None;
-            } else {
-                return Ok(());
-            }
-        }
-
-        *child = Some(self.spawner.spawn(command_spec(&self.config))?);
-        Ok(())
-    }
-
-    pub fn stop(&self) -> Result<(), String> {
-        let mut child = self.child.lock().map_err(|e| e.to_string())?;
-        if let Some(mut child) = child.take() {
-            child.stop()?;
-        }
-        Ok(())
-    }
-
-    pub fn restart(&self) -> Result<(), String> {
-        self.stop()?;
-        self.start()
-    }
-
-    pub fn is_running(&self) -> bool {
-        self.refresh_running_state().unwrap_or(false)
-    }
-
-    pub fn refresh_running_state(&self) -> Result<bool, String> {
-        let mut child = self.child.lock().map_err(|e| e.to_string())?;
-        if let Some(existing) = child.as_mut() {
-            if existing.has_exited()? {
-                *child = None;
-                return Ok(false);
-            }
-            return Ok(true);
-        }
-
-        Ok(false)
     }
 
     pub fn status(&self) -> StreamingServerStatus {
         StreamingServerStatus {
             running: self.is_running(),
-            disabled: self.config.disabled,
-            url: self.config.url.clone(),
+            disabled: self.is_disabled(),
+            url: self.url.clone(),
         }
     }
 
     pub fn url(&self) -> &str {
-        &self.config.url
-    }
-
-    pub fn disabled(&self) -> bool {
-        self.config.disabled
+        &self.url
     }
 
     pub fn diagnostics(&self) -> StreamingServerDiagnostics {
@@ -325,27 +111,13 @@ impl<P: ProcessSpawner> StreamingServer<P> {
             stderr_log: paths.stderr,
         }
     }
-
-    pub fn log_paths(&self) -> StreamingLogPaths {
-        self.log_files.paths()
-    }
-
-    pub fn log_tails(&self, max_bytes_per_stream: usize) -> Result<StreamingLogTails, String> {
-        self.log_files
-            .tails(max_bytes_per_stream)
-            .map_err(|error| format!("Failed to read macOS streaming server log tails: {error}"))
-    }
-
-    pub fn clear_logs(&self) -> Result<(), String> {
-        self.log_files
-            .clear()
-            .map_err(|error| format!("Failed to clear macOS streaming server logs: {error}"))
-    }
 }
 
-impl<P: ProcessSpawner> Drop for StreamingServer<P> {
-    fn drop(&mut self) {
-        let _ = self.stop();
+impl<P: ProcessSpawner> Deref for StreamingServer<P> {
+    type Target = StreamingServerSupervisor<P>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.supervisor
     }
 }
 
@@ -481,43 +253,6 @@ mod tests {
     }
 
     #[test]
-    fn fake_spawner_starts_once_while_running() {
-        let spawner = FakeProcessSpawner::default();
-        let server = StreamingServer::with_config(spawner.clone(), test_config());
-        server.start().unwrap();
-        server.start().unwrap();
-        assert!(server.is_running());
-        assert_eq!(spawner.spawned().len(), 1);
-    }
-
-    #[test]
-    fn fake_spawner_stops_and_restarts() {
-        let spawner = FakeProcessSpawner::default();
-        let server = StreamingServer::with_config(spawner.clone(), test_config());
-        server.start().unwrap();
-        server.stop().unwrap();
-        assert!(!server.is_running());
-        server.restart().unwrap();
-        assert!(server.is_running());
-        assert_eq!(spawner.spawned().len(), 2);
-        assert_eq!(spawner.stopped(), vec![1]);
-    }
-
-    #[test]
-    fn status_reaps_exited_child_and_start_spawns_again() {
-        let spawner = FakeProcessSpawner::default();
-        spawner.set_next_child_exited(true);
-        let server = StreamingServer::with_config(spawner.clone(), test_config());
-        server.start().unwrap();
-        assert!(!server.is_running());
-
-        spawner.set_next_child_exited(false);
-        server.start().unwrap();
-        assert!(server.is_running());
-        assert_eq!(spawner.spawned().len(), 2);
-    }
-
-    #[test]
     fn disabled_server_reports_status_without_spawning() {
         let spawner = FakeProcessSpawner::default();
         let server = StreamingServer::with_config(spawner.clone(), test_config().disabled(true));
@@ -543,14 +278,5 @@ mod tests {
             diagnostics.stderr_log,
             PathBuf::from("/logs/stremio-server.stderr.log")
         );
-    }
-
-    #[test]
-    fn spawn_failure_is_returned() {
-        let spawner = FakeProcessSpawner::default();
-        spawner.fail_next_spawn("boom");
-        let server = StreamingServer::with_config(spawner, test_config());
-        assert_eq!(server.start().unwrap_err(), "boom");
-        assert!(!server.is_running());
     }
 }
