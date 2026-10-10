@@ -32,9 +32,7 @@ pub struct WindowsHost {
     pub base: BaseHost<WindowsShellBridge>,
     #[cfg(windows)]
     pending_responses: Mutex<Vec<WindowsIpcOutbound>>,
-    #[cfg(windows)]
     player_scratch: Mutex<Vec<PlayerEvent>>,
-    #[cfg(windows)]
     record_scratch: Mutex<Vec<HostEventRecord>>,
     #[cfg(windows)]
     ui_notifier: Mutex<Option<crate::window::UiThreadNotifier>>,
@@ -99,9 +97,7 @@ impl WindowsHost {
             base: BaseHost::new(bridge, app_data_dir, package_version),
             #[cfg(windows)]
             pending_responses: Mutex::default(),
-            #[cfg(windows)]
             player_scratch: Mutex::default(),
-            #[cfg(windows)]
             record_scratch: Mutex::default(),
             #[cfg(windows)]
             ui_notifier: Mutex::default(),
@@ -496,7 +492,6 @@ impl WindowsHost {
     /// The record queue is drained through a recycled scratch buffer: taking the
     /// queue by value would hand its allocation to the caller, so the next
     /// property tick would regrow it from zero.
-    #[cfg(windows)]
     fn collect_emitted_ipc(&self, out: &mut Vec<WindowsIpcOutbound>) {
         if let Err(error) = self.emit_player_events() {
             stremio_lightning_core::logging::error(
@@ -515,7 +510,6 @@ impl WindowsHost {
         out.extend(records.drain(..).map(WindowsIpcOutbound::from));
     }
 
-    #[cfg(windows)]
     fn emit_player_events(&self) -> Result<(), String> {
         // Recycled across ticks: taking the player queue by value would hand its
         // allocation to this loop, so the next push would regrow from zero.
