@@ -83,7 +83,9 @@ fn handles_shell_transport_handshake() {
     let response = host.drain_emitted_events().unwrap().remove(0).payload;
     let payload: Value = serde_json::from_str(response.as_str().unwrap()).unwrap();
     assert_eq!(payload["type"], json!(3));
-    let properties = payload["data"]["transport"]["properties"].as_array().unwrap();
+    let properties = payload["data"]["transport"]["properties"]
+        .as_array()
+        .unwrap();
     assert!(properties.iter().any(|prop| {
         prop.get(1).and_then(Value::as_str) == Some("streamingServerUrl")
             && prop.get(3).and_then(Value::as_str) == Some("http://127.0.0.1:11470")
@@ -408,8 +410,7 @@ fn tracks_window_maximized_state() {
     .unwrap();
 
     assert_eq!(
-        host.dispatch_ipc("window.isMaximized", None)
-            .unwrap(),
+        host.dispatch_ipc("window.isMaximized", None).unwrap(),
         json!(false)
     );
     let outbound =
@@ -430,8 +431,7 @@ fn tracks_window_maximized_state() {
         }
     );
     assert_eq!(
-        host.dispatch_ipc("window.isMaximized", None)
-            .unwrap(),
+        host.dispatch_ipc("window.isMaximized", None).unwrap(),
         json!(true)
     );
 }
