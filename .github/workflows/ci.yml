@@ -114,3 +114,42 @@ jobs:
 
       - name: Test
         run: cargo test -p stremio-lightning-windows --target x86_64-pc-windows-msvc
+
+  macos:
+    name: macOS (clippy, test)
+    runs-on: macos-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+
+      # build.rs links libmpv from Homebrew's mpv prefix.
+      - name: Install libmpv
+        run: brew install mpv
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: cargo xtask build-ui
+
+      - name: Clippy
+        run: cargo clippy -p stremio-lightning-macos --all-targets
+
+      - name: Test
+        run: cargo test -p stremio-lightning-macos
