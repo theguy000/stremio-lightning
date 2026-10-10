@@ -13,6 +13,11 @@ on:
       - "scripts/**"
       - "flatpak/**"
       - "assets/**"
+      # flatpak/cargo-sources.json is generated from Cargo.lock, so a dependency
+      # change can break the offline Flatpak build.
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "crates/*/Cargo.toml"
 
 concurrency:
   group: publish-${{ github.ref }}
