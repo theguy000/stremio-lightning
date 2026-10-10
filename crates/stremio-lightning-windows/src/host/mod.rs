@@ -89,7 +89,7 @@ impl WindowsHost {
         server_config.log_dir = app_data_dir.join("stremio-lightning").join("logs");
         let bridge = WindowsShellBridge {
             player: Mutex::default(),
-            streaming_server: WindowsStreamingServer::new(RealProcessSpawner, server_config),
+            streaming_server: WindowsStreamingServer::new(RealProcessSpawner, &server_config),
             window_state: Mutex::default(),
             pip_state: PipState::new(),
             #[cfg(windows)]
@@ -112,7 +112,7 @@ impl WindowsHost {
     /// Returns an error when the streaming server cannot be started.
     pub fn start_streaming_server(&self) -> Result<(), String> {
         self.streaming_server().start()?;
-        if !self.streaming_server().disabled() {
+        if !self.streaming_server().is_disabled() {
             self.emit_server_started()?;
         }
         Ok(())

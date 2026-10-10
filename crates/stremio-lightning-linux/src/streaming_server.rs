@@ -1,90 +1,14 @@
 use std::collections::BTreeMap;
+use std::ops::Deref;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command};
-use std::sync::Mutex;
-use stremio_lightning_core::streaming_logs::{
-    ManagedChild, StreamingLogFiles, StreamingLogPaths, StreamingLogTails,
+use stremio_lightning_core::streaming_server::StreamingServerSupervisor;
+pub use stremio_lightning_core::streaming_server::{
+    CommandSpec, ProcessChild, ProcessSpawner, RealProcessSpawner,
 };
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CommandSpec {
-    pub program: PathBuf,
-    pub args: Vec<PathBuf>,
-    pub env: BTreeMap<String, String>,
-    pub stdout_log: PathBuf,
-    pub stderr_log: PathBuf,
-}
-
-pub trait ProcessSpawner: Send + Sync + 'static {
-    type Child: ProcessChild;
-
-    fn spawn(&self, spec: CommandSpec) -> Result<Self::Child, String>;
-}
-
-pub trait ProcessChild: Send + 'static {
-    fn stop(&mut self) -> Result<(), String>;
-    fn has_exited(&mut self) -> Result<bool, String>;
-}
-
-impl ProcessChild for Child {
-    fn stop(&mut self) -> Result<(), String> {
-        if self
-            .try_wait()
-            .map_err(|e| format!("Failed to inspect streaming server: {e}"))?
-            .is_some()
-        {
-            return Ok(());
-        }
-
-        self.kill()
-            .map_err(|e| format!("Failed to stop streaming server: {e}"))?;
-        self.wait()
-            .map_err(|e| format!("Failed to wait for streaming server: {e}"))?;
-        Ok(())
-    }
-
-    fn has_exited(&mut self) -> Result<bool, String> {
-        self.try_wait()
-            .map(|status| status.is_some())
-            .map_err(|e| format!("Failed to inspect streaming server: {e}"))
-    }
-}
-
-impl ProcessChild for ManagedChild {
-    fn stop(&mut self) -> Result<(), String> {
-        ManagedChild::stop(self)
-    }
-
-    fn has_exited(&mut self) -> Result<bool, String> {
-        ManagedChild::has_exited(self)
-    }
-}
-
-#[derive(Debug, Default, Clone)]
-pub struct RealProcessSpawner;
-
-impl ProcessSpawner for RealProcessSpawner {
-    type Child = ManagedChild;
-
-    fn spawn(&self, spec: CommandSpec) -> Result<Self::Child, String> {
-        let mut command = Command::new(&spec.program);
-        command.args(&spec.args);
-        command.envs(&spec.env);
-        ManagedChild::spawn(
-            &mut command,
-            StreamingLogFiles::new(spec.stdout_log, spec.stderr_log),
-        )
-    }
-}
 
 #[derive(Debug)]
 pub struct StreamingServer<P: ProcessSpawner> {
-    spawner: P,
-    child: Mutex<Option<P::Child>>,
-    project_root: PathBuf,
-    log_dir: PathBuf,
-    log_files: StreamingLogFiles,
-    disabled: bool,
+    supervisor: StreamingServerSupervisor<P>,
 }
 
 impl<P: ProcessSpawner> StreamingServer<P> {
@@ -93,7 +17,7 @@ impl<P: ProcessSpawner> StreamingServer<P> {
     }
 
     pub fn disabled(mut self, disabled: bool) -> Self {
-        self.disabled = disabled;
+        self.supervisor = self.supervisor.disabled(disabled);
         self
     }
 
@@ -103,96 +27,19 @@ impl<P: ProcessSpawner> StreamingServer<P> {
 
     pub fn with_paths(spawner: P, project_root: PathBuf, log_dir: PathBuf) -> Self {
         Self {
-            spawner,
-            child: Mutex::new(None),
-            project_root,
-            log_files: StreamingLogFiles::new(
-                log_dir.join("stremio-server.stdout.log"),
-                log_dir.join("stremio-server.stderr.log"),
+            supervisor: StreamingServerSupervisor::new(
+                spawner,
+                command_spec(&project_root, &log_dir),
             ),
-            log_dir,
-            disabled: false,
         }
-    }
-
-    pub fn start(&self) -> Result<(), String> {
-        if self.disabled {
-            return Ok(());
-        }
-
-        let mut child = self.child.lock().map_err(|e| e.to_string())?;
-        if let Some(existing) = child.as_mut() {
-            if existing.has_exited()? {
-                *child = None;
-            } else {
-                return Ok(());
-            }
-        }
-
-        let spec = command_spec(&self.project_root, &self.log_dir);
-        let spawned = self.spawner.spawn(spec)?;
-        *child = Some(spawned);
-        Ok(())
-    }
-
-    pub fn stop(&self) -> Result<(), String> {
-        let mut child = self.child.lock().map_err(|e| e.to_string())?;
-        if let Some(mut child) = child.take() {
-            child.stop()?;
-        }
-        Ok(())
-    }
-
-    pub fn restart(&self) -> Result<(), String> {
-        self.stop()?;
-        self.start()
-    }
-
-    pub fn is_running(&self) -> bool {
-        self.refresh_running_state().unwrap_or(false)
-    }
-
-    pub fn is_disabled(&self) -> bool {
-        self.disabled
-    }
-
-    pub fn refresh_running_state(&self) -> Result<bool, String> {
-        let mut child = self.child.lock().map_err(|e| e.to_string())?;
-        if let Some(existing) = child.as_mut() {
-            if existing.has_exited()? {
-                *child = None;
-                return Ok(false);
-            }
-            return Ok(true);
-        }
-
-        Ok(false)
-    }
-
-    pub fn project_root(&self) -> &Path {
-        &self.project_root
-    }
-
-    pub fn log_paths(&self) -> StreamingLogPaths {
-        self.log_files.paths()
-    }
-
-    pub fn log_tails(&self, max_bytes_per_stream: usize) -> Result<StreamingLogTails, String> {
-        self.log_files
-            .tails(max_bytes_per_stream)
-            .map_err(|error| format!("Failed to read streaming server log tails: {error}"))
-    }
-
-    pub fn clear_logs(&self) -> Result<(), String> {
-        self.log_files
-            .clear()
-            .map_err(|error| format!("Failed to clear streaming server logs: {error}"))
     }
 }
 
-impl<P: ProcessSpawner> Drop for StreamingServer<P> {
-    fn drop(&mut self) {
-        let _ = self.stop();
+impl<P: ProcessSpawner> Deref for StreamingServer<P> {
+    type Target = StreamingServerSupervisor<P>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.supervisor
     }
 }
 
