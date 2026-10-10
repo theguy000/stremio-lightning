@@ -89,10 +89,6 @@ pub fn run(config: AppConfig) -> Result<(), String> {
     }
 }
 
-pub fn uses_streaming_server_proxy(url: &str) -> bool {
-    url.starts_with("http://127.0.0.1:11470/")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -108,13 +104,6 @@ mod tests {
         assert!(config.devtools);
         assert!(config.headless_bootstrap);
         assert_eq!(parse_args(["stremio-lightning-macos"]).url, DEFAULT_URL);
-    }
-
-    #[test]
-    fn detects_streaming_server_proxy_urls() {
-        assert!(uses_streaming_server_proxy(DEFAULT_URL));
-        assert!(!uses_streaming_server_proxy("https://web.stremio.com/"));
-        assert!(!uses_streaming_server_proxy("http://localhost:11470/"));
     }
 
     #[test]
