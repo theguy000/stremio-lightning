@@ -68,13 +68,11 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
-      # The Windows crate only builds on Windows (its host and window code is
-      # cfg(windows)-gated), so the release workflow checks it there.
       - name: Clippy
-        run: cargo clippy --workspace --exclude stremio-lightning-windows --all-targets
+        run: cargo clippy --workspace --all-targets
 
       - name: Test
-        run: cargo test --workspace --exclude stremio-lightning-windows
+        run: cargo test --workspace
 
   windows:
     name: Windows (clippy, test)

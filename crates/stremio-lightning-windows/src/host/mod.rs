@@ -32,9 +32,7 @@ pub struct WindowsHost {
     pub base: BaseHost<WindowsShellBridge>,
     #[cfg(windows)]
     pending_responses: Mutex<Vec<WindowsIpcOutbound>>,
-    #[cfg(windows)]
     player_scratch: Mutex<Vec<PlayerEvent>>,
-    #[cfg(windows)]
     record_scratch: Mutex<Vec<HostEventRecord>>,
     #[cfg(windows)]
     ui_notifier: Mutex<Option<crate::window::UiThreadNotifier>>,
@@ -99,9 +97,7 @@ impl WindowsHost {
             base: BaseHost::new(bridge, app_data_dir, package_version),
             #[cfg(windows)]
             pending_responses: Mutex::default(),
-            #[cfg(windows)]
             player_scratch: Mutex::default(),
-            #[cfg(windows)]
             record_scratch: Mutex::default(),
             #[cfg(windows)]
             ui_notifier: Mutex::default(),
