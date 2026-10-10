@@ -75,3 +75,44 @@ jobs:
 
       - name: Test
         run: cargo test --workspace --exclude stremio-lightning-windows
+
+  windows:
+    name: Windows (clippy, test)
+    runs-on: windows-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+          targets: x86_64-pc-windows-msvc
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: cargo xtask build-ui
+
+      - name: Download Windows shell dependencies
+        run: cargo xtask setup-windows
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Clippy
+        run: cargo clippy -p stremio-lightning-windows --all-targets --target x86_64-pc-windows-msvc
+
+      - name: Test
+        run: cargo test -p stremio-lightning-windows --target x86_64-pc-windows-msvc
