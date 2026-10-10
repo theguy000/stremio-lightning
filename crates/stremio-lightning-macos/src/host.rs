@@ -940,9 +940,9 @@ mod tests {
         let events = host.drain_emitted_events().unwrap();
         assert_eq!(events.len(), 2);
         assert_eq!(events[0].event, "window-maximized-changed");
-        assert_eq!(events[0].payload, json!({"maximized": true}));
+        assert_eq!(events[0].payload, json!(true));
         assert_eq!(events[1].event, "window-fullscreen-changed");
-        assert_eq!(events[1].payload, json!({"fullscreen": true}));
+        assert_eq!(events[1].payload, json!(true));
     }
 
     #[test]
