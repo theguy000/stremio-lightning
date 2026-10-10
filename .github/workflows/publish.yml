@@ -137,7 +137,7 @@ jobs:
           test -s dist/Stremio_Lightning_Linux-x86_64.flatpak
 
           desktop-file-validate "target/appimage/stremio-lightning.AppDir/usr/share/applications/$APP_ID.desktop"
-          grep -Fxq "Exec=stremio-lightning-linux" "target/appimage/stremio-lightning.AppDir/usr/share/applications/$APP_ID.desktop"
+          grep -Fxq "Exec=stremio-lightning-linux %U" "target/appimage/stremio-lightning.AppDir/usr/share/applications/$APP_ID.desktop"
 
           mkdir -p "$INSPECT_ROOT/deb"
           dpkg-deb --extract dist/stremio-lightning-linux-amd64.deb "$INSPECT_ROOT/deb"
