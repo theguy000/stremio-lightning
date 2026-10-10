@@ -1,6 +1,5 @@
-use stremio_lightning_core::bridge_assets::{
-    bridge_scripts, load_mod_ui_source, InjectionScript, MOD_UI_NAME,
-};
+use std::ops::Deref;
+use stremio_lightning_core::webview_runtime::InjectionBundle as CoreInjectionBundle;
 use thiserror::Error;
 
 pub const WINDOWS_HOST_ADAPTER_NAME: &str = "windows-host-adapter";
@@ -105,47 +104,36 @@ pub enum WebViewError {
     Other(String),
 }
 
+/// The core injection bundle, built from the Windows host adapter.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct InjectionBundle {
-    scripts: Vec<InjectionScript>,
-}
+pub struct InjectionBundle(CoreInjectionBundle);
 
 impl InjectionBundle {
     /// # Errors
     /// Returns an error when the bundled web assets cannot be read.
     pub fn load() -> Result<Self, WebViewError> {
-        let mut scripts = vec![InjectionScript {
-            name: HOST_ADAPTER_NAME,
-            source: super::adapter::host_adapter(),
-        }];
-        scripts.extend(bridge_scripts());
-        scripts.push(InjectionScript {
-            name: MOD_UI_NAME,
-            source: load_mod_ui_source().map_err(WebViewError::InjectionBundle)?,
-        });
-
-        Ok(Self { scripts })
-    }
-
-    #[must_use]
-    pub fn scripts(&self) -> &[InjectionScript] {
-        &self.scripts
+        CoreInjectionBundle::load(HOST_ADAPTER_NAME, super::adapter::host_adapter())
+            .map(Self)
+            .map_err(WebViewError::InjectionBundle)
     }
 
     /// Concatenates every injection source into a single script so the shell can
     /// register them with one `WebView2` round-trip instead of one per script.
     #[must_use]
     pub fn combined_source(&self) -> String {
-        self.scripts
+        self.scripts()
             .iter()
             .map(|script| script.source.as_str())
             .collect::<Vec<_>>()
             .join("\n;\n")
     }
+}
 
-    #[must_use]
-    pub fn script_names(&self) -> Vec<&'static str> {
-        self.scripts.iter().map(|script| script.name).collect()
+impl Deref for InjectionBundle {
+    type Target = CoreInjectionBundle;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
