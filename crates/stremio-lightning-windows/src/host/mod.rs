@@ -328,16 +328,6 @@ impl WindowsHost {
     }
 
     /// # Errors
-    /// Returns the error reported by the IPC handler.
-    pub fn dispatch_windows_ipc(
-        &self,
-        kind: &str,
-        payload: Option<Value>,
-    ) -> Result<Value, String> {
-        self.dispatch_ipc(kind, payload)
-    }
-
-    /// # Errors
     /// Returns the error reported by the command handler.
     pub fn invoke(&self, command: &str, payload: Option<Value>) -> Result<Value, String> {
         self.base.invoke(command, payload)

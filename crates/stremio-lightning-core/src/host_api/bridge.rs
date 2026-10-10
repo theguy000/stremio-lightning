@@ -9,11 +9,11 @@ use super::handlers::{
     split_invoke_payload,
 };
 use super::types::{
-    DownloadModPayload, FocusChangedPayload, FullscreenIpcPayload, GetLogsPayload, HostApiError,
-    HostEvent, HostEventRecord, InterfaceScalePayload, ListenIpcPayload, ListenerRegistry,
-    MediaMetadataPayload, MediaStatusPayload, ModFilePayload, ModTypePayload, ParsedRequest,
-    PlatformBridge, RegisterSettingsPayload, RpcResponse, SaveSettingPayload,
-    SetExtendedDiagnosticsPayload, SettingKeyPayload, ShellPreferenceState,
+    valid_zoom_level, DownloadModPayload, FocusChangedPayload, FullscreenIpcPayload,
+    GetLogsPayload, HostApiError, HostEvent, HostEventRecord, InterfaceScalePayload,
+    ListenIpcPayload, ListenerRegistry, MediaMetadataPayload, MediaStatusPayload, ModFilePayload,
+    ModTypePayload, ParsedRequest, PlatformBridge, RegisterSettingsPayload, RpcResponse,
+    SaveSettingPayload, SetExtendedDiagnosticsPayload, SettingKeyPayload, ShellPreferenceState,
     SubmitDiagnosticLogsPayload, UnlistenIpcPayload, ZoomIpcPayload, RPC_TYPE_SIGNAL,
     SHELL_TRANSPORT_EVENT, TRANSPORT_OBJECT,
 };
@@ -355,17 +355,7 @@ impl<P: PlatformBridge> BaseHost<P> {
             }
             "window.toggleMaximize" => {
                 let maximized = self.bridge.toggle_window_maximize()?;
-                match self.bridge.platform_name() {
-                    "macos" => {
-                        self.emit_event(
-                            "window-maximized-changed",
-                            json!({ "maximized": maximized }),
-                        )?;
-                    }
-                    _ => {
-                        self.emit_host_event(HostEvent::WindowMaximizedChanged, json!(maximized))?;
-                    }
-                }
+                self.emit_host_event(HostEvent::WindowMaximizedChanged, json!(maximized))?;
                 Ok(Value::Null)
             }
             "window.close" => {
@@ -381,36 +371,22 @@ impl<P: PlatformBridge> BaseHost<P> {
             "window.setFullscreen" => {
                 let payload: FullscreenIpcPayload = parse_payload(kind, payload)?;
                 self.bridge.set_window_fullscreen(payload.fullscreen)?;
-                if self.bridge.platform_name() == "macos" {
-                    self.emit_event(
-                        "window-fullscreen-changed",
-                        json!({ "fullscreen": payload.fullscreen }),
-                    )?;
-                    self.emit_transport_message(response_message(serialize_window_visibility(
-                        true,
-                        payload.fullscreen,
-                    )))?;
-                } else {
-                    self.emit_host_event(
-                        HostEvent::WindowFullscreenChanged,
-                        json!(payload.fullscreen),
-                    )?;
-                    self.emit_transport_message(response_message(serialize_window_visibility(
-                        true,
-                        payload.fullscreen,
-                    )))?;
-                }
+                self.emit_host_event(
+                    HostEvent::WindowFullscreenChanged,
+                    json!(payload.fullscreen),
+                )?;
+                self.emit_transport_message(response_message(serialize_window_visibility(
+                    true,
+                    payload.fullscreen,
+                )))?;
                 Ok(Value::Null)
             }
             "webview.setZoom" => {
                 let payload: ZoomIpcPayload = parse_payload(kind, payload)?;
-                // `level` is a zoom factor where 1.0 is 100%; the range keeps a
-                // hostile or buggy page from asking for an unusable scale.
                 // WebView2 takes the factor, WebKitGTK wants `log2` of it.
-                if !payload.level.is_finite() || !(0.25..=4.0).contains(&payload.level) {
-                    return Err("Invalid webview zoom level".to_string());
-                }
-                self.bridge.set_webview_zoom(payload.level)?;
+                let level = valid_zoom_level(payload.level)
+                    .ok_or_else(|| "Invalid webview zoom level".to_string())?;
+                self.bridge.set_webview_zoom(level)?;
                 Ok(Value::Null)
             }
             other => Err(format!("Unsupported IPC kind: {other}")),
@@ -795,17 +771,14 @@ impl<P: PlatformBridge> BaseHost<P> {
                     "win-set-visibility" => {
                         let payload: FullscreenIpcPayload = parse_payload(&method, data)?;
                         self.bridge.set_window_fullscreen(payload.fullscreen)?;
-                        self.emit_transport_message(response_message(serialize_window_visibility(
-                            true,
-                            self.bridge.is_window_fullscreen()?,
-                        )))?;
+                        self.emit_transport_message(response_message(
+                            serialize_window_visibility(true, self.bridge.is_window_fullscreen()?),
+                        ))?;
                     }
                     "win-set-interface-scale" => {
                         let payload: InterfaceScalePayload = parse_payload(&method, data)?;
-                        let level = payload.scale / 100.0;
-                        if !level.is_finite() || !(0.25..=4.0).contains(&level) {
-                            return Err("Invalid interface scale".to_string());
-                        }
+                        let level = valid_zoom_level(payload.scale / 100.0)
+                            .ok_or_else(|| "Invalid interface scale".to_string())?;
                         self.bridge.set_webview_zoom(level)?;
                     }
                     "discord-connect" => {

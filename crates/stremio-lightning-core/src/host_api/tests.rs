@@ -8,10 +8,28 @@ use super::handlers::{
     serialize_window_visibility, stremio_deep_link_transport_args,
 };
 use super::types::{
-    HostCommand, HostEvent, ParsedRequest, PlatformBridge, DEFAULT_STREAMING_SERVER_URL,
+    valid_zoom_level, HostEvent, ParsedRequest, PlatformBridge, DEFAULT_STREAMING_SERVER_URL,
     SHELL_TRANSPORT_EVENT,
 };
 use crate::logging;
+
+#[test]
+fn zoom_level_is_accepted_only_inside_the_shared_range() {
+    for ok in [0.25, 1.0, 4.0] {
+        assert_eq!(valid_zoom_level(ok), Some(ok));
+    }
+    for bad in [
+        0.0,
+        0.24,
+        4.01,
+        -1.0,
+        f64::NAN,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+    ] {
+        assert_eq!(valid_zoom_level(bad), None, "{bad}");
+    }
+}
 
 #[derive(Default)]
 struct TestBridge {
@@ -148,26 +166,6 @@ fn classifies_network_backed_commands_as_async() {
     for command in ["init", "get_plugins", "shell_transport_send"] {
         assert!(!is_async_command(command), "{command} should be sync");
     }
-}
-
-#[test]
-fn host_command_names_match_frontend() {
-    assert_eq!(
-        serde_json::to_value(HostCommand::ToggleDevtools).unwrap(),
-        json!("toggle_devtools")
-    );
-    assert_eq!(
-        serde_json::to_value(HostCommand::SetPipDisablesAutoPause).unwrap(),
-        json!("set_pip_disables_auto_pause")
-    );
-    assert_eq!(
-        serde_json::to_value(HostCommand::GetLogs).unwrap(),
-        json!("get_logs")
-    );
-    assert_eq!(
-        serde_json::to_value(HostCommand::GetDiagnosticReport).unwrap(),
-        json!("get_diagnostic_report")
-    );
 }
 
 #[test]

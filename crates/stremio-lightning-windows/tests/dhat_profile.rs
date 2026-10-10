@@ -39,7 +39,7 @@ fn profile_production_workload() {
         dir,
         true,
     ));
-    host.dispatch_windows_ipc(
+    host.dispatch_ipc(
         "listen",
         Some(json!({ "id": 1, "event": "shell-transport-message" })),
     )

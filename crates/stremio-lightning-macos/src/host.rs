@@ -63,11 +63,6 @@ where
         self.streaming_server.is_running()
     }
 
-    fn get_streaming_server_status(&self) -> Result<Value, String> {
-        serde_json::to_value(self.streaming_server.status())
-            .map_err(|e| format!("Failed to serialize macOS streaming server status: {e}"))
-    }
-
     fn toggle_picture_in_picture(&self) -> Result<bool, String> {
         self.pip_state.toggle()
     }
@@ -308,20 +303,17 @@ where
     }
 
     pub fn emit_window_fullscreen_changed(&self, fullscreen: bool) -> Result<(), String> {
-        self.base.emit_event(
-            "window-fullscreen-changed",
-            json!({ "fullscreen": fullscreen }),
-        )?;
+        self.base
+            .emit_event("window-fullscreen-changed", json!(fullscreen))?;
         self.emit_transport_response(host_api::response_message(
             host_api::serialize_window_visibility(true, fullscreen),
         ))
     }
 
     pub fn emit_window_maximized_changed(&self, maximized: bool) -> Result<(), String> {
-        Ok(self.base.emit_event(
-            "window-maximized-changed",
-            json!({ "maximized": maximized }),
-        )?)
+        Ok(self
+            .base
+            .emit_event("window-maximized-changed", json!(maximized))?)
     }
 
     pub fn emit_lifecycle_event(&self, event: AppLifecycleEvent) -> Result<(), String> {
@@ -572,25 +564,16 @@ mod tests {
     #[test]
     fn streaming_server_commands_report_status() {
         let host = test_host();
-        assert_eq!(
-            host.invoke("get_streaming_server_status", None).unwrap()["running"],
-            false
-        );
+        let running = |host: &Host<FakePlayerBackend, FakeProcessSpawner>| {
+            host.invoke("get_streaming_server_status", None).unwrap()
+        };
+        assert_eq!(running(&host), json!(false));
         host.invoke("start_streaming_server", None).unwrap();
-        assert_eq!(
-            host.invoke("get_streaming_server_status", None).unwrap()["running"],
-            true
-        );
+        assert_eq!(running(&host), json!(true));
         host.invoke("restart_streaming_server", None).unwrap();
-        assert_eq!(
-            host.invoke("get_streaming_server_status", None).unwrap()["running"],
-            true
-        );
+        assert_eq!(running(&host), json!(true));
         host.invoke("stop_streaming_server", None).unwrap();
-        assert_eq!(
-            host.invoke("get_streaming_server_status", None).unwrap()["running"],
-            false
-        );
+        assert_eq!(running(&host), json!(false));
     }
 
     #[test]

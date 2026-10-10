@@ -70,7 +70,7 @@ fn exposes_webview2_init_contract() {
 #[test]
 fn handles_shell_transport_handshake() {
     let host = WindowsHost::new("0.1.4");
-    host.dispatch_windows_ipc(
+    host.dispatch_ipc(
         "listen",
         Some(json!({ "id": 7, "event": "shell-transport-message" })),
     )
@@ -106,12 +106,12 @@ fn transport_event_payload(host: &WindowsHost) -> Value {
 #[test]
 fn handles_win_set_visibility_transport() {
     let host = WindowsHost::default();
-    host.dispatch_windows_ipc(
+    host.dispatch_ipc(
         "listen",
         Some(json!({ "id": 7, "event": "shell-transport-message" })),
     )
     .unwrap();
-    host.dispatch_windows_ipc("invoke", Some(json!({ "command": "shell_bridge_ready" })))
+    host.dispatch_ipc("invoke", Some(json!({ "command": "shell_bridge_ready" })))
         .unwrap();
     host.invoke(
         "shell_transport_send",
@@ -154,12 +154,12 @@ fn handles_win_set_visibility_transport() {
 #[test]
 fn win_set_visibility_rejects_invalid_payload_and_emits_repeated_state() {
     let host = WindowsHost::default();
-    host.dispatch_windows_ipc(
+    host.dispatch_ipc(
         "listen",
         Some(json!({ "id": 7, "event": "shell-transport-message" })),
     )
     .unwrap();
-    host.dispatch_windows_ipc("invoke", Some(json!({ "command": "shell_bridge_ready" })))
+    host.dispatch_ipc("invoke", Some(json!({ "command": "shell_bridge_ready" })))
         .unwrap();
     host.invoke(
         "shell_transport_send",
@@ -227,7 +227,7 @@ fn returns_structured_error_for_invalid_command() {
 #[test]
 fn listener_registration_controls_events() {
     let host = WindowsHost::default();
-    host.dispatch_windows_ipc(
+    host.dispatch_ipc(
         "listen",
         Some(json!({ "id": 2, "event": "window-fullscreen-changed" })),
     )
@@ -256,14 +256,14 @@ fn queues_open_media_until_shell_transport_is_ready() {
 
     assert!(host.drain_ipc_events().is_empty());
 
-    host.dispatch_windows_ipc(
+    host.dispatch_ipc(
         "listen",
         Some(json!({ "id": 8, "event": "shell-transport-message" })),
     )
     .unwrap();
     assert!(host.drain_ipc_events().is_empty());
 
-    host.dispatch_windows_ipc("invoke", Some(json!({"command": "shell_bridge_ready"})))
+    host.dispatch_ipc("invoke", Some(json!({"command": "shell_bridge_ready"})))
         .unwrap();
     assert!(host.drain_ipc_events().is_empty());
 
@@ -289,12 +289,12 @@ fn queues_open_media_until_shell_transport_is_ready() {
 #[test]
 fn queues_addon_install_for_stremio_manifest_links() {
     let host = WindowsHost::default();
-    host.dispatch_windows_ipc(
+    host.dispatch_ipc(
         "listen",
         Some(json!({ "id": 8, "event": "shell-transport-message" })),
     )
     .unwrap();
-    host.dispatch_windows_ipc("invoke", Some(json!({"command": "shell_bridge_ready"})))
+    host.dispatch_ipc("invoke", Some(json!({"command": "shell_bridge_ready"})))
         .unwrap();
     host.invoke(
         "shell_transport_send",
@@ -319,12 +319,12 @@ fn queues_addon_install_for_stremio_manifest_links() {
 #[test]
 fn queues_media_keys_through_shell_transport() {
     let host = WindowsHost::default();
-    host.dispatch_windows_ipc(
+    host.dispatch_ipc(
         "listen",
         Some(json!({ "id": 8, "event": "shell-transport-message" })),
     )
     .unwrap();
-    host.dispatch_windows_ipc("invoke", Some(json!({"command": "shell_bridge_ready"})))
+    host.dispatch_ipc("invoke", Some(json!({"command": "shell_bridge_ready"})))
         .unwrap();
     host.invoke(
         "shell_transport_send",
@@ -346,7 +346,7 @@ fn queues_media_keys_through_shell_transport() {
 #[test]
 fn handles_pip_toggle_state() {
     let host = WindowsHost::default();
-    host.dispatch_windows_ipc(
+    host.dispatch_ipc(
         "listen",
         Some(json!({ "id": 8, "event": "shell-transport-message" })),
     )
@@ -373,7 +373,7 @@ fn handles_pip_toggle_state() {
 #[test]
 fn exits_pip_when_native_player_ends() {
     let host = WindowsHost::default();
-    host.dispatch_windows_ipc(
+    host.dispatch_ipc(
         "listen",
         Some(json!({ "id": 8, "event": "shell-transport-message" })),
     )
@@ -401,14 +401,14 @@ fn exits_pip_when_native_player_ends() {
 #[test]
 fn tracks_window_maximized_state() {
     let host = WindowsHost::default();
-    host.dispatch_windows_ipc(
+    host.dispatch_ipc(
         "listen",
         Some(json!({ "id": 2, "event": "window-maximized-changed" })),
     )
     .unwrap();
 
     assert_eq!(
-        host.dispatch_windows_ipc("window.isMaximized", None)
+        host.dispatch_ipc("window.isMaximized", None)
             .unwrap(),
         json!(false)
     );
@@ -430,7 +430,7 @@ fn tracks_window_maximized_state() {
         }
     );
     assert_eq!(
-        host.dispatch_windows_ipc("window.isMaximized", None)
+        host.dispatch_ipc("window.isMaximized", None)
             .unwrap(),
         json!(true)
     );
