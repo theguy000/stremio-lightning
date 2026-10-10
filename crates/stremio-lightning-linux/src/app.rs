@@ -8,9 +8,9 @@ use gtk::glib;
 use gtk::prelude::*;
 use std::sync::Arc;
 use stremio_lightning_core::launch_intent::{classify_launch_argument, launch_intent_from_args};
+use stremio_lightning_core::startup::StartupOptions;
 
-pub const DEFAULT_URL: &str = "http://127.0.0.1:11470/proxy/d=https%3A%2F%2Fweb.stremio.com/";
-const STREMIO_WEB_URL: &str = "https://web.stremio.com/";
+pub use stremio_lightning_core::startup::{normalize_startup_url, DEFAULT_URL, STREMIO_WEB_URL};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AppConfig {
@@ -39,35 +39,24 @@ where
     S: Into<String>,
 {
     let mut config = AppConfig::default();
+    let mut startup = StartupOptions::default();
     let mut args = args.into_iter().map(Into::into).skip(1);
 
     while let Some(arg) = args.next() {
-        if arg == "--url" {
-            if let Some(url) = args.next() {
-                config.url = normalize_startup_url(&url);
-            }
-        } else if let Some(url) = arg.strip_prefix("--url=") {
-            config.url = normalize_startup_url(url);
-        } else if arg == "--devtools" {
-            config.devtools = true;
-        } else if arg == "--headless-bootstrap" {
-            config.headless_bootstrap = true;
-        } else if arg == "--streaming-server-disabled" {
+        if startup.apply_arg(&arg, &mut args) {
+            continue;
+        }
+        if arg == "--streaming-server-disabled" {
             config.streaming_server_disabled = true;
         } else if classify_launch_argument(&arg).is_some() {
             config.launch_url = Some(arg);
         }
     }
 
+    config.url = startup.url;
+    config.devtools = startup.devtools;
+    config.headless_bootstrap = startup.headless_bootstrap;
     config
-}
-
-fn normalize_startup_url(url: &str) -> String {
-    if url.trim_end_matches('/') == STREMIO_WEB_URL.trim_end_matches('/') {
-        DEFAULT_URL.to_string()
-    } else {
-        url.to_string()
-    }
 }
 
 pub fn run(config: AppConfig) -> Result<(), String> {
@@ -165,22 +154,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn defaults_to_streaming_server_proxy() {
-        let config = parse_args(["stremio-lightning-linux"]);
-        assert_eq!(config.url, DEFAULT_URL);
-        assert!(config.devtools);
-    }
-
-    #[test]
-    fn accepts_devtools_flag_for_compatibility() {
-        let config = parse_args(["stremio-lightning-linux", "--devtools"]);
-        assert!(config.devtools);
-    }
-
-    #[test]
-    fn accepts_developer_url() {
-        let config = parse_args(["stremio-lightning-linux", "--url", "file:///tmp/smoke.html"]);
+    fn shares_startup_flags_with_core() {
+        let config = parse_args([
+            "stremio-lightning-linux",
+            "--url",
+            "file:///tmp/smoke.html",
+            "--headless-bootstrap",
+        ]);
         assert_eq!(config.url, "file:///tmp/smoke.html");
+        assert!(config.devtools);
+        assert!(config.headless_bootstrap);
+        assert_eq!(parse_args(["stremio-lightning-linux"]).url, DEFAULT_URL);
     }
 
     #[test]
@@ -205,15 +189,5 @@ mod tests {
             config.launch_url.as_deref(),
             Some("stremio://addon.example/manifest.json")
         );
-    }
-
-    #[test]
-    fn normalizes_direct_stremio_web_url_to_local_proxy() {
-        let config = parse_args([
-            "stremio-lightning-linux",
-            "--url",
-            "https://web.stremio.com/",
-        ]);
-        assert_eq!(config.url, DEFAULT_URL);
     }
 }

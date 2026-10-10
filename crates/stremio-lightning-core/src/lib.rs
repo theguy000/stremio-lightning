@@ -15,6 +15,7 @@ pub mod navigation;
 pub mod pip;
 pub mod player_api;
 pub mod settings;
+pub mod startup;
 pub mod streaming_logs;
 pub mod streaming_server;
 pub mod validation;
