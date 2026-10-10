@@ -8,6 +8,7 @@ mod tests;
 pub mod types;
 pub mod wndproc;
 
+#[cfg(windows)]
 pub use coalescer::UiThreadNotifier;
 pub use types::{WindowConfig, WindowError, UI_THREAD_WAKE_MESSAGE};
 pub use wndproc::run_native_window;
