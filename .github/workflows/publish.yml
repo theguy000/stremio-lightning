@@ -4,6 +4,22 @@ on:
   workflow_dispatch:
   push:
     tags: ["v*"]
+  # Dry run: build and package everything, but never release, when a PR touches
+  # something the packages are built from.
+  pull_request:
+    paths:
+      - ".github/workflows/publish.yml"
+      - "crates/xtask/**"
+      - "scripts/**"
+      - "flatpak/**"
+      - "assets/**"
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
 
 jobs:
   linux:
@@ -78,6 +94,7 @@ jobs:
         run: cargo xtask build-ui
 
       - name: Validate Rust before packaging
+        if: github.event_name != 'pull_request'
         run: |
           cargo fmt --all -- --check
           cargo clippy --workspace --all-targets
@@ -204,6 +221,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Validate Rust before packaging
+        if: github.event_name != 'pull_request'
         shell: pwsh
         run: |
           cargo fmt --all -- --check
@@ -272,35 +290,27 @@ jobs:
       contents: write
 
     steps:
-      - name: Download Linux artifact
+      - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
-          name: Stremio_Lightning_Linux-x86_64.AppImage
           path: release-assets
+          merge-multiple: true
 
-      - name: Download Windows artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: stremio-lightning-windows-portable.zip
-          path: release-assets
-
-      - name: Download Linux installer artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: stremio-lightning-linux-amd64.deb
-          path: release-assets
-
-      - name: Download Linux Flatpak artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: Stremio_Lightning_Linux-x86_64.flatpak
-          path: release-assets
-
-      - name: Download Windows installer artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: stremio-lightning-windows-setup.exe
-          path: release-assets
+      - name: Check release files and write checksums
+        working-directory: release-assets
+        run: |
+          set -euo pipefail
+          for f in \
+            Stremio_Lightning_Linux-x86_64.AppImage \
+            stremio-lightning-linux-amd64.deb \
+            Stremio_Lightning_Linux-x86_64.flatpak \
+            stremio-lightning-windows-portable.zip \
+            stremio-lightning-windows-setup.exe; do
+            test -s "$f"
+          done
+          sha256sum -- * > ../SHA256SUMS.txt
+          mv ../SHA256SUMS.txt .
+          cat SHA256SUMS.txt
 
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
@@ -309,9 +319,11 @@ jobs:
         with:
           draft: true
           prerelease: false
+          generate_release_notes: true
           files: |
             release-assets/Stremio_Lightning_Linux-x86_64.AppImage
             release-assets/stremio-lightning-linux-amd64.deb
             release-assets/Stremio_Lightning_Linux-x86_64.flatpak
             release-assets/stremio-lightning-windows-portable.zip
             release-assets/stremio-lightning-windows-setup.exe
+            release-assets/SHA256SUMS.txt
