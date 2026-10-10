@@ -4,7 +4,8 @@
 //! message the Windows shell emits.
 
 use gtk::gio::{self, prelude::*};
-use gtk::glib::{self, ToVariant};
+use gtk::glib::{self, prelude::ToVariant};
+use gtk::prelude::GtkApplicationExt;
 use std::cell::RefCell;
 use std::rc::Rc;
 use stremio_lightning_identity::{APP_ID, APP_NAME};

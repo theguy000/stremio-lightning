@@ -387,7 +387,7 @@ fn build_webview(
             gtk::ShortcutTrigger::parse_string(keys),
             Some(gtk::CallbackAction::new(move |_, _| {
                 if bypass_cache {
-                    webview.reload_from_origin();
+                    webview.reload_bypass_cache();
                 } else {
                     webview.reload();
                 }
