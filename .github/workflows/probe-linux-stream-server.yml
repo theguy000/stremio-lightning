@@ -40,7 +40,7 @@ jobs:
       - name: Install the shared libraries the binary does not bundle
         run: |
           sudo apt-get update
-          sudo apt-get install -y libtorrent-rasterbar2.0t64 xvfb libayatana-appindicator3-1 ffmpeg
+          sudo apt-get install -y libtorrent-rasterbar2.0t64 ffmpeg
           ldd probe/stream-server-linux-amd64 | grep 'not found' || echo "all shared libraries resolve"
 
       - name: Start the server and probe it
@@ -52,8 +52,6 @@ jobs:
           BASE=http://127.0.0.1:11470
           PROXY="$BASE/proxy/d=https%3A%2F%2Fweb.stremio.com/"
           fail=0
-
-          ./stream-server-linux-amd64 --help 2>&1 | head -30 || true
 
           start() {
             ./stream-server-linux-amd64 "$@" > server.stdout.log 2> server.stderr.log &
@@ -89,9 +87,6 @@ jobs:
             report WARN "headless start" "exits without a display (exit $rc): $(grep -m1 -i 'panicked\|error' headless.err.log | cut -c1-160)"
           fi
 
-          Xvfb :99 -screen 0 1280x720x24 > xvfb.log 2>&1 &
-          export DISPLAY=:99
-          sleep 2
           if start --no-tray; then
             report PASS start "ready with --no-tray"
           elif ! kill -0 "$SERVER_PID" 2>/dev/null && start; then
@@ -145,7 +140,16 @@ jobs:
           fi
 
           kill "$SERVER_PID" 2>/dev/null || true
+          sleep 2
           echo "--- server stderr (tail)"; tail -n 20 server.stderr.log || true
+
+          # Same thing without --no-tray, no display and no appindicator library.
+          if timeout 10 ./stream-server-linux-amd64 > notray.out.log 2> notray.err.log; then rc=0; else rc=$?; fi
+          if [ "$rc" = 124 ]; then
+            report PASS "start without --no-tray" "still running after 10s"
+          else
+            report WARN "start without --no-tray" "exit $rc: $(grep -m1 -i 'panicked\|error\|requires' notray.err.log | cut -c1-160)"
+          fi
           exit "$fail"
 
       - name: Upload logs
