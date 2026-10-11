@@ -119,10 +119,10 @@ jobs:
           {
             echo "## Test box is starting"
             echo
-            echo "- Address: $url (the browser warns about the self-signed certificate; continue)"
+            echo "- Address: $url/?resize=remote (the browser warns about the self-signed certificate; continue)"
             echo "- User: \`tester\`"
             echo "- Password: the \`TEST_BOX_PASSWORD\` secret (on your PC: \`~/.stremio-box/password.txt\`)"
-            echo "- Ready in about 8 to 12 minutes. Setup progress: \`aws ec2 get-console-output\`"
+            echo "- Ready in about 3 to 5 minutes. Setup progress: \`aws ec2 get-console-output\`"
             echo "- Packages from publish.yml run $RUN_ID. \`REPORT.txt\` on the desktop shows the library checks."
             echo "- It deletes itself after 90 minutes. To delete it now, run this workflow with action=down."
           } >> "$GITHUB_STEP_SUMMARY"
