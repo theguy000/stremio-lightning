@@ -40,7 +40,7 @@ jobs:
       - name: Install the shared libraries the binary does not bundle
         run: |
           sudo apt-get update
-          sudo apt-get install -y libtorrent-rasterbar2.0t64 xvfb libayatana-appindicator3-1
+          sudo apt-get install -y libtorrent-rasterbar2.0t64 xvfb libayatana-appindicator3-1 ffmpeg
           ldd probe/stream-server-linux-amd64 | grep 'not found' || echo "all shared libraries resolve"
 
       - name: Start the server and probe it
