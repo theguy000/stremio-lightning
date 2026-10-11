@@ -62,20 +62,16 @@ pub fn bridge_scripts() -> Vec<InjectionScript> {
 }
 
 pub const MOD_UI_NAME: &str = "mod-ui-svelte.iife.js";
-const MOD_UI_PATH: &str = "../../src/dist/mod-ui-svelte.iife.js";
+
+/// Compiled into the binary, so an installed app does not look for the file on
+/// the machine that built it. `cargo xtask build-ui` must run before the build.
+const MOD_UI_SOURCE: &str = include_str!("../../../src/dist/mod-ui-svelte.iife.js");
 
 /// # Errors
-/// Returns an error when the bundled mod UI source cannot be read.
+/// Never fails now that the bundle is compiled in. The `Result` stays so the
+/// shells that call `InjectionBundle::load` do not change.
 pub fn load_mod_ui_source() -> Result<String, String> {
-    let manifest_dir = std::env!("CARGO_MANIFEST_DIR");
-    let path = std::path::PathBuf::from(manifest_dir).join(MOD_UI_PATH);
-    std::fs::read_to_string(&path).map_err(|error| {
-        format!(
-            "Failed to read mod UI bundle at {}: {error}\n\
-             Run `cargo xtask build-ui` to generate it.",
-            path.display()
-        )
-    })
+    Ok(MOD_UI_SOURCE.to_string())
 }
 
 #[cfg(test)]
