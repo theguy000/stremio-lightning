@@ -1,0 +1,89 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Throwaway Ubuntu desktop for testing the Stremio Lightning Linux packages. Deleting the stack removes everything.
+
+Parameters:
+  AmiId:
+    Type: AWS::EC2::Image::Id
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  InstanceType:
+    Type: String
+    Default: c6i.xlarge
+    AllowedValues: [c6i.xlarge, c5.xlarge, m5.xlarge, t3.xlarge]
+  AllowedCidr:
+    Type: String
+    Default: 0.0.0.0/0
+    AllowedPattern: '^[0-9]{1,3}(\.[0-9]{1,3}){3}/[0-9]{1,2}$'
+  LifetimeMinutes:
+    Type: Number
+    Default: 90
+    MinValue: 15
+    MaxValue: 180
+  Password:
+    Type: String
+    NoEcho: true
+    MinLength: 16
+    AllowedPattern: '^[A-Za-z0-9_-]+$'
+  SetupUrl:
+    Type: String
+    NoEcho: true
+  AppImageUrl:
+    Type: String
+    NoEcho: true
+  DebUrl:
+    Type: String
+    NoEcho: true
+  FlatpakUrl:
+    Type: String
+    NoEcho: true
+
+Resources:
+  BoxSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: KasmVNC web client only. No SSH.
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8444
+          ToPort: 8444
+          CidrIp: !Ref AllowedCidr
+      Tags:
+        - { Key: Project, Value: stremio-test }
+
+  Box:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref AmiId
+      InstanceType: !Ref InstanceType
+      SecurityGroupIds: [!Ref BoxSecurityGroup]
+      # Shutting the instance down deletes it and its disk, so a forgotten box ends itself.
+      InstanceInitiatedShutdownBehavior: terminate
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            VolumeSize: 40
+            VolumeType: gp3
+            DeleteOnTermination: true
+      MetadataOptions:
+        HttpTokens: required
+      Tags:
+        - { Key: Name, Value: stremio-test-box }
+        - { Key: Project, Value: stremio-test }
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          shutdown -P +${LifetimeMinutes}
+          export BOX_PASSWORD='${Password}'
+          export URL_APPIMAGE='${AppImageUrl}'
+          export URL_DEB='${DebUrl}'
+          export URL_FLATPAK='${FlatpakUrl}'
+          curl -fsSL --retry 5 '${SetupUrl}' -o /root/box-setup.sh && bash /root/box-setup.sh
+
+Outputs:
+  InstanceId:
+    Value: !Ref Box
+  PublicIp:
+    Value: !GetAtt Box.PublicIp
+  Url:
+    Value: !Sub 'https://${Box.PublicIp}:8444'
