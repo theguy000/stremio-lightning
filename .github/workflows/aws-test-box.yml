@@ -52,7 +52,6 @@ jobs:
         env:
           RUN_ID_INPUT: ${{ inputs.run_id }}
           INSTANCE_TYPE: ${{ inputs.instance_type }}
-          BOX_PASSWORD: ${{ secrets.TEST_BOX_PASSWORD }}
           ALLOWED_CIDR: ${{ secrets.TEST_BOX_ALLOWED_CIDR }}
         run: |
           set -euo pipefail
@@ -95,8 +94,10 @@ jobs:
             --filters 'Name=name,Values=ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*' 'Name=state,Values=available' \
             --query 'sort_by(Images,&CreationDate)[-1].ImageId' --output text)
           vpc=$(aws ec2 describe-vpcs --filters Name=isDefault,Values=true --query 'Vpcs[0].VpcId' --output text)
-          cidr="${ALLOWED_CIDR:-0.0.0.0/0}"
-          echo "AMI $ami, VPC $vpc, instance type $INSTANCE_TYPE, allowed CIDR $([ "$cidr" = 0.0.0.0/0 ] && echo 'anyone (password only)' || echo 'restricted')"
+          [ -n "$ALLOWED_CIDR" ] || { echo "TEST_BOX_ALLOWED_CIDR is not set. The password goes in the run summary, so the box must be limited to your IP."; exit 1; }
+          cidr="$ALLOWED_CIDR"
+          BOX_PASSWORD=$(openssl rand -hex 10)
+          echo "AMI $ami, VPC $vpc, instance type $INSTANCE_TYPE, allowed CIDR restricted"
 
           jq -n --arg ami "$ami" --arg vpc "$vpc" --arg it "$INSTANCE_TYPE" --arg cidr "$cidr" --arg pw "$BOX_PASSWORD" \
                 --arg s "$setup_url" --arg a "$appimage_url" --arg d "$deb_url" --arg f "$flatpak_url" '[
@@ -121,7 +122,7 @@ jobs:
             echo
             echo "- Address: $url/?resize=remote (the browser warns about the self-signed certificate; continue)"
             echo "- User: \`tester\`"
-            echo "- Password: the \`TEST_BOX_PASSWORD\` secret (on your PC: \`~/.stremio-box/password.txt\`)"
+            echo "- Password: \`$BOX_PASSWORD\` (new for every box)"
             echo "- Ready in about 3 to 5 minutes. Setup progress: \`aws ec2 get-console-output\`"
             echo "- Packages from publish.yml run $RUN_ID. \`REPORT.txt\` on the desktop shows the library checks."
             echo "- It deletes itself after 90 minutes. To delete it now, run this workflow with action=down."
