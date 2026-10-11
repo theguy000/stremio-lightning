@@ -40,7 +40,7 @@ jobs:
       - name: Install the shared libraries the binary does not bundle
         run: |
           sudo apt-get update
-          sudo apt-get install -y libtorrent-rasterbar2.0t64
+          sudo apt-get install -y libtorrent-rasterbar2.0t64 xvfb
           ldd probe/stream-server-linux-amd64 | grep 'not found' || echo "all shared libraries resolve"
 
       - name: Start the server and probe it
@@ -79,6 +79,19 @@ jobs:
           is_html() { grep -qi '<!doctype html' "$1"; }
 
           echo "### Linux stream-server $STREAM_SERVER_VERSION" >> "$GITHUB_STEP_SUMMARY"
+
+          # No display on a bare runner: does the server still run?
+          if DISPLAY= WAYLAND_DISPLAY= timeout 10 ./stream-server-linux-amd64 --no-tray \
+            > headless.out.log 2> headless.err.log; then rc=0; else rc=$?; fi
+          if [ "$rc" = 124 ]; then
+            report PASS "headless start" "still running after 10s without a display"
+          else
+            report WARN "headless start" "exits without a display (exit $rc): $(grep -m1 -i 'panicked\|error' headless.err.log | cut -c1-160)"
+          fi
+
+          Xvfb :99 -screen 0 1280x720x24 > xvfb.log 2>&1 &
+          export DISPLAY=:99
+          sleep 2
           if start --no-tray; then
             report PASS start "ready with --no-tray"
           elif ! kill -0 "$SERVER_PID" 2>/dev/null && start; then
