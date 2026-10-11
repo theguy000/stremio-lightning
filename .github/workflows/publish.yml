@@ -133,6 +133,7 @@ jobs:
         run: cargo xtask package-linux-flatpak-builder
 
       - name: Verify Linux artifacts and metadata
+        shell: bash
         run: |
           set -euo pipefail
           APP_ID="io.github.theguy000.stremio-lightning"
