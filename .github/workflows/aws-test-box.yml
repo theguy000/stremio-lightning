@@ -5,7 +5,7 @@ name: aws-test-box
 #
 # The job needs the `aws-test` environment: it only runs from master and waits for a
 # required reviewer. The AWS keys belong to an IAM user that can only manage stacks
-# named stremio-test-* in ap-south-1. This job runs no third-party actions and builds
+# named stremio-test-* in us-east-1. This job runs no third-party actions and builds
 # no repository code, because anything running here could read the keys.
 
 on:
@@ -42,9 +42,9 @@ jobs:
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      AWS_DEFAULT_REGION: ap-south-1
+      AWS_DEFAULT_REGION: us-east-1
       AWS_PAGER: ""
-      BUCKET: stremio-test-557690593146-aps1
+      BUCKET: stremio-test-557690593146-use1
       GH_TOKEN: ${{ github.token }}
     steps:
       - name: Launch a test box
