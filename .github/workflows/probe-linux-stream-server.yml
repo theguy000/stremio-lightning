@@ -37,6 +37,12 @@ jobs:
           ldd ./stream-server-linux-amd64 | tee ldd.txt
           if grep -q 'not found' ldd.txt; then echo "::warning::missing shared libraries, see log"; fi
 
+      - name: Install the shared libraries the binary does not bundle
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libtorrent-rasterbar2.0t64
+          ldd probe/stream-server-linux-amd64 | grep 'not found' || echo "all shared libraries resolve"
+
       - name: Start the server and probe it
         run: |
           set -u
@@ -79,7 +85,7 @@ jobs:
             report PASS start "ready without --no-tray (the flag made the server exit)"
           else
             report FAIL start "did not become ready"
-            tail -40 server.stderr.log server.stdout.log || true
+            for f in server.stderr.log server.stdout.log; do echo "--- $f"; tail -n 40 "$f" || true; done
             exit 1
           fi
 
@@ -126,7 +132,7 @@ jobs:
           fi
 
           kill "$SERVER_PID" 2>/dev/null || true
-          echo "--- server stderr (tail)"; tail -20 server.stderr.log || true
+          echo "--- server stderr (tail)"; tail -n 20 server.stderr.log || true
           exit "$fail"
 
       - name: Upload logs
