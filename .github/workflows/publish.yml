@@ -157,8 +157,14 @@ jobs:
           cmp assets/$APP_ID.desktop "target/flatpak-builder-build/files/share/applications/$APP_ID.desktop"
           cmp assets/$APP_ID.metainfo.xml "target/flatpak-builder-build/files/share/metainfo/$APP_ID.metainfo.xml"
 
-          ostree --repo=target/flatpak-builder-repo cat appstream2/x86_64 /appstream.xml \
-            > "$INSPECT_ROOT/flatpak-appstream.xml"
+          REPO=target/flatpak-builder-repo
+          refs=$(ostree --repo="$REPO" refs)
+          echo "ostree refs:"; echo "$refs"
+          if echo "$refs" | grep -qx "appstream2/x86_64"; then
+            ostree --repo="$REPO" cat appstream2/x86_64 /appstream.xml > "$INSPECT_ROOT/flatpak-appstream.xml"
+          else
+            ostree --repo="$REPO" cat appstream/x86_64 /appstream.xml.gz | gzip -dc > "$INSPECT_ROOT/flatpak-appstream.xml"
+          fi
           appstreamcli validate --no-net "$INSPECT_ROOT/flatpak-appstream.xml"
           grep -Fq "<id>$APP_ID</id>" "$INSPECT_ROOT/flatpak-appstream.xml"
           grep -Fq "<name>Stremio Lightning</name>" "$INSPECT_ROOT/flatpak-appstream.xml"
