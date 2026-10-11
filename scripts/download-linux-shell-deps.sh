@@ -5,8 +5,8 @@ set -euo pipefail
 
 # The headless build of stream-server (no tray, TUI or settings window), mirrored
 # at theguy000/stream-server. It is pinned by SHA-256; there is no fallback.
-STREAM_SERVER_VERSION="v0.1.8-lightning.rc1"
-STREAM_SERVER_SHA256="92421868be2e2c8eb008f0eb0165bce163b17b5f914ee9687a5af29d3f94b319"
+STREAM_SERVER_VERSION="v0.1.8-lightning.rc2"
+STREAM_SERVER_SHA256="34de1e4cef846938d6d652597ddd64c285ac24a1db52ced4332ec6b5bf32a0d5"
 STREAM_SERVER_URL="https://github.com/theguy000/stream-server/releases/download/$STREAM_SERVER_VERSION/stream-server-linux-amd64-headless"
 FFMPEG_LINUX_URL="https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz"
 LINUX_DIR="crates/stremio-lightning-linux"
