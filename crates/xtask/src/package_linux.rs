@@ -121,7 +121,7 @@ pub fn package_linux_deb() -> Result<()> {
     write_file(
         debian_dir.join("control"),
         format!(
-            "Package: {PACKAGE_ID}\nVersion: {}\nSection: video\nPriority: optional\nArchitecture: amd64\nMaintainer: Stremio Lightning Maintainers <noreply@example.com>\nDescription: Lightweight native Stremio shell\n Stremio Lightning packages a native Linux shell with bundled runtime resources.\n",
+            "Package: {PACKAGE_ID}\nVersion: {}\nSection: video\nPriority: optional\nArchitecture: amd64\nRecommends: ca-certificates\nMaintainer: Stremio Lightning Maintainers <noreply@example.com>\nDescription: Lightweight native Stremio shell\n Stremio Lightning packages a native Linux shell with bundled runtime resources.\n",
             package_version()?
         ),
     )?;
