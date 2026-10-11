@@ -5,8 +5,7 @@ use crate::common::{
 };
 use crate::{
     LINUX_APPIMAGE, LINUX_BIN, LINUX_DEB, LINUX_DESKTOP_ID, LINUX_FLATPAK, LINUX_FLATPAK_ID,
-    LINUX_FLATPAK_RUNTIME, LINUX_FLATPAK_RUNTIME_VERSION, LINUX_FLATPAK_SDK, LINUX_TARGET,
-    PACKAGE_ID,
+    LINUX_FLATPAK_RUNTIME, LINUX_FLATPAK_RUNTIME_VERSION, LINUX_FLATPAK_SDK, PACKAGE_ID,
 };
 use std::{
     collections::BTreeSet,
@@ -78,10 +77,6 @@ pub fn package_linux_deb() -> Result<()> {
         install_root.join(LINUX_BIN),
     )?;
     copy_dir_recursive(
-        appdir.join(format!("usr/lib/{PACKAGE_ID}/binaries")),
-        install_root.join("binaries"),
-    )?;
-    copy_dir_recursive(
         appdir.join(format!("usr/lib/{PACKAGE_ID}/resources")),
         install_root.join("resources"),
     )?;
@@ -115,7 +110,7 @@ pub fn package_linux_deb() -> Result<()> {
     )?;
     chmod_executable(deb_root.join(format!("usr/bin/{PACKAGE_ID}")))?;
     chmod_executable(install_root.join(LINUX_BIN))?;
-    chmod_executable(install_root.join(format!("binaries/stremio-runtime-{LINUX_TARGET}")))?;
+    chmod_executable(install_root.join("resources/stream-server"))?;
     chmod_executable(install_root.join("resources/ffmpeg"))?;
     chmod_executable(install_root.join("resources/ffprobe"))?;
 
@@ -233,9 +228,7 @@ fn prepare_linux_flatpak_payload(appdir: &Path, payload_dir: &Path) -> Result<()
     write_file(bin_dir.join(PACKAGE_ID), linux_flatpak_launcher_script())?;
     chmod_executable(bin_dir.join(PACKAGE_ID))?;
     chmod_executable(bin_dir.join(LINUX_BIN))?;
-    chmod_executable(files_dir.join(format!(
-        "lib/{PACKAGE_ID}/binaries/stremio-runtime-{LINUX_TARGET}"
-    )))?;
+    chmod_executable(files_dir.join(format!("lib/{PACKAGE_ID}/resources/stream-server")))?;
     chmod_executable(files_dir.join(format!("lib/{PACKAGE_ID}/resources/ffmpeg")))?;
     chmod_executable(files_dir.join(format!("lib/{PACKAGE_ID}/resources/ffprobe")))?;
 
@@ -453,19 +446,16 @@ fn prepare_linux_appdir() -> Result<PathBuf> {
     let linux_dir = root.join("crates/stremio-lightning-linux");
     let appdir = root.join(format!("target/appimage/{PACKAGE_ID}.AppDir"));
     let dist_dir = root.join("dist");
-    let runtime = linux_dir.join(format!("binaries/stremio-runtime-{LINUX_TARGET}"));
-    let server = linux_dir.join("resources/server.cjs");
+    let stream_server = linux_dir.join("resources/stream-server");
     let ffmpeg = linux_dir.join("resources/ffmpeg");
     let ffprobe = linux_dir.join("resources/ffprobe");
     let icon = root.join("assets/icons/128x128.png");
     let desktop_source = root.join(format!("assets/{LINUX_DESKTOP_ID}.desktop"));
     let app_resources = appdir.join(format!("usr/lib/{PACKAGE_ID}/resources"));
-    let app_binaries = appdir.join(format!("usr/lib/{PACKAGE_ID}/binaries"));
     let app_lib = appdir.join("usr/lib");
     let desktop_file = appdir.join(format!("{LINUX_DESKTOP_ID}.desktop"));
 
-    required_executable_file(&runtime, "cargo xtask setup-linux")?;
-    required_file(&server, "cargo xtask setup-linux")?;
+    required_executable_file(&stream_server, "cargo xtask setup-linux")?;
     required_executable_file(&ffmpeg, "cargo xtask setup-linux")?;
     required_executable_file(&ffprobe, "cargo xtask setup-linux")?;
     required_file(&icon, "restore assets/icons/128x128.png")?;
@@ -477,7 +467,6 @@ fn prepare_linux_appdir() -> Result<PathBuf> {
     remove_dir_if_exists(&appdir)?;
     fs::create_dir_all(appdir.join("usr/bin"))?;
     fs::create_dir_all(&app_lib)?;
-    fs::create_dir_all(&app_binaries)?;
     fs::create_dir_all(&app_resources)?;
     fs::create_dir_all(appdir.join("usr/share/applications"))?;
     fs::create_dir_all(appdir.join("usr/share/icons/hicolor/128x128/apps"))?;
@@ -487,11 +476,7 @@ fn prepare_linux_appdir() -> Result<PathBuf> {
         root.join(format!("target/release/{LINUX_BIN}")),
         appdir.join(format!("usr/bin/{LINUX_BIN}")),
     )?;
-    copy_file(
-        &runtime,
-        app_binaries.join(format!("stremio-runtime-{LINUX_TARGET}")),
-    )?;
-    copy_file(&server, app_resources.join("server.cjs"))?;
+    copy_file(&stream_server, app_resources.join("stream-server"))?;
     copy_file(&ffmpeg, app_resources.join("ffmpeg"))?;
     copy_file(&ffprobe, app_resources.join("ffprobe"))?;
     copy_file(&icon, appdir.join(format!("{LINUX_DESKTOP_ID}.png")))?;
@@ -520,12 +505,18 @@ fn prepare_linux_appdir() -> Result<PathBuf> {
 
     chmod_executable(appdir.join("AppRun"))?;
     chmod_executable(appdir.join(format!("usr/bin/{LINUX_BIN}")))?;
-    chmod_executable(app_binaries.join(format!("stremio-runtime-{LINUX_TARGET}")))?;
+    chmod_executable(app_resources.join("stream-server"))?;
     chmod_executable(app_resources.join("ffmpeg"))?;
     chmod_executable(app_resources.join("ffprobe"))?;
 
     bundle_linux_shared_libraries(
         &appdir.join(format!("usr/bin/{LINUX_BIN}")),
+        &app_lib,
+        "cargo xtask setup-linux",
+    )?;
+    // The streaming server links libssl and libcrypto, which not every distro ships.
+    bundle_linux_shared_libraries(
+        &app_resources.join("stream-server"),
         &app_lib,
         "cargo xtask setup-linux",
     )?;
@@ -541,10 +532,9 @@ fn prepare_linux_appdir() -> Result<PathBuf> {
         "cargo xtask setup-linux",
     )?;
     required_executable_file(
-        app_binaries.join(format!("stremio-runtime-{LINUX_TARGET}")),
+        app_resources.join("stream-server"),
         "cargo xtask setup-linux",
     )?;
-    required_file(&app_resources.join("server.cjs"), "cargo xtask setup-linux")?;
     required_executable_file(app_resources.join("ffmpeg"), "cargo xtask setup-linux")?;
     required_executable_file(app_resources.join("ffprobe"), "cargo xtask setup-linux")?;
 
@@ -926,7 +916,7 @@ mod tests {
             "\"runtime-version\": \"{LINUX_FLATPAK_RUNTIME_VERSION}\""
         )));
         assert!(manifest.contains(&format!("\"sdk\": \"{LINUX_FLATPAK_SDK}\"")));
-        assert!(manifest.contains("org.freedesktop.Sdk.Extension.node22"));
+        assert!(!manifest.contains("node22"));
         assert!(manifest.contains("cargo --offline build --release"));
         assert!(manifest.contains("\"cargo-sources.json\""));
         assert!(!manifest.contains("\"build-args\""));
@@ -936,7 +926,9 @@ mod tests {
         assert!(manifest.contains(&format!(
             "install -Dm644 assets/{LINUX_FLATPAK_ID}.metainfo.xml /app/share/metainfo/{LINUX_FLATPAK_ID}.metainfo.xml"
         )));
-        assert!(manifest.contains("install -Dm755 /usr/lib/sdk/node22/bin/node"));
+        assert!(manifest.contains(
+            "install -Dm755 stream-server-linux-amd64-headless /app/lib/stremio-lightning/resources/stream-server"
+        ));
         assert!(manifest.contains("ln -s /usr/bin/ffmpeg"));
         assert!(manifest.contains("ln -s /usr/bin/ffprobe"));
         assert!(manifest.contains("mkdir -p /app/lib/codecs-extra"));

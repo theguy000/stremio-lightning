@@ -37,7 +37,8 @@ See the [plugin API guide](plugin-api.md) for exposed capability groups.
 ## Platform Runtimes
 
 - Linux uses GTK/WebKit and loads Stremio Web through the local
-  streaming-server proxy by default.
+  streaming-server proxy by default. It launches the headless `stream-server`
+  engine; macOS still uses the Node `server.js` runtime.
 - macOS uses WKWebView and packages an app-specific runtime in the `.app`
   bundle.
 - Windows uses WebView2 and assembles its runtime resources beside the shell

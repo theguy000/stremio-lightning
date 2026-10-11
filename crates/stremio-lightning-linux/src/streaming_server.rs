@@ -44,30 +44,26 @@ impl<P: ProcessSpawner> Deref for StreamingServer<P> {
 }
 
 pub fn command_spec(project_root: &Path, log_dir: &Path) -> CommandSpec {
-    let runtime = project_root
-        .join("binaries")
-        .join("stremio-runtime-x86_64-unknown-linux-gnu");
-    let server = project_root.join("resources").join("server.cjs");
-    let ffmpeg = project_root.join("resources").join("ffmpeg");
-    let ffprobe = project_root.join("resources").join("ffprobe");
+    let resources = project_root.join("resources");
 
     let mut env = BTreeMap::new();
-    env.insert("NO_CORS".to_string(), "0".to_string());
-    env.insert(
-        "FFMPEG_BIN".to_string(),
-        ffmpeg.to_string_lossy().into_owned(),
-    );
-    env.insert(
-        "FFPROBE_BIN".to_string(),
-        ffprobe.to_string_lossy().into_owned(),
-    );
+    // stream-server resolves ffmpeg/ffprobe from PATH, not FFMPEG_BIN, so put
+    // the directory holding the bundled media tools first.
+    env.insert("PATH".to_string(), path_with_first(&resources));
 
     CommandSpec {
-        program: runtime,
-        args: vec![PathBuf::from("--max-old-space-size=192"), server],
+        program: resources.join("stream-server"),
+        args: Vec::new(),
         env,
         stdout_log: log_dir.join("stremio-server.stdout.log"),
         stderr_log: log_dir.join("stremio-server.stderr.log"),
+    }
+}
+
+fn path_with_first(dir: &Path) -> String {
+    match std::env::var("PATH") {
+        Ok(existing) if !existing.is_empty() => format!("{}:{existing}", dir.display()),
+        _ => dir.display().to_string(),
     }
 }
 
@@ -107,26 +103,11 @@ mod tests {
         let root = PathBuf::from("/repo");
         let log_dir = PathBuf::from("/logs");
         let spec = command_spec(&root, &log_dir);
-        assert_eq!(
-            spec.program,
-            PathBuf::from("/repo/binaries/stremio-runtime-x86_64-unknown-linux-gnu")
-        );
-        assert_eq!(
-            spec.args,
-            vec![
-                PathBuf::from("--max-old-space-size=192"),
-                PathBuf::from("/repo/resources/server.cjs")
-            ]
-        );
-        assert_eq!(spec.env.get("NO_CORS").unwrap(), "0");
-        assert_eq!(
-            spec.env.get("FFMPEG_BIN").unwrap(),
-            "/repo/resources/ffmpeg"
-        );
-        assert_eq!(
-            spec.env.get("FFPROBE_BIN").unwrap(),
-            "/repo/resources/ffprobe"
-        );
+        assert_eq!(spec.program, PathBuf::from("/repo/resources/stream-server"));
+        assert!(spec.args.is_empty());
+        assert!(spec.env.get("PATH").unwrap().starts_with("/repo/resources"));
+        assert!(!spec.env.contains_key("FFMPEG_BIN"));
+        assert!(!spec.env.contains_key("FFPROBE_BIN"));
         assert_eq!(
             spec.stdout_log,
             PathBuf::from("/logs/stremio-server.stdout.log")

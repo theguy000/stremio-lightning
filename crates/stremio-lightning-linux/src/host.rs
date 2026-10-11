@@ -382,11 +382,11 @@ mod tests {
         let player = MpvPlayerBackend::default();
         let spawner = RealProcessSpawner;
 
-        let binaries_dir = app_data_dir.join("binaries");
-        fs::create_dir_all(&binaries_dir).unwrap();
-        let runtime_path = binaries_dir.join("stremio-runtime-x86_64-unknown-linux-gnu");
+        let resources_dir = app_data_dir.join("resources");
+        fs::create_dir_all(&resources_dir).unwrap();
+        let server_path = resources_dir.join("stream-server");
         let current_exe = std::env::current_exe().unwrap();
-        let _ = std::os::unix::fs::symlink(&current_exe, &runtime_path);
+        let _ = std::os::unix::fs::symlink(&current_exe, &server_path);
 
         let server = StreamingServer::with_paths(
             spawner.clone(),

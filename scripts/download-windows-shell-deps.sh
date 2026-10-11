@@ -112,9 +112,10 @@ cp "$MPV_LIB" "$WINDOWS_DIR/mpv-dev/mpv.lib"
 
 # The open-source stream-server engine is the only Windows streaming backend.
 # The download and checksum are required; there is no legacy fallback.
-STREAM_SERVER_VERSION="v0.1.8"
-STREAM_SERVER_SHA256="90b7a14b282a9e649fba5adb6112c2c191dba884ec762f8650f45ccf06e17e09"
-STREAM_SERVER_URL="https://github.com/stremio-native/stream-server/releases/download/$STREAM_SERVER_VERSION/stream-server-windows-amd64.exe"
+# Mirrored at theguy000/stream-server (a fork of stremio-native/stream-server).
+STREAM_SERVER_VERSION="v0.1.8-lightning.rc1"
+STREAM_SERVER_SHA256="442c2177f768fb11afb7d71624b1efd11e6378164c487ec1cd81586576e0987f"
+STREAM_SERVER_URL="https://github.com/theguy000/stream-server/releases/download/$STREAM_SERVER_VERSION/stream-server-windows-amd64.exe"
 
 echo "==> Downloading stream-server $STREAM_SERVER_VERSION..."
 if ! curl -fsSL "$STREAM_SERVER_URL" -o "$WINDOWS_DIR/resources/stream-server.exe"; then
