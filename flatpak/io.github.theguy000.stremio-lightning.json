@@ -41,6 +41,7 @@
             "name": "libplacebo",
             "buildsystem": "meson",
             "config-opts": [
+                "--libdir=lib",
                 "-Ddemos=false"
             ],
             "cleanup": [
@@ -59,6 +60,9 @@
         {
             "name": "libass",
             "buildsystem": "meson",
+            "config-opts": [
+                "--libdir=lib"
+            ],
             "cleanup": [
                 "/include",
                 "/lib/pkgconfig"
@@ -75,6 +79,7 @@
             "name": "libmpv",
             "buildsystem": "meson",
             "config-opts": [
+                "--libdir=lib",
                 "-Dbuild-date=false",
                 "-Dcplayer=false",
                 "-Dlibmpv=true",
