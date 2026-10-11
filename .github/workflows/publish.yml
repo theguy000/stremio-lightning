@@ -30,9 +30,11 @@ jobs:
   linux:
     runs-on: ubuntu-latest
     container:
-      # GNOME 50 is based on the Freedesktop 25.08 runtime. Keep bundled host
-      # libraries below its GLIBC ceiling; xtask rejects newer symbols.
-      image: ubuntu:questing
+      # The AppImage bundles its libraries but not libc, so the build image sets
+      # the oldest host it runs on. noble (glibc 2.39) covers Ubuntu 24.04 and
+      # newer. The Flatpak payload must stay below the GNOME 50 GLIBC ceiling;
+      # xtask rejects newer symbols.
+      image: ubuntu:noble
       options: --privileged
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
