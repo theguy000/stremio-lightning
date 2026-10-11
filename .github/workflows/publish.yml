@@ -30,9 +30,11 @@ jobs:
   linux:
     runs-on: ubuntu-latest
     container:
-      # GNOME 50 is based on the Freedesktop 25.08 runtime. Keep bundled host
-      # libraries below its GLIBC ceiling; xtask rejects newer symbols.
-      image: ubuntu:questing
+      # The AppImage bundles its libraries but not libc, so the build image sets
+      # the oldest host it runs on. noble (glibc 2.39) covers Ubuntu 24.04 and
+      # newer. The Flatpak payload must stay below the GNOME 50 GLIBC ceiling;
+      # xtask rejects newer symbols.
+      image: ubuntu:noble
       options: --privileged
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -131,6 +133,7 @@ jobs:
         run: cargo xtask package-linux-flatpak-builder
 
       - name: Verify Linux artifacts and metadata
+        shell: bash
         run: |
           set -euo pipefail
           APP_ID="io.github.theguy000.stremio-lightning"
@@ -154,8 +157,15 @@ jobs:
           cmp assets/$APP_ID.desktop "target/flatpak-builder-build/files/share/applications/$APP_ID.desktop"
           cmp assets/$APP_ID.metainfo.xml "target/flatpak-builder-build/files/share/metainfo/$APP_ID.metainfo.xml"
 
-          ostree --repo=target/flatpak-builder-repo cat appstream2/x86_64 /appstream.xml \
-            > "$INSPECT_ROOT/flatpak-appstream.xml"
+          APPINFO=target/flatpak-builder-build/files/share/app-info
+          XML_GZ=$(find "$APPINFO" -name "*.xml.gz" 2>/dev/null | head -n 1)
+          if [ -z "$XML_GZ" ]; then
+            echo "no appstream data under $APPINFO"
+            find target/flatpak-builder-build/files/share -maxdepth 2 | head -n 40
+            exit 1
+          fi
+          echo "appstream data: $XML_GZ"
+          gzip -dc "$XML_GZ" > "$INSPECT_ROOT/flatpak-appstream.xml"
           appstreamcli validate --no-net "$INSPECT_ROOT/flatpak-appstream.xml"
           grep -Fq "<id>$APP_ID</id>" "$INSPECT_ROOT/flatpak-appstream.xml"
           grep -Fq "<name>Stremio Lightning</name>" "$INSPECT_ROOT/flatpak-appstream.xml"
