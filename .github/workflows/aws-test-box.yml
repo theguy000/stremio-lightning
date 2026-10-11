@@ -141,7 +141,7 @@ jobs:
             aws cloudformation wait stack-delete-complete --stack-name "$s"
           done
           aws s3 rm --only-show-errors "s3://$BUCKET/runs/" --recursive
-          left=$(aws ec2 describe-instances --filters Name=tag:Project,Values=stremio-test Name=instance-state-name,Values=pending,running,stopping,stopped \
+          left=$(aws ec2 describe-instances --filters Name=tag:Project,Values=stremio-test Name=tag-key,Values=aws:cloudformation:stack-name Name=instance-state-name,Values=pending,running,stopping,stopped \
             --query 'Reservations[].Instances[].InstanceId' --output text)
           echo "Stacks deleted: ${stacks:-none}. Instances left: ${left:-none}"
           [ -z "$left" ]
