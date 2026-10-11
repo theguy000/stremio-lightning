@@ -79,11 +79,11 @@ fn temp_log_dir(name: &str) -> PathBuf {
 
 fn setup_temp_project_root(log_dir: &std::path::Path) -> PathBuf {
     let root = log_dir.join("project_root");
-    let binaries_dir = root.join("binaries");
-    fs::create_dir_all(&binaries_dir).unwrap();
-    let runtime_path = binaries_dir.join("stremio-runtime-x86_64-unknown-linux-gnu");
+    let resources_dir = root.join("resources");
+    fs::create_dir_all(&resources_dir).unwrap();
+    let server_path = resources_dir.join("stream-server");
     let current_exe = std::env::current_exe().unwrap();
-    std::os::unix::fs::symlink(&current_exe, &runtime_path).unwrap();
+    std::os::unix::fs::symlink(&current_exe, &server_path).unwrap();
     root
 }
 

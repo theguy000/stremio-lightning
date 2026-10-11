@@ -3,8 +3,11 @@
 
 set -euo pipefail
 
-SERVICE_VERSION="v0.1.21"
-SERVICE_REPO="Stremio/stremio-service"
+# The headless build of stream-server (no tray, TUI or settings window), mirrored
+# at theguy000/stream-server. It is pinned by SHA-256; there is no fallback.
+STREAM_SERVER_VERSION="v0.1.8-lightning.rc1"
+STREAM_SERVER_SHA256="92421868be2e2c8eb008f0eb0165bce163b17b5f914ee9687a5af29d3f94b319"
+STREAM_SERVER_URL="https://github.com/theguy000/stream-server/releases/download/$STREAM_SERVER_VERSION/stream-server-linux-amd64-headless"
 FFMPEG_LINUX_URL="https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz"
 LINUX_DIR="crates/stremio-lightning-linux"
 TEMP_DIR=$(mktemp -d)
@@ -14,24 +17,16 @@ cleanup() {
 }
 trap cleanup EXIT
 
-mkdir -p "$LINUX_DIR/binaries" "$LINUX_DIR/resources"
+mkdir -p "$LINUX_DIR/resources"
 
-echo "==> Downloading stremio-service $SERVICE_VERSION (Linux)..."
-if command -v gh &>/dev/null; then
-    gh release download "$SERVICE_VERSION" --repo "$SERVICE_REPO" --pattern "stremio-service_amd64.deb" --dir "$TEMP_DIR"
-else
-    echo "Notice: gh CLI not found, using direct curl download..."
-    curl -fsSL "https://github.com/$SERVICE_REPO/releases/download/$SERVICE_VERSION/stremio-service_amd64.deb" -o "$TEMP_DIR/stremio-service_amd64.deb"
+echo "==> Downloading stream-server $STREAM_SERVER_VERSION (Linux)..."
+if ! curl -fsSL "$STREAM_SERVER_URL" -o "$TEMP_DIR/stream-server"; then
+    echo "ERROR: Failed to download stream-server from $STREAM_SERVER_URL" >&2
+    exit 1
 fi
-
-mkdir -p "$TEMP_DIR/deb-extracted"
-dpkg-deb -x "$TEMP_DIR/stremio-service_amd64.deb" "$TEMP_DIR/deb-extracted"
-
-RUNTIME_BIN=$(find "$TEMP_DIR/deb-extracted" -type f -name "stremio-runtime" | head -n 1)
-SERVER_JS=$(find "$TEMP_DIR/deb-extracted" -type f -name "server.js" | head -n 1)
-
-if [[ -z "$RUNTIME_BIN" || -z "$SERVER_JS" ]]; then
-    echo "ERROR: Could not find stremio-runtime or server.js in stremio-service deb" >&2
+actual_sha=$(sha256sum "$TEMP_DIR/stream-server" | awk '{print $1}')
+if [[ "$actual_sha" != "$STREAM_SERVER_SHA256" ]]; then
+    echo "ERROR: stream-server checksum mismatch (expected $STREAM_SERVER_SHA256, got $actual_sha)" >&2
     exit 1
 fi
 
@@ -48,14 +43,12 @@ if [[ ! -f "$FFMPEG_BIN" || ! -f "$FFPROBE_BIN" ]]; then
     exit 1
 fi
 
-cp "$RUNTIME_BIN" "$LINUX_DIR/binaries/stremio-runtime-x86_64-unknown-linux-gnu"
-cp "$SERVER_JS" "$LINUX_DIR/resources/server.cjs"
+cp "$TEMP_DIR/stream-server" "$LINUX_DIR/resources/stream-server"
 cp "$FFMPEG_BIN" "$LINUX_DIR/resources/ffmpeg"
 cp "$FFPROBE_BIN" "$LINUX_DIR/resources/ffprobe"
-chmod +x "$LINUX_DIR/binaries/stremio-runtime-x86_64-unknown-linux-gnu" "$LINUX_DIR/resources/ffmpeg" "$LINUX_DIR/resources/ffprobe"
+chmod +x "$LINUX_DIR/resources/stream-server" "$LINUX_DIR/resources/ffmpeg" "$LINUX_DIR/resources/ffprobe"
 
 echo "==> Linux shell dependencies ready:"
-echo "    $LINUX_DIR/binaries/stremio-runtime-x86_64-unknown-linux-gnu"
-echo "    $LINUX_DIR/resources/server.cjs"
+echo "    $LINUX_DIR/resources/stream-server"
 echo "    $LINUX_DIR/resources/ffmpeg"
 echo "    $LINUX_DIR/resources/ffprobe"

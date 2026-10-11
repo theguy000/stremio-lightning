@@ -14,7 +14,6 @@ pub const PACKAGE_ID: &str = "stremio-lightning";
 pub const LINUX_BIN: &str = "stremio-lightning-linux";
 pub const MACOS_BIN: &str = "stremio-lightning-macos";
 pub const WINDOWS_BIN: &str = "stremio-lightning-windows";
-pub const LINUX_TARGET: &str = "x86_64-unknown-linux-gnu";
 pub const WINDOWS_TARGET: &str = "x86_64-pc-windows-msvc";
 pub const LINUX_APPIMAGE: &str = "Stremio_Lightning_Linux-x86_64.AppImage";
 pub const LINUX_DEB: &str = "stremio-lightning-linux-amd64.deb";

@@ -4,8 +4,7 @@
     "runtime-version": "50",
     "sdk": "org.gnome.Sdk",
     "sdk-extensions": [
-        "org.freedesktop.Sdk.Extension.rust-stable",
-        "org.freedesktop.Sdk.Extension.node22"
+        "org.freedesktop.Sdk.Extension.rust-stable"
     ],
     "add-extensions": {
         "org.freedesktop.Platform.codecs-extra": {
@@ -108,12 +107,10 @@
             ],
             "post-install": [
                 "install -Dm755 target/release/stremio-lightning-linux /app/bin/stremio-lightning-linux",
-                "mkdir -p /app/lib/stremio-lightning/binaries",
                 "mkdir -p /app/lib/stremio-lightning/resources",
                 "mkdir -p /app/lib/codecs-extra",
                 "mkdir -p /app/lib/intel-vaapi-driver",
-                "install -Dm755 /usr/lib/sdk/node22/bin/node /app/lib/stremio-lightning/binaries/stremio-runtime-x86_64-unknown-linux-gnu",
-                "install -Dm644 crates/stremio-lightning-linux/resources/server.cjs -t /app/lib/stremio-lightning/resources/",
+                "install -Dm755 stream-server-linux-amd64-headless /app/lib/stremio-lightning/resources/stream-server",
                 "ln -s /usr/bin/ffmpeg /app/lib/stremio-lightning/resources/ffmpeg",
                 "ln -s /usr/bin/ffprobe /app/lib/stremio-lightning/resources/ffprobe",
                 "install -Dm644 assets/icons/128x128.png /app/share/icons/hicolor/128x128/apps/io.github.theguy000.stremio-lightning.png",
@@ -130,6 +127,11 @@
                 {
                     "type": "dir",
                     "path": "../"
+                },
+                {
+                    "type": "file",
+                    "url": "https://github.com/theguy000/stream-server/releases/download/v0.1.8-lightning.rc1/stream-server-linux-amd64-headless",
+                    "sha256": "92421868be2e2c8eb008f0eb0165bce163b17b5f914ee9687a5af29d3f94b319"
                 },
                 "cargo-sources.json"
             ]

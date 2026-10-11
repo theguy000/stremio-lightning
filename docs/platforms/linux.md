@@ -57,7 +57,10 @@ Download the Linux shell runtime dependencies:
 cargo xtask setup-linux
 ```
 
-The command populates `crates/stremio-lightning-linux/`.
+The command populates `crates/stremio-lightning-linux/resources/` with the
+`stream-server` binary and static `ffmpeg` and `ffprobe`. `stream-server` is the
+headless build of the open-source Rust streaming server, mirrored at
+`theguy000/stream-server` and pinned by SHA-256 in the setup script.
 
 ## Run Locally
 
