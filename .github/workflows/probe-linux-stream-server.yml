@@ -1,0 +1,141 @@
+name: Probe Linux stream-server (temporary)
+
+# Temporary diagnostic. Not part of the release. Answers two questions about
+# upstream's Linux stream-server binary on a stock runner:
+#   1. does it start, and does it serve the endpoints the shells use?
+#   2. does /proxy/d=... return a usable page when the client asks for gzip?
+# Delete this file once the result has been read.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/probe-linux-stream-server.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: stream-server linux binary
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      STREAM_SERVER_VERSION: v0.1.8
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Download and verify the release binary
+        run: |
+          set -euo pipefail
+          mkdir -p probe && cd probe
+          gh release download "$STREAM_SERVER_VERSION" --repo stremio-native/stream-server \
+            --pattern stream-server-linux-amd64 --pattern SHA256SUMS.txt
+          grep -E '[ */]stream-server-linux-amd64$' SHA256SUMS.txt | sha256sum -c -
+          chmod +x stream-server-linux-amd64
+          ls -l stream-server-linux-amd64
+          file stream-server-linux-amd64 || true
+          ldd ./stream-server-linux-amd64 | tee ldd.txt
+          if grep -q 'not found' ldd.txt; then echo "::warning::missing shared libraries, see log"; fi
+
+      - name: Start the server and probe it
+        run: |
+          set -u
+          cd probe
+          export HOME="$RUNNER_TEMP/home"
+          mkdir -p "$HOME"
+          BASE=http://127.0.0.1:11470
+          PROXY="$BASE/proxy/d=https%3A%2F%2Fweb.stremio.com/"
+          fail=0
+
+          ./stream-server-linux-amd64 --help 2>&1 | head -30 || true
+
+          start() {
+            ./stream-server-linux-amd64 "$@" > server.stdout.log 2> server.stderr.log &
+            SERVER_PID=$!
+            for _ in $(seq 60); do
+              kill -0 "$SERVER_PID" 2>/dev/null || return 1
+              [ "$(curl -s -m 2 -o /dev/null -w '%{http_code}' "$BASE/heartbeat")" = 200 ] && return 0
+              sleep 1
+            done
+            return 1
+          }
+
+          report() {
+            echo "$1 $2 - $3" | tee -a "$GITHUB_STEP_SUMMARY"
+            [ "$1" = FAIL ] && fail=1
+            return 0
+          }
+          fetch() {
+            out="$1"; shift
+            curl -s -m 30 -D "$out.hdr" -o "$out.body" -w '%{http_code}' "$@" | tr -d '\r'
+          }
+          magic() { head -c 2 "$1" | od -An -tx1 | tr -d ' \n'; }
+          is_html() { grep -qi '<!doctype html' "$1"; }
+
+          echo "### Linux stream-server $STREAM_SERVER_VERSION" >> "$GITHUB_STEP_SUMMARY"
+          if start --no-tray; then
+            report PASS start "ready with --no-tray"
+          elif ! kill -0 "$SERVER_PID" 2>/dev/null && start; then
+            report PASS start "ready without --no-tray (the flag made the server exit)"
+          else
+            report FAIL start "did not become ready"
+            tail -40 server.stderr.log server.stdout.log || true
+            exit 1
+          fi
+
+          for p in heartbeat stats.json network-info settings; do
+            code=$(fetch "j-$p" "$BASE/$p")
+            if [ "$code" = 200 ] && jq -e . < "j-$p.body" > /dev/null 2>&1; then
+              report PASS "/$p" "200, valid JSON"
+            else
+              report FAIL "/$p" "status $code, body not valid JSON"
+            fi
+          done
+
+          code=$(fetch proxy-plain "$PROXY")
+          size=$(wc -c < proxy-plain.body)
+          if [ "$code" = 200 ] && is_html proxy-plain.body; then
+            report PASS "/proxy plain" "200, HTML, $size bytes"
+          else
+            report FAIL "/proxy plain" "status $code, $size bytes, not HTML"
+          fi
+
+          check_encoded() { # label, url
+            code=$(fetch enc -H 'Accept-Encoding: gzip, deflate, br' "$2")
+            enc=$(grep -i '^content-encoding' enc.hdr | tr -d '\r' || true)
+            m=$(magic enc.body)
+            size=$(wc -c < enc.body)
+            if [ "$code" != 200 ]; then
+              report FAIL "$1 with Accept-Encoding" "status $code"
+            elif [ "$m" = 1f8b ] && [ -z "$enc" ]; then
+              report FAIL "$1 with Accept-Encoding" "raw gzip bytes ($size) and no Content-Encoding header"
+            elif [ -n "$enc" ]; then
+              report PASS "$1 with Accept-Encoding" "$enc, $size bytes"
+            else
+              report PASS "$1 with Accept-Encoding" "plain body, $size bytes"
+            fi
+          }
+          check_encoded "/proxy page" "$PROXY"
+
+          JS=$(curl -s -m 30 -H 'Accept-Encoding: identity' https://web.stremio.com/ \
+            | grep -o '[0-9a-f]\{40\}/scripts/main.js' | head -1 || true)
+          if [ -n "$JS" ]; then
+            check_encoded "/proxy main.js" "${PROXY}${JS}"
+          else
+            report WARN "/proxy main.js" "could not find the script path in the upstream page"
+          fi
+
+          kill "$SERVER_PID" 2>/dev/null || true
+          echo "--- server stderr (tail)"; tail -20 server.stderr.log || true
+          exit "$fail"
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stream-server-linux-probe
+          path: |
+            probe/*.log
+            probe/*.hdr
+            probe/ldd.txt
+          if-no-files-found: ignore
