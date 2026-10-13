@@ -73,4 +73,6 @@ For advanced workflows, testing, and packaging, see the [developer guide](docs/d
 
 ## License
 
-Licensed under the [MIT License](LICENSE).
+Licensed under the [GNU General Public License v3.0](LICENSE) (GPL-3.0-only).
+
+Releases up to and including v0.1.6 were published under the MIT License and stay available under it.

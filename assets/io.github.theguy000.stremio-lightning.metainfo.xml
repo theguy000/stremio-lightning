@@ -4,7 +4,7 @@
   <name>Stremio Lightning</name>
   <summary>Lightweight native Stremio shell</summary>
   <metadata_license>CC0-1.0</metadata_license>
-  <project_license>MIT</project_license>
+  <project_license>GPL-3.0-only</project_license>
   <developer id="io.github.theguy000">
     <name>Stremio Lightning Developers</name>
   </developer>
