@@ -1,0 +1,36 @@
+import { ListView } from "std-widgets.slint";
+
+export component MainWindow inherits Window {
+    title: "Stremio Lightning";
+    preferred-width: 1100px;
+    preferred-height: 720px;
+    background: #0c0b11;
+
+    in property <string> status: "Loading...";
+    in property <[string]> lines: [];
+
+    VerticalLayout {
+        padding: 24px;
+        spacing: 12px;
+
+        Text {
+            text: "Board";
+            color: white;
+            font-size: 28px;
+            font-weight: 700;
+        }
+        Text {
+            text: root.status;
+            color: #9d9bb0;
+            font-size: 14px;
+        }
+        ListView {
+            for line in root.lines: Text {
+                text: line;
+                color: #e6e4f2;
+                font-size: 15px;
+                wrap: word-wrap;
+            }
+        }
+    }
+}
