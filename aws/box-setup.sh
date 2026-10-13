@@ -7,8 +7,8 @@ set -u
 export DEBIAN_FRONTEND=noninteractive
 step() { echo "[box-setup] $*"; }
 
-KASM_URL=https://github.com/kasmtech/KasmVNC/releases/download/v1.5.0/kasmvncserver_noble_1.5.0_amd64.deb
-KASM_SHA256=f599fe02e2175b9817b6165f74a5d2bebdc73118dde9181ba3410963bed7ae1e
+DCV_URL=https://d1uj6qtbmh3dt5.cloudfront.net/2025.0/Servers/nice-dcv-2025.0-20103-ubuntu2404-x86_64.tgz
+DCV_SHA256=a39374d39f2d849bd13ee101970bb9eea15a8c5ec743799b7cbb7f562ece9e17
 HOME_T=/home/tester
 DESK=$HOME_T/Desktop
 BIN=$HOME_T/bin
@@ -19,16 +19,19 @@ apt-get update -y
 apt-get install -y --no-install-recommends \
   xfce4-session xfwm4 xfce4-panel xfdesktop4 thunar xfce4-terminal dbus-x11 \
   libfuse2t64 flatpak mpv curl ca-certificates ssl-cert xdg-utils libglib2.0-bin \
-  fonts-noto-core fonts-noto-color-emoji x11-utils squashfs-tools
+  fonts-noto-core fonts-noto-color-emoji x11-utils x11-xserver-utils xauth squashfs-tools
 
-step "installing KasmVNC"
-curl -fsSL --retry 5 "$KASM_URL" -o /tmp/kasmvnc.deb
-echo "$KASM_SHA256  /tmp/kasmvnc.deb" | sha256sum -c - || { echo "KASMVNC CHECKSUM MISMATCH"; exit 1; }
-apt-get install -y /tmp/kasmvnc.deb
+step "installing Amazon DCV"
+# No license server is needed on EC2, but the instance role must be able to read the DCV license bucket.
+curl -fsSL --retry 5 "$DCV_URL" -o /tmp/dcv.tgz
+echo "$DCV_SHA256  /tmp/dcv.tgz" | sha256sum -c - || { echo "DCV CHECKSUM MISMATCH"; exit 1; }
+mkdir -p /tmp/dcv && tar -xzf /tmp/dcv.tgz -C /tmp/dcv --strip-components=1
+apt-get install -y /tmp/dcv/nice-dcv-server_*.deb /tmp/dcv/nice-dcv-web-viewer_*.deb /tmp/dcv/nice-xdcv_*.deb
+usermod -aG video dcv
 
 id tester >/dev/null 2>&1 || useradd -m -s /bin/bash -G sudo,ssl-cert tester
 echo 'tester ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/tester
-mkdir -p "$DESK" "$BIN" "$PKG" "$HOME_T/.config/autostart" "$HOME_T/.vnc"
+mkdir -p "$DESK" "$BIN" "$PKG" "$HOME_T/.config/autostart"
 
 step "downloading the packages"
 curl -fsSL --retry 5 "$URL_APPIMAGE" -o "$PKG/Stremio_Lightning.AppImage"
@@ -39,12 +42,12 @@ sha256sum "$PKG"/* > "$DESK/PACKAGE-HASHES.txt"
 
 step "writing launchers"
 # Software rendering: this box has no GPU.
-cat > "$HOME_T/.vnc/xstartup" <<'XEOF'
+cat > "$HOME_T/.dcv-init" <<'XEOF'
 #!/bin/sh
 export LIBGL_ALWAYS_SOFTWARE=1 WEBKIT_DISABLE_COMPOSITING_MODE=1
 exec startxfce4
 XEOF
-chmod +x "$HOME_T/.vnc/xstartup"
+chmod +x "$HOME_T/.dcv-init"
 
 cat > "$BIN/run-appimage.sh" <<'REOF'
 #!/bin/bash
@@ -72,6 +75,23 @@ fi
 flatpak run io.github.theguy000.stremio-lightning
 rc=$?
 echo; echo "Exited with code $rc. Logs: ~/.var/app/io.github.theguy000.stremio-lightning/"
+read -r -p "Press Enter to close. "
+REOF
+
+cat > "$BIN/show-logs.sh" <<'REOF'
+#!/bin/bash
+# Prints the end of the newest app log, so it can be copied from this window.
+for d in "$HOME/.local/share/stremio-lightning/logs" "$HOME/.var/app/io.github.theguy000.stremio-lightning/data/stremio-lightning/logs"; do
+  f=$(ls -t "$d"/* 2>/dev/null | head -1)
+  echo "===== $d"
+  if [ -n "$f" ]; then echo "file: $f"; tail -n 80 "$f"; else echo "(no log files)"; fi
+done
+read -r -p "Press Enter to close. "
+REOF
+cat > "$BIN/install-system-webkit.sh" <<'REOF'
+#!/bin/bash
+# Workaround only: installs the distro WebKitGTK so the AppImage and .deb can find their helper programs.
+sudo apt-get install -y libwebkitgtk-6.0-4
 read -r -p "Press Enter to close. "
 REOF
 
@@ -109,6 +129,8 @@ EOF
 mk_launcher run-appimage "Run AppImage" run-appimage.sh
 mk_launcher run-deb "Run .deb" run-deb.sh
 mk_launcher run-flatpak "Run Flatpak" run-flatpak.sh
+mk_launcher show-logs "Show logs" show-logs.sh
+mk_launcher install-system-webkit "Install system WebKit (workaround)" install-system-webkit.sh
 chmod +x "$DESK"/*.desktop
 
 cat > "$DESK/README.txt" <<'REOF'
@@ -119,23 +141,28 @@ If a double-click does nothing, open the terminal from the panel and run one of 
   ~/bin/run-deb.sh
   ~/bin/run-flatpak.sh
 Close one app before starting the next. REPORT.txt is the automatic library check.
+Show logs prints the newest app log. Copy it from that window if something fails.
+Install system WebKit (workaround) is only a workaround: it installs the distro WebKitGTK. Use it
+only to test past a crash on "WebKitNetworkProcess ... No such file or directory".
 The box deletes itself on schedule.
 REOF
 chown -R tester:tester "$HOME_T"
 
 step "starting the remote desktop"
-VNCPW=$(command -v kasmvncpasswd || command -v vncpasswd)
-printf '%s\n%s\n' "$BOX_PASSWORD" "$BOX_PASSWORD" | su - tester -c "$VNCPW -u tester -w -r"
+echo "tester:$BOX_PASSWORD" | chpasswd
 unset BOX_PASSWORD
-su - tester -c "vncserver :1 -select-de xfce -geometry 1280x720 -depth 24" || echo "VNCSERVER START FAILED"
-sleep 3
-ss -ltnp | grep -E ':8444|:5901' || echo "NO LISTENER ON 8444"
+systemctl enable --now dcvserver
+sleep 5
+dcv create-session --type=virtual --owner tester --user tester --name stremio --init "$HOME_T/.dcv-init" stremio || echo "DCV SESSION START FAILED"
+dcv list-sessions
+ss -ltnp | grep ':8443' || echo "NO LISTENER ON 8443"
 
 step "running the library checks"
 REPORT=$DESK/REPORT.txt
 {
   echo "== kernel / sandbox"
   uname -r
+  dcv list-sessions 2>&1
   sysctl kernel.apparmor_restrict_unprivileged_userns kernel.unprivileged_userns_clone 2>&1
   echo
   echo "== AppImage: libraries of the bundled stream-server"

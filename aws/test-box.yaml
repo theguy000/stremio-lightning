@@ -24,6 +24,9 @@ Parameters:
     NoEcho: true
     MinLength: 16
     AllowedPattern: '^[A-Za-z0-9_-]+$'
+  InstanceProfileName:
+    Type: String
+    Default: stremio-test-dcv
   SetupUrl:
     Type: String
     NoEcho: true
@@ -41,12 +44,16 @@ Resources:
   BoxSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: KasmVNC web client only. No SSH.
+      GroupDescription: Amazon DCV only (8443 TCP and UDP). No SSH.
       VpcId: !Ref VpcId
       SecurityGroupIngress:
         - IpProtocol: tcp
-          FromPort: 8444
-          ToPort: 8444
+          FromPort: 8443
+          ToPort: 8443
+          CidrIp: !Ref AllowedCidr
+        - IpProtocol: udp
+          FromPort: 8443
+          ToPort: 8443
           CidrIp: !Ref AllowedCidr
       Tags:
         - { Key: Project, Value: stremio-test }
@@ -57,6 +64,8 @@ Resources:
       ImageId: !Ref AmiId
       InstanceType: !Ref InstanceType
       SecurityGroupIds: [!Ref BoxSecurityGroup]
+      # Lets the DCV server read its license bucket (the only permission the role has).
+      IamInstanceProfile: !Ref InstanceProfileName
       # Shutting the instance down deletes it and its disk, so a forgotten box ends itself.
       InstanceInitiatedShutdownBehavior: terminate
       BlockDeviceMappings:
@@ -86,4 +95,4 @@ Outputs:
   PublicIp:
     Value: !GetAtt Box.PublicIp
   Url:
-    Value: !Sub 'https://${Box.PublicIp}:8444'
+    Value: !Sub 'https://${Box.PublicIp}:8443'
