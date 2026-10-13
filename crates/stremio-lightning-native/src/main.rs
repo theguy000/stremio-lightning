@@ -3,6 +3,8 @@ use std::sync::{Arc, Mutex};
 
 use futures::StreamExt;
 use slint::{Image, ModelRc, Rgba8Pixel, SharedPixelBuffer, VecModel, Weak};
+use std::path::{Path, PathBuf};
+use std::time::Duration;
 use stremio_core::constants::{META_RESOURCE_NAME, STREAM_RESOURCE_NAME};
 use stremio_core::models::catalogs_with_extra::{CatalogsWithExtra, Selected};
 use stremio_core::models::common::{Loadable, ResourceError};
@@ -19,12 +21,16 @@ use stremio_core::types::search_history::SearchHistoryBucket;
 use stremio_core::types::server_urls::ServerUrlsBucket;
 use stremio_core::types::streams::StreamsBucket;
 use stremio_core::Model;
+use stremio_lightning_core::streaming_server::{
+    CommandSpec, RealProcessSpawner, StreamingServerSupervisor,
+};
 use stremio_lightning_native_env::NativeEnv;
 
 slint::include_modules!();
 
 const CARDS_PER_ROW: usize = 20;
 const MAX_STREAMS: usize = 100;
+const STREAM_SERVER_ADDRESS: &str = "127.0.0.1:11470";
 
 #[derive(Model, Clone)]
 #[model(NativeEnv)]
@@ -264,6 +270,90 @@ fn open_details(runtime: &NativeRuntime, id: &str, kind: &str) {
     });
 }
 
+/// The folder holding `resources/`: the executable's folder unless `STREMIO_LIGHTNING_BUNDLE_DIR`
+/// says otherwise.
+fn bundle_dir() -> PathBuf {
+    std::env::var_os("STREMIO_LIGHTNING_BUNDLE_DIR")
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::current_exe()
+                .ok()
+                .and_then(|exe| exe.parent().map(Path::to_path_buf))
+        })
+        .unwrap_or_default()
+}
+
+/// The stream server and its ffmpeg live in `<bundle>/resources`.
+fn stream_server_spec(bundle: &Path, data_dir: &Path) -> CommandSpec {
+    let resources = bundle.join("resources");
+    let program = resources.join(if cfg!(windows) {
+        "stream-server.exe"
+    } else {
+        "stream-server"
+    });
+
+    // The server finds ffmpeg and ffprobe through PATH, so the bundled ones go first.
+    let mut search = vec![resources];
+    search.extend(std::env::split_paths(
+        &std::env::var_os("PATH").unwrap_or_default(),
+    ));
+    let path = std::env::join_paths(search)
+        .map(|path| path.to_string_lossy().into_owned())
+        .unwrap_or_default();
+
+    let logs = data_dir.join("logs");
+    CommandSpec {
+        program,
+        // The Windows build of the server opens a tray icon unless told not to.
+        args: if cfg!(windows) {
+            vec![PathBuf::from("--no-tray")]
+        } else {
+            Vec::new()
+        },
+        env: [("PATH".to_owned(), path)].into(),
+        stdout_log: logs.join("stremio-server.stdout.log"),
+        stderr_log: logs.join("stremio-server.stderr.log"),
+    }
+}
+
+type Supervisor = StreamingServerSupervisor<RealProcessSpawner>;
+
+/// Waits for something to answer on the server port and says in the window what that is. The port
+/// is fixed, so an already running server (the official app, say) answers instead of ours. Ours
+/// then exits at once, because it cannot bind the port, and the app uses the one that is there.
+async fn report_server_state(
+    weak: Weak<MainWindow>,
+    server: Arc<Supervisor>,
+    started: Result<(), String>,
+) {
+    let text = match started {
+        Err(error) => format!("Stream server: not started ({error})"),
+        Ok(()) => {
+            let mut answering = false;
+            for _ in 0..60 {
+                if tokio::net::TcpStream::connect(STREAM_SERVER_ADDRESS)
+                    .await
+                    .is_ok()
+                {
+                    answering = true;
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(500)).await;
+            }
+            // Give a child that cannot bind the port time to exit before judging.
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            match (answering, server.is_running()) {
+                (true, true) => "Stream server: ready".to_owned(),
+                (true, false) => format!(
+                    "Stream server: using the one already running on {STREAM_SERVER_ADDRESS}"
+                ),
+                (false, _) => "Stream server: started but not answering".to_owned(),
+            }
+        }
+    };
+    let _ = weak.upgrade_in_event_loop(move |window| window.set_server_status(text.into()));
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tokio_runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -271,9 +361,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let data_dir = dirs::data_dir()
         .ok_or("no data directory")?
         .join("stremio-lightning-native");
-    NativeEnv::init(data_dir, tokio_runtime.handle().clone()).map_err(|e| e.message())?;
+    NativeEnv::init(data_dir.clone(), tokio_runtime.handle().clone()).map_err(|e| e.message())?;
 
     let window = MainWindow::new()?;
+
+    let server = Arc::new(Supervisor::new(
+        RealProcessSpawner,
+        stream_server_spec(&bundle_dir(), &data_dir),
+    ));
+    tokio_runtime.spawn(report_server_state(
+        window.as_weak(),
+        server.clone(),
+        server.start(),
+    ));
 
     let profile: Profile = tokio_runtime
         .block_on(NativeEnv::get_storage(
@@ -393,4 +493,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     window.run()?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stream_server_runs_from_the_bundle_with_its_ffmpeg_first_on_path() {
+        let bundle = Path::new("bundle");
+        let spec = stream_server_spec(bundle, Path::new("data"));
+
+        let resources = bundle.join("resources");
+        assert_eq!(spec.program.parent(), Some(resources.as_path()));
+        let path = spec.env.get("PATH").expect("PATH is set");
+        assert_eq!(std::env::split_paths(path).next(), Some(resources));
+        assert_eq!(spec.stdout_log.parent(), Some(Path::new("data/logs")));
+    }
 }

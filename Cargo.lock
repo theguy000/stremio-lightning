@@ -6012,6 +6012,7 @@ dependencies = [
  "slint",
  "slint-build",
  "stremio-core",
+ "stremio-lightning-core",
  "stremio-lightning-native-env",
  "tokio",
 ]
