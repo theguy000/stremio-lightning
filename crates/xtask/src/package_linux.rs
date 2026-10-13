@@ -950,7 +950,9 @@ mod tests {
         for name in ["libmpv.so.2", "libgtk-4.so.1", "libsoup-3.0.so.0"] {
             assert!(!deb_uses_system_webkit(OsStr::new(name)), "{name}");
         }
+    }
 
+    #[test]
     fn deb_apparmor_profile_covers_the_installed_binary() {
         let installed = format!("/usr/lib/{PACKAGE_ID}/{LINUX_BIN}");
         assert!(DEB_APPARMOR_PROFILE.contains(&format!("profile {PACKAGE_ID} {installed} ")));
