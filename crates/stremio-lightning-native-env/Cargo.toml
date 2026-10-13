@@ -2,7 +2,7 @@
 name = "stremio-lightning-native-env"
 version = "0.1.0"
 edition = "2021"
-license = "MIT"
+license = "GPL-3.0-only"
 description = "stremio-core Env for native (non-web) desktop shells"
 
 [dependencies]
