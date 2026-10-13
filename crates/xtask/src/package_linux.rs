@@ -91,7 +91,8 @@ pub fn package_linux_deb() -> Result<()> {
 
     for entry in fs::read_dir(appdir.join("usr/lib"))? {
         let entry = entry?;
-        if entry.file_name() == OsStr::new(PACKAGE_ID) {
+        if entry.file_name() == OsStr::new(PACKAGE_ID) || deb_uses_system_webkit(&entry.file_name())
+        {
             continue;
         }
 
@@ -121,7 +122,7 @@ pub fn package_linux_deb() -> Result<()> {
     write_file(
         debian_dir.join("control"),
         format!(
-            "Package: {PACKAGE_ID}\nVersion: {}\nSection: video\nPriority: optional\nArchitecture: amd64\nRecommends: ca-certificates\nMaintainer: Stremio Lightning Maintainers <noreply@example.com>\nDescription: Lightweight native Stremio shell\n Stremio Lightning packages a native Linux shell with bundled runtime resources.\n",
+            "Package: {PACKAGE_ID}\nVersion: {}\nSection: video\nPriority: optional\nArchitecture: amd64\nDepends: libwebkitgtk-6.0-4\nRecommends: ca-certificates\nMaintainer: Stremio Lightning Maintainers <noreply@example.com>\nDescription: Lightweight native Stremio shell\n Stremio Lightning packages a native Linux shell with bundled runtime resources.\n",
             package_version()?
         ),
     )?;
@@ -252,6 +253,17 @@ fn linux_flatpak_metadata() -> String {
     format!(
         "[Application]\nname={LINUX_FLATPAK_ID}\nruntime={LINUX_FLATPAK_RUNTIME}/x86_64/{LINUX_FLATPAK_RUNTIME_VERSION}\nsdk={LINUX_FLATPAK_SDK}/x86_64/{LINUX_FLATPAK_RUNTIME_VERSION}\ncommand={PACKAGE_ID}\n\n[Context]\nshared=ipc;network;\nsockets=x11;pulseaudio;\ndevices=dri;\n\n[Session Bus Policy]\norg.freedesktop.Notifications=talk\n{LINUX_FLATPAK_ID}=own\n"
     )
+}
+
+/// WebKitGTK looks for its helper processes in a path fixed at build time, so the deb uses the
+/// distro's library and helpers together instead of bundling a copy of either.
+fn deb_uses_system_webkit(name: &OsStr) -> bool {
+    let Some(name) = name.to_str() else {
+        return false;
+    };
+    name == "webkitgtk-6.0"
+        || name.starts_with("libwebkitgtk-6.0.so")
+        || name.starts_with("libjavascriptcoregtk-6.0.so")
 }
 
 fn linux_deb_launcher_script() -> String {
@@ -893,6 +905,21 @@ mod tests {
         let deb = linux_deb_launcher_script();
         assert!(deb.contains("/usr/lib/stremio-lightning/lib"));
         assert!(deb.contains("exec \"/usr/lib/stremio-lightning/stremio-lightning-linux\""));
+    }
+
+    #[test]
+    fn deb_leaves_webkit_libraries_and_helpers_to_the_system_package() {
+        for name in [
+            "webkitgtk-6.0",
+            "libwebkitgtk-6.0.so.4",
+            "libwebkitgtk-6.0.so.4.9.1",
+            "libjavascriptcoregtk-6.0.so.1",
+        ] {
+            assert!(deb_uses_system_webkit(OsStr::new(name)), "{name}");
+        }
+        for name in ["libmpv.so.2", "libgtk-4.so.1", "libsoup-3.0.so.0"] {
+            assert!(!deb_uses_system_webkit(OsStr::new(name)), "{name}");
+        }
     }
 
     #[test]
