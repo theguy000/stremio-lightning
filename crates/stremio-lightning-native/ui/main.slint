@@ -1,6 +1,8 @@
-import { ScrollView } from "std-widgets.slint";
+import { Button, ScrollView } from "std-widgets.slint";
 
 export struct PosterData {
+    item-id: string,
+    kind: string,
     title: string,
     poster: image,
     has-poster: bool,
@@ -11,8 +13,14 @@ export struct CatalogRow {
     cards: [PosterData],
 }
 
+export struct StreamData {
+    name: string,
+    description: string,
+}
+
 component PosterCard inherits Rectangle {
     in property <PosterData> card;
+    callback clicked();
     width: 150px;
     height: 262px;
 
@@ -37,6 +45,12 @@ component PosterCard inherits Rectangle {
             overflow: elide;
         }
     }
+
+    TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
 }
 
 export component MainWindow inherits Window {
@@ -48,7 +62,19 @@ export component MainWindow inherits Window {
     in property <string> status: "Loading...";
     in property <[CatalogRow]> rows: [];
 
-    VerticalLayout {
+    in-out property <bool> details-open: false;
+    in property <string> details-title;
+    in property <string> details-description;
+    in property <image> details-poster;
+    in property <bool> details-has-poster: false;
+    in property <string> details-status;
+    in property <[StreamData]> streams: [];
+
+    callback open-item(string, string, string);
+
+    if !root.details-open: VerticalLayout {
+        width: parent.width;
+        height: parent.height;
         padding: 24px;
         spacing: 12px;
 
@@ -82,7 +108,100 @@ export component MainWindow inherits Window {
                             spacing: 10px;
                             for card in row.cards: PosterCard {
                                 card: card;
+                                clicked => {
+                                    root.details-open = true;
+                                    root.open-item(card.item-id, card.kind, card.title);
+                                }
                             }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if root.details-open: VerticalLayout {
+        width: parent.width;
+        height: parent.height;
+        padding: 24px;
+        spacing: 14px;
+
+        HorizontalLayout {
+            alignment: start;
+            Button {
+                text: "< Back";
+                clicked => {
+                    root.details-open = false;
+                }
+            }
+        }
+        HorizontalLayout {
+            spacing: 20px;
+            Rectangle {
+                width: 200px;
+                height: 300px;
+                background: #1b1a24;
+                border-radius: 8px;
+                clip: true;
+                if root.details-has-poster: Image {
+                    source: root.details-poster;
+                    width: 100%;
+                    height: 100%;
+                    image-fit: cover;
+                }
+            }
+            VerticalLayout {
+                spacing: 8px;
+                alignment: start;
+                Text {
+                    text: root.details-title;
+                    color: white;
+                    font-size: 28px;
+                    font-weight: 700;
+                    wrap: word-wrap;
+                }
+                Text {
+                    text: root.details-description;
+                    color: #c9c7d8;
+                    font-size: 14px;
+                    wrap: word-wrap;
+                }
+            }
+        }
+        Text {
+            text: "Streams";
+            color: white;
+            font-size: 18px;
+            font-weight: 600;
+        }
+        Text {
+            text: root.details-status;
+            color: #9d9bb0;
+            font-size: 13px;
+        }
+        ScrollView {
+            VerticalLayout {
+                alignment: start;
+                spacing: 8px;
+                for stream in root.streams: Rectangle {
+                    background: #1b1a24;
+                    border-radius: 6px;
+                    VerticalLayout {
+                        alignment: start;
+                        padding: 10px;
+                        spacing: 2px;
+                        Text {
+                            text: stream.name;
+                            color: white;
+                            font-size: 14px;
+                            font-weight: 600;
+                            wrap: word-wrap;
+                        }
+                        Text {
+                            text: stream.description;
+                            color: #9d9bb0;
+                            font-size: 12px;
+                            wrap: word-wrap;
                         }
                     }
                 }
