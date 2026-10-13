@@ -45,6 +45,9 @@ step "writing launchers"
 cat > "$HOME_T/.dcv-init" <<'XEOF'
 #!/bin/sh
 export LIBGL_ALWAYS_SOFTWARE=1 WEBKIT_DISABLE_COMPOSITING_MODE=1
+# Portals started by systemd need DISPLAY, or the app waits ~25 s per portal.
+systemctl --user import-environment DISPLAY XAUTHORITY || true
+dbus-update-activation-environment --systemd DISPLAY XAUTHORITY || true
 exec startxfce4
 XEOF
 chmod +x "$HOME_T/.dcv-init"
