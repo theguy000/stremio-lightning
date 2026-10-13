@@ -2999,6 +2999,7 @@ checksum = "85ab80394333c02fe689eaf900ab500fbd0c2213da414687ebf995a65d5a6104"
 dependencies = [
  "bytemuck",
  "byteorder-lite",
+ "image-webp",
  "moxcms",
  "num-traits",
  "png",
@@ -6005,6 +6006,8 @@ version = "0.1.0"
 dependencies = [
  "dirs",
  "futures",
+ "image",
+ "reqwest 0.12.28",
  "serde",
  "slint",
  "slint-build",
