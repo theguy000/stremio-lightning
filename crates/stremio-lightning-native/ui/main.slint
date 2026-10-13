@@ -18,6 +18,37 @@ export struct StreamData {
     description: string,
 }
 
+export enum Section {
+    board,
+    discover,
+    library,
+    calendar,
+    addons,
+    settings,
+}
+
+component NavTab inherits Rectangle {
+    in property <string> label;
+    in property <bool> active;
+    callback clicked();
+    height: 56px;
+    background: root.active ? #1b1a24 : transparent;
+
+    Text {
+        text: root.label;
+        color: root.active ? white : #9d9bb0;
+        font-size: 12px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
 component PosterCard inherits Rectangle {
     in property <PosterData> card;
     callback clicked();
@@ -71,14 +102,21 @@ export component MainWindow inherits Window {
     in property <string> details-status;
     in property <[StreamData]> streams: [];
     in-out property <bool> playing: false;
+    in-out property <Section> section: Section.board;
+    property <length> nav-width: root.playing ? 0px : 96px;
+    property <string> section-title: root.section == Section.discover ? "Discover"
+        : root.section == Section.library ? "Library"
+        : root.section == Section.calendar ? "Calendar"
+        : root.section == Section.addons ? "Addons" : "Settings";
     in property <string> play-message;
 
     callback open-item(string, string, string);
     callback play-stream(int);
     callback stop-playback();
 
-    if !root.details-open && !root.playing: VerticalLayout {
-        width: parent.width;
+    if root.section == Section.board && !root.details-open && !root.playing: VerticalLayout {
+        x: root.nav-width;
+        width: parent.width - root.nav-width;
         height: parent.height;
         padding: 24px;
         spacing: 12px;
@@ -126,7 +164,8 @@ export component MainWindow inherits Window {
     }
 
     if root.details-open && !root.playing: VerticalLayout {
-        width: parent.width;
+        x: root.nav-width;
+        width: parent.width - root.nav-width;
         height: parent.height;
         padding: 24px;
         spacing: 14px;
@@ -222,6 +261,88 @@ export component MainWindow inherits Window {
                     }
                 }
             }
+        }
+    }
+
+    if !root.playing: Rectangle {
+        x: 0px;
+        y: 0px;
+        width: root.nav-width;
+        height: parent.height;
+        background: #14131b;
+
+        VerticalLayout {
+            alignment: start;
+            padding-top: 12px;
+            NavTab {
+                label: "Board";
+                active: root.section == Section.board;
+                clicked => {
+                    root.details-open = false;
+                    root.section = Section.board;
+                }
+            }
+            NavTab {
+                label: "Discover";
+                active: root.section == Section.discover;
+                clicked => {
+                    root.details-open = false;
+                    root.section = Section.discover;
+                }
+            }
+            NavTab {
+                label: "Library";
+                active: root.section == Section.library;
+                clicked => {
+                    root.details-open = false;
+                    root.section = Section.library;
+                }
+            }
+            NavTab {
+                label: "Calendar";
+                active: root.section == Section.calendar;
+                clicked => {
+                    root.details-open = false;
+                    root.section = Section.calendar;
+                }
+            }
+            NavTab {
+                label: "Addons";
+                active: root.section == Section.addons;
+                clicked => {
+                    root.details-open = false;
+                    root.section = Section.addons;
+                }
+            }
+            NavTab {
+                label: "Settings";
+                active: root.section == Section.settings;
+                clicked => {
+                    root.details-open = false;
+                    root.section = Section.settings;
+                }
+            }
+        }
+    }
+
+    if root.section != Section.board && !root.details-open && !root.playing: VerticalLayout {
+        x: root.nav-width;
+        width: parent.width - root.nav-width;
+        height: parent.height;
+        padding: 24px;
+        spacing: 12px;
+        alignment: start;
+
+        Text {
+            text: root.section-title;
+            color: white;
+            font-size: 28px;
+            font-weight: 700;
+        }
+        Text {
+            text: "This screen is not built yet.";
+            color: #9d9bb0;
+            font-size: 14px;
         }
     }
 
