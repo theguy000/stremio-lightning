@@ -1215,18 +1215,25 @@ impl NativeVideoState {
         }
     }
 
-    fn poll_event<T: FnOnce(Event)>(&self, callback: T) -> bool {
+    fn poll_event<T: FnOnce(Event), E: FnOnce(libmpv2::Error)>(
+        &self,
+        on_event: T,
+        on_error: E,
+    ) -> bool {
         let mut mpv = self.mpv.borrow_mut();
         let Some(result) = mpv.wait_event(0.0) else {
             return false;
         };
 
         match result {
-            Ok(event) => callback(event),
-            Err(error) => stremio_lightning_core::logging::error(
-                "native.player",
-                format!("[StremioLightning] Failed to read MPV event: {error}"),
-            ),
+            Ok(event) => on_event(event),
+            Err(error) => {
+                stremio_lightning_core::logging::error(
+                    "native.player",
+                    format!("[StremioLightning] Failed to read MPV event: {error}"),
+                );
+                on_error(error);
+            }
         }
 
         true
@@ -1379,43 +1386,53 @@ fn install_mpv_event_drain(
             return glib::ControlFlow::Break;
         }
 
-        while state.poll_event(|event| match event {
-            Event::PropertyChange { name, change, .. } => {
-                if let Some(value) = property_data_to_json(name, change) {
-                    if let Err(error) = runtime.emit_native_player_property_changed(name, value) {
-                        stremio_lightning_core::logging::error(
-                            "native.player",
-                            format!(
+        let end_playback = |ended: PlayerEnded| {
+            let mut controller = NativeWindowController {
+                webview: &webview,
+                runtime: &runtime,
+                window: &window,
+                fullscreen: &fullscreen,
+            };
+            if let Err(error) = runtime.exit_picture_in_picture_for_player_end(&mut controller) {
+                stremio_lightning_core::logging::error(
+                    "native.pip",
+                    format!("[StremioLightning] Failed to exit PiP after MPV ended: {error}"),
+                );
+            }
+            if let Err(error) = runtime.emit_native_player_ended(ended) {
+                stremio_lightning_core::logging::error(
+                    "native.player",
+                    format!("[StremioLightning] Failed to emit MPV ended event: {error}"),
+                );
+            }
+        };
+
+        while state.poll_event(
+            |event| match event {
+                Event::PropertyChange { name, change, .. } => {
+                    if let Some(value) = property_data_to_json(name, change) {
+                        if let Err(error) = runtime.emit_native_player_property_changed(name, value)
+                        {
+                            stremio_lightning_core::logging::error(
+                                "native.player",
+                                format!(
                                 "[StremioLightning] Failed to emit MPV property change: {error}"
                             ),
-                        );
+                            );
+                        }
                     }
                 }
-            }
-            Event::EndFile(reason) => {
-                let mut controller = NativeWindowController {
-                    webview: &webview,
-                    runtime: &runtime,
-                    window: &window,
-                    fullscreen: &fullscreen,
-                };
-                if let Err(error) = runtime.exit_picture_in_picture_for_player_end(&mut controller)
-                {
-                    stremio_lightning_core::logging::error(
-                        "native.pip",
-                        format!("[StremioLightning] Failed to exit PiP after MPV ended: {error}"),
-                    );
+                Event::EndFile(reason) => {
+                    end_playback(PlayerEnded::from_cause(end_file_cause(reason)));
                 }
-                let ended = PlayerEnded::from_cause(end_file_cause(reason));
-                if let Err(error) = runtime.emit_native_player_ended(ended) {
-                    stremio_lightning_core::logging::error(
-                        "native.player",
-                        format!("[StremioLightning] Failed to emit MPV ended event: {error}"),
-                    );
+                _ => {}
+            },
+            |error| {
+                if let Some(ended) = ended_from_mpv_error(&error) {
+                    end_playback(ended);
                 }
-            }
-            _ => {}
-        }) {}
+            },
+        ) {}
 
         drain_runtime_events_to_webview(&runtime, &webview);
         glib::ControlFlow::Continue
@@ -1434,6 +1451,16 @@ fn property_data_to_json(name: &str, change: PropertyData) -> Option<Value> {
         PropertyData::Flag(value) => Some(Value::Bool(value)),
         PropertyData::Int64(value) => Some(json!(value)),
         PropertyData::Double(value) => serde_json::Number::from_f64(value).map(Value::Number),
+        _ => None,
+    }
+}
+
+/// libmpv2 reports an `END_FILE` event whose playback failed as an `Err` and drops the event.
+/// mpv documents these codes as the only ones `END_FILE` carries (`mpv_end_file.error`), so
+/// they mean playback ended and the web layer must be told.
+fn ended_from_mpv_error(error: &libmpv2::Error) -> Option<PlayerEnded> {
+    match error {
+        libmpv2::Error::Raw(-17..=-13) => Some(PlayerEnded::from_cause(EndFileCause::Error)),
         _ => None,
     }
 }
@@ -1469,6 +1496,19 @@ fn drain_runtime_events_to_webview(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mpv_end_file_errors_become_an_error_ended_event() {
+        for code in [-13, -14, -15, -16, -17] {
+            let ended = ended_from_mpv_error(&libmpv2::Error::Raw(code)).expect("end-file error");
+            assert_eq!(ended.reason, "error");
+            assert!(ended.error.is_some_and(|error| error.critical));
+        }
+        for code in [-4, -8, -10, -12, -18] {
+            assert!(ended_from_mpv_error(&libmpv2::Error::Raw(code)).is_none());
+        }
+        assert!(ended_from_mpv_error(&libmpv2::Error::Null).is_none());
+    }
 
     #[test]
     fn webkit_ipc_adapter_installs_expected_global() {
