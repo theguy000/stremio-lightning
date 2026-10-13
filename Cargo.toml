@@ -5,6 +5,7 @@ members = [
     "crates/stremio-lightning-identity",
     "crates/stremio-lightning-linux",
     "crates/stremio-lightning-macos",
+    "crates/stremio-lightning-native-env",
     "crates/stremio-lightning-windows",
 ]
 resolver = "2"
