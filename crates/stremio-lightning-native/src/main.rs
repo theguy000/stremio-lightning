@@ -17,6 +17,7 @@ use stremio_core::types::events::DismissedEventsBucket;
 use stremio_core::types::library::LibraryBucket;
 use stremio_core::types::notifications::NotificationsBucket;
 use stremio_core::types::profile::Profile;
+use stremio_core::types::resource::{Stream, StreamUrls};
 use stremio_core::types::search_history::SearchHistoryBucket;
 use stremio_core::types::server_urls::ServerUrlsBucket;
 use stremio_core::types::streams::StreamsBucket;
@@ -25,6 +26,9 @@ use stremio_lightning_core::streaming_server::{
     CommandSpec, RealProcessSpawner, StreamingServerSupervisor,
 };
 use stremio_lightning_native_env::NativeEnv;
+use url::Url;
+
+mod player;
 
 slint::include_modules!();
 
@@ -122,33 +126,32 @@ fn details_data(model: &NativeModel) -> DetailsData {
         });
 
     let (mut ready, mut loading, mut empty, mut failed) = (0, 0, 0, 0);
-    let mut streams = Vec::new();
     for page in &details.streams {
         match &page.content {
-            Some(Loadable::Ready(list)) => {
-                ready += 1;
-                streams.extend(list.iter().map(|stream| {
-                    (
-                        stream
-                            .name
-                            .clone()
-                            .unwrap_or_else(|| "Stream".to_owned())
-                            .replace('\n', " "),
-                        stream
-                            .description
-                            .clone()
-                            .unwrap_or_default()
-                            .replace('\n', " | "),
-                    )
-                }));
-            }
+            Some(Loadable::Ready(_)) => ready += 1,
             Some(Loadable::Err(ResourceError::EmptyContent)) => empty += 1,
             Some(Loadable::Err(_)) => failed += 1,
             _ => loading += 1,
         }
     }
-    let found = streams.len();
-    streams.truncate(MAX_STREAMS);
+    let found = streams_of(details).count();
+    let streams = streams_of(details)
+        .take(MAX_STREAMS)
+        .map(|stream| {
+            (
+                stream
+                    .name
+                    .clone()
+                    .unwrap_or_else(|| "Stream".to_owned())
+                    .replace('\n', " "),
+                stream
+                    .description
+                    .clone()
+                    .unwrap_or_default()
+                    .replace('\n', " | "),
+            )
+        })
+        .collect();
 
     DetailsData {
         title: item.map(|item| item.preview.name.clone()),
@@ -161,6 +164,48 @@ fn details_data(model: &NativeModel) -> DetailsData {
         ),
         streams,
     }
+}
+
+/// Every stream the addons have answered with, in the order the Details screen lists them, so the
+/// index of a clicked row finds its stream again.
+fn streams_of(details: &MetaDetails) -> impl Iterator<Item = &Stream> {
+    details
+        .streams
+        .iter()
+        .filter_map(|page| match &page.content {
+            Some(Loadable::Ready(list)) => Some(list.iter()),
+            _ => None,
+        })
+        .flatten()
+}
+
+/// The address the player opens: torrents and archives go through the stream server, plain
+/// URLs are played as they are.
+fn stream_url(stream: &Stream, server: &Url) -> Result<String, String> {
+    let converted = stream
+        .convert(Some(server))
+        .map_err(|error| error.message())?;
+    StreamUrls::new(converted, Some(server))
+        .streaming_url
+        .map(String::from)
+        .ok_or_else(|| "it has no address the player can open".to_owned())
+}
+
+fn play_selected(
+    runtime: &NativeRuntime,
+    video: &player::VideoPlayer,
+    index: usize,
+) -> Result<(), String> {
+    let url = {
+        let model = runtime
+            .model()
+            .map_err(|_| "the app state is not available".to_owned())?;
+        let stream = streams_of(&model.meta_details)
+            .nth(index)
+            .ok_or("the list changed, pick it again")?;
+        stream_url(stream, &model.ctx.profile.settings.streaming_server_url)?
+    };
+    video.play(&url)
 }
 
 fn push(weak: &Weak<MainWindow>, snapshot: Snapshot, posters: Posters) {
@@ -364,6 +409,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     NativeEnv::init(data_dir.clone(), tokio_runtime.handle().clone()).map_err(|e| e.message())?;
 
     let window = MainWindow::new()?;
+    let video = player::VideoPlayer::install(&window);
 
     let server = Arc::new(Supervisor::new(
         RealProcessSpawner,
@@ -416,9 +462,38 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 window.set_details_description("".into());
                 window.set_details_has_poster(false);
                 window.set_details_status("Loading...".into());
+                window.set_play_message("".into());
                 window.set_streams(ModelRc::default());
             }
             open_details(&runtime, &id, &kind);
+        });
+    }
+
+    {
+        let weak = window.as_weak();
+        let runtime = runtime.clone();
+        let video = video.clone();
+        window.on_play_stream(move |index| {
+            let Some(window) = weak.upgrade() else { return };
+            let index = usize::try_from(index).unwrap_or(usize::MAX);
+            match play_selected(&runtime, &video, index) {
+                Ok(()) => {
+                    window.set_play_message("".into());
+                    window.set_playing(true);
+                }
+                Err(error) => {
+                    window.set_play_message(format!("Can't play this stream: {error}").into());
+                }
+            }
+        });
+    }
+    {
+        let weak = window.as_weak();
+        window.on_stop_playback(move || {
+            video.stop();
+            if let Some(window) = weak.upgrade() {
+                window.set_playing(false);
+            }
         });
     }
 
@@ -498,6 +573,43 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use stremio_core::types::resource::StreamSource;
+
+    fn stream(source: StreamSource) -> Stream {
+        Stream {
+            source,
+            name: None,
+            description: None,
+            thumbnail: None,
+            subtitles: vec![],
+            behavior_hints: Default::default(),
+        }
+    }
+
+    #[test]
+    fn torrents_play_through_the_stream_server_and_plain_urls_as_they_are() {
+        let server = Url::parse("http://127.0.0.1:11470/").unwrap();
+
+        let torrent = stream(StreamSource::Torrent {
+            info_hash: [0xab; 20],
+            file_idx: None,
+            announce: vec![],
+            file_must_include: vec![],
+        });
+        // The core leaves an empty query on the end of torrent addresses, so compare the parts.
+        let url = Url::parse(&stream_url(&torrent, &server).unwrap()).unwrap();
+        assert_eq!(url.host_str(), Some("127.0.0.1"));
+        assert_eq!(url.port(), Some(11470));
+        assert_eq!(url.path(), format!("/{}/-1", "ab".repeat(20)));
+
+        let plain = stream(StreamSource::Url {
+            url: Url::parse("https://example.com/movie.mp4").unwrap(),
+        });
+        assert_eq!(
+            stream_url(&plain, &server).unwrap(),
+            "https://example.com/movie.mp4"
+        );
+    }
 
     #[test]
     fn stream_server_runs_from_the_bundle_with_its_ffmpeg_first_on_path() {
