@@ -120,8 +120,9 @@ jobs:
           {
             echo "## Test box is starting"
             echo
-            echo "- Address: $url/?resize=remote (the browser warns about the self-signed certificate; continue)"
-            echo "- User: \`tester\`"
+            echo "- Windows app (full screen): install the free Amazon DCV client, then connect to \`${url#https://}#stremio\`"
+            echo "- Browser: $url/#stremio (the browser warns about the self-signed certificate; continue)"
+            echo "- User: \`tester\`. Three wrong passwords end the connection, so paste it."
             echo "- Password: \`$BOX_PASSWORD\` (new for every box)"
             echo "- Ready in about 3 to 5 minutes. Setup progress: \`aws ec2 get-console-output\`"
             echo "- Packages from publish.yml run $RUN_ID. \`REPORT.txt\` on the desktop shows the library checks."
