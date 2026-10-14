@@ -418,10 +418,10 @@ export component DiscoverContent inherits Rectangle {
                             height: root.rem-size;
                         }
 
-                        // Slint has no line-height, so the text keeps its own tighter spacing. The box is still
-                        // two ems per line, so everything below it sits where the web puts it.
+                        // Web: line-height 2em. Slint's `line-height-factor` is relative to the font's natural line
+                        // height, so the factor is two ems over the natural height, measured on a one-line text.
                         description-container := Rectangle {
-                            height: Math.round(description-text.preferred-height / description-line.preferred-height) * 2 * root.rem-size;
+                            height: Math.round(description-text.preferred-height / (2 * root.rem-size)) * 2 * root.rem-size;
 
                             description-line := Text {
                                 text: "A";
@@ -435,6 +435,7 @@ export component DiscoverContent inherits Rectangle {
                                 text: root.preview.description;
                                 wrap: word-wrap;
                                 font-size: root.rem-size;
+                                line-height-factor: 2 * root.rem-size / description-line.preferred-height;
                                 color: Theme.text;
                             }
                         }
