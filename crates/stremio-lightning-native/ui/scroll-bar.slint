@@ -3,8 +3,8 @@
 // Licence basis: ../THIRD_PARTY_NOTICES.md.
 import { Theme } from "theme.slint";
 
-// A vertical scroll bar for any `Flickable`. Place it beside the Flickable and feed it that
-// Flickable's height, content-height and content-y. It hides itself when nothing overflows.
+// A vertical scroll bar for any `Flickable`. Place it on top of the Flickable's right edge and
+// bind `offset` to the Flickable's content-y. It hides itself when nothing overflows.
 //
 //     ScrollBar {
 //         x: flick.x + flick.width - self.width;
@@ -12,29 +12,60 @@ import { Theme } from "theme.slint";
 //         height: flick.height;
 //         view-height: flick.height;
 //         content-height: flick.content-height;
-//         offset: flick.content-y;
+//         offset <=> flick.content-y;
 //     }
 //
-// `active: false` makes it invisible, for areas where the web only shows the bar while the pointer is over them.
+// Drag the thumb to scroll. Click the track above or below the thumb to move one page.
+// `active: false` makes it invisible, for areas where the web only shows the bar while the pointer
+// is over them. `engaged` is true while the pointer is on the bar or dragging it, so the parent can
+// keep the bar visible then.
 export component ScrollBar inherits Rectangle {
     in property <length> view-height;
     in property <length> content-height;
-    in property <length> offset;
+    // Same sign as Flickable.content-y: 0 at the top, negative when scrolled down.
+    in-out property <length> offset;
     in property <bool> active: true;
+    out property <bool> engaged: touch.has-hover || root.dragging;
     width: 6px;
     visible: root.content-height > root.view-height + 1px;
     opacity: root.active ? 1.0 : 0.0;
 
+    property <bool> dragging: false;
+    property <length> drag-start-offset: 0px;
+    property <length> max-scroll: Math.max(root.content-height - root.view-height, 0px);
     property <length> thumb-height: Math.max(24px, root.view-height * root.view-height / Math.max(root.content-height, 1px));
     property <length> travel: root.view-height - root.thumb-height;
+    property <length> thumb-y: root.travel * Math.min(Math.max(-root.offset / Math.max(root.max-scroll, 1px), 0), 1);
 
     thumb := Rectangle {
         x: 0px;
+        y: root.thumb-y;
         width: parent.width;
         height: root.thumb-height;
-        y: root.travel * Math.min(Math.max(-root.offset / Math.max(root.content-height - root.view-height, 1px), 0), 1);
         border-radius: 3px;
         // Stays --overlay-color on hover: Chrome ignores the web's accent :hover rule when scrollbar-color is set.
         background: Theme.overlay;
+    }
+
+    touch := TouchArea {
+        pointer-event(event) => {
+            if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
+                if (self.mouse-y >= root.thumb-y && self.mouse-y <= root.thumb-y + root.thumb-height) {
+                    root.dragging = true;
+                    root.drag-start-offset = root.offset;
+                } else if (self.mouse-y < root.thumb-y) {
+                    root.offset = Math.min(root.offset + root.view-height, 0px);
+                } else {
+                    root.offset = Math.max(root.offset - root.view-height, -root.max-scroll);
+                }
+            } else if (event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel) {
+                root.dragging = false;
+            }
+        }
+        moved => {
+            if (root.dragging && root.travel > 0px) {
+                root.offset = Math.min(Math.max(root.drag-start-offset - ((self.mouse-y - self.pressed-y) / root.travel) * root.max-scroll, -root.max-scroll), 0px);
+            }
+        }
     }
 }
