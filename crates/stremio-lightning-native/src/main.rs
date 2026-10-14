@@ -3,11 +3,14 @@ use std::sync::{Arc, Mutex};
 
 use futures::StreamExt;
 use slint::{Image, ModelRc, Rgba8Pixel, SharedPixelBuffer, VecModel, Weak};
+use stremio_core::constants::{META_RESOURCE_NAME, STREAM_RESOURCE_NAME};
 use stremio_core::models::catalogs_with_extra::{CatalogsWithExtra, Selected};
-use stremio_core::models::common::Loadable;
+use stremio_core::models::common::{Loadable, ResourceError};
 use stremio_core::models::ctx::Ctx;
+use stremio_core::models::meta_details::{MetaDetails, Selected as DetailsSelected};
 use stremio_core::runtime::msg::{Action, ActionCatalogsWithExtra, ActionLoad};
 use stremio_core::runtime::{Env, Runtime, RuntimeAction, RuntimeEvent};
+use stremio_core::types::addon::ResourcePath;
 use stremio_core::types::events::DismissedEventsBucket;
 use stremio_core::types::library::LibraryBucket;
 use stremio_core::types::notifications::NotificationsBucket;
@@ -21,24 +24,50 @@ use stremio_lightning_native_env::NativeEnv;
 slint::include_modules!();
 
 const CARDS_PER_ROW: usize = 20;
+const MAX_STREAMS: usize = 100;
 
 #[derive(Model, Clone)]
 #[model(NativeEnv)]
 struct NativeModel {
     ctx: Ctx,
     board: CatalogsWithExtra,
+    meta_details: MetaDetails,
 }
 
-/// One poster card: the title and, when the addon gave one, the poster URL.
-type CardData = (String, Option<String>);
+type NativeRuntime = Runtime<NativeEnv, NativeModel>;
+type Posters = Arc<Mutex<HashMap<String, SharedPixelBuffer<Rgba8Pixel>>>>;
+
+#[derive(Clone)]
+struct Card {
+    id: String,
+    kind: String,
+    title: String,
+    poster: Option<String>,
+}
 
 #[derive(Clone)]
 struct RowData {
     name: String,
-    cards: Vec<CardData>,
+    cards: Vec<Card>,
 }
 
-type Posters = Arc<Mutex<HashMap<String, SharedPixelBuffer<Rgba8Pixel>>>>;
+/// `title` is `None` until the addons have answered the meta request, so the window keeps
+/// showing the title of the card that was clicked.
+#[derive(Clone, Default)]
+struct DetailsData {
+    title: Option<String>,
+    description: String,
+    poster: Option<String>,
+    status: String,
+    streams: Vec<(String, String)>,
+}
+
+#[derive(Clone, Default)]
+struct Snapshot {
+    status: String,
+    rows: Vec<RowData>,
+    details: DetailsData,
+}
 
 fn board_rows(model: &NativeModel) -> (String, Vec<RowData>) {
     let mut rows = Vec::new();
@@ -54,11 +83,11 @@ fn board_rows(model: &NativeModel) -> (String, Vec<RowData>) {
                 cards: items
                     .iter()
                     .take(CARDS_PER_ROW)
-                    .map(|item| {
-                        (
-                            item.name.clone(),
-                            item.poster.as_ref().map(|url| url.to_string()),
-                        )
+                    .map(|item| Card {
+                        id: item.id.clone(),
+                        kind: item.r#type.clone(),
+                        title: item.name.clone(),
+                        poster: item.poster.as_ref().map(|url| url.to_string()),
                     })
                     .collect(),
             }),
@@ -76,23 +105,82 @@ fn board_rows(model: &NativeModel) -> (String, Vec<RowData>) {
     (status, rows)
 }
 
-fn push_rows(weak: &Weak<MainWindow>, status: String, rows: Vec<RowData>, posters: Posters) {
+fn details_data(model: &NativeModel) -> DetailsData {
+    let details = &model.meta_details;
+    let item = details
+        .meta_items
+        .iter()
+        .find_map(|page| match &page.content {
+            Some(Loadable::Ready(item)) => Some(item),
+            _ => None,
+        });
+
+    let (mut ready, mut loading, mut empty, mut failed) = (0, 0, 0, 0);
+    let mut streams = Vec::new();
+    for page in &details.streams {
+        match &page.content {
+            Some(Loadable::Ready(list)) => {
+                ready += 1;
+                streams.extend(list.iter().map(|stream| {
+                    (
+                        stream
+                            .name
+                            .clone()
+                            .unwrap_or_else(|| "Stream".to_owned())
+                            .replace('\n', " "),
+                        stream
+                            .description
+                            .clone()
+                            .unwrap_or_default()
+                            .replace('\n', " | "),
+                    )
+                }));
+            }
+            Some(Loadable::Err(ResourceError::EmptyContent)) => empty += 1,
+            Some(Loadable::Err(_)) => failed += 1,
+            _ => loading += 1,
+        }
+    }
+    let found = streams.len();
+    streams.truncate(MAX_STREAMS);
+
+    DetailsData {
+        title: item.map(|item| item.preview.name.clone()),
+        description: item
+            .and_then(|item| item.preview.description.clone())
+            .unwrap_or_default(),
+        poster: item.and_then(|item| item.preview.poster.as_ref().map(|url| url.to_string())),
+        status: format!(
+            "{found} streams from {ready} sources, {empty} had nothing, {failed} failed, {loading} loading"
+        ),
+        streams,
+    }
+}
+
+fn push(weak: &Weak<MainWindow>, snapshot: Snapshot, posters: Posters) {
     let _ = weak.upgrade_in_event_loop(move |window| {
         let cache = posters.lock().unwrap();
-        let rows: Vec<CatalogRow> = rows
+        let image_for = |url: &Option<String>| {
+            url.as_ref()
+                .and_then(|url| cache.get(url))
+                .map(|buffer| Image::from_rgba8(buffer.clone()))
+        };
+
+        let rows: Vec<CatalogRow> = snapshot
+            .rows
             .into_iter()
             .map(|row| {
                 let cards: Vec<PosterData> = row
                     .cards
                     .into_iter()
-                    .map(|(title, url)| {
-                        let buffer = url.as_ref().and_then(|url| cache.get(url));
+                    .map(|card| {
+                        let image = image_for(&card.poster);
                         PosterData {
-                            title: title.into(),
-                            has_poster: buffer.is_some(),
-                            poster: buffer
-                                .map(|buffer| Image::from_rgba8(buffer.clone()))
-                                .unwrap_or_default(),
+                            item_id: card.id.into(),
+                            kind: card.kind.into(),
+                            title: card.title.into(),
+                            has_poster: image.is_some(),
+                            poster: image.unwrap_or_default(),
                         }
                     })
                     .collect();
@@ -102,8 +190,27 @@ fn push_rows(weak: &Weak<MainWindow>, status: String, rows: Vec<RowData>, poster
                 }
             })
             .collect();
-        window.set_status(status.into());
+        window.set_status(snapshot.status.into());
         window.set_rows(ModelRc::new(VecModel::from(rows)));
+
+        let details = snapshot.details;
+        if let Some(title) = details.title {
+            let image = image_for(&details.poster);
+            window.set_details_title(title.into());
+            window.set_details_description(details.description.into());
+            window.set_details_has_poster(image.is_some());
+            window.set_details_poster(image.unwrap_or_default());
+        }
+        window.set_details_status(details.status.into());
+        let streams: Vec<StreamData> = details
+            .streams
+            .into_iter()
+            .map(|(name, description)| StreamData {
+                name: name.into(),
+                description: description.into(),
+            })
+            .collect();
+        window.set_streams(ModelRc::new(VecModel::from(streams)));
     });
 }
 
@@ -136,6 +243,27 @@ async fn fetch_poster(
     .ok()?
 }
 
+/// Series have no stream until an episode is picked, so the core guesses one. Everything else
+/// asks the addons for streams of the item itself.
+fn open_details(runtime: &NativeRuntime, id: &str, kind: &str) {
+    let (stream_path, guess_stream) = if kind == "series" {
+        (None, true)
+    } else {
+        (
+            Some(ResourcePath::without_extra(STREAM_RESOURCE_NAME, kind, id)),
+            false,
+        )
+    };
+    runtime.dispatch(RuntimeAction {
+        field: None,
+        action: Action::Load(ActionLoad::MetaDetails(DetailsSelected {
+            meta_path: ResourcePath::without_extra(META_RESOURCE_NAME, kind, id),
+            stream_path,
+            guess_stream,
+        })),
+    });
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tokio_runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -165,57 +293,89 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             DismissedEventsBucket::new(uid),
         ),
         board: Default::default(),
+        meta_details: Default::default(),
     };
 
-    let (runtime, events) = Runtime::<NativeEnv, _>::new(model, vec![], 1000);
+    let (runtime, events) = NativeRuntime::new(model, vec![], 1000);
     let runtime = Arc::new(runtime);
+
+    let posters: Posters = Default::default();
+    let requested = Arc::new(Mutex::new(HashSet::<String>::new()));
+    let latest = Arc::new(Mutex::new(Snapshot::default()));
+    let client = reqwest::Client::new();
+
+    {
+        let weak = window.as_weak();
+        let runtime = runtime.clone();
+        let latest = latest.clone();
+        window.on_open_item(move |id, kind, title| {
+            // Drop what the previous item left behind so it can't flash up before the new data.
+            latest.lock().unwrap().details = DetailsData::default();
+            if let Some(window) = weak.upgrade() {
+                window.set_details_title(title);
+                window.set_details_description("".into());
+                window.set_details_has_poster(false);
+                window.set_details_status("Loading...".into());
+                window.set_streams(ModelRc::default());
+            }
+            open_details(&runtime, &id, &kind);
+        });
+    }
 
     let weak = window.as_weak();
     let reader = runtime.clone();
-    let posters: Posters = Default::default();
-    let requested = Arc::new(Mutex::new(HashSet::<String>::new()));
-    let latest = Arc::new(Mutex::new((String::new(), Vec::<RowData>::new())));
-    let client = reqwest::Client::new();
-    tokio_runtime.spawn(events.for_each(move |event| {
-        let weak = weak.clone();
-        let reader = reader.clone();
+    tokio_runtime.spawn(events.for_each({
         let posters = posters.clone();
-        let requested = requested.clone();
         let latest = latest.clone();
-        let client = client.clone();
-        async move {
-            if !matches!(event, RuntimeEvent::NewState(..)) {
-                return;
-            }
-            let Ok(model) = reader.model() else { return };
-            let (status, rows) = board_rows(&model);
-            drop(model);
-            *latest.lock().unwrap() = (status.clone(), rows.clone());
-
-            let urls: Vec<String> = rows
-                .iter()
-                .flat_map(|row| row.cards.iter())
-                .filter_map(|(_, url)| url.clone())
-                .collect();
-            for url in urls {
-                if !requested.lock().unwrap().insert(url.clone()) {
-                    continue;
+        move |event| {
+            let weak = weak.clone();
+            let reader = reader.clone();
+            let posters = posters.clone();
+            let requested = requested.clone();
+            let latest = latest.clone();
+            let client = client.clone();
+            async move {
+                if !matches!(event, RuntimeEvent::NewState(..)) {
+                    return;
                 }
-                let (client, posters, latest, weak) = (
-                    client.clone(),
-                    posters.clone(),
-                    latest.clone(),
-                    weak.clone(),
-                );
-                tokio::spawn(async move {
-                    if let Some(buffer) = fetch_poster(&client, &url).await {
-                        posters.lock().unwrap().insert(url, buffer);
-                        let (status, rows) = latest.lock().unwrap().clone();
-                        push_rows(&weak, status, rows, posters);
+                let Ok(model) = reader.model() else { return };
+                let (status, rows) = board_rows(&model);
+                let details = details_data(&model);
+                drop(model);
+                let snapshot = Snapshot {
+                    status,
+                    rows,
+                    details,
+                };
+                *latest.lock().unwrap() = snapshot.clone();
+
+                let urls: Vec<String> = snapshot
+                    .rows
+                    .iter()
+                    .flat_map(|row| row.cards.iter())
+                    .filter_map(|card| card.poster.clone())
+                    .chain(snapshot.details.poster.clone())
+                    .collect();
+                for url in urls {
+                    if !requested.lock().unwrap().insert(url.clone()) {
+                        continue;
                     }
-                });
+                    let (client, posters, latest, weak) = (
+                        client.clone(),
+                        posters.clone(),
+                        latest.clone(),
+                        weak.clone(),
+                    );
+                    tokio::spawn(async move {
+                        if let Some(buffer) = fetch_poster(&client, &url).await {
+                            posters.lock().unwrap().insert(url, buffer);
+                            let snapshot = latest.lock().unwrap().clone();
+                            push(&weak, snapshot, posters);
+                        }
+                    });
+                }
+                push(&weak, snapshot, posters);
             }
-            push_rows(&weak, status, rows, posters);
         }
     }));
 
