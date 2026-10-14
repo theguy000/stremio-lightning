@@ -15,6 +15,7 @@ component NavTabButton inherits Rectangle {
     in property <length> rem-size: 14px;
     in property <image> tab-icon;
     in property <bool> selected;
+    in property <string> tab-label;
     callback clicked();
     width: (67 * root.rem-size / 14);
     height: (67 * root.rem-size / 14);
@@ -23,7 +24,8 @@ component NavTabButton inherits Rectangle {
         width: parent.width;
         height: parent.height;
         border-radius: (10.5 * root.rem-size / 14);
-        background: ClassStyles.background-or(ClassStyles.nav-tab-button-container, transparent);
+        // Web: `:hover` gives --overlay-color (measured: rgb(15,14,29) -> rgb(27,26,41)).
+        background: touch.has-hover ? Theme.overlay : ClassStyles.background-or(ClassStyles.nav-tab-button-container, transparent);
         opacity: ClassStyles.opacity-or(ClassStyles.nav-tab-button-container, 1.0);
         visible: !(ClassStyles.nav-tab-button-container).hidden;
 
@@ -39,7 +41,23 @@ component NavTabButton inherits Rectangle {
             visible: !ClassStyles.icon.hidden;
         }
 
-        TouchArea {
+        // Web: the label is invisible until the tab is hovered, then 0.6 (1 when selected).
+        label := Text {
+            x: 0px;
+            y: (46 * root.rem-size / 14);
+            width: parent.width;
+            text: root.tab-label;
+            horizontal-alignment: center;
+            font-size: (11.2 * root.rem-size / 14);
+            font-weight: 500;
+            letter-spacing: (0.14 * root.rem-size / 14);
+            color: root.selected ? Theme.accent : ClassStyles.color-or(ClassStyles.label, Theme.text);
+            opacity: touch.has-hover ? (root.selected ? 1.0 : 0.6) : 0.0;
+            visible: !ClassStyles.label.hidden;
+        }
+
+        touch := TouchArea {
+            mouse-cursor: pointer;
             clicked => {
                 root.clicked();
             }
@@ -66,6 +84,7 @@ export component VerticalNavBar inherits Rectangle {
             x: (8 * root.rem-size / 14);
             y: (14 * root.rem-size / 14);
             tab-icon: root.section == Section.board ? @image-url("icons/home.svg") : @image-url("icons/home-outline.svg");
+            tab-label: "Board";
             selected: root.section == Section.board;
             clicked => {
                 root.select(Section.board);
@@ -76,6 +95,7 @@ export component VerticalNavBar inherits Rectangle {
             x: (8 * root.rem-size / 14);
             y: (95.2 * root.rem-size / 14);
             tab-icon: root.section == Section.discover ? @image-url("icons/discover.svg") : @image-url("icons/discover-outline.svg");
+            tab-label: "Discover";
             selected: root.section == Section.discover;
             clicked => {
                 root.select(Section.discover);
@@ -86,6 +106,7 @@ export component VerticalNavBar inherits Rectangle {
             x: (8 * root.rem-size / 14);
             y: (176.4 * root.rem-size / 14);
             tab-icon: root.section == Section.library ? @image-url("icons/library.svg") : @image-url("icons/library-outline.svg");
+            tab-label: "Library";
             selected: root.section == Section.library;
             clicked => {
                 root.select(Section.library);
@@ -96,6 +117,7 @@ export component VerticalNavBar inherits Rectangle {
             x: (8 * root.rem-size / 14);
             y: (257 * root.rem-size / 14);
             tab-icon: root.section == Section.calendar ? @image-url("icons/calendar.svg") : @image-url("icons/calendar-outline.svg");
+            tab-label: "Calendar";
             selected: root.section == Section.calendar;
             clicked => {
                 root.select(Section.calendar);
@@ -106,6 +128,7 @@ export component VerticalNavBar inherits Rectangle {
             x: (8 * root.rem-size / 14);
             y: (338 * root.rem-size / 14);
             tab-icon: root.section == Section.addons ? @image-url("icons/addons.svg") : @image-url("icons/addons-outline.svg");
+            tab-label: "Addons";
             selected: root.section == Section.addons;
             clicked => {
                 root.select(Section.addons);
@@ -116,6 +139,7 @@ export component VerticalNavBar inherits Rectangle {
             x: (8 * root.rem-size / 14);
             y: (420 * root.rem-size / 14);
             tab-icon: root.section == Section.settings ? @image-url("icons/settings.svg") : @image-url("icons/settings-outline.svg");
+            tab-label: "Settings";
             selected: root.section == Section.settings;
             clicked => {
                 root.select(Section.settings);

@@ -62,6 +62,7 @@ descendant selectors such as `.a .b`, sizes, margins, gradients and hover states
 | `overview`, `point` | the two sentences under it. `overview` is layout only; `point` is one icon and sentence | | | `point` only | `point` only |
 | `text` | the sentence of one point | yes | | yes | yes |
 | `button`, `button-container` | the Log in button. Hover (outline, clear background) is not themable | yes | yes | yes | yes |
+| `label` | the name under a side nav icon (Board, Discover, ...), shown only while the tab is hovered | yes | | | yes |
 
 The Board, the top bar, the side nav, Discover's filter menus and the logged-out Library screen are wired. Details, Player and the other sections have element
 ids but no class styles yet. The `selected` and `active` states, hover and focus are not themable, and

@@ -36,7 +36,7 @@ export component MetaItem inherits Rectangle {
         opacity: ClassStyles.opacity-or(ClassStyles.meta-item-link, 1.0);
         visible: !ClassStyles.meta-item-link.hidden;
 
-        // Web: box-shadow 0 0 0 0.2rem on the poster of a selected card.
+        // Web: box-shadow 0 0 0 0.2rem on the poster of a selected or hovered card.
         selection-ring := Rectangle {
             x: -0.2 * root.rem-size;
             y: -0.2 * root.rem-size;
@@ -45,7 +45,7 @@ export component MetaItem inherits Rectangle {
             border-radius: 0.95 * root.rem-size;
             border-width: 0.2 * root.rem-size;
             border-color: white;
-            visible: root.selected;
+            visible: root.selected || card-touch.has-hover;
         }
 
         poster-container := Rectangle {
@@ -65,6 +65,8 @@ export component MetaItem inherits Rectangle {
                 height: 100%;
                 image-fit: cover;
                 opacity: ClassStyles.opacity-or(ClassStyles.poster-image, 0.9);
+                // Web: .poster-image-layer scales to 1.05 while the card is selected or hovered.
+                transform-scale: (root.selected || card-touch.has-hover) ? 1.05 : 1.0;
                 visible: !ClassStyles.poster-image.hidden;
             }
         }
@@ -106,7 +108,8 @@ export component MetaItem inherits Rectangle {
             }
         }
 
-        TouchArea {
+        card-touch := TouchArea {
+            mouse-cursor: pointer;
             clicked => {
                 root.clicked();
             }
