@@ -1,11 +1,12 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use futures::StreamExt;
 use slint::{Image, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel, Weak};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
-use stremio_core::constants::{META_RESOURCE_NAME, STREAM_RESOURCE_NAME};
+use stremio_core::constants::{IMDB_LINK_CATEGORY, META_RESOURCE_NAME, STREAM_RESOURCE_NAME};
 use stremio_core::models::catalog_with_filters::CatalogWithFilters;
 use stremio_core::models::catalogs_with_extra::{CatalogsWithExtra, Selected};
 use stremio_core::models::common::{Loadable, ResourceError};
@@ -85,7 +86,27 @@ struct DiscoverData {
     shape: &'static str,
     cards: Vec<Card>,
     filters: Vec<String>,
+    previews: Vec<Preview>,
 }
+
+/// What the Discover preview panel shows for one card. `logo` and `background` are image-cache keys.
+#[derive(Clone, Default)]
+struct Preview {
+    title: String,
+    runtime: String,
+    release: String,
+    rating: String,
+    description: String,
+    groups: Vec<(String, Vec<String>)>,
+    has_trailer: bool,
+    logo: Option<String>,
+    background: Option<String>,
+}
+
+/// Cache-key suffixes for images that are not posters: the logo is fetched larger, and the
+/// background tiny, because the web blurs it and Slint scales a small image up smoothly.
+const LOGO_SUFFIX: &str = "#logo";
+const BLUR_SUFFIX: &str = "#blur";
 
 #[derive(Clone, Default)]
 struct Snapshot {
@@ -182,6 +203,61 @@ fn board_rows(model: &AppModel) -> (String, Vec<RowData>) {
     (status, rows)
 }
 
+fn preview_of(item: &MetaItemPreview) -> Preview {
+    let mut rating = String::new();
+    let mut groups: Vec<(String, Vec<String>)> = Vec::new();
+    for link in &item.links {
+        match link.category.as_str() {
+            IMDB_LINK_CATEGORY => rating = link.name.clone(),
+            category
+                if category.eq_ignore_ascii_case("share")
+                    || category.eq_ignore_ascii_case("writers") => {}
+            category => match groups.iter_mut().find(|(label, _)| label == category) {
+                Some((_, names)) => names.push(link.name.clone()),
+                None => groups.push((category.to_owned(), vec![link.name.clone()])),
+            },
+        }
+    }
+    for (label, _) in &mut groups {
+        *label = label.to_uppercase();
+    }
+    Preview {
+        title: item.name.clone(),
+        runtime: item.runtime.clone().unwrap_or_default(),
+        release: item
+            .release_info
+            .clone()
+            .or_else(|| item.released.map(|date| date.format("%Y").to_string()))
+            .unwrap_or_default(),
+        rating,
+        description: item.description.clone().unwrap_or_default(),
+        groups,
+        has_trailer: !item.trailer_streams.is_empty(),
+        logo: item.logo.as_ref().map(|url| format!("{url}{LOGO_SUFFIX}")),
+        background: item
+            .background
+            .as_ref()
+            .or(item.poster.as_ref())
+            .map(|url| format!("{url}{BLUR_SUFFIX}")),
+    }
+}
+
+fn preview_images(snapshot: &Snapshot, index: usize) -> Vec<String> {
+    snapshot
+        .discover
+        .previews
+        .get(index)
+        .into_iter()
+        .flat_map(|preview| {
+            preview
+                .logo
+                .iter()
+                .chain(preview.background.iter())
+                .cloned()
+        })
+        .collect()
+}
+
 fn discover_data(model: &AppModel) -> DiscoverData {
     let discover = &model.discover;
     let mut items: Vec<&MetaItemPreview> = Vec::new();
@@ -212,6 +288,7 @@ fn discover_data(model: &AppModel) -> DiscoverData {
     DiscoverData {
         shape: shape_of(items.iter().copied()),
         cards: items.iter().copied().map(card_of).collect(),
+        previews: items.iter().copied().map(preview_of).collect(),
         filters: kind
             .into_iter()
             .chain(catalog)
@@ -363,6 +440,41 @@ fn push(weak: &Weak<MainWindow>, snapshot: Snapshot, posters: Posters) {
             .map(Into::into)
             .collect();
         window.set_discover_filters(ModelRc::new(VecModel::from(filters)));
+        let previews: Vec<PreviewData> = snapshot
+            .discover
+            .previews
+            .into_iter()
+            .map(|preview| {
+                let logo = image_for(&preview.logo);
+                let background = image_for(&preview.background);
+                let groups: Vec<LinkGroup> = preview
+                    .groups
+                    .into_iter()
+                    .map(|(label, links)| {
+                        let links: Vec<SharedString> =
+                            links.into_iter().map(SharedString::from).collect();
+                        LinkGroup {
+                            label: label.into(),
+                            links: ModelRc::new(VecModel::from(links)),
+                        }
+                    })
+                    .collect();
+                PreviewData {
+                    title: preview.title.into(),
+                    runtime: preview.runtime.into(),
+                    release_info: preview.release.into(),
+                    rating: preview.rating.into(),
+                    description: preview.description.into(),
+                    groups: ModelRc::new(VecModel::from(groups)),
+                    has_trailer: preview.has_trailer,
+                    has_logo: logo.is_some(),
+                    logo: logo.unwrap_or_default(),
+                    has_background: background.is_some(),
+                    background: background.unwrap_or_default(),
+                }
+            })
+            .collect();
+        window.set_discover_previews(ModelRc::new(VecModel::from(previews)));
 
         let details = snapshot.details;
         if let Some(title) = details.title {
@@ -385,10 +497,47 @@ fn push(weak: &Weak<MainWindow>, snapshot: Snapshot, posters: Posters) {
     });
 }
 
+fn request_image(
+    url: String,
+    client: &reqwest::Client,
+    requested: &Arc<Mutex<HashSet<String>>>,
+    posters: &Posters,
+    latest: &Arc<Mutex<Snapshot>>,
+    weak: &Weak<MainWindow>,
+) {
+    if !requested.lock().unwrap().insert(url.clone()) {
+        return;
+    }
+    let (client, posters, latest, weak) = (
+        client.clone(),
+        posters.clone(),
+        latest.clone(),
+        weak.clone(),
+    );
+    tokio::spawn(async move {
+        if let Some(buffer) = fetch_poster(&client, &url).await {
+            posters.lock().unwrap().insert(url, buffer);
+            let snapshot = latest.lock().unwrap().clone();
+            push(&weak, snapshot, posters);
+        }
+    });
+}
+
+fn image_source(key: &str) -> (&str, (u32, u32)) {
+    if let Some(url) = key.strip_suffix(LOGO_SUFFIX) {
+        (url, (672, 168))
+    } else if let Some(url) = key.strip_suffix(BLUR_SUFFIX) {
+        (url, (24, 36))
+    } else {
+        (key, (300, 450))
+    }
+}
+
 async fn fetch_poster(
     client: &reqwest::Client,
-    url: &str,
+    key: &str,
 ) -> Option<SharedPixelBuffer<Rgba8Pixel>> {
+    let (url, (width, height)) = image_source(key);
     let bytes = client
         .get(url)
         .send()
@@ -402,7 +551,7 @@ async fn fetch_poster(
     tokio::task::spawn_blocking(move || {
         let image = image::load_from_memory(&bytes)
             .ok()?
-            .thumbnail(300, 450)
+            .thumbnail(width, height)
             .to_rgba8();
         Some(SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(
             image.as_raw(),
@@ -573,6 +722,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let requested = Arc::new(Mutex::new(HashSet::<String>::new()));
     let latest = Arc::new(Mutex::new(Snapshot::default()));
     let client = reqwest::Client::new();
+    let selected = Arc::new(AtomicUsize::new(0));
 
     {
         let weak = window.as_weak();
@@ -631,11 +781,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
+    {
+        let (weak, handle, client, requested, posters, latest, selected) = (
+            window.as_weak(),
+            tokio_runtime.handle().clone(),
+            client.clone(),
+            requested.clone(),
+            posters.clone(),
+            latest.clone(),
+            selected.clone(),
+        );
+        window.on_select_preview(move |index| {
+            let index = usize::try_from(index).unwrap_or(0);
+            selected.store(index, Ordering::Relaxed);
+            let snapshot = latest.lock().unwrap().clone();
+            let _guard = handle.enter();
+            for url in preview_images(&snapshot, index) {
+                request_image(url, &client, &requested, &posters, &latest, &weak);
+            }
+        });
+    }
+
     let weak = window.as_weak();
     let reader = runtime.clone();
     tokio_runtime.spawn(events.for_each({
         let posters = posters.clone();
         let latest = latest.clone();
+        let selected = selected.clone();
         move |event| {
             let weak = weak.clone();
             let reader = reader.clone();
@@ -643,6 +815,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let requested = requested.clone();
             let latest = latest.clone();
             let client = client.clone();
+            let selected = selected.clone();
             async move {
                 if !matches!(event, RuntimeEvent::NewState(..)) {
                     return;
@@ -673,24 +846,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             .filter_map(|card| card.poster.clone()),
                     )
                     .chain(snapshot.details.poster.clone())
+                    .chain(preview_images(&snapshot, selected.load(Ordering::Relaxed)))
                     .collect();
                 for url in urls {
-                    if !requested.lock().unwrap().insert(url.clone()) {
-                        continue;
-                    }
-                    let (client, posters, latest, weak) = (
-                        client.clone(),
-                        posters.clone(),
-                        latest.clone(),
-                        weak.clone(),
-                    );
-                    tokio::spawn(async move {
-                        if let Some(buffer) = fetch_poster(&client, &url).await {
-                            posters.lock().unwrap().insert(url, buffer);
-                            let snapshot = latest.lock().unwrap().clone();
-                            push(&weak, snapshot, posters);
-                        }
-                    });
+                    request_image(url, &client, &requested, &posters, &latest, &weak);
                 }
                 push(&weak, snapshot, posters);
             }
