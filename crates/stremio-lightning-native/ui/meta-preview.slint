@@ -1,0 +1,329 @@
+// Based on stremio-web (https://github.com/Stremio/stremio-web),
+// Copyright (C) 2017-2023 Smart code 203358507.
+// Layout numbers translated by hand from src/components/MetaPreview/styles.less and its
+// ActionButton and MetaLinks styles. Licence basis: ../THIRD_PARTY_NOTICES.md.
+// Element ids reuse the web class names where one exists.
+import { ScrollBar } from "scroll-bar.slint";
+import { Theme } from "theme.slint";
+
+export struct LinkGroup {
+    label: string,
+    links: [string],
+}
+
+export struct PreviewData {
+    title: string,
+    runtime: string,
+    release-info: string,
+    rating: string,
+    description: string,
+    groups: [LinkGroup],
+    has-trailer: bool,
+    logo: image,
+    has-logo: bool,
+    background: image,
+    has-background: bool,
+}
+
+// Web: .link-container inside MetaLinks.
+component PreviewPill inherits Rectangle {
+    in property <string> text;
+    in property <length> rem-size;
+    width: label.preferred-width + 2 * (1.25 * root.rem-size + 2px);
+    height: 2.4 * root.rem-size;
+    border-radius: 2 * root.rem-size;
+    background: Theme.overlay;
+
+    label := Text {
+        x: 1.25 * root.rem-size + 2px;
+        height: parent.height;
+        text: root.text;
+        vertical-alignment: center;
+        overflow: elide;
+        font-size: root.rem-size;
+        font-weight: 500;
+        color: Theme.text;
+    }
+}
+
+// Web: MetaLinks. The label, then pills that wrap onto further lines (flex-wrap: wrap).
+component PreviewLinks inherits VerticalLayout {
+    in property <LinkGroup> group;
+    in property <length> rem-size;
+    spacing: 0px;
+    padding-top: 1.5 * root.rem-size;
+
+    label-container := Rectangle {
+        height: 2 * root.rem-size;
+        Text {
+            x: 0px;
+            y: 0px;
+            height: 1.25 * root.rem-size;
+            text: root.group.label;
+            vertical-alignment: center;
+            font-size: 0.95 * root.rem-size;
+            font-weight: 700;
+            color: Theme.text;
+            opacity: 0.3;
+        }
+    }
+    links-container := FlexboxLayout {
+        spacing-horizontal: 0.75 * root.rem-size;
+        spacing-vertical: 0.75 * root.rem-size;
+        alignment: start;
+
+        for link in root.group.links: link-container := PreviewPill {
+            text: link;
+            rem-size: root.rem-size;
+        }
+    }
+    Rectangle {
+        height: 0.75 * root.rem-size;
+    }
+}
+
+// Web: .runtime-label and .release-info-label.
+component InfoLabel inherits Rectangle {
+    in property <string> text;
+    in property <length> rem-size;
+    width: label.preferred-width + 0.8 * root.rem-size;
+
+    label := Text {
+        x: 0.4 * root.rem-size;
+        height: parent.height;
+        text: root.text;
+        vertical-alignment: center;
+        font-size: 1.25 * root.rem-size;
+        font-weight: 600;
+        color: Theme.text;
+    }
+}
+
+// Web: .imdb-button-container.
+component ImdbButton inherits Rectangle {
+    in property <string> text;
+    in property <length> rem-size;
+    width: label.preferred-width + root.rem-size + 3 * root.rem-size + 2 * (0.5 * root.rem-size + 2px);
+
+    label := Text {
+        x: 0.5 * root.rem-size + 2px;
+        height: parent.height;
+        text: root.text;
+        vertical-alignment: center;
+        font-size: 1.25 * root.rem-size;
+        font-weight: 600;
+        color: Theme.text;
+    }
+    icon := Image {
+        source: @image-url("icons/imdb.svg");
+        colorize: Theme.imdb;
+        
+        x: label.x + label.preferred-width + root.rem-size;
+        y: (parent.height - self.height) / 2;
+        width: 3 * root.rem-size;
+        height: 3 * root.rem-size;
+    }
+}
+
+// Web: .action-button-container, round (4rem) or wide with a label.
+component ActionButton inherits Rectangle {
+    in property <image> icon;
+    in property <string> label;
+    in property <length> rem-size;
+    height: 4 * root.rem-size;
+    width: root.label == "" ? 4 * root.rem-size
+        : 4 * root.rem-size + 1.75 * root.rem-size + root.rem-size + text.preferred-width + 0.4 * root.rem-size;
+    border-radius: 4 * root.rem-size;
+    background: Theme.overlay;
+
+    icon-container := Image {
+        source: root.icon;
+        colorize: Theme.text;
+        opacity: 0.9;
+        width: 1.75 * root.rem-size;
+        height: 1.75 * root.rem-size;
+        x: root.label == "" ? (parent.width - self.width) / 2 : 2 * root.rem-size;
+        y: (parent.height - self.height) / 2;
+    }
+    text := Text {
+        visible: root.label != "";
+        x: 2 * root.rem-size + 1.75 * root.rem-size + root.rem-size + 0.2 * root.rem-size;
+        height: parent.height;
+        text: root.label;
+        vertical-alignment: center;
+        font-size: root.rem-size;
+        font-weight: 500;
+        color: Theme.text;
+        opacity: 0.9;
+    }
+}
+
+// Web: <MetaPreview compact>. Shows `preview` when `has-preview`, otherwise just the empty panel.
+export component MetaPreview inherits Rectangle {
+    in property <PreviewData> preview;
+    in property <bool> has-preview;
+    in property <length> rem-size;
+
+    meta-preview-container := Rectangle {
+        width: parent.width;
+        height: parent.height;
+        background: Theme.modal-background;
+        border-top-left-radius: 0.75 * root.rem-size;
+        border-bottom-left-radius: 0.75 * root.rem-size;
+        clip: true;
+
+        // Web: blurred at 10px. Slint has no blur, so the image is fetched tiny and scaled up smoothly.
+        if root.has-preview && root.preview.has-background: background-image-layer := Rectangle {
+            x: -10px;
+            y: -10px;
+            width: parent.width + 20px;
+            height: parent.height + 20px;
+
+            background-image := Image {
+                width: parent.width;
+                height: parent.height;
+                source: root.preview.background;
+                image-fit: cover;
+                opacity: 0.3;
+            }
+        }
+
+        if root.has-preview: meta-info-container := Rectangle {
+            x: 2.5 * root.rem-size;
+            y: 2 * root.rem-size;
+            width: root.width - 5 * root.rem-size;
+            height: parent.height - 12.5 * root.rem-size;
+
+            // Behind the Flickable: hovering anywhere over the panel shows the scroll bar (web: meta-info-container:hover).
+            info-hover := TouchArea { }
+            info-flickable := Flickable {
+                x: 0px;
+                y: 0px;
+                width: parent.width;
+                height: parent.height;
+                content-width: self.width;
+
+                VerticalLayout {
+                    spacing: 0px;
+                    alignment: start;
+
+                    Rectangle {
+                        height: 8 * root.rem-size;
+                        if root.preview.has-logo: logo := Image {
+                            x: 0px;
+                            y: 0px;
+                            width: parent.width;
+                            height: 6 * root.rem-size;
+                            source: root.preview.logo;
+                            image-fit: contain;
+                        }
+                        // Web shows no title text here while the logo loads, and none when the item has no logo.
+                    }
+
+                    runtime-release-info-container := HorizontalLayout {
+                        height: 3.5714 * root.rem-size;
+                        alignment: space-between;
+
+                        if root.preview.runtime != "": runtime-label := InfoLabel {
+                            text: root.preview.runtime;
+                            rem-size: root.rem-size;
+                        }
+                        if root.preview.release-info != "": release-info-label := InfoLabel {
+                            text: root.preview.release-info;
+                            rem-size: root.rem-size;
+                        }
+                        if root.preview.rating != "": imdb-button-container := ImdbButton {
+                            text: root.preview.rating;
+                            rem-size: root.rem-size;
+                        }
+                    }
+
+                    Rectangle {
+                        height: root.rem-size;
+                    }
+
+                    // Web: line-height 2em. Slint's `line-height-factor` is relative to the font's natural line
+                    // height, so the factor is two ems over the natural height, measured on a one-line text.
+                    description-container := Rectangle {
+                        height: Math.round(description-text.preferred-height / (2 * root.rem-size)) * 2 * root.rem-size;
+
+                        description-line := Text {
+                            text: "A";
+                            font-size: root.rem-size;
+                            visible: false;
+                        }
+                        description-text := Text {
+                            x: 0px;
+                            y: 0px;
+                            width: parent.width;
+                            text: root.preview.description;
+                            wrap: word-wrap;
+                            font-size: root.rem-size;
+                            line-height-factor: 2 * root.rem-size / description-line.preferred-height;
+                            color: Theme.text;
+                        }
+                    }
+
+                    for group in root.preview.groups: meta-links-container := PreviewLinks {
+                        group: group;
+                        rem-size: root.rem-size;
+                    }
+                }
+            }
+
+            ScrollBar {
+                x: parent.width - self.width;
+                y: 0px;
+                height: parent.height;
+                view-height: info-flickable.height;
+                content-height: info-flickable.content-height;
+                offset: info-flickable.content-y;
+                // Web: the bar is transparent unless the panel is hovered.
+                active: info-hover.has-hover;
+            }
+        }
+
+        if root.has-preview: action-buttons-container := HorizontalLayout {
+            x: 2.5 * root.rem-size;
+            y: parent.height - 7 * root.rem-size;
+            width: root.width - 5 * root.rem-size;
+            height: 4 * root.rem-size;
+            alignment: space-between;
+
+            if root.preview.has-trailer: action-button-container := ActionButton {
+                icon: @image-url("icons/trailer.svg");
+                rem-size: root.rem-size;
+            }
+            group-container := Rectangle {
+                width: 8 * root.rem-size;
+                height: 4 * root.rem-size;
+                border-radius: 4 * root.rem-size;
+                background: Theme.overlay;
+
+                Image {
+                    source: @image-url("icons/add-to-library.svg");
+                    colorize: Theme.text;
+                    opacity: 0.9;
+                    x: (4 * root.rem-size - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    width: 1.75 * root.rem-size;
+                    height: 1.75 * root.rem-size;
+                }
+                Image {
+                    source: @image-url("icons/eye.svg");
+                    colorize: Theme.text;
+                    opacity: 0.9;
+                    x: 4 * root.rem-size + (4 * root.rem-size - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    width: 1.75 * root.rem-size;
+                    height: 1.75 * root.rem-size;
+                }
+            }
+            show-button := ActionButton {
+                icon: @image-url("icons/play.svg");
+                label: "Show";
+                rem-size: root.rem-size;
+            }
+        }
+    }
+}
