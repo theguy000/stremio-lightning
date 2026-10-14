@@ -1,0 +1,40 @@
+// Based on stremio-web (https://github.com/Stremio/stremio-web), Copyright (C) 2017-2024 Smart code 203358507.
+// Values from src/App/styles.less: --scroll-bar-size 6px, thumb --overlay-color, transparent track.
+// Licence basis: ../THIRD_PARTY_NOTICES.md.
+import { Theme } from "theme.slint";
+
+// A vertical scroll bar for any `Flickable`. Place it beside the Flickable and feed it that
+// Flickable's height, content-height and content-y. It hides itself when nothing overflows.
+//
+//     ScrollBar {
+//         x: flick.x + flick.width - self.width;
+//         y: flick.y;
+//         height: flick.height;
+//         view-height: flick.height;
+//         content-height: flick.content-height;
+//         offset: flick.content-y;
+//     }
+//
+// `active: false` makes it invisible, for areas where the web only shows the bar while the pointer is over them.
+export component ScrollBar inherits Rectangle {
+    in property <length> view-height;
+    in property <length> content-height;
+    in property <length> offset;
+    in property <bool> active: true;
+    width: 6px;
+    visible: root.content-height > root.view-height + 1px;
+    opacity: root.active ? 1.0 : 0.0;
+
+    property <length> thumb-height: Math.max(24px, root.view-height * root.view-height / Math.max(root.content-height, 1px));
+    property <length> travel: root.view-height - root.thumb-height;
+
+    thumb := Rectangle {
+        x: 0px;
+        width: parent.width;
+        height: root.thumb-height;
+        y: root.travel * Math.min(Math.max(-root.offset / Math.max(root.content-height - root.view-height, 1px), 0), 1);
+        border-radius: 3px;
+        // Stays --overlay-color on hover: Chrome ignores the web's accent :hover rule when scrollbar-color is set.
+        background: Theme.overlay;
+    }
+}
