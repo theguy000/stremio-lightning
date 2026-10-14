@@ -35,8 +35,9 @@ export component MainWindow inherits Window {
     in property <[StreamData]> streams: [];
     in-out property <bool> playing: false;
     in-out property <Section> section: Section.board;
-    property <length> nav-width: root.playing ? 0px : 84px;
-    property <length> bar-height: root.playing ? 0px : 77px;
+    property <length> rem-size: Theme.rem-size(root.width);
+    property <length> nav-width: root.playing ? 0px : 6 * root.rem-size;
+    property <length> bar-height: root.playing ? 0px : 5.5 * root.rem-size;
     property <string> section-title: root.section == Section.discover ? "Discover"
         : root.section == Section.library ? "Library"
         : root.section == Section.calendar ? "Calendar"
@@ -182,6 +183,7 @@ export component MainWindow inherits Window {
     }
 
     if !root.playing: VerticalNavBar {
+        rem-size: root.rem-size;
         x: 0px;
         y: root.bar-height;
         height: parent.height - root.bar-height;
@@ -193,6 +195,7 @@ export component MainWindow inherits Window {
     }
 
     if !root.playing: HorizontalNavBar {
+        rem-size: root.rem-size;
         x: 0px;
         y: 0px;
         width: parent.width;

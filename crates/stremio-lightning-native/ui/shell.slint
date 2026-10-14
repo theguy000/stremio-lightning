@@ -12,26 +12,27 @@ export enum Section {
 
 // Web: <a class="nav-tab-button nav-tab-button-container [selected]">. `selected` is not themable yet.
 component NavTabButton inherits Rectangle {
+    in property <length> rem-size: 14px;
     in property <image> tab-icon;
     in property <bool> selected;
     callback clicked();
-    width: 67px;
-    height: 67px;
+    width: (67 * root.rem-size / 14);
+    height: (67 * root.rem-size / 14);
 
     nav-tab-button-container := Rectangle {
         width: parent.width;
         height: parent.height;
-        border-radius: 10.5px;
+        border-radius: (10.5 * root.rem-size / 14);
         background: ClassStyles.background-or(ClassStyles.nav-tab-button-container, transparent);
         opacity: ClassStyles.opacity-or(ClassStyles.nav-tab-button-container, 1.0);
         visible: !(ClassStyles.nav-tab-button-container).hidden;
 
         icon := Image {
             source: root.tab-icon;
-            x: 19px;
-            y: 8px;
-            width: 31px;
-            height: 31px;
+            x: (19 * root.rem-size / 14);
+            y: (8 * root.rem-size / 14);
+            width: (31 * root.rem-size / 14);
+            height: (31 * root.rem-size / 14);
             colorize: root.selected ? Theme.accent : ClassStyles.color-or(ClassStyles.icon, Theme.icon-muted);
             // The web dims unselected nav icons to 0.35. The default colour already includes that.
             opacity: root.selected || !ClassStyles.icon.has-color ? 1.0 : 0.35;
@@ -48,9 +49,10 @@ component NavTabButton inherits Rectangle {
 
 // Web: <nav class="vertical-nav-bar vertical-nav-bar-container">
 export component VerticalNavBar inherits Rectangle {
+    in property <length> rem-size: 14px;
     in property <Section> section;
     callback select(Section);
-    width: 84px;
+    width: (84 * root.rem-size / 14);
 
     vertical-nav-bar-container := Rectangle {
         width: parent.width;
@@ -60,8 +62,9 @@ export component VerticalNavBar inherits Rectangle {
         visible: !(ClassStyles.vertical-nav-bar-container).hidden;
 
         NavTabButton {
-            x: 8px;
-            y: 14px;
+            rem-size: root.rem-size;
+            x: (8 * root.rem-size / 14);
+            y: (14 * root.rem-size / 14);
             tab-icon: root.section == Section.board ? @image-url("icons/home.svg") : @image-url("icons/home-outline.svg");
             selected: root.section == Section.board;
             clicked => {
@@ -69,8 +72,9 @@ export component VerticalNavBar inherits Rectangle {
             }
         }
         NavTabButton {
-            x: 8px;
-            y: 95.2px;
+            rem-size: root.rem-size;
+            x: (8 * root.rem-size / 14);
+            y: (95.2 * root.rem-size / 14);
             tab-icon: root.section == Section.discover ? @image-url("icons/discover.svg") : @image-url("icons/discover-outline.svg");
             selected: root.section == Section.discover;
             clicked => {
@@ -78,8 +82,9 @@ export component VerticalNavBar inherits Rectangle {
             }
         }
         NavTabButton {
-            x: 8px;
-            y: 176.4px;
+            rem-size: root.rem-size;
+            x: (8 * root.rem-size / 14);
+            y: (176.4 * root.rem-size / 14);
             tab-icon: root.section == Section.library ? @image-url("icons/library.svg") : @image-url("icons/library-outline.svg");
             selected: root.section == Section.library;
             clicked => {
@@ -87,8 +92,9 @@ export component VerticalNavBar inherits Rectangle {
             }
         }
         NavTabButton {
-            x: 8px;
-            y: 257px;
+            rem-size: root.rem-size;
+            x: (8 * root.rem-size / 14);
+            y: (257 * root.rem-size / 14);
             tab-icon: root.section == Section.calendar ? @image-url("icons/calendar.svg") : @image-url("icons/calendar-outline.svg");
             selected: root.section == Section.calendar;
             clicked => {
@@ -96,8 +102,9 @@ export component VerticalNavBar inherits Rectangle {
             }
         }
         NavTabButton {
-            x: 8px;
-            y: 338px;
+            rem-size: root.rem-size;
+            x: (8 * root.rem-size / 14);
+            y: (338 * root.rem-size / 14);
             tab-icon: root.section == Section.addons ? @image-url("icons/addons.svg") : @image-url("icons/addons-outline.svg");
             selected: root.section == Section.addons;
             clicked => {
@@ -105,8 +112,9 @@ export component VerticalNavBar inherits Rectangle {
             }
         }
         NavTabButton {
-            x: 8px;
-            y: 420px;
+            rem-size: root.rem-size;
+            x: (8 * root.rem-size / 14);
+            y: (420 * root.rem-size / 14);
             tab-icon: root.section == Section.settings ? @image-url("icons/settings.svg") : @image-url("icons/settings-outline.svg");
             selected: root.section == Section.settings;
             clicked => {
@@ -118,39 +126,40 @@ export component VerticalNavBar inherits Rectangle {
 
 // Web: <div class="search-bar search-bar-container">
 component SearchBar inherits Rectangle {
-    width: 420px;
-    height: 46px;
+    in property <length> rem-size: 14px;
+    width: (420 * root.rem-size / 14);
+    height: (46 * root.rem-size / 14);
 
     search-bar-container := Rectangle {
         width: parent.width;
         height: parent.height;
-        border-radius: 23px;
+        border-radius: (23 * root.rem-size / 14);
         background: ClassStyles.background-or(ClassStyles.search-bar-container, Theme.overlay);
         opacity: ClassStyles.opacity-or(ClassStyles.search-bar-container, 1.0);
         visible: !(ClassStyles.search-bar-container).hidden;
 
         search-input := TextInput {
-            x: 28px;
-            width: 326px;
+            x: (28 * root.rem-size / 14);
+            width: (326 * root.rem-size / 14);
             height: parent.height;
             single-line: true;
             vertical-alignment: center;
-            font-size: 14px;
+            font-size: (14 * root.rem-size / 14);
             font-weight: 500;
             color: ClassStyles.color-or(ClassStyles.search-input, Theme.text);
         }
         if search-input.text == "": placeholder-label := Text {
-            x: 28px;
+            x: (28 * root.rem-size / 14);
             height: parent.height;
             text: "Search or paste link";
             vertical-alignment: center;
-            font-size: 14px;
+            font-size: (14 * root.rem-size / 14);
             font-weight: 500;
             color: ClassStyles.color-or(ClassStyles.placeholder-label, Theme.placeholder);
         }
         submit-button-container := Rectangle {
-            x: 354px;
-            width: 66px;
+            x: (354 * root.rem-size / 14);
+            width: (66 * root.rem-size / 14);
             height: parent.height;
             background: ClassStyles.background-or(ClassStyles.submit-button-container, transparent);
             opacity: ClassStyles.opacity-or(ClassStyles.submit-button-container, 1.0);
@@ -158,10 +167,10 @@ component SearchBar inherits Rectangle {
 
             icon := Image {
                 source: @image-url("icons/search.svg");
-                x: 21px;
-                y: 11px;
-                width: 24px;
-                height: 24px;
+                x: (21 * root.rem-size / 14);
+                y: (11 * root.rem-size / 14);
+                width: (24 * root.rem-size / 14);
+                height: (24 * root.rem-size / 14);
                 colorize: ClassStyles.color-or(ClassStyles.icon, Theme.search-icon);
                 // The web draws this icon at 0.6.
                 opacity: ClassStyles.icon.has-color ? 0.6 : 1.0;
@@ -173,25 +182,26 @@ component SearchBar inherits Rectangle {
 
 // Web: <div class="button-container"> with an icon, here the fullscreen button.
 component NavButton inherits Rectangle {
+    in property <length> rem-size: 14px;
     in property <image> icon-source;
     callback clicked();
-    width: 49px;
-    height: 49px;
+    width: (49 * root.rem-size / 14);
+    height: (49 * root.rem-size / 14);
 
     button-container := Rectangle {
         width: parent.width;
         height: parent.height;
-        border-radius: 10.5px;
+        border-radius: (10.5 * root.rem-size / 14);
         background: ClassStyles.background-or(ClassStyles.button-container, transparent);
         opacity: ClassStyles.opacity-or(ClassStyles.button-container, 1.0);
         visible: !(ClassStyles.button-container).hidden;
 
         icon := Image {
             source: root.icon-source;
-            x: 11px;
-            y: 11px;
-            width: 28px;
-            height: 28px;
+            x: (11 * root.rem-size / 14);
+            y: (11 * root.rem-size / 14);
+            width: (28 * root.rem-size / 14);
+            height: (28 * root.rem-size / 14);
             colorize: ClassStyles.color-or(ClassStyles.icon, Theme.toolbar-icon);
             // The web draws button icons at 0.6 inside a container at 0.6.
             opacity: ClassStyles.icon.has-color ? 0.36 : 1.0;
@@ -207,8 +217,9 @@ component NavButton inherits Rectangle {
 
 // Web: <nav class="horizontal-nav-bar horizontal-nav-bar-container">
 export component HorizontalNavBar inherits Rectangle {
+    in property <length> rem-size: 14px;
     callback toggle-fullscreen();
-    height: 77px;
+    height: (77 * root.rem-size / 14);
 
     horizontal-nav-bar-container := Rectangle {
         width: parent.width;
@@ -220,25 +231,25 @@ export component HorizontalNavBar inherits Rectangle {
         logo-container := Rectangle {
             x: 0px;
             y: 0px;
-            width: 84px;
-            height: 77px;
+            width: (84 * root.rem-size / 14);
+            height: (77 * root.rem-size / 14);
             background: ClassStyles.background-or(ClassStyles.logo-container, transparent);
             opacity: ClassStyles.opacity-or(ClassStyles.logo-container, 1.0);
             visible: !(ClassStyles.logo-container).hidden;
 
             logo := Rectangle {
-                x: 21px;
-                y: 17px;
-                width: 43px;
-                height: 43px;
+                x: (21 * root.rem-size / 14);
+                y: (17 * root.rem-size / 14);
+                width: (43 * root.rem-size / 14);
+                height: (43 * root.rem-size / 14);
                 opacity: ClassStyles.opacity-or(ClassStyles.logo, 1.0);
                 visible: !ClassStyles.logo.hidden;
 
                 Path {
                     x: 0px;
                     y: 0px;
-                    width: 43px;
-                    height: 43px;
+                    width: (43 * root.rem-size / 14);
+                    height: (43 * root.rem-size / 14);
                     viewbox-width: 512;
                     viewbox-height: 512;
                     commands: "M225.55 197.05 L332.08 256.15 L225.55 315.25 Z";
@@ -248,27 +259,29 @@ export component HorizontalNavBar inherits Rectangle {
                     source: @image-url("icons/symbol.svg");
                     x: 0px;
                     y: 0px;
-                    width: 43px;
-                    height: 43px;
+                    width: (43 * root.rem-size / 14);
+                    height: (43 * root.rem-size / 14);
                     colorize: @linear-gradient(180deg, #7557e8 0%, #2c4fce 100%);
                 }
             }
         }
 
         search-bar := SearchBar {
-            x: 84px + (root.width - 14px - 133px - 84px - self.width) / 2;
-            y: 16px;
+            rem-size: root.rem-size;
+            x: (84 * root.rem-size / 14) + (root.width - (14 * root.rem-size / 14) - (133 * root.rem-size / 14) - (84 * root.rem-size / 14) - self.width) / 2;
+            y: (16 * root.rem-size / 14);
         }
 
         buttons-container := Rectangle {
-            x: parent.width - 147px;
-            y: 14px;
-            width: 133px;
-            height: 49px;
+            x: parent.width - (147 * root.rem-size / 14);
+            y: (14 * root.rem-size / 14);
+            width: (133 * root.rem-size / 14);
+            height: (49 * root.rem-size / 14);
             opacity: ClassStyles.opacity-or(ClassStyles.buttons-container, 1.0);
             visible: !ClassStyles.buttons-container.hidden;
 
             NavButton {
+                rem-size: root.rem-size;
                 x: 0px;
                 y: 0px;
                 icon-source: @image-url("icons/maximize.svg");
@@ -278,20 +291,20 @@ export component HorizontalNavBar inherits Rectangle {
             }
             // Web: class="label-container nav-menu-popup-label menu-toggle menu-button-container button-container"
             menu-toggle := Rectangle {
-                x: 56px;
-                width: 77px;
-                height: 49px;
-                border-radius: 10.5px;
+                x: (56 * root.rem-size / 14);
+                width: (77 * root.rem-size / 14);
+                height: (49 * root.rem-size / 14);
+                border-radius: (10.5 * root.rem-size / 14);
                 background: ClassStyles.background-or(ClassStyles.menu-toggle, transparent);
                 opacity: ClassStyles.opacity-or(ClassStyles.menu-toggle, 1.0);
                 visible: !(ClassStyles.menu-toggle).hidden;
 
                 avatar := Rectangle {
-                    x: 11px;
-                    y: 11px;
-                    width: 28px;
-                    height: 28px;
-                    border-radius: 14px;
+                    x: (11 * root.rem-size / 14);
+                    y: (11 * root.rem-size / 14);
+                    width: (28 * root.rem-size / 14);
+                    height: (28 * root.rem-size / 14);
+                    border-radius: (14 * root.rem-size / 14);
                     background: ClassStyles.background-or(ClassStyles.avatar, Theme.avatar);
                     opacity: ClassStyles.opacity-or(ClassStyles.avatar, 1.0);
                     visible: !(ClassStyles.avatar).hidden;
@@ -299,10 +312,10 @@ export component HorizontalNavBar inherits Rectangle {
                 }
                 Image {
                     source: @image-url("icons/caret-down.svg");
-                    x: 53px;
-                    y: 18px;
-                    width: 14px;
-                    height: 14px;
+                    x: (53 * root.rem-size / 14);
+                    y: (18 * root.rem-size / 14);
+                    width: (14 * root.rem-size / 14);
+                    height: (14 * root.rem-size / 14);
                     colorize: Theme.caret-icon;
                 }
             }
