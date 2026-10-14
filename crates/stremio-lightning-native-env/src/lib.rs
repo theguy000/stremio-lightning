@@ -1,7 +1,7 @@
 //! `stremio-core` host environment for native desktop shells.
 //!
-//! The interface is [`NativeEnv::init`]: call it once with a data directory and a
-//! tokio runtime handle, then use `NativeEnv` as the `Env` type parameter of the core.
+//! The interface is [`AppEnv::init`]: call it once with a data directory and a
+//! tokio runtime handle, then use `AppEnv` as the `Env` type parameter of the core.
 
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -26,9 +26,9 @@ struct Host {
 
 static HOST: OnceLock<Host> = OnceLock::new();
 
-pub struct NativeEnv;
+pub struct AppEnv;
 
-impl NativeEnv {
+impl AppEnv {
     /// Starts the sequential executor and records where storage lives.
     /// Returns an error if called twice.
     pub fn init(data_dir: PathBuf, runtime: Handle) -> Result<(), EnvError> {
@@ -49,7 +49,7 @@ impl NativeEnv {
             sequential,
             http,
         })
-        .map_err(|_| EnvError::Other("NativeEnv::init called twice".into()))
+        .map_err(|_| EnvError::Other("AppEnv::init called twice".into()))
     }
 }
 
@@ -71,7 +71,7 @@ fn storage_path(host: &Host, key: &str) -> PathBuf {
     host.data_dir.join(format!("{safe}.json"))
 }
 
-impl Env for NativeEnv {
+impl Env for AppEnv {
     fn fetch<
         IN: Serialize + ConditionalSend + 'static,
         OUT: for<'de> Deserialize<'de> + ConditionalSend + 'static,

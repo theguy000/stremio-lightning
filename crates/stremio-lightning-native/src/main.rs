@@ -25,7 +25,7 @@ use stremio_core::Model;
 use stremio_lightning_core::streaming_server::{
     CommandSpec, RealProcessSpawner, StreamingServerSupervisor,
 };
-use stremio_lightning_native_env::NativeEnv;
+use stremio_lightning_native_env::AppEnv;
 use url::Url;
 
 mod class_styles;
@@ -39,14 +39,14 @@ const MAX_STREAMS: usize = 100;
 const STREAM_SERVER_ADDRESS: &str = "127.0.0.1:11470";
 
 #[derive(Model, Clone)]
-#[model(NativeEnv)]
-struct NativeModel {
+#[model(AppEnv)]
+struct AppModel {
     ctx: Ctx,
     board: CatalogsWithExtra,
     meta_details: MetaDetails,
 }
 
-type NativeRuntime = Runtime<NativeEnv, NativeModel>;
+type AppRuntime = Runtime<AppEnv, AppModel>;
 type Posters = Arc<Mutex<HashMap<String, SharedPixelBuffer<Rgba8Pixel>>>>;
 
 #[derive(Clone)]
@@ -85,7 +85,7 @@ struct Snapshot {
 /// "Popular - Movie": the catalog's name (the addon's name when the catalog has none, as
 /// stremio-core-web does) and the capitalised type, like stremio-web's `catalogTitle` without
 /// its translations.
-fn catalog_title(model: &NativeModel, request: &ResourceRequest) -> String {
+fn catalog_title(model: &AppModel, request: &ResourceRequest) -> String {
     let name = model
         .ctx
         .profile
@@ -118,7 +118,7 @@ fn catalog_title(model: &NativeModel, request: &ResourceRequest) -> String {
     format!("{name} - {kind}")
 }
 
-fn board_rows(model: &NativeModel) -> (String, Vec<RowData>) {
+fn board_rows(model: &AppModel) -> (String, Vec<RowData>) {
     let mut rows = Vec::new();
     let (mut loading, mut failed) = (0, 0);
     for catalog in &model.board.catalogs {
@@ -158,7 +158,7 @@ fn board_rows(model: &NativeModel) -> (String, Vec<RowData>) {
     (status, rows)
 }
 
-fn details_data(model: &NativeModel) -> DetailsData {
+fn details_data(model: &AppModel) -> DetailsData {
     let details = &model.meta_details;
     let item = details
         .meta_items
@@ -235,7 +235,7 @@ fn stream_url(stream: &Stream, server: &Url) -> Result<String, String> {
 }
 
 fn play_selected(
-    runtime: &NativeRuntime,
+    runtime: &AppRuntime,
     video: &player::VideoPlayer,
     index: usize,
 ) -> Result<(), String> {
@@ -340,7 +340,7 @@ async fn fetch_poster(
 
 /// Series have no stream until an episode is picked, so the core guesses one. Everything else
 /// asks the addons for streams of the item itself.
-fn open_details(runtime: &NativeRuntime, id: &str, kind: &str) {
+fn open_details(runtime: &AppRuntime, id: &str, kind: &str) {
     let (stream_path, guess_stream) = if kind == "series" {
         (None, true)
     } else {
@@ -450,7 +450,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let data_dir = dirs::data_dir()
         .ok_or("no data directory")?
         .join("stremio-lightning-native");
-    NativeEnv::init(data_dir.clone(), tokio_runtime.handle().clone()).map_err(|e| e.message())?;
+    AppEnv::init(data_dir.clone(), tokio_runtime.handle().clone()).map_err(|e| e.message())?;
 
     let window = MainWindow::new()?;
     class_styles::apply(&window);
@@ -467,19 +467,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ));
 
     let profile: Profile = tokio_runtime
-        .block_on(NativeEnv::get_storage(
+        .block_on(AppEnv::get_storage(
             stremio_core::constants::PROFILE_STORAGE_KEY,
         ))
         .map_err(|e| e.message())?
         .unwrap_or_default();
     let uid = profile.uid();
-    let model = NativeModel {
+    let model = AppModel {
         ctx: Ctx::new(
             profile,
             LibraryBucket::new(uid.clone(), vec![]),
             StreamsBucket::new(uid.clone()),
-            ServerUrlsBucket::new::<NativeEnv>(uid.clone()),
-            NotificationsBucket::new::<NativeEnv>(uid.clone(), vec![]),
+            ServerUrlsBucket::new::<AppEnv>(uid.clone()),
+            NotificationsBucket::new::<AppEnv>(uid.clone(), vec![]),
             SearchHistoryBucket::new(uid.clone()),
             DismissedEventsBucket::new(uid),
         ),
@@ -487,7 +487,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         meta_details: Default::default(),
     };
 
-    let (runtime, events) = NativeRuntime::new(model, vec![], 1000);
+    let (runtime, events) = AppRuntime::new(model, vec![], 1000);
     let runtime = Arc::new(runtime);
 
     let posters: Posters = Default::default();
