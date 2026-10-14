@@ -6,6 +6,7 @@ use slint::{Image, ModelRc, Rgba8Pixel, SharedPixelBuffer, VecModel, Weak};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use stremio_core::constants::{META_RESOURCE_NAME, STREAM_RESOURCE_NAME};
+use stremio_core::models::catalog_with_filters::CatalogWithFilters;
 use stremio_core::models::catalogs_with_extra::{CatalogsWithExtra, Selected};
 use stremio_core::models::common::{Loadable, ResourceError};
 use stremio_core::models::ctx::Ctx;
@@ -17,7 +18,7 @@ use stremio_core::types::events::DismissedEventsBucket;
 use stremio_core::types::library::LibraryBucket;
 use stremio_core::types::notifications::NotificationsBucket;
 use stremio_core::types::profile::Profile;
-use stremio_core::types::resource::{PosterShape, Stream, StreamUrls};
+use stremio_core::types::resource::{MetaItemPreview, PosterShape, Stream, StreamUrls};
 use stremio_core::types::search_history::SearchHistoryBucket;
 use stremio_core::types::server_urls::ServerUrlsBucket;
 use stremio_core::types::streams::StreamsBucket;
@@ -43,6 +44,7 @@ const STREAM_SERVER_ADDRESS: &str = "127.0.0.1:11470";
 struct AppModel {
     ctx: Ctx,
     board: CatalogsWithExtra,
+    discover: CatalogWithFilters<MetaItemPreview>,
     meta_details: MetaDetails,
 }
 
@@ -75,10 +77,17 @@ struct DetailsData {
     streams: Vec<(String, String)>,
 }
 
+/// A line saying where the Discover screen stands. The grid of cards comes with the grid.
+#[derive(Clone, Default)]
+struct DiscoverData {
+    status: String,
+}
+
 #[derive(Clone, Default)]
 struct Snapshot {
     status: String,
     rows: Vec<RowData>,
+    discover: DiscoverData,
     details: DetailsData,
 }
 
@@ -110,12 +119,32 @@ fn catalog_title(model: &AppModel, request: &ResourceRequest) -> String {
     let Some(name) = name else {
         return String::new();
     };
-    let mut kind = request.path.r#type.chars();
-    let kind: String = kind
+    format!("{name} - {}", capitalise(&request.path.r#type))
+}
+
+fn capitalise(text: &str) -> String {
+    let mut chars = text.chars();
+    chars
         .next()
-        .map(|first| first.to_uppercase().chain(kind).collect())
-        .unwrap_or_default();
-    format!("{name} - {kind}")
+        .map(|first| first.to_uppercase().chain(chars).collect())
+        .unwrap_or_default()
+}
+
+fn card_of(item: &MetaItemPreview) -> Card {
+    Card {
+        id: item.id.clone(),
+        kind: item.r#type.clone(),
+        title: item.name.clone(),
+        poster: item.poster.as_ref().map(|url| url.to_string()),
+    }
+}
+
+fn shape_of(items: &[MetaItemPreview]) -> &'static str {
+    match items.first().map(|item| &item.poster_shape) {
+        Some(PosterShape::Square) => "square",
+        Some(PosterShape::Landscape) => "landscape",
+        _ => "poster",
+    }
 }
 
 fn board_rows(model: &AppModel) -> (String, Vec<RowData>) {
@@ -128,20 +157,11 @@ fn board_rows(model: &AppModel) -> (String, Vec<RowData>) {
         match &page.content {
             Some(Loadable::Ready(items)) => rows.push(RowData {
                 title: catalog_title(model, &page.request),
-                shape: match items.first().map(|item| &item.poster_shape) {
-                    Some(PosterShape::Square) => "square",
-                    Some(PosterShape::Landscape) => "landscape",
-                    _ => "poster",
-                },
+                shape: shape_of(items),
                 cards: items
                     .iter()
                     .take(CATALOG_PREVIEW_SIZE)
-                    .map(|item| Card {
-                        id: item.id.clone(),
-                        kind: item.r#type.clone(),
-                        title: item.name.clone(),
-                        poster: item.poster.as_ref().map(|url| url.to_string()),
-                    })
+                    .map(card_of)
                     .collect(),
             }),
             Some(Loadable::Err(_)) => failed += 1,
@@ -156,6 +176,46 @@ fn board_rows(model: &AppModel) -> (String, Vec<RowData>) {
         failed
     );
     (status, rows)
+}
+
+fn discover_data(model: &AppModel) -> DiscoverData {
+    let discover = &model.discover;
+    let mut cards = 0;
+    let (mut loading, mut failed) = (0, 0);
+    for page in &discover.catalog {
+        match &page.content {
+            Some(Loadable::Ready(items)) => cards += items.len(),
+            Some(Loadable::Err(_)) => failed += 1,
+            _ => loading += 1,
+        }
+    }
+    let selected = |label: Option<&str>| label.unwrap_or("-").to_owned();
+    let kind = selected(
+        discover
+            .selectable
+            .types
+            .iter()
+            .find(|item| item.selected)
+            .map(|item| item.r#type.as_str()),
+    );
+    let catalog = selected(
+        discover
+            .selectable
+            .catalogs
+            .iter()
+            .find(|item| item.selected)
+            .map(|item| item.catalog.as_str()),
+    );
+    DiscoverData {
+        status: format!(
+            "{} / {catalog}: {} cards, {} pages loading, {failed} failed, {} types and {} catalogs to pick from",
+            capitalise(&kind),
+            cards,
+            loading,
+            discover.selectable.types.len(),
+            discover.selectable.catalogs.len(),
+        ),
+    }
 }
 
 fn details_data(model: &AppModel) -> DetailsData {
@@ -287,6 +347,7 @@ fn push(weak: &Weak<MainWindow>, snapshot: Snapshot, posters: Posters) {
             .collect();
         window.set_status(snapshot.status.into());
         window.set_rows(ModelRc::new(VecModel::from(rows)));
+        window.set_discover_status(snapshot.discover.status.into());
 
         let details = snapshot.details;
         if let Some(title) = details.title {
@@ -473,6 +534,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map_err(|e| e.message())?
         .unwrap_or_default();
     let uid = profile.uid();
+    // `default()` has nothing to pick from, so a `Load` with no selection would select nothing.
+    let (discover, discover_effects) = CatalogWithFilters::<MetaItemPreview>::new(&profile);
     let model = AppModel {
         ctx: Ctx::new(
             profile,
@@ -484,10 +547,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             DismissedEventsBucket::new(uid),
         ),
         board: Default::default(),
+        discover,
         meta_details: Default::default(),
     };
 
-    let (runtime, events) = AppRuntime::new(model, vec![], 1000);
+    let (runtime, events) = AppRuntime::new(model, discover_effects.into_iter().collect(), 1000);
     let runtime = Arc::new(runtime);
 
     let posters: Posters = Default::default();
@@ -560,11 +624,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 let Ok(model) = reader.model() else { return };
                 let (status, rows) = board_rows(&model);
+                let discover = discover_data(&model);
                 let details = details_data(&model);
                 drop(model);
                 let snapshot = Snapshot {
                     status,
                     rows,
+                    discover,
                     details,
                 };
                 *latest.lock().unwrap() = snapshot.clone();
@@ -609,6 +675,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     runtime.dispatch(RuntimeAction {
         field: None,
         action: Action::CatalogsWithExtra(ActionCatalogsWithExtra::LoadRange(0..8)),
+    });
+    runtime.dispatch(RuntimeAction {
+        field: None,
+        action: Action::Load(ActionLoad::CatalogWithFilters(None)),
     });
 
     window.run()?;

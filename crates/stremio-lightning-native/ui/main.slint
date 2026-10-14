@@ -21,6 +21,7 @@ export component MainWindow inherits Window {
     in property <string> status: "Loading...";
     in property <string> server-status: "Stream server: starting...";
     in property <[CatalogRow]> rows: [];
+    in property <string> discover-status: "Loading...";
 
     in-out property <bool> details-open: false;
     in property <string> details-title;
@@ -194,7 +195,7 @@ export component MainWindow inherits Window {
             font-weight: 700;
         }
         Text {
-            text: "This screen is not built yet.";
+            text: root.section == Section.discover ? root.discover-status : "This screen is not built yet.";
             color: #9d9bb0;
             font-size: 14px;
         }
