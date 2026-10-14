@@ -77,8 +77,16 @@ descendant selectors such as `.a .b`, sizes, margins, gradients and hover states
 | `share-button-container` | the Share addon button. Hover underline is not themable | | yes | yes | yes |
 | `search` | the text typed in the Addons search box | yes | | | |
 | `message-container` | the text shown when no addon matches | yes | | yes | yes |
+| `menu` | the Settings side menu | | yes | yes | yes |
+| `version-info-label` | "App Version: ..." and "Build Version: ..." under the Settings menu | yes | | yes | yes |
+| `sections-container` | the scrolling area of Settings | | | | |
+| `section` | one Settings section (General links, Interface, ...) | | yes | yes | yes |
+| `user` | the user block at the top of General | | | | |
+| `avatar-container` | the round picture in the user block. `color` is its ring | yes | yes | yes | yes |
+| `email-label` | "Anonymous user" | yes | | yes | yes |
+| `link`, `button-container` | a text link on Settings ("Log in / Sign up", "Contact support", ...). Hover underline is not themable | yes | yes | yes | yes |
 
-The Board, the top bar, the side nav, Discover's filter menus, the logged-out Library and Calendar screens and the installed-addons list on Addons are wired. Details, Player and the other sections have element
+The Board, the top bar, the side nav, Discover's filter menus, the logged-out Library and Calendar screens the installed-addons list on Addons and General and Interface on Settings are wired. On Settings, `button` is also the side menu buttons and the Authenticate button, `option` is also an option row and `label` is also a section or option label, as on the web. Details, Player and the other sections have element
 ids but no class styles yet. The `selected` and `active` states, hover and focus are not themable, and
 `icon` does not reach the selected nav icon or the caret next to the avatar. `.plugin.js` plugins do not
 run in the native app.

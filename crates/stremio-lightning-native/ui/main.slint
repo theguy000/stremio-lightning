@@ -5,6 +5,7 @@ import { BoardContent, CatalogRow, PosterData } from "board.slint";
 import { AddonData, AddonsContent } from "addons.slint";
 import { DiscoverContent, SelectInputData } from "discover.slint";
 import { LoggedOutPlaceholder } from "logged-out-placeholder.slint";
+import { SettingsContent } from "settings.slint";
 import { SelectOption } from "multiselect-menu.slint";
 import { LinkGroup, PreviewData } from "meta-preview.slint";
 export { AddonData, LinkGroup, PreviewData, SelectInputData, SelectOption }
@@ -35,6 +36,8 @@ export component MainWindow inherits Window {
     in property <[SelectInputData]> addon-inputs: [];
     in property <string> addons-message;
     in-out property <string> addons-query;
+    in property <string> app-version;
+    in property <string> build-version;
 
     in-out property <bool> details-open: false;
     in property <string> details-title;
@@ -273,7 +276,17 @@ export component MainWindow inherits Window {
         }
     }
 
-    if root.section != Section.board && root.section != Section.discover && root.section != Section.library && root.section != Section.calendar && !root.details-open && root.section != Section.addons && !root.playing: VerticalLayout {
+    if root.section == Section.settings && !root.details-open && !root.playing: SettingsContent {
+        x: root.nav-width;
+        y: root.bar-height;
+        width: parent.width - root.nav-width;
+        height: parent.height - root.bar-height;
+        viewport-width: root.width;
+        app-version: root.app-version;
+        build-version: root.build-version;
+    }
+
+    if root.section != Section.board && root.section != Section.discover && root.section != Section.library && root.section != Section.calendar && !root.details-open && root.section != Section.addons && root.section != Section.settings && !root.playing: VerticalLayout {
         x: root.nav-width;
         y: root.bar-height;
         width: parent.width - root.nav-width;

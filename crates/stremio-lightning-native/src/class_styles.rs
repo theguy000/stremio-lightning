@@ -93,6 +93,14 @@ elements! {
     set_share_button_container => ["share-button-container", "button-container"],
     set_search => ["search", "text"],
     set_message_container => ["message-container"],
+    set_menu => ["menu"],
+    set_version_info_label => ["version-info-label"],
+    set_sections_container => ["sections-container"],
+    set_section => ["section"],
+    set_user => ["user"],
+    set_avatar_container => ["avatar-container"],
+    set_email_label => ["email-label"],
+    set_link => ["link", "button-container"],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
