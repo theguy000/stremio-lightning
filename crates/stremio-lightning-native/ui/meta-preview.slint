@@ -271,15 +271,15 @@ export component MetaPreview inherits Rectangle {
                 }
             }
 
-            ScrollBar {
+            info-scroll-bar := ScrollBar {
                 x: parent.width - self.width;
                 y: 0px;
                 height: parent.height;
                 view-height: info-flickable.height;
                 content-height: info-flickable.content-height;
-                offset: info-flickable.content-y;
+                offset <=> info-flickable.content-y;
                 // Web: the bar is transparent unless the panel is hovered.
-                active: info-hover.has-hover;
+                active: info-hover.has-hover || info-scroll-bar.engaged;
             }
         }
 
