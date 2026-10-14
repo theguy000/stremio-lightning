@@ -6,7 +6,7 @@ license = "GPL-3.0-only"
 description = "stremio-core Env for native (non-web) desktop shells"
 
 [dependencies]
-stremio-core = { git = "https://github.com/theguy000/stremio-core", branch = "development", features = ["env-future-send", "derive"] }
+stremio-core = { git = "https://github.com/theguy000/stremio-core", branch = "fix/watched-bitfield-flate2", features = ["env-future-send", "derive"] }
 chrono = "0.4"
 futures = "0.3"
 http = "1"
