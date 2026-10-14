@@ -1,0 +1,46 @@
+// Style overrides keyed by the stremio-web class names.
+//
+// A theme (`*.theme.css`, see ../src/class_styles.rs) is parsed on startup and written into
+// `ClassStyles`, one entry per class. An element that reuses a web class name reads its entry
+// and falls back to its own default when the theme says nothing:
+//
+//     background: ClassStyles.background-or(ClassStyles.header-container, transparent);
+//
+// `hidden` hides the element but keeps its layout space, like `visibility: hidden` on the web.
+// Each element honours only the properties that make sense for it; ../THEMES.md lists which.
+// The others are accepted and ignored. ../src/class_styles.rs lists the classes in `classes!`.
+
+export struct ClassStyle {
+    has-color: bool,
+    color: color,
+    has-background: bool,
+    background: color,
+    has-opacity: bool,
+    opacity: float,
+    hidden: bool,
+}
+
+export global ClassStyles {
+    in property <ClassStyle> board-row;
+    in property <ClassStyle> header-container;
+    in property <ClassStyle> title-container;
+    in property <ClassStyle> see-all-container;
+    in property <ClassStyle> meta-items-container;
+    in property <ClassStyle> meta-item-link;
+    in property <ClassStyle> poster-container;
+    in property <ClassStyle> poster-image;
+    in property <ClassStyle> title-bar-container;
+    in property <ClassStyle> title-label;
+
+    pure public function color-or(style: ClassStyle, fallback: color) -> color {
+        return style.has-color ? style.color : fallback;
+    }
+
+    pure public function background-or(style: ClassStyle, fallback: color) -> color {
+        return style.has-background ? style.background : fallback;
+    }
+
+    pure public function opacity-or(style: ClassStyle, fallback: float) -> float {
+        return style.has-opacity ? style.opacity : fallback;
+    }
+}
