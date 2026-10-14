@@ -42,3 +42,21 @@ SOFTWARE.
 - Copyright 2020 The Plus Jakarta Sans Project Authors.
 - Licence: SIL Open Font License 1.1. The full text is in `ui/fonts/OFL.txt`.
 - The Regular, Medium, SemiBold and Bold TrueType files are unmodified.
+
+## stremio-web (layout, styles and assets taken into `ui/`)
+
+- Source: https://github.com/Stremio/stremio-web. Its source files carry the line
+  `Copyright (C) 2017-2026 Smart code 203358507` (the end year differs per file).
+- What upstream says about its licence, checked on 2026-10-14 at commit `9d1d526`:
+  - `LICENSE.md` is the GNU GPL version 2 text.
+  - `package.json` has `"license": "gpl-2.0"`. The README says "Released under the GPL-2.0 license".
+  - None of the 677 source files has a licence grant in its header, only the copyright line.
+    No file says "only" and no file says "or later".
+- Position taken by this project: upstream is **GPL-2.0 or later**, because it names version 2 and
+  never restricts it to that version. The "any later version" clause of GPL-2.0 then lets this
+  project use the code under **GPL-3.0 or any later version**, which fits this repository's
+  GPL-3.0 licence.
+- This position is **not confirmed by Smart Code**. The text above does not state "or later" either.
+  If upstream says it is GPL-2.0-only, this position is wrong and the files taken from stremio-web
+  must be removed or relicensed with Smart Code's permission.
+- Every file taken from stremio-web keeps upstream's copyright line and names its source path.
