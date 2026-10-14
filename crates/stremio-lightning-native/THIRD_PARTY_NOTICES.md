@@ -60,3 +60,8 @@ SOFTWARE.
   If upstream says it is GPL-2.0-only, this position is wrong and the files taken from stremio-web
   must be removed or relicensed with Smart Code's permission.
 - Every file taken from stremio-web keeps upstream's copyright line and names its source path.
+- Taken so far: `ui/board.slint` ports the layout numbers of `src/components/MetaRow/styles.less`,
+  `src/components/MetaItem/styles.less`, `src/routes/Board/styles.less` and the root values in
+  `src/App/styles.less` (poster ratios, font-size steps, breakpoints), and the row title format of
+  `catalogTitle` in `src/common/useTranslate.js` (without translations). It is hand-written Slint.
+  No upstream file is copied verbatim.

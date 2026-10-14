@@ -12,12 +12,12 @@ use stremio_core::models::ctx::Ctx;
 use stremio_core::models::meta_details::{MetaDetails, Selected as DetailsSelected};
 use stremio_core::runtime::msg::{Action, ActionCatalogsWithExtra, ActionLoad};
 use stremio_core::runtime::{Env, Runtime, RuntimeAction, RuntimeEvent};
-use stremio_core::types::addon::ResourcePath;
+use stremio_core::types::addon::{ResourcePath, ResourceRequest};
 use stremio_core::types::events::DismissedEventsBucket;
 use stremio_core::types::library::LibraryBucket;
 use stremio_core::types::notifications::NotificationsBucket;
 use stremio_core::types::profile::Profile;
-use stremio_core::types::resource::{Stream, StreamUrls};
+use stremio_core::types::resource::{PosterShape, Stream, StreamUrls};
 use stremio_core::types::search_history::SearchHistoryBucket;
 use stremio_core::types::server_urls::ServerUrlsBucket;
 use stremio_core::types::streams::StreamsBucket;
@@ -32,7 +32,8 @@ mod player;
 
 slint::include_modules!();
 
-const CARDS_PER_ROW: usize = 20;
+/// stremio-web's `CATALOG_PREVIEW_SIZE`: how many cards a Board row keeps.
+const CATALOG_PREVIEW_SIZE: usize = 10;
 const MAX_STREAMS: usize = 100;
 const STREAM_SERVER_ADDRESS: &str = "127.0.0.1:11470";
 
@@ -57,7 +58,8 @@ struct Card {
 
 #[derive(Clone)]
 struct RowData {
-    name: String,
+    title: String,
+    shape: &'static str,
     cards: Vec<Card>,
 }
 
@@ -79,6 +81,42 @@ struct Snapshot {
     details: DetailsData,
 }
 
+/// "Popular - Movie": the catalog's name (the addon's name when the catalog has none, as
+/// stremio-core-web does) and the capitalised type, like stremio-web's `catalogTitle` without
+/// its translations.
+fn catalog_title(model: &NativeModel, request: &ResourceRequest) -> String {
+    let name = model
+        .ctx
+        .profile
+        .addons
+        .iter()
+        .find(|addon| addon.transport_url == request.base)
+        .and_then(|addon| {
+            addon
+                .manifest
+                .catalogs
+                .iter()
+                .find(|catalog| {
+                    catalog.id == request.path.id && catalog.r#type == request.path.r#type
+                })
+                .map(|catalog| {
+                    catalog
+                        .name
+                        .clone()
+                        .unwrap_or_else(|| addon.manifest.name.clone())
+                })
+        });
+    let Some(name) = name else {
+        return String::new();
+    };
+    let mut kind = request.path.r#type.chars();
+    let kind: String = kind
+        .next()
+        .map(|first| first.to_uppercase().chain(kind).collect())
+        .unwrap_or_default();
+    format!("{name} - {kind}")
+}
+
 fn board_rows(model: &NativeModel) -> (String, Vec<RowData>) {
     let mut rows = Vec::new();
     let (mut loading, mut failed) = (0, 0);
@@ -86,13 +124,17 @@ fn board_rows(model: &NativeModel) -> (String, Vec<RowData>) {
         let Some(page) = catalog.first() else {
             continue;
         };
-        let name = format!("{} / {}", page.request.path.r#type, page.request.path.id);
         match &page.content {
             Some(Loadable::Ready(items)) => rows.push(RowData {
-                name,
+                title: catalog_title(model, &page.request),
+                shape: match items.first().map(|item| &item.poster_shape) {
+                    Some(PosterShape::Square) => "square",
+                    Some(PosterShape::Landscape) => "landscape",
+                    _ => "poster",
+                },
                 cards: items
                     .iter()
-                    .take(CARDS_PER_ROW)
+                    .take(CATALOG_PREVIEW_SIZE)
                     .map(|item| Card {
                         id: item.id.clone(),
                         kind: item.r#type.clone(),
@@ -236,7 +278,8 @@ fn push(weak: &Weak<MainWindow>, snapshot: Snapshot, posters: Posters) {
                     })
                     .collect();
                 CatalogRow {
-                    name: row.name.into(),
+                    title: row.title.into(),
+                    shape: row.shape.into(),
                     cards: ModelRc::new(VecModel::from(cards)),
                 }
             })

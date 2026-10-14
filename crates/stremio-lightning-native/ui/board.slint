@@ -1,0 +1,205 @@
+// Based on stremio-web (https://github.com/Stremio/stremio-web),
+// Copyright (C) 2017-2024 Smart code 203358507 (upstream's header; the end year varies per file).
+// Layout numbers translated by hand from src/components/MetaRow/styles.less,
+// src/components/MetaItem/styles.less, src/routes/Board/styles.less and src/App/styles.less.
+// Licence basis: ../THIRD_PARTY_NOTICES.md. Element ids reuse the web class names where one exists.
+import { Theme } from "theme.slint";
+
+export struct PosterData {
+    item-id: string,
+    kind: string,
+    title: string,
+    poster: image,
+    has-poster: bool,
+}
+
+export struct CatalogRow {
+    title: string,
+    shape: string,
+    cards: [PosterData],
+}
+
+component MetaItem inherits Rectangle {
+    in property <PosterData> card;
+    in property <float> poster-shape-ratio;
+    in property <length> rem-size;
+    callback clicked();
+
+    meta-item-link := Rectangle {
+        x: root.rem-size;
+        y: root.rem-size;
+        width: root.width - 2 * root.rem-size;
+        height: root.height - 2 * root.rem-size;
+
+        poster-container := Rectangle {
+            x: 0px;
+            y: 0px;
+            width: parent.width;
+            height: self.width * root.poster-shape-ratio;
+            background: Theme.overlay;
+            border-radius: 0.75 * root.rem-size;
+            clip: true;
+
+            if root.card.has-poster: poster-image := Image {
+                source: root.card.poster;
+                width: 100%;
+                height: 100%;
+                image-fit: cover;
+                opacity: 0.9;
+            }
+        }
+
+        title-bar-container := Rectangle {
+            x: 0px;
+            y: poster-container.height;
+            width: parent.width;
+            height: 4 * root.rem-size;
+
+            title-label := Text {
+                x: 0.5 * root.rem-size;
+                width: parent.width - root.rem-size;
+                height: parent.height;
+                text: root.card.title;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                wrap: word-wrap;
+                overflow: elide;
+                font-size: root.rem-size;
+                font-weight: 600;
+                color: Theme.text;
+            }
+        }
+
+        TouchArea {
+            clicked => {
+                root.clicked();
+            }
+        }
+    }
+}
+
+component MetaRow inherits Rectangle {
+    in property <CatalogRow> catalog;
+    in property <length> rem-size;
+    in property <int> visible-items;
+    callback open-item(string, string, string);
+
+    property <float> poster-shape-ratio: root.catalog.shape == "square" ? 1.0
+        : root.catalog.shape == "landscape" ? 0.5625 : 1.464;
+    property <length> item-width: root.width / root.visible-items;
+    property <length> item-height: 2 * root.rem-size
+        + (root.item-width - 2 * root.rem-size) * root.poster-shape-ratio
+        + 4 * root.rem-size;
+    height: 2.75 * root.rem-size + root.item-height;
+
+    header-container := Rectangle {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: 2.5 * root.rem-size;
+
+        title-container := Text {
+            x: root.rem-size;
+            y: 0px;
+            width: see-all-container.x - 2 * root.rem-size;
+            height: parent.height;
+            text: root.catalog.title;
+            vertical-alignment: center;
+            overflow: elide;
+            font-size: 1.6 * root.rem-size;
+            font-weight: 500;
+            color: Theme.text;
+        }
+
+        see-all-container := Rectangle {
+            width: see-all-layout.preferred-width;
+            height: 2.5 * root.rem-size;
+            x: parent.width - self.width - root.rem-size;
+            y: 0px;
+            border-radius: 2.5 * root.rem-size;
+            opacity: 0.6;
+
+            see-all-layout := HorizontalLayout {
+                padding-left: root.rem-size;
+                padding-right: 0.5 * root.rem-size;
+                spacing: 0.5 * root.rem-size;
+
+                label := Text {
+                    text: "See All";
+                    vertical-alignment: center;
+                    font-size: root.rem-size;
+                    font-weight: 500;
+                    color: Theme.text;
+                }
+                icon := Image {
+                    source: @image-url("icons/chevron-forward.svg");
+                    width: 1.5 * root.rem-size;
+                    colorize: Theme.text;
+                }
+            }
+        }
+    }
+
+    meta-items-container := Rectangle {
+        x: 0px;
+        y: 2.75 * root.rem-size;
+        width: parent.width;
+        height: root.item-height;
+
+        for card[index] in root.catalog.cards: MetaItem {
+            x: index * root.item-width;
+            y: 0px;
+            width: root.item-width;
+            height: root.item-height;
+            visible: index < root.visible-items;
+            card: card;
+            rem-size: root.rem-size;
+            poster-shape-ratio: root.poster-shape-ratio;
+            clicked => {
+                root.open-item(card.item-id, card.kind, card.title);
+            }
+        }
+    }
+}
+
+export component BoardContent inherits Rectangle {
+    in property <[CatalogRow]> rows;
+    in property <length> viewport-width;
+    callback open-item(string, string, string);
+
+    property <length> rem-size: root.viewport-width > 2800px ? 18px
+        : root.viewport-width <= 1600px ? 14px
+        : root.viewport-width <= 2200px ? 15px : 16px;
+    property <int> poster-items: root.viewport-width <= 800px ? 4
+        : root.viewport-width <= 1000px ? 5
+        : root.viewport-width <= 1300px ? 6
+        : root.viewport-width <= 1600px ? 7
+        : root.viewport-width <= 1900px ? 8
+        : root.viewport-width <= 2200px ? 9 : 10;
+
+    board-content := Flickable {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
+
+        VerticalLayout {
+            alignment: start;
+            padding-left: root.rem-size;
+            padding-right: root.rem-size;
+            padding-top: root.rem-size;
+            padding-bottom: 2 * root.rem-size;
+            spacing: 2 * root.rem-size;
+
+            for entry in root.rows: board-row := MetaRow {
+                catalog: entry;
+                rem-size: root.rem-size;
+                visible-items: entry.shape == "landscape" && root.poster-items < 10
+                    ? root.poster-items - 1 : root.poster-items;
+                open-item(id, kind, title) => {
+                    root.open-item(id, kind, title);
+                }
+            }
+        }
+    }
+}

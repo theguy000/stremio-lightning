@@ -1,58 +1,13 @@
 import { Button, ScrollView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 import { HorizontalNavBar, Section, VerticalNavBar } from "shell.slint";
+import { BoardContent, CatalogRow, PosterData } from "board.slint";
 
-export struct PosterData {
-    item-id: string,
-    kind: string,
-    title: string,
-    poster: image,
-    has-poster: bool,
-}
-
-export struct CatalogRow {
-    name: string,
-    cards: [PosterData],
-}
+export { CatalogRow, PosterData }
 
 export struct StreamData {
     name: string,
     description: string,
-}
-
-component PosterCard inherits Rectangle {
-    in property <PosterData> card;
-    callback clicked();
-    width: 150px;
-    height: 262px;
-
-    VerticalLayout {
-        spacing: 6px;
-        Rectangle {
-            height: 225px;
-            background: #1b1a24;
-            border-radius: 6px;
-            clip: true;
-            if root.card.has-poster: Image {
-                source: root.card.poster;
-                width: 100%;
-                height: 100%;
-                image-fit: cover;
-            }
-        }
-        Text {
-            text: root.card.title;
-            color: #e6e4f2;
-            font-size: 13px;
-            overflow: elide;
-        }
-    }
-
-    TouchArea {
-        clicked => {
-            root.clicked();
-        }
-    }
 }
 
 export component MainWindow inherits Window {
@@ -87,53 +42,16 @@ export component MainWindow inherits Window {
     callback play-stream(int);
     callback stop-playback();
 
-    if root.section == Section.board && !root.details-open && !root.playing: VerticalLayout {
+    if root.section == Section.board && !root.details-open && !root.playing: BoardContent {
         x: root.nav-width;
         y: root.bar-height;
         width: parent.width - root.nav-width;
         height: parent.height - root.bar-height;
-        padding: 24px;
-        spacing: 12px;
-
-        Text {
-            text: "Board";
-            color: white;
-            font-size: 28px;
-            font-weight: 700;
-        }
-        Text {
-            text: root.status + "  |  " + root.server-status;
-            color: #9d9bb0;
-            font-size: 14px;
-        }
-        ScrollView {
-            VerticalLayout {
-                spacing: 20px;
-                for row in root.rows: VerticalLayout {
-                    spacing: 8px;
-                    Text {
-                        text: row.name;
-                        color: white;
-                        font-size: 18px;
-                        font-weight: 600;
-                    }
-                    Flickable {
-                        height: 270px;
-                        content-width: row.cards.length * 160px;
-                        HorizontalLayout {
-                            width: row.cards.length * 160px;
-                            spacing: 10px;
-                            for card in row.cards: PosterCard {
-                                card: card;
-                                clicked => {
-                                    root.details-open = true;
-                                    root.open-item(card.item-id, card.kind, card.title);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+        rows: root.rows;
+        viewport-width: root.width;
+        open-item(id, kind, title) => {
+            root.details-open = true;
+            root.open-item(id, kind, title);
         }
     }
 
