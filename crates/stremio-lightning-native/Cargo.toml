@@ -17,6 +17,8 @@ serde = { version = "1", features = ["derive"] }
 dirs = "6"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
+libmpv2 = "5.0.3"
+url = "2"
 
 [build-dependencies]
 slint-build = "1.18"

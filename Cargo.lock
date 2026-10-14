@@ -6007,6 +6007,7 @@ dependencies = [
  "dirs",
  "futures",
  "image",
+ "libmpv2",
  "reqwest 0.12.28",
  "serde",
  "slint",
@@ -6015,6 +6016,7 @@ dependencies = [
  "stremio-lightning-core",
  "stremio-lightning-native-env",
  "tokio",
+ "url",
 ]
 
 [[package]]
