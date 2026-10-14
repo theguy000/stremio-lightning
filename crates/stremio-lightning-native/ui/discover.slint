@@ -5,48 +5,29 @@
 // Licence basis: ../THIRD_PARTY_NOTICES.md. Element ids reuse the web class names where one exists.
 import { MetaItem, PosterData } from "board.slint";
 import { MetaPreview, PreviewData } from "meta-preview.slint";
+import { MultiselectMenu, SelectOption } from "multiselect-menu.slint";
 import { ScrollBar } from "scroll-bar.slint";
 import { Theme } from "theme.slint";
 
-// Web: <MultiselectMenu class="select-input">. Only the closed label is drawn so far.
-component SelectInput inherits Rectangle {
-    in property <string> label;
-    in property <length> rem-size;
-    height: 3 * root.rem-size;
-    border-radius: 1.5 * root.rem-size;
-    background: Theme.overlay;
-
-    label-container := Text {
-        x: 1.5 * root.rem-size;
-        width: parent.width - 3.5 * root.rem-size - 1.5 * root.rem-size;
-        height: parent.height;
-        text: root.label;
-        vertical-alignment: center;
-        overflow: elide;
-        font-size: root.rem-size;
-        font-weight: 500;
-        color: Theme.text;
-    }
-    icon := Image {
-        source: @image-url("icons/caret-down.svg");
-        width: root.rem-size;
-        height: root.rem-size;
-        x: parent.width - 1.5 * root.rem-size - self.width;
-        y: (parent.height - self.height) / 2;
-        colorize: Theme.caret-icon;
-    }
+// One filter in the bar: the closed label, its options and which one is selected.
+export struct SelectInputData {
+    title: string,
+    selected-index: int,
+    options: [SelectOption],
 }
 
 export component DiscoverContent inherits Rectangle {
     in property <[PosterData]> cards;
     in property <string> shape;
-    in property <[string]> filters;
+    in property <[SelectInputData]> inputs;
     in property <[PreviewData]> previews;
     in property <length> viewport-width;
     in-out property <int> selected-index: 0;
     callback open-item(string, string, string);
     callback load-next-page();
     callback select-item(int);
+    // (input index, option index): the user picked an option in the filter bar.
+    callback select-option(int, int);
 
     property <length> rem-size: Theme.rem-size(root.viewport-width);
     property <bool> has-preview: root.previews.length > root.selected-index;
@@ -75,7 +56,7 @@ export component DiscoverContent inherits Rectangle {
         + 4 * root.rem-size;
     property <int> row-count: Math.ceil(root.cards.length / root.columns);
     // Web: up to three inputs of 15rem that shrink together beside a 5rem filter button slot.
-    property <int> input-count: Math.max(1, Math.min(root.filters.length, 3));
+    property <int> input-count: Math.max(1, Math.min(root.inputs.length, 3));
     property <length> input-width: Math.min(15 * root.rem-size,
         (root.catalog-width - 3 * root.rem-size - 5 * root.rem-size
             - (root.input-count - 1) * 1.5 * root.rem-size) / root.input-count);
@@ -102,13 +83,20 @@ export component DiscoverContent inherits Rectangle {
                 width: parent.width;
                 height: 6 * root.rem-size;
 
-                for label[index] in root.filters: select-input := SelectInput {
+                for input[index] in root.inputs: select-input := MultiselectMenu {
                     x: 1.5 * root.rem-size + index * (root.input-width + 1.5 * root.rem-size);
                     y: 1.5 * root.rem-size;
                     width: root.input-width;
-                    label: label;
+                    title: input.title;
+                    options: input.options;
+                    selected-index: input.selected-index;
                     rem-size: root.rem-size;
-                    visible: index < 3;
+                    select(option) => {
+                        // A new catalog starts at the top with its first card selected.
+                        root.selected-index = 0;
+                        meta-items-container.content-y = 0px;
+                        root.select-option(index, option);
+                    }
                 }
             }
 

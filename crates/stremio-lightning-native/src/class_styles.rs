@@ -67,6 +67,9 @@ elements! {
     set_vertical_nav_bar_container => ["vertical-nav-bar-container", "vertical-nav-bar"],
     set_nav_tab_button_container => ["nav-tab-button-container", "nav-tab-button"],
     set_icon => ["icon"],
+    set_select_input => ["select-input", "multiselect-menu"],
+    set_dropdown => ["dropdown"],
+    set_option => ["option"],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

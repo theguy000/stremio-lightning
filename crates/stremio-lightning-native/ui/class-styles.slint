@@ -47,6 +47,9 @@ export global ClassStyles {
     in property <ClassStyle> vertical-nav-bar-container;
     in property <ClassStyle> nav-tab-button-container;
     in property <ClassStyle> icon;
+    in property <ClassStyle> select-input;
+    in property <ClassStyle> dropdown;
+    in property <ClassStyle> option;
 
     pure public function color-or(style: ClassStyle, fallback: color) -> color {
         return style.has-color ? style.color : fallback;
