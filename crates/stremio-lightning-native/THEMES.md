@@ -53,7 +53,7 @@ descendant selectors such as `.a .b`, sizes, margins, gradients and hover states
 | `vertical-nav-bar-container`, `vertical-nav-bar` | the side nav | | yes | yes | yes |
 | `nav-tab-button-container`, `nav-tab-button` | one side nav tab | | yes | yes | yes |
 | `icon` | the unselected nav icons, the search icon and the fullscreen icon | yes | | | yes |
-| `select-input`, `multiselect-menu` | one filter button on Discover (Movie, Popular, Genre) | | yes | yes | yes |
+| `select-input`, `multiselect-menu`, `select-input-container` | one filter button on Discover (Movie, Popular, Genre) | | yes | yes | yes |
 | `dropdown` | the list that opens under a filter button | | yes | | |
 | `option` | one row of that list. Hover stays white at 15% | yes | yes | | |
 | `placeholder` | the whole Library or Calendar screen shown when logged out | | yes | yes | yes |
@@ -62,9 +62,23 @@ descendant selectors such as `.a .b`, sizes, margins, gradients and hover states
 | `overview`, `point` | the two sentences under it. `overview` is layout only; `point` is one icon and sentence | | | `point` only | `point` only |
 | `text` | the sentence of one point | yes | | yes | yes |
 | `button`, `button-container` | the Log in button. Hover (outline, clear background) is not themable | yes | yes | yes | yes |
-| `label` | the name under a side nav icon (Board, Discover, ...), shown only while the tab is hovered | yes | | | yes |
+| `label` | the name under a side nav icon (Board, Discover, ...), shown only while the tab is hovered; also the text of the Uninstall and Share addon buttons | yes | | | yes |
+| `addon`, `addon-container` | one installed addon card on Addons. Hover border is not themable | | yes | yes | yes |
+| `selectable-inputs-container` | the bar above the list (menus, Add addon, search) | | yes | yes | yes |
+| `add-button-container` | the green Add addon pill. Hover (ring, clear fill) is not themable | | yes | yes | yes |
+| `add-button-label` | "Add addon" | yes | | yes | yes |
+| `info-container` | the card's text block | | yes | yes | yes |
+| `name-container` | the addon name | yes | | yes | yes |
+| `version-container` | "v.3.0.14" | yes | | yes | yes |
+| `types-container` | "Movie & Series" | yes | | yes | yes |
+| `description-container` | the addon description | yes | | yes | yes |
+| `action-buttons-container` | the row that holds Uninstall | | | yes | yes |
+| `uninstall-button-container` | the Uninstall pill. Hover (full opacity) is not themable | | yes | yes | yes |
+| `share-button-container` | the Share addon button. Hover underline is not themable | | yes | yes | yes |
+| `search` | the text typed in the Addons search box | yes | | | |
+| `message-container` | the text shown when no addon matches | yes | | yes | yes |
 
-The Board, the top bar, the side nav, Discover's filter menus and the logged-out Library and Calendar screens are wired. Details, Player and the other sections have element
+The Board, the top bar, the side nav, Discover's filter menus, the logged-out Library and Calendar screens and the installed-addons list on Addons are wired. Details, Player and the other sections have element
 ids but no class styles yet. The `selected` and `active` states, hover and focus are not themable, and
 `icon` does not reach the selected nav icon or the caret next to the avatar. `.plugin.js` plugins do not
 run in the native app.

@@ -1,0 +1,438 @@
+// Based on stremio-web (https://github.com/Stremio/stremio-web),
+// Copyright (C) 2017-2024 Smart code 203358507 (upstream's header; the end year varies per file).
+// Numbers translated by hand from src/routes/Addons/styles.less, src/routes/Addons/Addon/styles.less
+// and measured on web.stremio.com at 1100x720 (1rem = 14px).
+// Licence basis: ../THIRD_PARTY_NOTICES.md. Element ids are the web class names.
+import { ClassStyles } from "class-styles.slint";
+import { SelectInputData } from "discover.slint";
+import { MultiselectMenu } from "multiselect-menu.slint";
+import { ScrollBar } from "scroll-bar.slint";
+import { Theme } from "theme.slint";
+
+// One installed addon. `logo` is only valid when `has-logo` is true.
+export struct AddonData {
+    name: string,
+    version: string,
+    types: string,
+    description: string,
+    logo: image,
+    has-logo: bool,
+}
+
+// Web: the Uninstall button. A pill with a 2px outline at 30% opacity, full opacity on hover.
+component UninstallButton inherits Rectangle {
+    in property <length> rem-size;
+    out property <bool> hovered: touch.has-hover;
+    callback clicked();
+
+    height: 3.5 * root.rem-size;
+    border-radius: self.height / 2;
+    border-width: 2px;
+    border-color: Theme.text;
+    background: ClassStyles.background-or(ClassStyles.uninstall-button-container, transparent);
+    opacity: ClassStyles.opacity-or(ClassStyles.uninstall-button-container, root.hovered ? 1.0 : 0.3);
+    visible: !ClassStyles.uninstall-button-container.hidden;
+
+    label := Text {
+        width: parent.width;
+        height: parent.height;
+        text: "Uninstall";
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        font-size: 1.1 * root.rem-size;
+        font-weight: 700;
+        color: ClassStyles.color-or(ClassStyles.label, Theme.text);
+        visible: !ClassStyles.label.hidden;
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// Web: the Share addon button. An icon and a label in the middle of the box, the label underlined on hover.
+component ShareButton inherits Rectangle {
+    in property <length> rem-size;
+    out property <bool> hovered: touch.has-hover;
+    callback clicked();
+
+    property <length> content-width: 2.5 * root.rem-size + label.width;
+
+    height: 3.5 * root.rem-size;
+    background: ClassStyles.background-or(ClassStyles.share-button-container, transparent);
+    opacity: ClassStyles.opacity-or(ClassStyles.share-button-container, 0.9);
+    visible: !ClassStyles.share-button-container.hidden;
+
+    icon := Image {
+        source: @image-url("icons/share.svg");
+        x: (parent.width - root.content-width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: 1.5 * root.rem-size;
+        height: 1.5 * root.rem-size;
+        colorize: ClassStyles.color-or(ClassStyles.icon, Theme.text);
+        visible: !ClassStyles.icon.hidden;
+    }
+    label := Text {
+        x: icon.x + icon.width + root.rem-size;
+        y: (parent.height - self.height) / 2;
+        width: self.preferred-width;
+        text: "Share addon";
+        font-size: 1.1 * root.rem-size;
+        font-weight: 700;
+        color: ClassStyles.color-or(ClassStyles.label, Theme.text);
+        visible: !ClassStyles.label.hidden;
+    }
+    // Slint's Text has no underline, so a line stands in for it.
+    Rectangle {
+        x: label.x;
+        y: label.y + label.height - 0.2 * root.rem-size;
+        width: label.width;
+        height: 1px;
+        background: label.color;
+        visible: root.hovered && !ClassStyles.label.hidden;
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// Web: <div class="addon addon-container button-container">, one installed addon.
+component AddonCard inherits Rectangle {
+    in property <AddonData> data;
+    in property <length> rem-size;
+    callback open();
+    callback uninstall();
+    callback share();
+
+    // The card's 1.5rem padding plus its 0.15rem border.
+    property <length> pad: 23 * root.rem-size / 14;
+    property <length> buttons-width: 17 * root.rem-size;
+    property <length> info-x: root.pad + 8 * root.rem-size;
+    property <bool> hot: card-touch.has-hover || uninstall-button-container.hovered || share-button-container.hovered;
+
+    // Web: 2 * 21px padding + 112px logo + 2 * 2px border = 158px, not a whole number of rem.
+    height: 158 * root.rem-size / 14;
+
+    addon := Rectangle {
+        width: parent.width;
+        height: parent.height;
+        border-radius: 0.75 * root.rem-size;
+        border-width: 2 * root.rem-size / 14;
+        border-color: root.hot ? Theme.overlay : transparent;
+        background: ClassStyles.background-or(ClassStyles.addon, Theme.overlay);
+        opacity: ClassStyles.opacity-or(ClassStyles.addon, 1.0);
+        visible: !ClassStyles.addon.hidden;
+
+        card-touch := TouchArea {
+            mouse-cursor: pointer;
+            clicked => {
+                root.open();
+            }
+        }
+
+        logo-container := Rectangle {
+            x: root.pad;
+            y: root.pad;
+            width: 8 * root.rem-size;
+            height: 8 * root.rem-size;
+            background: ClassStyles.background-or(ClassStyles.logo-container, transparent);
+            opacity: ClassStyles.opacity-or(ClassStyles.logo-container, 1.0);
+            visible: !ClassStyles.logo-container.hidden;
+
+            if root.data.has-logo: logo := Image {
+                source: root.data.logo;
+                x: 0.5 * root.rem-size;
+                y: 0.5 * root.rem-size;
+                width: parent.width - root.rem-size;
+                height: parent.height - root.rem-size;
+                image-fit: contain;
+                opacity: ClassStyles.opacity-or(ClassStyles.logo, 1.0);
+                visible: !ClassStyles.logo.hidden;
+            }
+            if !root.data.has-logo: icon := Image {
+                source: @image-url("icons/addons.svg");
+                x: root.rem-size;
+                y: root.rem-size;
+                width: parent.width - 2 * root.rem-size;
+                height: parent.height - 2 * root.rem-size;
+                colorize: ClassStyles.color-or(ClassStyles.icon, Theme.text);
+                visible: !ClassStyles.icon.hidden;
+            }
+        }
+
+        info-container := Rectangle {
+            x: root.info-x;
+            y: root.pad;
+            width: parent.width - root.info-x - root.buttons-width - root.pad;
+            height: 8 * root.rem-size;
+            background: ClassStyles.background-or(ClassStyles.info-container, transparent);
+            opacity: ClassStyles.opacity-or(ClassStyles.info-container, 1.0);
+            visible: !ClassStyles.info-container.hidden;
+
+            name-container := Text {
+                x: root.rem-size;
+                y: 0px;
+                width: Math.min(self.preferred-width, parent.width - 2 * root.rem-size);
+                height: 2 * root.rem-size;
+                text: root.data.name;
+                overflow: elide;
+                vertical-alignment: center;
+                font-size: 1.6 * root.rem-size;
+                color: ClassStyles.color-or(ClassStyles.name-container, Theme.text);
+                opacity: ClassStyles.opacity-or(ClassStyles.name-container, 1.0);
+                visible: !ClassStyles.name-container.hidden;
+            }
+            version-container := Text {
+                x: name-container.x + name-container.width + root.rem-size;
+                y: 8 * root.rem-size / 14;
+                width: Math.max(parent.width - self.x - root.rem-size, 0px);
+                height: 18 * root.rem-size / 14;
+                text: root.data.version;
+                overflow: elide;
+                vertical-alignment: center;
+                font-size: root.rem-size;
+                color: ClassStyles.color-or(ClassStyles.version-container, Theme.text);
+                opacity: ClassStyles.opacity-or(ClassStyles.version-container, 0.6);
+                visible: !ClassStyles.version-container.hidden;
+            }
+            types-container := Text {
+                x: root.rem-size;
+                y: 35 * root.rem-size / 14;
+                width: parent.width - 2 * root.rem-size;
+                height: 18 * root.rem-size / 14;
+                text: root.data.types;
+                overflow: elide;
+                vertical-alignment: center;
+                font-size: root.rem-size;
+                color: ClassStyles.color-or(ClassStyles.types-container, Theme.text);
+                opacity: ClassStyles.opacity-or(ClassStyles.types-container, 0.4);
+                visible: !ClassStyles.types-container.hidden;
+            }
+            description-container := Text {
+                x: root.rem-size;
+                y: 60 * root.rem-size / 14;
+                width: parent.width - 2 * root.rem-size;
+                height: 36 * root.rem-size / 14;
+                text: root.data.description;
+                wrap: word-wrap;
+                overflow: elide;
+                vertical-alignment: top;
+                font-size: root.rem-size;
+                color: ClassStyles.color-or(ClassStyles.description-container, Theme.text);
+                opacity: ClassStyles.opacity-or(ClassStyles.description-container, 1.0);
+                visible: !ClassStyles.description-container.hidden;
+            }
+        }
+
+        buttons-container := Rectangle {
+            x: parent.width - root.pad - root.buttons-width;
+            y: root.pad;
+            width: root.buttons-width;
+            height: 8 * root.rem-size;
+            opacity: ClassStyles.opacity-or(ClassStyles.buttons-container, 1.0);
+            visible: !ClassStyles.buttons-container.hidden;
+
+            action-buttons-container := Rectangle {
+                y: 0px;
+                width: parent.width;
+                height: 3.5 * root.rem-size;
+                opacity: ClassStyles.opacity-or(ClassStyles.action-buttons-container, 1.0);
+                visible: !ClassStyles.action-buttons-container.hidden;
+
+                uninstall-button-container := UninstallButton {
+                    width: parent.width;
+                    rem-size: root.rem-size;
+                    clicked => {
+                        root.uninstall();
+                    }
+                }
+            }
+            share-button-container := ShareButton {
+                y: 4.5 * root.rem-size;
+                width: parent.width;
+                rem-size: root.rem-size;
+                clicked => {
+                    root.share();
+                }
+            }
+        }
+    }
+}
+
+// Web: routes/Addons. The filter bar (two dropdowns, Add addon, search) over a scrolling list of cards.
+// `addons` is already filtered by `query`; the search box only reports what was typed.
+export component AddonsContent inherits Rectangle {
+    in property <[AddonData]> addons;
+    in property <[SelectInputData]> inputs;
+    in property <string> message;
+    in property <length> viewport-width;
+    in-out property <string> query;
+    // (input index, option index): the user picked an option in the filter bar.
+    callback select-option(int, int);
+    callback search-changed(string);
+
+    property <length> rem-size: Theme.rem-size(root.viewport-width);
+    property <length> bar-height: 6 * root.rem-size;
+    // A card plus the 1.5rem under it.
+    property <length> card-pitch: 179 * root.rem-size / 14;
+    property <length> list-height: Math.max(root.height - root.bar-height, 0px);
+    property <length> list-content-height: root.addons.length * root.card-pitch;
+    // Chrome keeps a 10px gutter for the list's scroll bar while it overflows.
+    property <bool> overflows: root.list-content-height > root.list-height + 1px;
+    property <length> card-width: root.width - 3 * root.rem-size - (root.overflows ? 10px : 0px);
+    property <length> search-width: 18 * root.rem-size;
+    property <length> search-x: root.width - 1.5 * root.rem-size - root.search-width;
+
+    selectable-inputs-container := Rectangle {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: root.bar-height;
+        background: ClassStyles.background-or(ClassStyles.selectable-inputs-container, transparent);
+        opacity: ClassStyles.opacity-or(ClassStyles.selectable-inputs-container, 1.0);
+        visible: !ClassStyles.selectable-inputs-container.hidden;
+
+        for input[index] in root.inputs: select-input := MultiselectMenu {
+            x: 1.5 * root.rem-size + index * 16.5 * root.rem-size;
+            y: 1.5 * root.rem-size;
+            width: 15 * root.rem-size;
+            title: input.title;
+            options: input.options;
+            selected-index: input.selected-index;
+            rem-size: root.rem-size;
+            select(option) => {
+                root.select-option(index, option);
+            }
+        }
+
+        // Web: <Button class="add-button-container">. Green pill; on hover the fill clears and a 2px green ring shows.
+        add-button-container := Rectangle {
+            x: root.search-x - 1.5 * root.rem-size - self.width;
+            y: 1.5 * root.rem-size;
+            width: 4.7 * root.rem-size + add-button-label.width;
+            height: 3 * root.rem-size;
+            border-radius: self.height / 2;
+            border-width: add-touch.has-hover ? 2px : 0px;
+            border-color: Theme.accent-green;
+            background: add-touch.has-hover ? transparent : ClassStyles.background-or(ClassStyles.add-button-container, Theme.accent-green);
+            opacity: ClassStyles.opacity-or(ClassStyles.add-button-container, 1.0);
+            visible: !ClassStyles.add-button-container.hidden;
+
+            // Web: <svg class="icon">. Slint ids must be unique per component, so this one is `add-icon`.
+            add-icon := Image {
+                source: @image-url("icons/add.svg");
+                x: 1.5 * root.rem-size;
+                y: (parent.height - self.height) / 2;
+                width: 1.2 * root.rem-size;
+                height: 1.2 * root.rem-size;
+                colorize: ClassStyles.color-or(ClassStyles.icon, Theme.text);
+                visible: !ClassStyles.icon.hidden;
+            }
+            add-button-label := Text {
+                x: 3.2 * root.rem-size;
+                y: (parent.height - self.height) / 2;
+                width: self.preferred-width;
+                text: "Add addon";
+                font-size: root.rem-size;
+                font-weight: 700;
+                color: ClassStyles.color-or(ClassStyles.add-button-label, Theme.text);
+                opacity: ClassStyles.opacity-or(ClassStyles.add-button-label, 1.0);
+                visible: !ClassStyles.add-button-label.hidden;
+            }
+            add-touch := TouchArea {
+                mouse-cursor: pointer;
+            }
+        }
+
+        // Web: <label class="search-bar search-bar-container"> with `<input class="search text">`.
+        search-bar-container := Rectangle {
+            x: root.search-x;
+            y: 1.5 * root.rem-size;
+            width: root.search-width;
+            height: 3 * root.rem-size;
+            border-radius: self.height / 2;
+            background: ClassStyles.background-or(ClassStyles.search-bar-container, Theme.overlay);
+            opacity: ClassStyles.opacity-or(ClassStyles.search-bar-container, 1.0);
+            visible: !ClassStyles.search-bar-container.hidden;
+
+            search := TextInput {
+                x: (23 * root.rem-size / 14);
+                width: (171 * root.rem-size / 14);
+                height: parent.height;
+                single-line: true;
+                vertical-alignment: center;
+                font-size: root.rem-size;
+                font-weight: 400;
+                color: ClassStyles.color-or(ClassStyles.search, Theme.text);
+                text <=> root.query;
+                edited => {
+                    root.search-changed(self.text);
+                }
+            }
+            if search.text == "": search-placeholder := Text {
+                x: (23 * root.rem-size / 14);
+                height: parent.height;
+                text: "Search addons";
+                vertical-alignment: center;
+                font-size: root.rem-size;
+                font-weight: 400;
+                color: Theme.placeholder;
+            }
+            // Web: <svg class="icon">, also `search-icon` here for the same reason.
+            search-icon := Image {
+                source: @image-url("icons/search.svg");
+                x: (208 * root.rem-size / 14);
+                y: (10.5 * root.rem-size / 14);
+                width: (21 * root.rem-size / 14);
+                height: (21 * root.rem-size / 14);
+                colorize: ClassStyles.color-or(ClassStyles.icon, Theme.search-icon);
+                // The web draws this icon at 0.6, as in the top bar.
+                opacity: ClassStyles.icon.has-color ? 0.6 : 1.0;
+                visible: !ClassStyles.icon.hidden;
+            }
+        }
+    }
+
+    addons-list-container := Flickable {
+        x: 0px;
+        y: root.bar-height;
+        width: parent.width;
+        height: root.list-height;
+        content-width: self.width;
+        content-height: root.list-content-height;
+
+        for entry[index] in root.addons: AddonCard {
+            x: 1.5 * root.rem-size;
+            y: index * root.card-pitch;
+            width: root.card-width;
+            data: entry;
+            rem-size: root.rem-size;
+        }
+    }
+
+    ScrollBar {
+        x: root.width - 8px;
+        y: root.bar-height;
+        height: root.list-height;
+        view-height: root.list-height;
+        content-height: addons-list-container.content-height;
+        offset <=> addons-list-container.content-y;
+    }
+
+    if root.message != "": message-container := Text {
+        x: 1.5 * root.rem-size;
+        y: root.bar-height;
+        width: root.width - 3 * root.rem-size;
+        text: root.message;
+        wrap: word-wrap;
+        font-size: 2 * root.rem-size;
+        color: ClassStyles.color-or(ClassStyles.message-container, Theme.text);
+        opacity: ClassStyles.opacity-or(ClassStyles.message-container, 1.0);
+        visible: !ClassStyles.message-container.hidden;
+    }
+}

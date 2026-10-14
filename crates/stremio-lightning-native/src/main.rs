@@ -11,6 +11,9 @@ use stremio_core::models::catalog_with_filters::{CatalogWithFilters, Selected as
 use stremio_core::models::catalogs_with_extra::{CatalogsWithExtra, Selected};
 use stremio_core::models::common::{Loadable, ResourceError};
 use stremio_core::models::ctx::Ctx;
+use stremio_core::models::installed_addons_with_filters::{
+    InstalledAddonsRequest, InstalledAddonsWithFilters, Selected as InstalledSelected,
+};
 use stremio_core::models::meta_details::{MetaDetails, Selected as DetailsSelected};
 use stremio_core::runtime::msg::{
     Action, ActionCatalogWithFilters, ActionCatalogsWithExtra, ActionLoad,
@@ -32,6 +35,7 @@ use stremio_lightning_core::streaming_server::{
 use stremio_lightning_native_env::AppEnv;
 use url::Url;
 
+mod addons;
 mod class_styles;
 mod player;
 
@@ -48,6 +52,7 @@ struct AppModel {
     ctx: Ctx,
     board: CatalogsWithExtra,
     discover: CatalogWithFilters<MetaItemPreview>,
+    installed_addons: InstalledAddonsWithFilters,
     meta_details: MetaDetails,
 }
 
@@ -141,6 +146,7 @@ struct Snapshot {
     rows: Vec<RowData>,
     discover: DiscoverData,
     details: DetailsData,
+    addons: addons::AddonsData,
 }
 
 /// "Popular - Movie": the catalog's name (the addon's name when the catalog has none, as
@@ -447,6 +453,24 @@ fn play_selected(
     video.play(&url)
 }
 
+/// One filter of a screen's bar as Slint wants it.
+fn select_input_data(input: Input) -> SelectInputData {
+    SelectInputData {
+        title: input.title.into(),
+        selected_index: i32::try_from(input.selected).unwrap_or(0),
+        options: ModelRc::new(VecModel::from(
+            input
+                .options
+                .into_iter()
+                .map(|(label, selected)| SelectOption {
+                    label: label.into(),
+                    selected,
+                })
+                .collect::<Vec<_>>(),
+        )),
+    }
+}
+
 fn push(weak: &Weak<MainWindow>, snapshot: Snapshot, posters: Posters) {
     let _ = weak.upgrade_in_event_loop(move |window| {
         let cache = posters.lock().unwrap();
@@ -493,22 +517,33 @@ fn push(weak: &Weak<MainWindow>, snapshot: Snapshot, posters: Posters) {
             .discover
             .inputs
             .into_iter()
-            .map(|input| SelectInputData {
-                title: input.title.into(),
-                selected_index: i32::try_from(input.selected).unwrap_or(0),
-                options: ModelRc::new(VecModel::from(
-                    input
-                        .options
-                        .into_iter()
-                        .map(|(label, selected)| SelectOption {
-                            label: label.into(),
-                            selected,
-                        })
-                        .collect::<Vec<_>>(),
-                )),
-            })
+            .map(select_input_data)
             .collect();
         window.set_discover_inputs(ModelRc::new(VecModel::from(inputs)));
+        let addon_cards: Vec<AddonData> =
+            addons::visible(&snapshot.addons.cards, &window.get_addons_query())
+                .into_iter()
+                .map(|card| {
+                    let logo = image_for(&card.logo);
+                    AddonData {
+                        name: card.name.clone().into(),
+                        version: card.version.clone().into(),
+                        types: card.types.clone().into(),
+                        description: card.description.clone().into(),
+                        has_logo: logo.is_some(),
+                        logo: logo.unwrap_or_default(),
+                    }
+                })
+                .collect();
+        window.set_addons(ModelRc::new(VecModel::from(addon_cards)));
+        let addon_inputs: Vec<SelectInputData> = snapshot
+            .addons
+            .inputs
+            .into_iter()
+            .map(select_input_data)
+            .collect();
+        window.set_addon_inputs(ModelRc::new(VecModel::from(addon_inputs)));
+        window.set_addons_message(snapshot.addons.message.into());
         let previews: Vec<PreviewData> = snapshot
             .discover
             .previews
@@ -769,6 +804,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let uid = profile.uid();
     // `default()` has nothing to pick from, so a `Load` with no selection would select nothing.
     let (discover, discover_effects) = CatalogWithFilters::<MetaItemPreview>::new(&profile);
+    let (installed_addons, installed_effects) = InstalledAddonsWithFilters::new(&profile);
     let model = AppModel {
         ctx: Ctx::new(
             profile,
@@ -781,10 +817,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ),
         board: Default::default(),
         discover,
+        installed_addons,
         meta_details: Default::default(),
     };
 
-    let (runtime, events) = AppRuntime::new(model, discover_effects.into_iter().collect(), 1000);
+    let (runtime, events) = AppRuntime::new(
+        model,
+        discover_effects
+            .into_iter()
+            .chain(installed_effects)
+            .collect(),
+        1000,
+    );
     let runtime = Arc::new(runtime);
 
     let posters: Posters = Default::default();
@@ -898,6 +942,41 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
+    {
+        let (runtime, latest) = (runtime.clone(), latest.clone());
+        window.on_select_addon_input_option(move |input, option| {
+            // Input 0 is the catalog menu, which has only "Installed".
+            if input != 1 {
+                return;
+            }
+            let request = usize::try_from(option).ok().and_then(|option| {
+                latest
+                    .lock()
+                    .unwrap()
+                    .addons
+                    .type_requests
+                    .get(option)
+                    .cloned()
+            });
+            if let Some(request) = request {
+                runtime.dispatch(RuntimeAction {
+                    field: None,
+                    action: Action::Load(ActionLoad::InstalledAddonsWithFilters(
+                        InstalledSelected { request },
+                    )),
+                });
+            }
+        });
+    }
+
+    {
+        let (weak, latest, posters) = (window.as_weak(), latest.clone(), posters.clone());
+        window.on_search_addons(move |_| {
+            let snapshot = latest.lock().unwrap().clone();
+            push(&weak, snapshot, posters.clone());
+        });
+    }
+
     let weak = window.as_weak();
     let reader = runtime.clone();
     tokio_runtime.spawn(events.for_each({
@@ -919,6 +998,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let Ok(model) = reader.model() else { return };
                 let (status, rows) = board_rows(&model);
                 let discover = discover_data(&model);
+                let addons = addons::addons_data(&model);
                 let details = details_data(&model);
                 drop(model);
                 let snapshot = Snapshot {
@@ -926,6 +1006,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     rows,
                     discover,
                     details,
+                    addons,
                 };
                 *latest.lock().unwrap() = snapshot.clone();
 
@@ -942,6 +1023,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             .filter_map(|card| card.poster.clone()),
                     )
                     .chain(snapshot.details.poster.clone())
+                    .chain(
+                        snapshot
+                            .addons
+                            .cards
+                            .iter()
+                            .filter_map(|card| card.logo.clone()),
+                    )
                     .chain(preview_images(&snapshot, selected.load(Ordering::Relaxed)))
                     .collect();
                 for url in urls {
@@ -966,6 +1054,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     runtime.dispatch(RuntimeAction {
         field: None,
         action: Action::Load(ActionLoad::CatalogWithFilters(None)),
+    });
+    runtime.dispatch(RuntimeAction {
+        field: None,
+        action: Action::Load(ActionLoad::InstalledAddonsWithFilters(InstalledSelected {
+            request: InstalledAddonsRequest { r#type: None },
+        })),
     });
 
     window.run()?;
