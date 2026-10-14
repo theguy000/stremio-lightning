@@ -91,8 +91,9 @@ component ScrollThumb inherits Rectangle {
         height: root.thumb-height;
         y: root.travel * Math.min(Math.max(-root.offset / Math.max(root.content-height - root.view-height, 1px), 0), 1);
         border-radius: 3px;
-        background: thumb-touch.has-hover ? Theme.accent : Theme.overlay;
-        thumb-touch := TouchArea { }
+        // Web: ::-webkit-scrollbar-thumb is --overlay-color (white at 5%). Its :hover accent rule does not apply in
+        // Chrome when scrollbar-color is set, so the thumb stays white.
+        background: Theme.overlay;
     }
 }
 
