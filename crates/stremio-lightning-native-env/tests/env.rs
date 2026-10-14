@@ -3,16 +3,16 @@ use std::time::Duration;
 
 use http::Request;
 use stremio_core::runtime::Env;
-use stremio_lightning_native_env::NativeEnv;
+use stremio_lightning_native_env::AppEnv;
 use tokio::runtime::Runtime;
 
-// `NativeEnv` is process-global, so every test shares one runtime and one init.
+// `AppEnv` is process-global, so every test shares one runtime and one init.
 fn rt() -> &'static Runtime {
     static RT: OnceLock<Runtime> = OnceLock::new();
     RT.get_or_init(|| {
         let rt = Runtime::new().unwrap();
         let dir = std::env::temp_dir().join(format!("sl-native-env-test-{}", std::process::id()));
-        NativeEnv::init(dir, rt.handle().clone()).unwrap();
+        AppEnv::init(dir, rt.handle().clone()).unwrap();
         rt
     })
 }
@@ -21,20 +21,20 @@ fn rt() -> &'static Runtime {
 fn storage_round_trips_and_deletes() {
     rt().block_on(async {
         let key = "profile/with:odd chars";
-        assert_eq!(NativeEnv::get_storage::<Vec<u32>>(key).await.unwrap(), None);
+        assert_eq!(AppEnv::get_storage::<Vec<u32>>(key).await.unwrap(), None);
 
-        NativeEnv::set_storage(key, Some(&vec![1u32, 2, 3]))
+        AppEnv::set_storage(key, Some(&vec![1u32, 2, 3]))
             .await
             .unwrap();
         assert_eq!(
-            NativeEnv::get_storage::<Vec<u32>>(key).await.unwrap(),
+            AppEnv::get_storage::<Vec<u32>>(key).await.unwrap(),
             Some(vec![1, 2, 3])
         );
 
-        NativeEnv::set_storage::<Vec<u32>>(key, None).await.unwrap();
-        assert_eq!(NativeEnv::get_storage::<Vec<u32>>(key).await.unwrap(), None);
+        AppEnv::set_storage::<Vec<u32>>(key, None).await.unwrap();
+        assert_eq!(AppEnv::get_storage::<Vec<u32>>(key).await.unwrap(), None);
         // Deleting a missing key is not an error.
-        NativeEnv::set_storage::<Vec<u32>>(key, None).await.unwrap();
+        AppEnv::set_storage::<Vec<u32>>(key, None).await.unwrap();
     });
 }
 
@@ -44,7 +44,7 @@ fn sequential_tasks_run_in_submission_order() {
         let seen = Arc::new(Mutex::new(Vec::new()));
         for i in 0..20u32 {
             let seen = seen.clone();
-            NativeEnv::exec_sequential(async move {
+            AppEnv::exec_sequential(async move {
                 // Earlier jobs sleep longer, so only a real queue keeps the order.
                 tokio::time::sleep(Duration::from_millis(u64::from(20 - i))).await;
                 seen.lock().unwrap().push(i);
@@ -62,7 +62,7 @@ fn fetch_reads_a_public_addon_manifest() {
         let request = Request::get("https://v3-cinemeta.strem.io/manifest.json")
             .body(())
             .unwrap();
-        let manifest: serde_json::Value = NativeEnv::fetch(request).await.unwrap();
+        let manifest: serde_json::Value = AppEnv::fetch(request).await.unwrap();
         assert_eq!(manifest["id"], "com.linvo.cinemeta");
     });
 }
