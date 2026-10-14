@@ -1,0 +1,146 @@
+// Based on stremio-web (https://github.com/Stremio/stremio-web),
+// Copyright (C) 2017-2025 Smart code 203358507.
+// Layout numbers translated by hand from src/routes/Library/Placeholder/Placeholder.less and
+// Placeholder.tsx. Licence basis: ../THIRD_PARTY_NOTICES.md.
+// Element ids reuse the web class names. `icon` and `text` are the ids inside `PlaceholderPoint`.
+import { ClassStyles } from "class-styles.slint";
+import { Theme } from "theme.slint";
+
+// Web: one `.point`, a 3.25rem icon beside a short sentence, 18rem wide.
+component PlaceholderPoint inherits Rectangle {
+    in property <image> glyph;
+    in property <string> label;
+    in property <length> rem-size;
+    out property <length> content-height: Math.max(3.25 * root.rem-size, text.preferred-height);
+    width: 18 * root.rem-size;
+    height: root.content-height;
+    opacity: ClassStyles.opacity-or(ClassStyles.point, 1.0);
+    visible: !ClassStyles.point.hidden;
+
+    icon := Image {
+        x: 0px;
+        y: (parent.height - self.height) / 2;
+        width: 3.25 * root.rem-size;
+        height: 3.25 * root.rem-size;
+        source: root.glyph;
+        colorize: ClassStyles.color-or(ClassStyles.icon, Theme.text);
+        opacity: 0.3;
+        visible: !ClassStyles.icon.hidden;
+    }
+    text := Text {
+        x: 4.75 * root.rem-size;
+        y: (parent.height - self.height) / 2;
+        width: parent.width - 4.75 * root.rem-size;
+        text: root.label;
+        wrap: word-wrap;
+        font-size: 1.1 * root.rem-size;
+        font-weight: 500;
+        color: ClassStyles.color-or(ClassStyles.text, Theme.text);
+        opacity: ClassStyles.opacity-or(ClassStyles.text, 0.9);
+        visible: !ClassStyles.text.hidden;
+    }
+}
+
+// Web: <Placeholder />, what the Library route shows to a user who is not logged in.
+export component LibraryPlaceholder inherits Rectangle {
+    in property <length> viewport-width;
+    callback log-in();
+
+    property <length> rem-size: Theme.rem-size(root.viewport-width);
+
+    placeholder := Rectangle {
+        background: ClassStyles.background-or(ClassStyles.placeholder, transparent);
+        opacity: ClassStyles.opacity-or(ClassStyles.placeholder, 1.0);
+        visible: !ClassStyles.placeholder.hidden;
+
+        VerticalLayout {
+            alignment: center;
+
+            title := Text {
+                height: 2.15 * root.rem-size;
+                text: "Library is only available for logged in users";
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                font-size: 1.75 * root.rem-size;
+                font-weight: 400;
+                color: ClassStyles.color-or(ClassStyles.title, Theme.text);
+                opacity: ClassStyles.opacity-or(ClassStyles.title, 0.5);
+                visible: !ClassStyles.title.hidden;
+            }
+            Rectangle { height: root.rem-size; }
+            image-container := Rectangle {
+                height: 17.2 * root.rem-size;
+                background: ClassStyles.background-or(ClassStyles.image-container, transparent);
+                opacity: ClassStyles.opacity-or(ClassStyles.image-container, 1.0);
+                visible: !ClassStyles.image-container.hidden;
+
+                image := Image {
+                    x: (parent.width - self.width) / 2;
+                    y: 1.5 * root.rem-size;
+                    height: 14 * root.rem-size;
+                    width: self.height * self.source.width / self.source.height;
+                    source: @image-url("images/library-placeholder.png");
+                    image-fit: contain;
+                    opacity: ClassStyles.opacity-or(ClassStyles.image, 1.0);
+                    visible: !ClassStyles.image.hidden;
+                }
+            }
+            overview := HorizontalLayout {
+                alignment: center;
+                spacing: 4 * root.rem-size;
+                height: Math.max(cloud.content-height, recommendations.content-height);
+
+                cloud := PlaceholderPoint {
+                    glyph: @image-url("icons/cloud-library.svg");
+                    label: "Access your favorite movies and TV shows anytime, anywhere";
+                    rem-size: root.rem-size;
+                }
+                recommendations := PlaceholderPoint {
+                    glyph: @image-url("icons/actors.svg");
+                    label: "Recommendations tailored to your viewing history";
+                    rem-size: root.rem-size;
+                }
+            }
+            Rectangle { height: 2 * root.rem-size; }
+            button-container := HorizontalLayout {
+                alignment: center;
+                height: 4 * root.rem-size;
+
+                button := Rectangle {
+                    width: 10 * root.rem-size + label.preferred-width;
+                    border-radius: self.height / 2;
+                    background: log-in-touch.has-hover ? transparent
+                        : ClassStyles.background-or(ClassStyles.button, Theme.overlay);
+                    opacity: ClassStyles.opacity-or(ClassStyles.button, 1.0);
+                    visible: !ClassStyles.button.hidden;
+
+                    // Web: `outline: 2px solid` on hover, drawn outside the box.
+                    outline := Rectangle {
+                        x: -2px;
+                        y: -2px;
+                        width: parent.width + 4px;
+                        height: parent.height + 4px;
+                        border-radius: parent.border-radius + 2px;
+                        border-width: 2px;
+                        border-color: Theme.text;
+                        visible: log-in-touch.has-hover;
+                    }
+                    label := Text {
+                        text: "Log in";
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                        font-size: 1.1 * root.rem-size;
+                        color: ClassStyles.color-or(ClassStyles.button, Theme.text);
+                    }
+                    log-in-touch := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            root.log-in();
+                        }
+                    }
+                }
+            }
+            Rectangle { height: root.rem-size; }
+        }
+    }
+}

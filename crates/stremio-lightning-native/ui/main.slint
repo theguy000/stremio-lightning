@@ -3,6 +3,7 @@ import { Theme } from "theme.slint";
 import { HorizontalNavBar, Section, VerticalNavBar } from "shell.slint";
 import { BoardContent, CatalogRow, PosterData } from "board.slint";
 import { DiscoverContent, SelectInputData } from "discover.slint";
+import { LibraryPlaceholder } from "library-placeholder.slint";
 import { SelectOption } from "multiselect-menu.slint";
 import { LinkGroup, PreviewData } from "meta-preview.slint";
 export { LinkGroup, PreviewData, SelectInputData, SelectOption }
@@ -217,7 +218,16 @@ export component MainWindow inherits Window {
         }
     }
 
-    if root.section != Section.board && root.section != Section.discover && !root.details-open && !root.playing: VerticalLayout {
+    // No login in the native app yet, so Library is always the logged-out screen.
+    if root.section == Section.library && !root.details-open && !root.playing: LibraryPlaceholder {
+        x: root.nav-width;
+        y: root.bar-height;
+        width: parent.width - root.nav-width;
+        height: parent.height - root.bar-height;
+        viewport-width: root.width;
+    }
+
+    if root.section != Section.board && root.section != Section.discover && root.section != Section.library && !root.details-open && !root.playing: VerticalLayout {
         x: root.nav-width;
         y: root.bar-height;
         width: parent.width - root.nav-width;

@@ -50,6 +50,14 @@ export global ClassStyles {
     in property <ClassStyle> select-input;
     in property <ClassStyle> dropdown;
     in property <ClassStyle> option;
+    in property <ClassStyle> placeholder;
+    in property <ClassStyle> title;
+    in property <ClassStyle> image-container;
+    in property <ClassStyle> image;
+    in property <ClassStyle> overview;
+    in property <ClassStyle> point;
+    in property <ClassStyle> text;
+    in property <ClassStyle> button;
 
     pure public function color-or(style: ClassStyle, fallback: color) -> color {
         return style.has-color ? style.color : fallback;
