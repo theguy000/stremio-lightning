@@ -53,8 +53,11 @@ descendant selectors such as `.a .b`, sizes, margins, gradients and hover states
 | `vertical-nav-bar-container`, `vertical-nav-bar` | the side nav | | yes | yes | yes |
 | `nav-tab-button-container`, `nav-tab-button` | one side nav tab | | yes | yes | yes |
 | `icon` | the unselected nav icons, the search icon and the fullscreen icon | yes | | | yes |
+| `select-input`, `multiselect-menu` | one filter button on Discover (Movie, Popular, Genre) | | yes | yes | yes |
+| `dropdown` | the list that opens under a filter button | | yes | | |
+| `option` | one row of that list. Hover stays white at 15% | yes | yes | | |
 
-The Board, the top bar and the side nav are wired. Details, Player and the other sections have element
+The Board, the top bar, the side nav and Discover's filter menus are wired. Details, Player and the other sections have element
 ids but no class styles yet. The `selected` and `active` states, hover and focus are not themable, and
 `icon` does not reach the selected nav icon or the caret next to the avatar. `.plugin.js` plugins do not
 run in the native app.

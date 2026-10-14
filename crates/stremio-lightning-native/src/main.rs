@@ -7,7 +7,7 @@ use slint::{Image, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, VecMode
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use stremio_core::constants::{IMDB_LINK_CATEGORY, META_RESOURCE_NAME, STREAM_RESOURCE_NAME};
-use stremio_core::models::catalog_with_filters::CatalogWithFilters;
+use stremio_core::models::catalog_with_filters::{CatalogWithFilters, Selected as CatalogSelected};
 use stremio_core::models::catalogs_with_extra::{CatalogsWithExtra, Selected};
 use stremio_core::models::common::{Loadable, ResourceError};
 use stremio_core::models::ctx::Ctx;
@@ -85,8 +85,35 @@ struct DetailsData {
 struct DiscoverData {
     shape: &'static str,
     cards: Vec<Card>,
-    filters: Vec<String>,
+    inputs: Vec<Input>,
     previews: Vec<Preview>,
+}
+
+/// One filter in Discover's bar (type, catalog, or an extra such as genre): the closed label, the
+/// options, and the request each option loads.
+#[derive(Clone, Default)]
+struct Input {
+    title: String,
+    selected: usize,
+    options: Vec<(String, bool)>,
+    requests: Vec<ResourceRequest>,
+}
+
+impl Input {
+    fn new(title: String, options: impl Iterator<Item = (String, bool, ResourceRequest)>) -> Self {
+        let mut input = Self {
+            title,
+            ..Self::default()
+        };
+        for (index, (label, selected, request)) in options.enumerate() {
+            if selected {
+                input.selected = index;
+            }
+            input.options.push((label, selected));
+            input.requests.push(request);
+        }
+        input
+    }
 }
 
 /// What the Discover preview panel shows for one card. `logo` and `background` are image-cache keys.
@@ -267,34 +294,63 @@ fn discover_data(model: &AppModel) -> DiscoverData {
         }
     }
     let selectable = &discover.selectable;
-    let kind = selectable
-        .types
-        .iter()
-        .find(|item| item.selected)
-        .map(|item| capitalise(&item.r#type));
-    let catalog = selectable
-        .catalogs
-        .iter()
-        .find(|item| item.selected)
-        .map(|item| item.catalog.clone());
-    let extras = selectable.extra.iter().map(|extra| {
-        extra
+    let mut inputs = Vec::new();
+    if !selectable.types.is_empty() {
+        let title = selectable
+            .types
+            .iter()
+            .find(|item| item.selected)
+            .map_or_else(|| "Select type".to_owned(), |item| capitalise(&item.r#type));
+        inputs.push(Input::new(
+            title,
+            selectable.types.iter().map(|item| {
+                (
+                    capitalise(&item.r#type),
+                    item.selected,
+                    item.request.clone(),
+                )
+            }),
+        ));
+    }
+    if !selectable.catalogs.is_empty() {
+        let title = selectable
+            .catalogs
+            .iter()
+            .find(|item| item.selected)
+            .map_or_else(|| "Select catalog".to_owned(), |item| item.catalog.clone());
+        inputs.push(Input::new(
+            title,
+            selectable
+                .catalogs
+                .iter()
+                .map(|item| (item.catalog.clone(), item.selected, item.request.clone())),
+        ));
+    }
+    for extra in &selectable.extra {
+        let title = extra
             .options
             .iter()
             .find(|option| option.selected)
             .and_then(|option| option.value.clone())
-            .unwrap_or_else(|| capitalise(&extra.name))
-    });
+            .unwrap_or_else(|| capitalise(&extra.name));
+        inputs.push(Input::new(
+            title,
+            extra.options.iter().map(|option| {
+                (
+                    option.value.clone().unwrap_or_else(|| "None".to_owned()),
+                    option.selected,
+                    option.request.clone(),
+                )
+            }),
+        ));
+    }
+    // The filter bar has room for three.
+    inputs.truncate(3);
     DiscoverData {
         shape: shape_of(items.iter().copied()),
         cards: items.iter().copied().map(card_of).collect(),
         previews: items.iter().copied().map(preview_of).collect(),
-        filters: kind
-            .into_iter()
-            .chain(catalog)
-            .chain(extras)
-            .take(3)
-            .collect(),
+        inputs,
     }
 }
 
@@ -433,13 +489,26 @@ fn push(weak: &Weak<MainWindow>, snapshot: Snapshot, posters: Posters) {
             .collect();
         window.set_discover_cards(ModelRc::new(VecModel::from(discover_cards)));
         window.set_discover_shape(snapshot.discover.shape.into());
-        let filters: Vec<SharedString> = snapshot
+        let inputs: Vec<SelectInputData> = snapshot
             .discover
-            .filters
+            .inputs
             .into_iter()
-            .map(Into::into)
+            .map(|input| SelectInputData {
+                title: input.title.into(),
+                selected_index: i32::try_from(input.selected).unwrap_or(0),
+                options: ModelRc::new(VecModel::from(
+                    input
+                        .options
+                        .into_iter()
+                        .map(|(label, selected)| SelectOption {
+                            label: label.into(),
+                            selected,
+                        })
+                        .collect::<Vec<_>>(),
+                )),
+            })
             .collect();
-        window.set_discover_filters(ModelRc::new(VecModel::from(filters)));
+        window.set_discover_inputs(ModelRc::new(VecModel::from(inputs)));
         let previews: Vec<PreviewData> = snapshot
             .discover
             .previews
@@ -778,6 +847,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 field: None,
                 action: Action::CatalogWithFilters(ActionCatalogWithFilters::LoadNextPage),
             });
+        });
+    }
+
+    {
+        let (runtime, latest, selected) = (runtime.clone(), latest.clone(), selected.clone());
+        window.on_select_input_option(move |input, option| {
+            let request = {
+                let snapshot = latest.lock().unwrap();
+                usize::try_from(input)
+                    .ok()
+                    .and_then(|input| snapshot.discover.inputs.get(input))
+                    .and_then(|input| {
+                        usize::try_from(option)
+                            .ok()
+                            .and_then(|option| input.requests.get(option))
+                    })
+                    .cloned()
+            };
+            if let Some(request) = request {
+                selected.store(0, Ordering::Relaxed);
+                runtime.dispatch(RuntimeAction {
+                    field: None,
+                    action: Action::Load(ActionLoad::CatalogWithFilters(Some(CatalogSelected {
+                        request,
+                    }))),
+                });
+            }
         });
     }
 

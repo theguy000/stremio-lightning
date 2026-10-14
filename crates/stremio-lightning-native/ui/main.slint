@@ -2,9 +2,10 @@ import { Button, ScrollView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 import { HorizontalNavBar, Section, VerticalNavBar } from "shell.slint";
 import { BoardContent, CatalogRow, PosterData } from "board.slint";
-import { DiscoverContent } from "discover.slint";
+import { DiscoverContent, SelectInputData } from "discover.slint";
+import { SelectOption } from "multiselect-menu.slint";
 import { LinkGroup, PreviewData } from "meta-preview.slint";
-export { LinkGroup, PreviewData }
+export { LinkGroup, PreviewData, SelectInputData, SelectOption }
 import { ClassStyle, ClassStyles } from "class-styles.slint";
 
 export { CatalogRow, ClassStyle, ClassStyles, PosterData }
@@ -26,7 +27,7 @@ export component MainWindow inherits Window {
     in property <[CatalogRow]> rows: [];
     in property <[PosterData]> discover-cards: [];
     in property <string> discover-shape: "poster";
-    in property <[string]> discover-filters: [];
+    in property <[SelectInputData]> discover-inputs: [];
     in property <[PreviewData]> discover-previews: [];
 
     in-out property <bool> details-open: false;
@@ -50,6 +51,7 @@ export component MainWindow inherits Window {
     callback open-item(string, string, string);
     callback load-next-page();
     callback select-preview(int);
+    callback select-input-option(int, int);
     callback play-stream(int);
     callback stop-playback();
 
@@ -73,7 +75,10 @@ export component MainWindow inherits Window {
         height: parent.height - root.bar-height;
         cards: root.discover-cards;
         shape: root.discover-shape;
-        filters: root.discover-filters;
+        inputs: root.discover-inputs;
+        select-option(input, option) => {
+            root.select-input-option(input, option);
+        }
         previews: root.discover-previews;
         viewport-width: root.width;
         select-item(index) => {
