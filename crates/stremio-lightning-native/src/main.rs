@@ -1,7 +1,8 @@
-use std::sync::Arc;
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex};
 
 use futures::StreamExt;
-use slint::{ModelRc, SharedString, VecModel};
+use slint::{Image, ModelRc, Rgba8Pixel, SharedPixelBuffer, VecModel, Weak};
 use stremio_core::models::catalogs_with_extra::{CatalogsWithExtra, Selected};
 use stremio_core::models::common::Loadable;
 use stremio_core::models::ctx::Ctx;
@@ -19,6 +20,8 @@ use stremio_lightning_native_env::NativeEnv;
 
 slint::include_modules!();
 
+const CARDS_PER_ROW: usize = 20;
+
 #[derive(Model, Clone)]
 #[model(NativeEnv)]
 struct NativeModel {
@@ -26,34 +29,111 @@ struct NativeModel {
     board: CatalogsWithExtra,
 }
 
-fn board_lines(model: &NativeModel) -> (String, Vec<String>) {
-    let mut lines = Vec::new();
-    let mut loading = 0;
+/// One poster card: the title and, when the addon gave one, the poster URL.
+type CardData = (String, Option<String>);
+
+#[derive(Clone)]
+struct RowData {
+    name: String,
+    cards: Vec<CardData>,
+}
+
+type Posters = Arc<Mutex<HashMap<String, SharedPixelBuffer<Rgba8Pixel>>>>;
+
+fn board_rows(model: &NativeModel) -> (String, Vec<RowData>) {
+    let mut rows = Vec::new();
+    let (mut loading, mut failed) = (0, 0);
     for catalog in &model.board.catalogs {
         let Some(page) = catalog.first() else {
             continue;
         };
-        let heading = format!("{} / {}", page.request.path.r#type, page.request.path.id);
+        let name = format!("{} / {}", page.request.path.r#type, page.request.path.id);
         match &page.content {
-            Some(Loadable::Ready(items)) => {
-                let names: Vec<&str> = items
+            Some(Loadable::Ready(items)) => rows.push(RowData {
+                name,
+                cards: items
                     .iter()
-                    .take(8)
-                    .map(|item| item.name.as_str())
-                    .collect();
-                lines.push(format!("{heading}: {}", names.join(", ")));
-            }
-            Some(Loadable::Err(error)) => lines.push(format!("{heading}: failed ({error:?})")),
+                    .take(CARDS_PER_ROW)
+                    .map(|item| {
+                        (
+                            item.name.clone(),
+                            item.poster.as_ref().map(|url| url.to_string()),
+                        )
+                    })
+                    .collect(),
+            }),
+            Some(Loadable::Err(_)) => failed += 1,
             _ => loading += 1,
         }
     }
     let status = format!(
-        "{} addons, {} catalogs ready, {} loading",
+        "{} addons, {} catalogs ready, {} loading, {} failed",
         model.ctx.profile.addons.len(),
-        lines.len(),
-        loading
+        rows.len(),
+        loading,
+        failed
     );
-    (status, lines)
+    (status, rows)
+}
+
+fn push_rows(weak: &Weak<MainWindow>, status: String, rows: Vec<RowData>, posters: Posters) {
+    let _ = weak.upgrade_in_event_loop(move |window| {
+        let cache = posters.lock().unwrap();
+        let rows: Vec<CatalogRow> = rows
+            .into_iter()
+            .map(|row| {
+                let cards: Vec<PosterData> = row
+                    .cards
+                    .into_iter()
+                    .map(|(title, url)| {
+                        let buffer = url.as_ref().and_then(|url| cache.get(url));
+                        PosterData {
+                            title: title.into(),
+                            has_poster: buffer.is_some(),
+                            poster: buffer
+                                .map(|buffer| Image::from_rgba8(buffer.clone()))
+                                .unwrap_or_default(),
+                        }
+                    })
+                    .collect();
+                CatalogRow {
+                    name: row.name.into(),
+                    cards: ModelRc::new(VecModel::from(cards)),
+                }
+            })
+            .collect();
+        window.set_status(status.into());
+        window.set_rows(ModelRc::new(VecModel::from(rows)));
+    });
+}
+
+async fn fetch_poster(
+    client: &reqwest::Client,
+    url: &str,
+) -> Option<SharedPixelBuffer<Rgba8Pixel>> {
+    let bytes = client
+        .get(url)
+        .send()
+        .await
+        .ok()?
+        .error_for_status()
+        .ok()?
+        .bytes()
+        .await
+        .ok()?;
+    tokio::task::spawn_blocking(move || {
+        let image = image::load_from_memory(&bytes)
+            .ok()?
+            .thumbnail(300, 450)
+            .to_rgba8();
+        Some(SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(
+            image.as_raw(),
+            image.width(),
+            image.height(),
+        ))
+    })
+    .await
+    .ok()?
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -92,21 +172,50 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let weak = window.as_weak();
     let reader = runtime.clone();
+    let posters: Posters = Default::default();
+    let requested = Arc::new(Mutex::new(HashSet::<String>::new()));
+    let latest = Arc::new(Mutex::new((String::new(), Vec::<RowData>::new())));
+    let client = reqwest::Client::new();
     tokio_runtime.spawn(events.for_each(move |event| {
         let weak = weak.clone();
         let reader = reader.clone();
+        let posters = posters.clone();
+        let requested = requested.clone();
+        let latest = latest.clone();
+        let client = client.clone();
         async move {
             if !matches!(event, RuntimeEvent::NewState(..)) {
                 return;
             }
             let Ok(model) = reader.model() else { return };
-            let (status, lines) = board_lines(&model);
+            let (status, rows) = board_rows(&model);
             drop(model);
-            let _ = weak.upgrade_in_event_loop(move |window| {
-                window.set_status(SharedString::from(status));
-                let rows: Vec<SharedString> = lines.into_iter().map(SharedString::from).collect();
-                window.set_lines(ModelRc::new(VecModel::from(rows)));
-            });
+            *latest.lock().unwrap() = (status.clone(), rows.clone());
+
+            let urls: Vec<String> = rows
+                .iter()
+                .flat_map(|row| row.cards.iter())
+                .filter_map(|(_, url)| url.clone())
+                .collect();
+            for url in urls {
+                if !requested.lock().unwrap().insert(url.clone()) {
+                    continue;
+                }
+                let (client, posters, latest, weak) = (
+                    client.clone(),
+                    posters.clone(),
+                    latest.clone(),
+                    weak.clone(),
+                );
+                tokio::spawn(async move {
+                    if let Some(buffer) = fetch_poster(&client, &url).await {
+                        posters.lock().unwrap().insert(url, buffer);
+                        let (status, rows) = latest.lock().unwrap().clone();
+                        push_rows(&weak, status, rows, posters);
+                    }
+                });
+            }
+            push_rows(&weak, status, rows, posters);
         }
     }));
 
@@ -117,7 +226,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             extra: vec![],
         })),
     });
-
     runtime.dispatch(RuntimeAction {
         field: None,
         action: Action::CatalogsWithExtra(ActionCatalogsWithExtra::LoadRange(0..8)),

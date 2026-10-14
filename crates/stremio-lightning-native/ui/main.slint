@@ -1,4 +1,43 @@
-import { ListView } from "std-widgets.slint";
+import { ScrollView } from "std-widgets.slint";
+
+export struct PosterData {
+    title: string,
+    poster: image,
+    has-poster: bool,
+}
+
+export struct CatalogRow {
+    name: string,
+    cards: [PosterData],
+}
+
+component PosterCard inherits Rectangle {
+    in property <PosterData> card;
+    width: 150px;
+    height: 262px;
+
+    VerticalLayout {
+        spacing: 6px;
+        Rectangle {
+            height: 225px;
+            background: #1b1a24;
+            border-radius: 6px;
+            clip: true;
+            if root.card.has-poster: Image {
+                source: root.card.poster;
+                width: 100%;
+                height: 100%;
+                image-fit: cover;
+            }
+        }
+        Text {
+            text: root.card.title;
+            color: #e6e4f2;
+            font-size: 13px;
+            overflow: elide;
+        }
+    }
+}
 
 export component MainWindow inherits Window {
     title: "Stremio Lightning";
@@ -7,7 +46,7 @@ export component MainWindow inherits Window {
     background: #0c0b11;
 
     in property <string> status: "Loading...";
-    in property <[string]> lines: [];
+    in property <[CatalogRow]> rows: [];
 
     VerticalLayout {
         padding: 24px;
@@ -24,12 +63,29 @@ export component MainWindow inherits Window {
             color: #9d9bb0;
             font-size: 14px;
         }
-        ListView {
-            for line in root.lines: Text {
-                text: line;
-                color: #e6e4f2;
-                font-size: 15px;
-                wrap: word-wrap;
+        ScrollView {
+            VerticalLayout {
+                spacing: 20px;
+                for row in root.rows: VerticalLayout {
+                    spacing: 8px;
+                    Text {
+                        text: row.name;
+                        color: white;
+                        font-size: 18px;
+                        font-weight: 600;
+                    }
+                    Flickable {
+                        height: 270px;
+                        content-width: row.cards.length * 160px;
+                        HorizontalLayout {
+                            width: row.cards.length * 160px;
+                            spacing: 10px;
+                            for card in row.cards: PosterCard {
+                                card: card;
+                            }
+                        }
+                    }
+                }
             }
         }
     }
