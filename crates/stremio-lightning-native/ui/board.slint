@@ -3,6 +3,7 @@
 // Layout numbers translated by hand from src/components/MetaRow/styles.less,
 // src/components/MetaItem/styles.less, src/routes/Board/styles.less and src/App/styles.less.
 // Licence basis: ../THIRD_PARTY_NOTICES.md. Element ids reuse the web class names where one exists.
+import { ClassStyles } from "class-styles.slint";
 import { Theme } from "theme.slint";
 
 export struct PosterData {
@@ -30,14 +31,19 @@ component MetaItem inherits Rectangle {
         y: root.rem-size;
         width: root.width - 2 * root.rem-size;
         height: root.height - 2 * root.rem-size;
+        background: ClassStyles.background-or(ClassStyles.meta-item-link, transparent);
+        opacity: ClassStyles.opacity-or(ClassStyles.meta-item-link, 1.0);
+        visible: !ClassStyles.meta-item-link.hidden;
 
         poster-container := Rectangle {
             x: 0px;
             y: 0px;
             width: parent.width;
             height: self.width * root.poster-shape-ratio;
-            background: Theme.overlay;
+            background: ClassStyles.background-or(ClassStyles.poster-container, Theme.overlay);
             border-radius: 0.75 * root.rem-size;
+            opacity: ClassStyles.opacity-or(ClassStyles.poster-container, 1.0);
+            visible: !ClassStyles.poster-container.hidden;
             clip: true;
 
             if root.card.has-poster: poster-image := Image {
@@ -45,7 +51,8 @@ component MetaItem inherits Rectangle {
                 width: 100%;
                 height: 100%;
                 image-fit: cover;
-                opacity: 0.9;
+                opacity: ClassStyles.opacity-or(ClassStyles.poster-image, 0.9);
+                visible: !ClassStyles.poster-image.hidden;
             }
         }
 
@@ -54,6 +61,9 @@ component MetaItem inherits Rectangle {
             y: poster-container.height;
             width: parent.width;
             height: 4 * root.rem-size;
+            background: ClassStyles.background-or(ClassStyles.title-bar-container, transparent);
+            opacity: ClassStyles.opacity-or(ClassStyles.title-bar-container, 1.0);
+            visible: !ClassStyles.title-bar-container.hidden;
 
             title-label := Text {
                 x: 0.5 * root.rem-size;
@@ -66,7 +76,9 @@ component MetaItem inherits Rectangle {
                 overflow: elide;
                 font-size: root.rem-size;
                 font-weight: 600;
-                color: Theme.text;
+                color: ClassStyles.color-or(ClassStyles.title-label, Theme.text);
+                opacity: ClassStyles.opacity-or(ClassStyles.title-label, 1.0);
+                visible: !ClassStyles.title-label.hidden;
             }
         }
 
@@ -97,6 +109,9 @@ component MetaRow inherits Rectangle {
         y: 0px;
         width: parent.width;
         height: 2.5 * root.rem-size;
+        background: ClassStyles.background-or(ClassStyles.header-container, transparent);
+        opacity: ClassStyles.opacity-or(ClassStyles.header-container, 1.0);
+        visible: !ClassStyles.header-container.hidden;
 
         title-container := Text {
             x: root.rem-size;
@@ -108,7 +123,9 @@ component MetaRow inherits Rectangle {
             overflow: elide;
             font-size: 1.6 * root.rem-size;
             font-weight: 500;
-            color: Theme.text;
+            color: ClassStyles.color-or(ClassStyles.title-container, Theme.text);
+            opacity: ClassStyles.opacity-or(ClassStyles.title-container, 1.0);
+            visible: !ClassStyles.title-container.hidden;
         }
 
         see-all-container := Rectangle {
@@ -117,7 +134,9 @@ component MetaRow inherits Rectangle {
             x: parent.width - self.width - root.rem-size;
             y: 0px;
             border-radius: 2.5 * root.rem-size;
-            opacity: 0.6;
+            background: ClassStyles.background-or(ClassStyles.see-all-container, transparent);
+            opacity: ClassStyles.opacity-or(ClassStyles.see-all-container, 0.6);
+            visible: !ClassStyles.see-all-container.hidden;
 
             see-all-layout := HorizontalLayout {
                 padding-left: root.rem-size;
@@ -129,12 +148,12 @@ component MetaRow inherits Rectangle {
                     vertical-alignment: center;
                     font-size: root.rem-size;
                     font-weight: 500;
-                    color: Theme.text;
+                    color: ClassStyles.color-or(ClassStyles.see-all-container, Theme.text);
                 }
                 icon := Image {
                     source: @image-url("icons/chevron-forward.svg");
                     width: 1.5 * root.rem-size;
-                    colorize: Theme.text;
+                    colorize: ClassStyles.color-or(ClassStyles.see-all-container, Theme.text);
                 }
             }
         }
@@ -145,6 +164,9 @@ component MetaRow inherits Rectangle {
         y: 2.75 * root.rem-size;
         width: parent.width;
         height: root.item-height;
+        background: ClassStyles.background-or(ClassStyles.meta-items-container, transparent);
+        opacity: ClassStyles.opacity-or(ClassStyles.meta-items-container, 1.0);
+        visible: !ClassStyles.meta-items-container.hidden;
 
         for card[index] in root.catalog.cards: MetaItem {
             x: index * root.item-width;
@@ -193,6 +215,9 @@ export component BoardContent inherits Rectangle {
 
             for entry in root.rows: board-row := MetaRow {
                 catalog: entry;
+                background: ClassStyles.background-or(ClassStyles.board-row, transparent);
+                opacity: ClassStyles.opacity-or(ClassStyles.board-row, 1.0);
+                visible: !ClassStyles.board-row.hidden;
                 rem-size: root.rem-size;
                 visible-items: entry.shape == "landscape" && root.poster-items < 10
                     ? root.poster-items - 1 : root.poster-items;

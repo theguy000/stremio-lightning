@@ -28,6 +28,7 @@ use stremio_lightning_core::streaming_server::{
 use stremio_lightning_native_env::NativeEnv;
 use url::Url;
 
+mod class_styles;
 mod player;
 
 slint::include_modules!();
@@ -452,6 +453,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     NativeEnv::init(data_dir.clone(), tokio_runtime.handle().clone()).map_err(|e| e.message())?;
 
     let window = MainWindow::new()?;
+    class_styles::apply(&window);
     let video = player::VideoPlayer::install(&window);
 
     let server = Arc::new(Supervisor::new(
