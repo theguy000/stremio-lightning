@@ -20,8 +20,9 @@ export struct CatalogRow {
     cards: [PosterData],
 }
 
-component MetaItem inherits Rectangle {
+export component MetaItem inherits Rectangle {
     in property <PosterData> card;
+    in property <bool> selected;
     in property <float> poster-shape-ratio;
     in property <length> rem-size;
     callback clicked();
@@ -34,6 +35,18 @@ component MetaItem inherits Rectangle {
         background: ClassStyles.background-or(ClassStyles.meta-item-link, transparent);
         opacity: ClassStyles.opacity-or(ClassStyles.meta-item-link, 1.0);
         visible: !ClassStyles.meta-item-link.hidden;
+
+        // Web: box-shadow 0 0 0 0.2rem on the poster of a selected card.
+        selection-ring := Rectangle {
+            x: -0.2 * root.rem-size;
+            y: -0.2 * root.rem-size;
+            width: parent.width + 0.4 * root.rem-size;
+            height: poster-container.height + 0.4 * root.rem-size;
+            border-radius: 0.95 * root.rem-size;
+            border-width: 0.2 * root.rem-size;
+            border-color: white;
+            visible: root.selected;
+        }
 
         poster-container := Rectangle {
             x: 0px;
@@ -65,13 +78,24 @@ component MetaItem inherits Rectangle {
             opacity: ClassStyles.opacity-or(ClassStyles.title-bar-container, 1.0);
             visible: !ClassStyles.title-bar-container.hidden;
 
+            // Web: -webkit-line-clamp 2. Two lines of height, centred in the 4rem bar; Slint elides the last line that fits.
+            title-measure := Text {
+                width: parent.width - root.rem-size;
+                text: root.card.title;
+                wrap: word-wrap;
+                font-size: root.rem-size;
+                font-weight: 600;
+                visible: false;
+            }
+
             title-label := Text {
                 x: 0.5 * root.rem-size;
                 width: parent.width - root.rem-size;
-                height: parent.height;
+                height: Math.min(title-measure.preferred-height, 2.6 * root.rem-size);
+                y: (parent.height - self.height) / 2;
                 text: root.card.title;
                 horizontal-alignment: center;
-                vertical-alignment: center;
+                vertical-alignment: top;
                 wrap: word-wrap;
                 overflow: elide;
                 font-size: root.rem-size;
@@ -189,9 +213,7 @@ export component BoardContent inherits Rectangle {
     in property <length> viewport-width;
     callback open-item(string, string, string);
 
-    property <length> rem-size: root.viewport-width > 2800px ? 18px
-        : root.viewport-width <= 1600px ? 14px
-        : root.viewport-width <= 2200px ? 15px : 16px;
+    property <length> rem-size: Theme.rem-size(root.viewport-width);
     property <int> poster-items: root.viewport-width <= 800px ? 4
         : root.viewport-width <= 1000px ? 5
         : root.viewport-width <= 1300px ? 6

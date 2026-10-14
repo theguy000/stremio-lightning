@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use futures::StreamExt;
-use slint::{Image, ModelRc, Rgba8Pixel, SharedPixelBuffer, VecModel, Weak};
+use slint::{Image, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel, Weak};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use stremio_core::constants::{META_RESOURCE_NAME, STREAM_RESOURCE_NAME};
@@ -11,7 +11,9 @@ use stremio_core::models::catalogs_with_extra::{CatalogsWithExtra, Selected};
 use stremio_core::models::common::{Loadable, ResourceError};
 use stremio_core::models::ctx::Ctx;
 use stremio_core::models::meta_details::{MetaDetails, Selected as DetailsSelected};
-use stremio_core::runtime::msg::{Action, ActionCatalogsWithExtra, ActionLoad};
+use stremio_core::runtime::msg::{
+    Action, ActionCatalogWithFilters, ActionCatalogsWithExtra, ActionLoad,
+};
 use stremio_core::runtime::{Env, Runtime, RuntimeAction, RuntimeEvent};
 use stremio_core::types::addon::{ResourcePath, ResourceRequest};
 use stremio_core::types::events::DismissedEventsBucket;
@@ -77,10 +79,12 @@ struct DetailsData {
     streams: Vec<(String, String)>,
 }
 
-/// A line saying where the Discover screen stands. The grid of cards comes with the grid.
+/// What the Discover screen shows: the labels of its first three inputs and every card loaded so far.
 #[derive(Clone, Default)]
 struct DiscoverData {
-    status: String,
+    shape: &'static str,
+    cards: Vec<Card>,
+    filters: Vec<String>,
 }
 
 #[derive(Clone, Default)]
@@ -139,8 +143,8 @@ fn card_of(item: &MetaItemPreview) -> Card {
     }
 }
 
-fn shape_of(items: &[MetaItemPreview]) -> &'static str {
-    match items.first().map(|item| &item.poster_shape) {
+fn shape_of<'a>(items: impl IntoIterator<Item = &'a MetaItemPreview>) -> &'static str {
+    match items.into_iter().next().map(|item| &item.poster_shape) {
         Some(PosterShape::Square) => "square",
         Some(PosterShape::Landscape) => "landscape",
         _ => "poster",
@@ -180,41 +184,40 @@ fn board_rows(model: &AppModel) -> (String, Vec<RowData>) {
 
 fn discover_data(model: &AppModel) -> DiscoverData {
     let discover = &model.discover;
-    let mut cards = 0;
-    let (mut loading, mut failed) = (0, 0);
+    let mut items: Vec<&MetaItemPreview> = Vec::new();
     for page in &discover.catalog {
-        match &page.content {
-            Some(Loadable::Ready(items)) => cards += items.len(),
-            Some(Loadable::Err(_)) => failed += 1,
-            _ => loading += 1,
+        if let Some(Loadable::Ready(page_items)) = &page.content {
+            items.extend(page_items);
         }
     }
-    let selected = |label: Option<&str>| label.unwrap_or("-").to_owned();
-    let kind = selected(
-        discover
-            .selectable
-            .types
+    let selectable = &discover.selectable;
+    let kind = selectable
+        .types
+        .iter()
+        .find(|item| item.selected)
+        .map(|item| capitalise(&item.r#type));
+    let catalog = selectable
+        .catalogs
+        .iter()
+        .find(|item| item.selected)
+        .map(|item| item.catalog.clone());
+    let extras = selectable.extra.iter().map(|extra| {
+        extra
+            .options
             .iter()
-            .find(|item| item.selected)
-            .map(|item| item.r#type.as_str()),
-    );
-    let catalog = selected(
-        discover
-            .selectable
-            .catalogs
-            .iter()
-            .find(|item| item.selected)
-            .map(|item| item.catalog.as_str()),
-    );
+            .find(|option| option.selected)
+            .and_then(|option| option.value.clone())
+            .unwrap_or_else(|| capitalise(&extra.name))
+    });
     DiscoverData {
-        status: format!(
-            "{} / {catalog}: {} cards, {} pages loading, {failed} failed, {} types and {} catalogs to pick from",
-            capitalise(&kind),
-            cards,
-            loading,
-            discover.selectable.types.len(),
-            discover.selectable.catalogs.len(),
-        ),
+        shape: shape_of(items.iter().copied()),
+        cards: items.iter().copied().map(card_of).collect(),
+        filters: kind
+            .into_iter()
+            .chain(catalog)
+            .chain(extras)
+            .take(3)
+            .collect(),
     }
 }
 
@@ -320,24 +323,22 @@ fn push(weak: &Weak<MainWindow>, snapshot: Snapshot, posters: Posters) {
                 .map(|buffer| Image::from_rgba8(buffer.clone()))
         };
 
+        let poster_card = |card: Card| {
+            let image = image_for(&card.poster);
+            PosterData {
+                item_id: card.id.into(),
+                kind: card.kind.into(),
+                title: card.title.into(),
+                has_poster: image.is_some(),
+                poster: image.unwrap_or_default(),
+            }
+        };
+
         let rows: Vec<CatalogRow> = snapshot
             .rows
             .into_iter()
             .map(|row| {
-                let cards: Vec<PosterData> = row
-                    .cards
-                    .into_iter()
-                    .map(|card| {
-                        let image = image_for(&card.poster);
-                        PosterData {
-                            item_id: card.id.into(),
-                            kind: card.kind.into(),
-                            title: card.title.into(),
-                            has_poster: image.is_some(),
-                            poster: image.unwrap_or_default(),
-                        }
-                    })
-                    .collect();
+                let cards: Vec<PosterData> = row.cards.into_iter().map(&poster_card).collect();
                 CatalogRow {
                     title: row.title.into(),
                     shape: row.shape.into(),
@@ -347,7 +348,21 @@ fn push(weak: &Weak<MainWindow>, snapshot: Snapshot, posters: Posters) {
             .collect();
         window.set_status(snapshot.status.into());
         window.set_rows(ModelRc::new(VecModel::from(rows)));
-        window.set_discover_status(snapshot.discover.status.into());
+        let discover_cards: Vec<PosterData> = snapshot
+            .discover
+            .cards
+            .into_iter()
+            .map(&poster_card)
+            .collect();
+        window.set_discover_cards(ModelRc::new(VecModel::from(discover_cards)));
+        window.set_discover_shape(snapshot.discover.shape.into());
+        let filters: Vec<SharedString> = snapshot
+            .discover
+            .filters
+            .into_iter()
+            .map(Into::into)
+            .collect();
+        window.set_discover_filters(ModelRc::new(VecModel::from(filters)));
 
         let details = snapshot.details;
         if let Some(title) = details.title {
@@ -606,6 +621,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
+    {
+        let runtime = runtime.clone();
+        window.on_load_next_page(move || {
+            runtime.dispatch(RuntimeAction {
+                field: None,
+                action: Action::CatalogWithFilters(ActionCatalogWithFilters::LoadNextPage),
+            });
+        });
+    }
+
     let weak = window.as_weak();
     let reader = runtime.clone();
     tokio_runtime.spawn(events.for_each({
@@ -640,6 +665,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .iter()
                     .flat_map(|row| row.cards.iter())
                     .filter_map(|card| card.poster.clone())
+                    .chain(
+                        snapshot
+                            .discover
+                            .cards
+                            .iter()
+                            .filter_map(|card| card.poster.clone()),
+                    )
                     .chain(snapshot.details.poster.clone())
                     .collect();
                 for url in urls {

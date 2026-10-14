@@ -1,0 +1,155 @@
+// Based on stremio-web (https://github.com/Stremio/stremio-web),
+// Copyright (C) 2017-2024 Smart code 203358507 (upstream's header; the end year varies per file).
+// Layout numbers translated by hand from src/routes/Discover/styles.less, src/common/screen-sizes.less
+// and src/components/MetaItem/styles.less.
+// Licence basis: ../THIRD_PARTY_NOTICES.md. Element ids reuse the web class names where one exists.
+import { MetaItem, PosterData } from "board.slint";
+import { Theme } from "theme.slint";
+
+// Web: <MultiselectMenu class="select-input">. Only the closed label is drawn so far.
+component SelectInput inherits Rectangle {
+    in property <string> label;
+    in property <length> rem-size;
+    height: 3 * root.rem-size;
+    border-radius: 1.5 * root.rem-size;
+    background: Theme.overlay;
+
+    label-container := Text {
+        x: 1.5 * root.rem-size;
+        width: parent.width - 3.5 * root.rem-size - 1.5 * root.rem-size;
+        height: parent.height;
+        text: root.label;
+        vertical-alignment: center;
+        overflow: elide;
+        font-size: root.rem-size;
+        font-weight: 500;
+        color: Theme.text;
+    }
+    icon := Image {
+        source: @image-url("icons/caret-down.svg");
+        width: root.rem-size;
+        height: root.rem-size;
+        x: parent.width - 1.5 * root.rem-size - self.width;
+        y: (parent.height - self.height) / 2;
+        colorize: Theme.caret-icon;
+    }
+}
+
+export component DiscoverContent inherits Rectangle {
+    in property <[PosterData]> cards;
+    in property <string> shape;
+    in property <[string]> filters;
+    in property <length> viewport-width;
+    in-out property <int> selected-index: 0;
+    callback open-item(string, string, string);
+    callback load-next-page();
+
+    property <length> rem-size: Theme.rem-size(root.viewport-width);
+    // Web: the preview panel is `display: none` from @xsmall (1000px) down.
+    property <bool> preview-visible: root.viewport-width > 1000px;
+    property <length> preview-width: root.preview-visible ? 29 * root.rem-size : 0px;
+    property <length> catalog-width: root.width - root.preview-width;
+    property <length> grid-right-margin: root.preview-visible ? 1.5 * root.rem-size : 0px;
+    property <length> grid-width: root.catalog-width - root.grid-right-margin - 3 * root.rem-size;
+    // The last matching rule in styles.less wins: 10 above 2800px, then 9, 8, 7, 6, 5, 4 (1300px),
+    // and 5 again from 1000px down.
+    property <int> columns: root.viewport-width > 2800px ? 10
+        : root.viewport-width > 2500px ? 9
+        : root.viewport-width > 2200px ? 8
+        : root.viewport-width > 1900px ? 7
+        : root.viewport-width > 1600px ? 6
+        : root.viewport-width > 1300px ? 5
+        : root.viewport-width > 1000px ? 4 : 5;
+    property <length> gap: 0.5 * root.rem-size;
+    property <length> cell-width: (root.grid-width - (root.columns - 1) * root.gap) / root.columns;
+    property <float> poster-shape-ratio: root.shape == "square" ? 1.0
+        : root.shape == "landscape" ? 0.5625 : 1.464;
+    property <length> cell-height: 2 * root.rem-size
+        + (root.cell-width - 2 * root.rem-size) * root.poster-shape-ratio
+        + 4 * root.rem-size;
+    property <int> row-count: Math.ceil(root.cards.length / root.columns);
+    // Web: up to three inputs of 15rem that shrink together beside a 5rem filter button slot.
+    property <int> input-count: Math.max(1, Math.min(root.filters.length, 3));
+    property <length> input-width: Math.min(15 * root.rem-size,
+        (root.catalog-width - 3 * root.rem-size - 5 * root.rem-size
+            - (root.input-count - 1) * 1.5 * root.rem-size) / root.input-count);
+
+    function check-end() {
+        if (-meta-items-container.content-y + meta-items-container.height
+            > meta-items-container.content-height - 400px) {
+            root.load-next-page();
+        }
+    }
+
+    discover-content := Rectangle {
+        width: parent.width;
+        height: parent.height;
+
+        catalog-container := Rectangle {
+            x: 0px;
+            width: root.catalog-width;
+            height: parent.height;
+
+            selectable-inputs-container := Rectangle {
+                x: 0px;
+                y: 0px;
+                width: parent.width;
+                height: 6 * root.rem-size;
+
+                for label[index] in root.filters: select-input := SelectInput {
+                    x: 1.5 * root.rem-size + index * (root.input-width + 1.5 * root.rem-size);
+                    y: 1.5 * root.rem-size;
+                    width: root.input-width;
+                    label: label;
+                    rem-size: root.rem-size;
+                    visible: index < 3;
+                }
+            }
+
+            meta-items-container := Flickable {
+                x: 0px;
+                y: 6 * root.rem-size;
+                width: root.catalog-width - root.grid-right-margin;
+                height: parent.height - 6 * root.rem-size;
+                content-width: self.width;
+                content-height: root.row-count * root.cell-height + Math.max(root.row-count - 1, 0) * root.gap;
+                changed content-y => {
+                    root.check-end();
+                }
+                changed content-height => {
+                    root.check-end();
+                }
+
+                for card[index] in root.cards: MetaItem {
+                    x: 1.5 * root.rem-size + Math.mod(index, root.columns) * (root.cell-width + root.gap);
+                    y: Math.floor(index / root.columns) * (root.cell-height + root.gap);
+                    width: root.cell-width;
+                    height: root.cell-height;
+                    card: card;
+                    selected: index == root.selected-index;
+                    rem-size: root.rem-size;
+                    poster-shape-ratio: root.poster-shape-ratio;
+                    // Web: a click on a card that is not selected selects it, a second click opens it.
+                    clicked => {
+                        if (index == root.selected-index || !root.preview-visible) {
+                            root.open-item(card.item-id, card.kind, card.title);
+                        } else {
+                            root.selected-index = index;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Web: the panel shows the selected item. It is an empty panel here.
+        meta-preview-container := Rectangle {
+            x: root.catalog-width;
+            width: root.preview-width;
+            height: parent.height;
+            visible: root.preview-visible;
+            background: Theme.modal-background;
+            border-top-left-radius: 0.75 * root.rem-size;
+            border-bottom-left-radius: 0.75 * root.rem-size;
+        }
+    }
+}

@@ -2,6 +2,7 @@ import { Button, ScrollView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 import { HorizontalNavBar, Section, VerticalNavBar } from "shell.slint";
 import { BoardContent, CatalogRow, PosterData } from "board.slint";
+import { DiscoverContent } from "discover.slint";
 import { ClassStyle, ClassStyles } from "class-styles.slint";
 
 export { CatalogRow, ClassStyle, ClassStyles, PosterData }
@@ -21,7 +22,9 @@ export component MainWindow inherits Window {
     in property <string> status: "Loading...";
     in property <string> server-status: "Stream server: starting...";
     in property <[CatalogRow]> rows: [];
-    in property <string> discover-status: "Loading...";
+    in property <[PosterData]> discover-cards: [];
+    in property <string> discover-shape: "poster";
+    in property <[string]> discover-filters: [];
 
     in-out property <bool> details-open: false;
     in property <string> details-title;
@@ -41,6 +44,7 @@ export component MainWindow inherits Window {
     in property <string> play-message;
 
     callback open-item(string, string, string);
+    callback load-next-page();
     callback play-stream(int);
     callback stop-playback();
 
@@ -54,6 +58,24 @@ export component MainWindow inherits Window {
         open-item(id, kind, title) => {
             root.details-open = true;
             root.open-item(id, kind, title);
+        }
+    }
+
+    if root.section == Section.discover && !root.details-open && !root.playing: DiscoverContent {
+        x: root.nav-width;
+        y: root.bar-height;
+        width: parent.width - root.nav-width;
+        height: parent.height - root.bar-height;
+        cards: root.discover-cards;
+        shape: root.discover-shape;
+        filters: root.discover-filters;
+        viewport-width: root.width;
+        open-item(id, kind, title) => {
+            root.details-open = true;
+            root.open-item(id, kind, title);
+        }
+        load-next-page => {
+            root.load-next-page();
         }
     }
 
@@ -179,7 +201,7 @@ export component MainWindow inherits Window {
         }
     }
 
-    if root.section != Section.board && !root.details-open && !root.playing: VerticalLayout {
+    if root.section != Section.board && root.section != Section.discover && !root.details-open && !root.playing: VerticalLayout {
         x: root.nav-width;
         y: root.bar-height;
         width: parent.width - root.nav-width;
@@ -195,7 +217,7 @@ export component MainWindow inherits Window {
             font-weight: 700;
         }
         Text {
-            text: root.section == Section.discover ? root.discover-status : "This screen is not built yet.";
+            text: "This screen is not built yet.";
             color: #9d9bb0;
             font-size: 14px;
         }
