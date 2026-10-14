@@ -1,14 +1,16 @@
 // Style overrides keyed by the stremio-web class names.
 //
 // A theme (`*.theme.css`, see ../src/class_styles.rs) is parsed on startup and written into
-// `ClassStyles`, one entry per class. An element that reuses a web class name reads its entry
+// `ClassStyles`, one entry per element. An element that reuses a web class name reads its entry
 // and falls back to its own default when the theme says nothing:
 //
 //     background: ClassStyles.background-or(ClassStyles.header-container, transparent);
 //
 // `hidden` hides the element but keeps its layout space, like `visibility: hidden` on the web.
 // Each element honours only the properties that make sense for it; ../THEMES.md lists which.
-// The others are accepted and ignored. ../src/class_styles.rs lists the classes in `classes!`.
+// The others are accepted and ignored. An element that carries several web classes still has one
+// entry, named after its id; ../src/class_styles.rs lists the classes of each in `elements!` and
+// applies the rules in file order.
 
 export struct ClassStyle {
     has-color: bool,
@@ -31,6 +33,20 @@ export global ClassStyles {
     in property <ClassStyle> poster-image;
     in property <ClassStyle> title-bar-container;
     in property <ClassStyle> title-label;
+    in property <ClassStyle> horizontal-nav-bar-container;
+    in property <ClassStyle> logo-container;
+    in property <ClassStyle> logo;
+    in property <ClassStyle> search-bar-container;
+    in property <ClassStyle> search-input;
+    in property <ClassStyle> placeholder-label;
+    in property <ClassStyle> submit-button-container;
+    in property <ClassStyle> buttons-container;
+    in property <ClassStyle> button-container;
+    in property <ClassStyle> menu-toggle;
+    in property <ClassStyle> avatar;
+    in property <ClassStyle> vertical-nav-bar-container;
+    in property <ClassStyle> nav-tab-button-container;
+    in property <ClassStyle> icon;
 
     pure public function color-or(style: ClassStyle, fallback: color) -> color {
         return style.has-color ? style.color : fallback;
