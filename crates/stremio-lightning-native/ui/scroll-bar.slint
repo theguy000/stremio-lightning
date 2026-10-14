@@ -15,6 +15,7 @@ import { Theme } from "theme.slint";
 //         offset <=> flick.content-y;
 //     }
 //
+// The thumb turns white while the pointer is on the bar or dragging it.
 // Drag the thumb to scroll. Click the track above or below the thumb to move one page.
 // `active: false` makes it invisible, for areas where the web only shows the bar while the pointer
 // is over them. `engaged` is true while the pointer is on the bar or dragging it, so the parent can
@@ -43,8 +44,9 @@ export component ScrollBar inherits Rectangle {
         width: parent.width;
         height: root.thumb-height;
         border-radius: 3px;
-        // Stays --overlay-color on hover: Chrome ignores the web's accent :hover rule when scrollbar-color is set.
-        background: Theme.overlay;
+        // Web: --overlay-color at rest. The web's `:hover` rule says accent, but Chrome does not apply it when
+        // scrollbar-color is set and shows white, so hover and drag use Theme.scroll-thumb-hover (white).
+        background: root.engaged ? Theme.scroll-thumb-hover : Theme.overlay;
     }
 
     touch := TouchArea {
