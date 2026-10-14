@@ -70,6 +70,14 @@ elements! {
     set_select_input => ["select-input", "multiselect-menu"],
     set_dropdown => ["dropdown"],
     set_option => ["option"],
+    set_placeholder => ["placeholder"],
+    set_title => ["title"],
+    set_image_container => ["image-container"],
+    set_image => ["image"],
+    set_overview => ["overview"],
+    set_point => ["point"],
+    set_text => ["text"],
+    set_button => ["button", "button-container"],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
