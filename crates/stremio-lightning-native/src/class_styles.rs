@@ -78,6 +78,7 @@ elements! {
     set_point => ["point"],
     set_text => ["text"],
     set_button => ["button", "button-container"],
+    set_label => ["label"],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
