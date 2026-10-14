@@ -1,0 +1,213 @@
+import { Theme } from "theme.slint";
+
+export enum Section {
+    board,
+    discover,
+    library,
+    calendar,
+    addons,
+    settings,
+}
+
+component NavTabButton inherits Rectangle {
+    in property <image> icon;
+    in property <bool> selected;
+    callback clicked();
+    width: 67px;
+    height: 67px;
+    border-radius: 10.5px;
+
+    Image {
+        source: root.icon;
+        x: 19px;
+        y: 8px;
+        width: 31px;
+        height: 31px;
+        colorize: root.selected ? Theme.accent : Theme.icon-muted;
+    }
+
+    TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+export component VerticalNavBar inherits Rectangle {
+    in property <Section> section;
+    callback select(Section);
+    width: 84px;
+
+    NavTabButton {
+        x: 8px;
+        y: 14px;
+        icon: root.section == Section.board ? @image-url("icons/home.svg") : @image-url("icons/home-outline.svg");
+        selected: root.section == Section.board;
+        clicked => {
+            root.select(Section.board);
+        }
+    }
+    NavTabButton {
+        x: 8px;
+        y: 95.2px;
+        icon: root.section == Section.discover ? @image-url("icons/discover.svg") : @image-url("icons/discover-outline.svg");
+        selected: root.section == Section.discover;
+        clicked => {
+            root.select(Section.discover);
+        }
+    }
+    NavTabButton {
+        x: 8px;
+        y: 176.4px;
+        icon: root.section == Section.library ? @image-url("icons/library.svg") : @image-url("icons/library-outline.svg");
+        selected: root.section == Section.library;
+        clicked => {
+            root.select(Section.library);
+        }
+    }
+    NavTabButton {
+        x: 8px;
+        y: 257px;
+        icon: root.section == Section.calendar ? @image-url("icons/calendar.svg") : @image-url("icons/calendar-outline.svg");
+        selected: root.section == Section.calendar;
+        clicked => {
+            root.select(Section.calendar);
+        }
+    }
+    NavTabButton {
+        x: 8px;
+        y: 338px;
+        icon: root.section == Section.addons ? @image-url("icons/addons.svg") : @image-url("icons/addons-outline.svg");
+        selected: root.section == Section.addons;
+        clicked => {
+            root.select(Section.addons);
+        }
+    }
+    NavTabButton {
+        x: 8px;
+        y: 420px;
+        icon: root.section == Section.settings ? @image-url("icons/settings.svg") : @image-url("icons/settings-outline.svg");
+        selected: root.section == Section.settings;
+        clicked => {
+            root.select(Section.settings);
+        }
+    }
+}
+
+export component HorizontalNavBar inherits Rectangle {
+    callback toggle-fullscreen();
+    height: 77px;
+
+    logo-container := Rectangle {
+        x: 0px;
+        y: 0px;
+        width: 84px;
+        height: 77px;
+
+        Path {
+            x: 21px;
+            y: 17px;
+            width: 43px;
+            height: 43px;
+            viewbox-width: 512;
+            viewbox-height: 512;
+            commands: "M225.55 197.05 L332.08 256.15 L225.55 315.25 Z";
+            fill: #e7e7e9;
+        }
+        Image {
+            source: @image-url("icons/symbol.svg");
+            x: 21px;
+            y: 17px;
+            width: 43px;
+            height: 43px;
+            colorize: @linear-gradient(180deg, #7557e8 0%, #2c4fce 100%);
+        }
+    }
+
+    search-bar-container := Rectangle {
+        x: 84px + (root.width - 14px - 133px - 84px - self.width) / 2;
+        y: 16px;
+        width: 420px;
+        height: 46px;
+        border-radius: 23px;
+        background: Theme.overlay;
+
+        search-input := TextInput {
+            x: 28px;
+            width: 326px;
+            height: parent.height;
+            single-line: true;
+            vertical-alignment: center;
+            font-size: 14px;
+            font-weight: 500;
+            color: Theme.text;
+        }
+        if search-input.text == "": Text {
+            x: 28px;
+            height: parent.height;
+            text: "Search or paste link";
+            vertical-alignment: center;
+            font-size: 14px;
+            font-weight: 500;
+            color: Theme.placeholder;
+        }
+        Image {
+            source: @image-url("icons/search.svg");
+            x: 375px;
+            y: 11px;
+            width: 24px;
+            height: 24px;
+            colorize: Theme.search-icon;
+        }
+    }
+
+    buttons-container := Rectangle {
+        x: parent.width - 147px;
+        y: 14px;
+        width: 133px;
+        height: 49px;
+
+        button-container := Rectangle {
+            x: 0px;
+            y: 0px;
+            width: 49px;
+            height: 49px;
+            border-radius: 10.5px;
+            Image {
+                source: @image-url("icons/maximize.svg");
+                x: 11px;
+                y: 11px;
+                width: 28px;
+                height: 28px;
+                colorize: Theme.toolbar-icon;
+            }
+            TouchArea {
+                clicked => {
+                    root.toggle-fullscreen();
+                }
+            }
+        }
+        menu-toggle := Rectangle {
+            x: 56px;
+            width: 77px;
+            height: 49px;
+            border-radius: 10.5px;
+            avatar := Rectangle {
+                x: 11px;
+                y: 11px;
+                width: 28px;
+                height: 28px;
+                border-radius: 14px;
+                background: Theme.avatar;
+            }
+            Image {
+                source: @image-url("icons/caret-down.svg");
+                x: 53px;
+                y: 18px;
+                width: 14px;
+                height: 14px;
+                colorize: Theme.caret-icon;
+            }
+        }
+    }
+}
