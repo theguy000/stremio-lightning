@@ -237,32 +237,16 @@ export component HorizontalNavBar inherits Rectangle {
             opacity: ClassStyles.opacity-or(ClassStyles.logo-container, 1.0);
             visible: !(ClassStyles.logo-container).hidden;
 
-            logo := Rectangle {
-                x: (21 * root.rem-size / 14);
-                y: (17 * root.rem-size / 14);
-                width: (43 * root.rem-size / 14);
-                height: (43 * root.rem-size / 14);
-                opacity: ClassStyles.opacity-or(ClassStyles.logo, 1.0);
+            // Stremio Lightning's own logo (assets/icons/128x128.png) in the web's logo slot: 35x35 in the 84x77 container.
+            logo := Image {
+                source: @image-url("images/stremio-lightning.png");
+                x: (25 * root.rem-size / 14);
+                y: (21 * root.rem-size / 14);
+                width: (35 * root.rem-size / 14);
+                height: (35 * root.rem-size / 14);
+                // Web: .logo { opacity: 0.9 }
+                opacity: ClassStyles.opacity-or(ClassStyles.logo, 0.9);
                 visible: !ClassStyles.logo.hidden;
-
-                Path {
-                    x: 0px;
-                    y: 0px;
-                    width: (43 * root.rem-size / 14);
-                    height: (43 * root.rem-size / 14);
-                    viewbox-width: 512;
-                    viewbox-height: 512;
-                    commands: "M225.55 197.05 L332.08 256.15 L225.55 315.25 Z";
-                    fill: #e7e7e9;
-                }
-                Image {
-                    source: @image-url("icons/symbol.svg");
-                    x: 0px;
-                    y: 0px;
-                    width: (43 * root.rem-size / 14);
-                    height: (43 * root.rem-size / 14);
-                    colorize: @linear-gradient(180deg, #7557e8 0%, #2c4fce 100%);
-                }
             }
         }
 
