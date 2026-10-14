@@ -383,18 +383,7 @@ export component DiscoverContent inherits Rectangle {
                                 source: root.preview.logo;
                                 image-fit: contain;
                             }
-                            if !root.preview.has-logo: logo-placeholder := Text {
-                                x: 0px;
-                                y: 0px;
-                                width: parent.width;
-                                height: 6 * root.rem-size;
-                                text: root.preview.title;
-                                wrap: word-wrap;
-                                overflow: elide;
-                                vertical-alignment: top;
-                                font-size: 1.7 * root.rem-size;
-                                color: Theme.text;
-                            }
+                            // Web shows no title text here while the logo loads, and none when the item has no logo.
                         }
 
                         runtime-release-info-container := HorizontalLayout {
