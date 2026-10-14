@@ -1,3 +1,4 @@
+import { ClassStyles } from "class-styles.slint";
 import { Theme } from "theme.slint";
 
 export enum Section {
@@ -9,128 +10,124 @@ export enum Section {
     settings,
 }
 
+// Web: <a class="nav-tab-button nav-tab-button-container [selected]">. `selected` is not themable yet.
 component NavTabButton inherits Rectangle {
-    in property <image> icon;
+    in property <image> tab-icon;
     in property <bool> selected;
     callback clicked();
     width: 67px;
     height: 67px;
-    border-radius: 10.5px;
 
-    Image {
-        source: root.icon;
-        x: 19px;
-        y: 8px;
-        width: 31px;
-        height: 31px;
-        colorize: root.selected ? Theme.accent : Theme.icon-muted;
-    }
+    nav-tab-button-container := Rectangle {
+        width: parent.width;
+        height: parent.height;
+        border-radius: 10.5px;
+        background: ClassStyles.background-or(ClassStyles.nav-tab-button-container, transparent);
+        opacity: ClassStyles.opacity-or(ClassStyles.nav-tab-button-container, 1.0);
+        visible: !(ClassStyles.nav-tab-button-container).hidden;
 
-    TouchArea {
-        clicked => {
-            root.clicked();
+        icon := Image {
+            source: root.tab-icon;
+            x: 19px;
+            y: 8px;
+            width: 31px;
+            height: 31px;
+            colorize: root.selected ? Theme.accent : ClassStyles.color-or(ClassStyles.icon, Theme.icon-muted);
+            // The web dims unselected nav icons to 0.35. The default colour already includes that.
+            opacity: root.selected || !ClassStyles.icon.has-color ? 1.0 : 0.35;
+            visible: !ClassStyles.icon.hidden;
+        }
+
+        TouchArea {
+            clicked => {
+                root.clicked();
+            }
         }
     }
 }
 
+// Web: <nav class="vertical-nav-bar vertical-nav-bar-container">
 export component VerticalNavBar inherits Rectangle {
     in property <Section> section;
     callback select(Section);
     width: 84px;
 
-    NavTabButton {
-        x: 8px;
-        y: 14px;
-        icon: root.section == Section.board ? @image-url("icons/home.svg") : @image-url("icons/home-outline.svg");
-        selected: root.section == Section.board;
-        clicked => {
-            root.select(Section.board);
+    vertical-nav-bar-container := Rectangle {
+        width: parent.width;
+        height: parent.height;
+        background: ClassStyles.background-or(ClassStyles.vertical-nav-bar-container, transparent);
+        opacity: ClassStyles.opacity-or(ClassStyles.vertical-nav-bar-container, 1.0);
+        visible: !(ClassStyles.vertical-nav-bar-container).hidden;
+
+        NavTabButton {
+            x: 8px;
+            y: 14px;
+            tab-icon: root.section == Section.board ? @image-url("icons/home.svg") : @image-url("icons/home-outline.svg");
+            selected: root.section == Section.board;
+            clicked => {
+                root.select(Section.board);
+            }
         }
-    }
-    NavTabButton {
-        x: 8px;
-        y: 95.2px;
-        icon: root.section == Section.discover ? @image-url("icons/discover.svg") : @image-url("icons/discover-outline.svg");
-        selected: root.section == Section.discover;
-        clicked => {
-            root.select(Section.discover);
+        NavTabButton {
+            x: 8px;
+            y: 95.2px;
+            tab-icon: root.section == Section.discover ? @image-url("icons/discover.svg") : @image-url("icons/discover-outline.svg");
+            selected: root.section == Section.discover;
+            clicked => {
+                root.select(Section.discover);
+            }
         }
-    }
-    NavTabButton {
-        x: 8px;
-        y: 176.4px;
-        icon: root.section == Section.library ? @image-url("icons/library.svg") : @image-url("icons/library-outline.svg");
-        selected: root.section == Section.library;
-        clicked => {
-            root.select(Section.library);
+        NavTabButton {
+            x: 8px;
+            y: 176.4px;
+            tab-icon: root.section == Section.library ? @image-url("icons/library.svg") : @image-url("icons/library-outline.svg");
+            selected: root.section == Section.library;
+            clicked => {
+                root.select(Section.library);
+            }
         }
-    }
-    NavTabButton {
-        x: 8px;
-        y: 257px;
-        icon: root.section == Section.calendar ? @image-url("icons/calendar.svg") : @image-url("icons/calendar-outline.svg");
-        selected: root.section == Section.calendar;
-        clicked => {
-            root.select(Section.calendar);
+        NavTabButton {
+            x: 8px;
+            y: 257px;
+            tab-icon: root.section == Section.calendar ? @image-url("icons/calendar.svg") : @image-url("icons/calendar-outline.svg");
+            selected: root.section == Section.calendar;
+            clicked => {
+                root.select(Section.calendar);
+            }
         }
-    }
-    NavTabButton {
-        x: 8px;
-        y: 338px;
-        icon: root.section == Section.addons ? @image-url("icons/addons.svg") : @image-url("icons/addons-outline.svg");
-        selected: root.section == Section.addons;
-        clicked => {
-            root.select(Section.addons);
+        NavTabButton {
+            x: 8px;
+            y: 338px;
+            tab-icon: root.section == Section.addons ? @image-url("icons/addons.svg") : @image-url("icons/addons-outline.svg");
+            selected: root.section == Section.addons;
+            clicked => {
+                root.select(Section.addons);
+            }
         }
-    }
-    NavTabButton {
-        x: 8px;
-        y: 420px;
-        icon: root.section == Section.settings ? @image-url("icons/settings.svg") : @image-url("icons/settings-outline.svg");
-        selected: root.section == Section.settings;
-        clicked => {
-            root.select(Section.settings);
+        NavTabButton {
+            x: 8px;
+            y: 420px;
+            tab-icon: root.section == Section.settings ? @image-url("icons/settings.svg") : @image-url("icons/settings-outline.svg");
+            selected: root.section == Section.settings;
+            clicked => {
+                root.select(Section.settings);
+            }
         }
     }
 }
 
-export component HorizontalNavBar inherits Rectangle {
-    callback toggle-fullscreen();
-    height: 77px;
-
-    logo-container := Rectangle {
-        x: 0px;
-        y: 0px;
-        width: 84px;
-        height: 77px;
-
-        Path {
-            x: 21px;
-            y: 17px;
-            width: 43px;
-            height: 43px;
-            viewbox-width: 512;
-            viewbox-height: 512;
-            commands: "M225.55 197.05 L332.08 256.15 L225.55 315.25 Z";
-            fill: #e7e7e9;
-        }
-        Image {
-            source: @image-url("icons/symbol.svg");
-            x: 21px;
-            y: 17px;
-            width: 43px;
-            height: 43px;
-            colorize: @linear-gradient(180deg, #7557e8 0%, #2c4fce 100%);
-        }
-    }
+// Web: <div class="search-bar search-bar-container">
+component SearchBar inherits Rectangle {
+    width: 420px;
+    height: 46px;
 
     search-bar-container := Rectangle {
-        x: 84px + (root.width - 14px - 133px - 84px - self.width) / 2;
-        y: 16px;
-        width: 420px;
-        height: 46px;
+        width: parent.width;
+        height: parent.height;
         border-radius: 23px;
-        background: Theme.overlay;
+        background: ClassStyles.background-or(ClassStyles.search-bar-container, Theme.overlay);
+        opacity: ClassStyles.opacity-or(ClassStyles.search-bar-container, 1.0);
+        visible: !(ClassStyles.search-bar-container).hidden;
 
         search-input := TextInput {
             x: 28px;
@@ -140,73 +137,174 @@ export component HorizontalNavBar inherits Rectangle {
             vertical-alignment: center;
             font-size: 14px;
             font-weight: 500;
-            color: Theme.text;
+            color: ClassStyles.color-or(ClassStyles.search-input, Theme.text);
         }
-        if search-input.text == "": Text {
+        if search-input.text == "": placeholder-label := Text {
             x: 28px;
             height: parent.height;
             text: "Search or paste link";
             vertical-alignment: center;
             font-size: 14px;
             font-weight: 500;
-            color: Theme.placeholder;
+            color: ClassStyles.color-or(ClassStyles.placeholder-label, Theme.placeholder);
         }
-        Image {
-            source: @image-url("icons/search.svg");
-            x: 375px;
-            y: 11px;
-            width: 24px;
-            height: 24px;
-            colorize: Theme.search-icon;
+        submit-button-container := Rectangle {
+            x: 354px;
+            width: 66px;
+            height: parent.height;
+            background: ClassStyles.background-or(ClassStyles.submit-button-container, transparent);
+            opacity: ClassStyles.opacity-or(ClassStyles.submit-button-container, 1.0);
+            visible: !(ClassStyles.submit-button-container).hidden;
+
+            icon := Image {
+                source: @image-url("icons/search.svg");
+                x: 21px;
+                y: 11px;
+                width: 24px;
+                height: 24px;
+                colorize: ClassStyles.color-or(ClassStyles.icon, Theme.search-icon);
+                // The web draws this icon at 0.6.
+                opacity: ClassStyles.icon.has-color ? 0.6 : 1.0;
+                visible: !ClassStyles.icon.hidden;
+            }
         }
     }
+}
 
-    buttons-container := Rectangle {
-        x: parent.width - 147px;
-        y: 14px;
-        width: 133px;
-        height: 49px;
+// Web: <div class="button-container"> with an icon, here the fullscreen button.
+component NavButton inherits Rectangle {
+    in property <image> icon-source;
+    callback clicked();
+    width: 49px;
+    height: 49px;
 
-        button-container := Rectangle {
+    button-container := Rectangle {
+        width: parent.width;
+        height: parent.height;
+        border-radius: 10.5px;
+        background: ClassStyles.background-or(ClassStyles.button-container, transparent);
+        opacity: ClassStyles.opacity-or(ClassStyles.button-container, 1.0);
+        visible: !(ClassStyles.button-container).hidden;
+
+        icon := Image {
+            source: root.icon-source;
+            x: 11px;
+            y: 11px;
+            width: 28px;
+            height: 28px;
+            colorize: ClassStyles.color-or(ClassStyles.icon, Theme.toolbar-icon);
+            // The web draws button icons at 0.6 inside a container at 0.6.
+            opacity: ClassStyles.icon.has-color ? 0.36 : 1.0;
+            visible: !ClassStyles.icon.hidden;
+        }
+        TouchArea {
+            clicked => {
+                root.clicked();
+            }
+        }
+    }
+}
+
+// Web: <nav class="horizontal-nav-bar horizontal-nav-bar-container">
+export component HorizontalNavBar inherits Rectangle {
+    callback toggle-fullscreen();
+    height: 77px;
+
+    horizontal-nav-bar-container := Rectangle {
+        width: parent.width;
+        height: parent.height;
+        background: ClassStyles.background-or(ClassStyles.horizontal-nav-bar-container, transparent);
+        opacity: ClassStyles.opacity-or(ClassStyles.horizontal-nav-bar-container, 1.0);
+        visible: !(ClassStyles.horizontal-nav-bar-container).hidden;
+
+        logo-container := Rectangle {
             x: 0px;
             y: 0px;
-            width: 49px;
-            height: 49px;
-            border-radius: 10.5px;
-            Image {
-                source: @image-url("icons/maximize.svg");
-                x: 11px;
-                y: 11px;
-                width: 28px;
-                height: 28px;
-                colorize: Theme.toolbar-icon;
+            width: 84px;
+            height: 77px;
+            background: ClassStyles.background-or(ClassStyles.logo-container, transparent);
+            opacity: ClassStyles.opacity-or(ClassStyles.logo-container, 1.0);
+            visible: !(ClassStyles.logo-container).hidden;
+
+            logo := Rectangle {
+                x: 21px;
+                y: 17px;
+                width: 43px;
+                height: 43px;
+                opacity: ClassStyles.opacity-or(ClassStyles.logo, 1.0);
+                visible: !ClassStyles.logo.hidden;
+
+                Path {
+                    x: 0px;
+                    y: 0px;
+                    width: 43px;
+                    height: 43px;
+                    viewbox-width: 512;
+                    viewbox-height: 512;
+                    commands: "M225.55 197.05 L332.08 256.15 L225.55 315.25 Z";
+                    fill: #e7e7e9;
+                }
+                Image {
+                    source: @image-url("icons/symbol.svg");
+                    x: 0px;
+                    y: 0px;
+                    width: 43px;
+                    height: 43px;
+                    colorize: @linear-gradient(180deg, #7557e8 0%, #2c4fce 100%);
+                }
             }
-            TouchArea {
+        }
+
+        search-bar := SearchBar {
+            x: 84px + (root.width - 14px - 133px - 84px - self.width) / 2;
+            y: 16px;
+        }
+
+        buttons-container := Rectangle {
+            x: parent.width - 147px;
+            y: 14px;
+            width: 133px;
+            height: 49px;
+            opacity: ClassStyles.opacity-or(ClassStyles.buttons-container, 1.0);
+            visible: !ClassStyles.buttons-container.hidden;
+
+            NavButton {
+                x: 0px;
+                y: 0px;
+                icon-source: @image-url("icons/maximize.svg");
                 clicked => {
                     root.toggle-fullscreen();
                 }
             }
-        }
-        menu-toggle := Rectangle {
-            x: 56px;
-            width: 77px;
-            height: 49px;
-            border-radius: 10.5px;
-            avatar := Rectangle {
-                x: 11px;
-                y: 11px;
-                width: 28px;
-                height: 28px;
-                border-radius: 14px;
-                background: Theme.avatar;
-            }
-            Image {
-                source: @image-url("icons/caret-down.svg");
-                x: 53px;
-                y: 18px;
-                width: 14px;
-                height: 14px;
-                colorize: Theme.caret-icon;
+            // Web: class="label-container nav-menu-popup-label menu-toggle menu-button-container button-container"
+            menu-toggle := Rectangle {
+                x: 56px;
+                width: 77px;
+                height: 49px;
+                border-radius: 10.5px;
+                background: ClassStyles.background-or(ClassStyles.menu-toggle, transparent);
+                opacity: ClassStyles.opacity-or(ClassStyles.menu-toggle, 1.0);
+                visible: !(ClassStyles.menu-toggle).hidden;
+
+                avatar := Rectangle {
+                    x: 11px;
+                    y: 11px;
+                    width: 28px;
+                    height: 28px;
+                    border-radius: 14px;
+                    background: ClassStyles.background-or(ClassStyles.avatar, Theme.avatar);
+                    opacity: ClassStyles.opacity-or(ClassStyles.avatar, 1.0);
+                    visible: !(ClassStyles.avatar).hidden;
+
+                }
+                Image {
+                    source: @image-url("icons/caret-down.svg");
+                    x: 53px;
+                    y: 18px;
+                    width: 14px;
+                    height: 14px;
+                    colorize: Theme.caret-icon;
+                }
             }
         }
     }

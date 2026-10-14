@@ -15,9 +15,11 @@
 //!   space, like `visibility: hidden` on the web.
 //! - Colours as `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`, `rgb()`, `rgba()` and `transparent`.
 //!
-//! Everything else is reported on stderr and skipped. Specificity is not computed: a later
-//! declaration wins, and files load in file name order. Themes live in the same folder the
-//! other shells use, `<data_local_dir>/stremio-lightning/themes`.
+//! Everything else is reported on stderr and skipped. Specificity is not computed: every
+//! supported selector weighs the same, so a later declaration wins and files load in file name
+//! order. An element that carries several web classes is reached through any of them (the menu
+//! toggle carries five), and the file order decides between them, not the class list. Themes
+//! live in the same folder the other shells use, `<data_local_dir>/stremio-lightning/themes`.
 
 use std::fmt;
 
@@ -28,27 +30,43 @@ use crate::{ClassStyle, ClassStyles, MainWindow};
 
 type Setter = fn(&ClassStyles<'_>, ClassStyle);
 
-/// The classes a theme can reach. Each one needs a matching `in property` in
-/// `ui/class-styles.slint` and an element with that id that reads it.
-macro_rules! classes {
-    ($($class:literal => $setter:ident),+ $(,)?) => {
-        const CLASSES: &[(&str, Setter)] = &[
-            $(($class, |globals: &ClassStyles<'_>, style| globals.$setter(style))),+
+/// The elements a theme can reach, each with the web classes it carries. The first class is the
+/// element's id in `ui/*.slint`, and a rule that selects any of its classes applies to it. Each
+/// element needs an `in property` in `ui/class-styles.slint` named after its id, which is the
+/// setter named here.
+macro_rules! elements {
+    ($($setter:ident => [$($class:literal),+]),+ $(,)?) => {
+        const ELEMENTS: &[(&[&str], Setter)] = &[
+            $((&[$($class),+], |globals: &ClassStyles<'_>, style| globals.$setter(style))),+
         ];
     };
 }
 
-classes! {
-    "board-row" => set_board_row,
-    "header-container" => set_header_container,
-    "title-container" => set_title_container,
-    "see-all-container" => set_see_all_container,
-    "meta-items-container" => set_meta_items_container,
-    "meta-item-link" => set_meta_item_link,
-    "poster-container" => set_poster_container,
-    "poster-image" => set_poster_image,
-    "title-bar-container" => set_title_bar_container,
-    "title-label" => set_title_label,
+elements! {
+    set_board_row => ["board-row"],
+    set_header_container => ["header-container"],
+    set_title_container => ["title-container"],
+    set_see_all_container => ["see-all-container"],
+    set_meta_items_container => ["meta-items-container"],
+    set_meta_item_link => ["meta-item-link"],
+    set_poster_container => ["poster-container"],
+    set_poster_image => ["poster-image"],
+    set_title_bar_container => ["title-bar-container"],
+    set_title_label => ["title-label"],
+    set_horizontal_nav_bar_container => ["horizontal-nav-bar-container", "horizontal-nav-bar"],
+    set_logo_container => ["logo-container"],
+    set_logo => ["logo"],
+    set_search_bar_container => ["search-bar-container", "search-bar"],
+    set_search_input => ["search-input"],
+    set_placeholder_label => ["placeholder-label"],
+    set_submit_button_container => ["submit-button-container", "button-container"],
+    set_buttons_container => ["buttons-container"],
+    set_button_container => ["button-container"],
+    set_menu_toggle => ["menu-toggle", "label-container", "nav-menu-popup-label", "menu-button-container", "button-container"],
+    set_avatar => ["avatar"],
+    set_vertical_nav_bar_container => ["vertical-nav-bar-container", "vertical-nav-bar"],
+    set_nav_tab_button_container => ["nav-tab-button-container", "nav-tab-button"],
+    set_icon => ["icon"],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -317,15 +335,17 @@ fn parse_theme(css: &str) -> ParsedTheme {
     theme
 }
 
-/// One merged style per entry of `CLASSES`, plus a warning for each selector that reaches none.
+/// One merged style per entry of `ELEMENTS`, plus a warning for each selector that reaches none.
+/// Rules apply in file order. All supported selectors weigh the same, so the last rule that
+/// reaches an element wins, whichever of the element's classes it names.
 fn resolve(rules: &[Rule]) -> (Vec<Style>, Vec<String>) {
-    let mut styles = vec![Style::default(); CLASSES.len()];
+    let mut styles = vec![Style::default(); ELEMENTS.len()];
     let mut warnings = Vec::new();
     for rule in rules {
         for selector in &rule.selectors {
             let mut matched = false;
-            for ((class, _), style) in CLASSES.iter().zip(&mut styles) {
-                if selector.matches(class) {
+            for ((classes, _), style) in ELEMENTS.iter().zip(&mut styles) {
+                if classes.iter().any(|class| selector.matches(class)) {
                     style.merge(rule.style);
                     matched = true;
                 }
@@ -387,8 +407,8 @@ pub fn apply(window: &MainWindow) {
         eprintln!("themes: {warning}");
     }
     let globals = window.global::<ClassStyles>();
-    for ((_, set_class), style) in CLASSES.iter().zip(styles) {
-        set_class(&globals, to_slint(style));
+    for ((_, set_element), style) in ELEMENTS.iter().zip(styles) {
+        set_element(&globals, to_slint(style));
     }
 }
 
@@ -396,11 +416,11 @@ pub fn apply(window: &MainWindow) {
 mod tests {
     use super::*;
 
-    fn style_of(styles: &[Style], class: &str) -> Style {
-        let index = CLASSES
+    fn style_of(styles: &[Style], element: &str) -> Style {
+        let index = ELEMENTS
             .iter()
-            .position(|(name, _)| *name == class)
-            .expect("a known class");
+            .position(|(classes, _)| classes[0] == element)
+            .expect("a known element");
         styles[index]
     }
 
@@ -461,6 +481,43 @@ mod tests {
         let title = style_of(&styles, "title-label");
         assert_eq!(title.color, None);
         assert_eq!(title.opacity, Some(0.2));
+    }
+
+    #[test]
+    fn a_later_rule_wins_whichever_class_of_an_element_it_names() {
+        // The menu toggle carries both classes, so the file decides and not the class list.
+        let (styles, warnings) = resolved(
+            ".button-container { background: #800080 } .menu-toggle { background: #00ffff }",
+        );
+        assert!(warnings.is_empty(), "{warnings:?}");
+        let cyan = Some(Rgba(0, 255, 255, 255));
+        let purple = Some(Rgba(128, 0, 128, 255));
+        assert_eq!(style_of(&styles, "menu-toggle").background, cyan);
+        assert_eq!(style_of(&styles, "button-container").background, purple);
+        assert_eq!(
+            style_of(&styles, "submit-button-container").background,
+            purple
+        );
+
+        let (styles, _) = resolved(
+            ".menu-toggle { background: #00ffff } .button-container { background: #800080 }",
+        );
+        assert_eq!(style_of(&styles, "menu-toggle").background, purple);
+    }
+
+    #[test]
+    fn a_rule_reaches_an_element_through_any_of_its_classes() {
+        let (styles, warnings) =
+            resolved(".nav-tab-button { color: #f00 } .label-container { opacity: 0.5 }");
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert!(style_of(&styles, "nav-tab-button-container")
+            .color
+            .is_some());
+        assert_eq!(style_of(&styles, "menu-toggle").opacity, Some(0.5));
+        assert_eq!(
+            style_of(&styles, "vertical-nav-bar-container"),
+            Style::default()
+        );
     }
 
     #[test]
