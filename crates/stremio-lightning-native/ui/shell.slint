@@ -243,6 +243,8 @@ component NavButton inherits Rectangle {
 export component HorizontalNavBar inherits Rectangle {
     in property <length> rem-size: 14px;
     callback toggle-fullscreen();
+    // Web: the top bar hides its search box on the Addons route.
+    in property <bool> show-search: true;
     height: (77 * root.rem-size / 14);
 
     horizontal-nav-bar-container := Rectangle {
@@ -275,6 +277,7 @@ export component HorizontalNavBar inherits Rectangle {
         }
 
         search-bar := SearchBar {
+            visible: root.show-search;
             rem-size: root.rem-size;
             x: (84 * root.rem-size / 14) + (root.width - (14 * root.rem-size / 14) - (133 * root.rem-size / 14) - (84 * root.rem-size / 14) - self.width) / 2;
             y: (16 * root.rem-size / 14);

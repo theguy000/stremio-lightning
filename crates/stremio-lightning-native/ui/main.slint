@@ -2,11 +2,12 @@ import { Button, ScrollView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 import { HorizontalNavBar, Section, VerticalNavBar } from "shell.slint";
 import { BoardContent, CatalogRow, PosterData } from "board.slint";
+import { AddonData, AddonsContent } from "addons.slint";
 import { DiscoverContent, SelectInputData } from "discover.slint";
 import { LoggedOutPlaceholder } from "logged-out-placeholder.slint";
 import { SelectOption } from "multiselect-menu.slint";
 import { LinkGroup, PreviewData } from "meta-preview.slint";
-export { LinkGroup, PreviewData, SelectInputData, SelectOption }
+export { AddonData, LinkGroup, PreviewData, SelectInputData, SelectOption }
 import { ClassStyle, ClassStyles } from "class-styles.slint";
 
 export { CatalogRow, ClassStyle, ClassStyles, PosterData }
@@ -30,6 +31,10 @@ export component MainWindow inherits Window {
     in property <string> discover-shape: "poster";
     in property <[SelectInputData]> discover-inputs: [];
     in property <[PreviewData]> discover-previews: [];
+    in property <[AddonData]> addons: [];
+    in property <[SelectInputData]> addon-inputs: [];
+    in property <string> addons-message;
+    in-out property <string> addons-query;
 
     in-out property <bool> details-open: false;
     in property <string> details-title;
@@ -53,6 +58,8 @@ export component MainWindow inherits Window {
     callback load-next-page();
     callback select-preview(int);
     callback select-input-option(int, int);
+    callback select-addon-input-option(int, int);
+    callback search-addons(string);
     callback play-stream(int);
     callback stop-playback();
 
@@ -213,6 +220,7 @@ export component MainWindow inherits Window {
         x: 0px;
         y: 0px;
         width: parent.width;
+        show-search: root.section != Section.addons;
         toggle-fullscreen => {
             root.full-screen = !root.full-screen;
         }
@@ -247,7 +255,25 @@ export component MainWindow inherits Window {
         second-label: "Schedule your personal watching calendar";
     }
 
-    if root.section != Section.board && root.section != Section.discover && root.section != Section.library && root.section != Section.calendar && !root.details-open && !root.playing: VerticalLayout {
+    if root.section == Section.addons && !root.details-open && !root.playing: AddonsContent {
+        x: root.nav-width;
+        y: root.bar-height;
+        width: parent.width - root.nav-width;
+        height: parent.height - root.bar-height;
+        addons: root.addons;
+        inputs: root.addon-inputs;
+        message: root.addons-message;
+        viewport-width: root.width;
+        query <=> root.addons-query;
+        select-option(input, option) => {
+            root.select-addon-input-option(input, option);
+        }
+        search-changed(text) => {
+            root.search-addons(text);
+        }
+    }
+
+    if root.section != Section.board && root.section != Section.discover && root.section != Section.library && root.section != Section.calendar && !root.details-open && root.section != Section.addons && !root.playing: VerticalLayout {
         x: root.nav-width;
         y: root.bar-height;
         width: parent.width - root.nav-width;

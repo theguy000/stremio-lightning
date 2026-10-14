@@ -59,6 +59,20 @@ export global ClassStyles {
     in property <ClassStyle> text;
     in property <ClassStyle> button;
     in property <ClassStyle> label;
+    in property <ClassStyle> addon;
+    in property <ClassStyle> selectable-inputs-container;
+    in property <ClassStyle> add-button-container;
+    in property <ClassStyle> add-button-label;
+    in property <ClassStyle> info-container;
+    in property <ClassStyle> name-container;
+    in property <ClassStyle> version-container;
+    in property <ClassStyle> types-container;
+    in property <ClassStyle> description-container;
+    in property <ClassStyle> action-buttons-container;
+    in property <ClassStyle> uninstall-button-container;
+    in property <ClassStyle> share-button-container;
+    in property <ClassStyle> search;
+    in property <ClassStyle> message-container;
 
     pure public function color-or(style: ClassStyle, fallback: color) -> color {
         return style.has-color ? style.color : fallback;
