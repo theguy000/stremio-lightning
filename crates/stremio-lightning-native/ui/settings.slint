@@ -1,0 +1,444 @@
+// Based on stremio-web (https://github.com/Stremio/stremio-web),
+// Copyright (C) 2017-2024 Smart code 203358507 (upstream's header; the end year varies per file).
+// Numbers translated by hand from src/routes/Settings (Settings.less, Menu/Menu.less, General/User/User.less,
+// components/Section, components/Option, components/Link) and measured on web.stremio.com at 1100x720 (1rem = 14px).
+// Licence basis: ../THIRD_PARTY_NOTICES.md. Element ids are the web class names.
+import { ClassStyles } from "class-styles.slint";
+import { MultiselectMenu, SelectOption } from "multiselect-menu.slint";
+import { ScrollBar } from "scroll-bar.slint";
+import { Theme } from "theme.slint";
+
+// Web: Settings/Menu `.button`. A 4rem pill; dim until selected or hovered.
+component SettingsMenuButton inherits Rectangle {
+    in property <string> label-text;
+    in property <bool> selected;
+    in property <length> rem-size;
+    callback clicked();
+
+    height: 4 * root.rem-size;
+    border-radius: 2 * root.rem-size;
+    background: (root.selected || touch.has-hover) ? ClassStyles.background-or(ClassStyles.button, Theme.overlay) : transparent;
+    opacity: ClassStyles.opacity-or(ClassStyles.button, root.selected ? 1.0 : 0.4);
+    visible: !ClassStyles.button.hidden;
+
+    Text {
+        x: 2 * root.rem-size;
+        y: 0px;
+        width: parent.width - 4 * root.rem-size;
+        height: parent.height;
+        text: root.label-text;
+        overflow: elide;
+        vertical-alignment: center;
+        font-size: 1.1 * root.rem-size;
+        font-weight: root.selected ? 600 : 500;
+        color: ClassStyles.color-or(ClassStyles.button, Theme.text);
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// Web: Settings/Menu `.version-info-label`. One line, 30% opacity, cut with an ellipsis.
+component SettingsVersionLabel inherits Rectangle {
+    in property <string> label-text;
+    in property <length> rem-size;
+
+    height: 18 * root.rem-size / 14;
+
+    version-info-label := Text {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
+        text: root.label-text;
+        overflow: elide;
+        vertical-alignment: center;
+        font-size: root.rem-size;
+        color: ClassStyles.color-or(ClassStyles.version-info-label, Theme.text);
+        opacity: ClassStyles.opacity-or(ClassStyles.version-info-label, 0.3);
+        visible: !ClassStyles.version-info-label.hidden;
+    }
+}
+
+// Web: Settings/components/Link. Accent coloured, 2rem high, underlined on hover.
+component SettingsLink inherits Rectangle {
+    in property <string> label-text;
+    in property <length> rem-size;
+    callback clicked();
+
+    height: 2 * root.rem-size;
+    width: label.width;
+
+    link := Rectangle {
+        width: parent.width;
+        height: parent.height;
+        background: ClassStyles.background-or(ClassStyles.link, transparent);
+        opacity: ClassStyles.opacity-or(ClassStyles.link, 1.0);
+        visible: !ClassStyles.link.hidden;
+
+        label := Text {
+            x: 0px;
+            y: 0px;
+            width: self.preferred-width;
+            height: parent.height;
+            text: root.label-text;
+            vertical-alignment: center;
+            font-size: root.rem-size;
+            color: ClassStyles.color-or(ClassStyles.link, Theme.accent);
+        }
+        // Slint's Text has no underline, so a line stands in for it.
+        Rectangle {
+            x: 0px;
+            y: (parent.height + label.preferred-height) / 2 - 3 * root.rem-size / 14;
+            width: label.width;
+            height: 1px;
+            background: label.color;
+            visible: touch.has-hover;
+        }
+        touch := TouchArea {
+            mouse-cursor: pointer;
+            clicked => {
+                root.clicked();
+            }
+        }
+    }
+}
+
+// Web: Settings/components/Section. A column 35rem wide with a thin line under it, except the last one.
+// Children are placed by the caller, relative to the section's top left.
+component SettingsSection inherits Rectangle {
+    in property <length> rem-size;
+    in property <string> label-text;
+    in property <bool> last;
+
+    background: ClassStyles.background-or(ClassStyles.section, transparent);
+    opacity: ClassStyles.opacity-or(ClassStyles.section, 1.0);
+    visible: !ClassStyles.section.hidden;
+
+    if root.label-text != "": label := Text {
+        x: 0px;
+        y: 3 * root.rem-size;
+        width: parent.width;
+        height: 3.4 * root.rem-size;
+        text: root.label-text;
+        vertical-alignment: center;
+        font-size: 1.8 * root.rem-size;
+        color: ClassStyles.color-or(ClassStyles.label, Theme.text);
+        opacity: ClassStyles.opacity-or(ClassStyles.label, 1.0);
+        visible: !ClassStyles.label.hidden;
+    }
+    Rectangle {
+        x: 0px;
+        y: parent.height - 1px;
+        width: parent.width;
+        height: 1px;
+        background: Theme.overlay;
+        visible: !root.last;
+    }
+    @children
+}
+
+// Web: Settings/components/Option. A label (and an optional icon) in the left half, a control in the right half.
+component SettingsOption inherits Rectangle {
+    in property <length> rem-size;
+    in property <string> label-text;
+    in property <image> icon;
+    in property <bool> has-icon;
+
+    property <length> column: (root.width - 2 * root.rem-size) / 2;
+    // The right-hand half. Children passed in are placed there, but `parent.width` in them is the whole option.
+    out property <length> content-width: root.column;
+
+    background: ClassStyles.background-or(ClassStyles.option, transparent);
+    opacity: ClassStyles.opacity-or(ClassStyles.option, 1.0);
+    visible: !ClassStyles.option.hidden;
+
+    heading := Rectangle {
+        x: 0px;
+        y: 0px;
+        width: root.column;
+        height: parent.height;
+
+        if root.has-icon: Image {
+            source: root.icon;
+            x: 0px;
+            y: 0px;
+            width: 4 * root.rem-size;
+            height: 4 * root.rem-size;
+            colorize: ClassStyles.color-or(ClassStyles.icon, Theme.text);
+            visible: !ClassStyles.icon.hidden;
+        }
+        label := Text {
+            x: root.has-icon ? 4.75 * root.rem-size : 0px;
+            y: 0px;
+            width: root.column - self.x;
+            height: parent.height;
+            text: root.label-text;
+            wrap: word-wrap;
+            overflow: elide;
+            vertical-alignment: center;
+            font-size: root.rem-size;
+            color: ClassStyles.color-or(ClassStyles.label, Theme.text);
+            visible: !ClassStyles.label.hidden;
+        }
+    }
+    content := Rectangle {
+        x: root.column + 2 * root.rem-size;
+        y: 0px;
+        width: root.column;
+        height: parent.height;
+        @children
+    }
+}
+
+// Web: a `.button` inside an Option (Trakt "Authenticate"). Pill, overlay fill, ring and clear fill on hover.
+// Disabled (nobody is logged in) it is dimmed and ignores the pointer.
+component SettingsButton inherits Rectangle {
+    in property <string> label-text;
+    in property <length> rem-size;
+    in property <bool> disabled;
+    callback clicked();
+
+    height: 3.5 * root.rem-size;
+    border-radius: self.height / 2;
+    border-width: (touch.has-hover && !root.disabled) ? 2px : 0px;
+    border-color: Theme.text;
+    background: (touch.has-hover && !root.disabled) ? transparent : ClassStyles.background-or(ClassStyles.button, Theme.overlay);
+    opacity: ClassStyles.opacity-or(ClassStyles.button, root.disabled ? 0.5 : 1.0);
+    visible: !ClassStyles.button.hidden;
+
+    Text {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
+        text: root.label-text;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        font-size: 1.1 * root.rem-size;
+        color: ClassStyles.color-or(ClassStyles.button, Theme.text);
+    }
+    touch := TouchArea {
+        enabled: !root.disabled;
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// Web: routes/Settings. The menu on the left, the sections on the right. Clicking a menu item scrolls to its
+// section; the selected item follows the scroll position (marker = scroll + 50px, bottom = the last section).
+// Built so far: General (user, links, Trakt) and Interface (UI language). Player, Streaming and Shortcuts are not.
+export component SettingsContent inherits Rectangle {
+    in property <length> viewport-width;
+    in property <string> app-version;
+    in property <string> build-version;
+    callback log-in();
+
+    property <length> rem-size: Theme.rem-size(root.viewport-width);
+    property <length> menu-width: 18 * root.rem-size;
+    property <length> sections-padding: 3 * root.rem-size;
+    property <length> section-width: Math.min(35 * root.rem-size, root.width - root.menu-width - 2 * root.sections-padding);
+    // Heights are the web's, plus the 1px line under all but the last section.
+    property <length> user-height: 11 * root.rem-size + 1px;
+    property <length> links-height: 22 * root.rem-size + 1px;
+    property <length> interface-height: 16.4 * root.rem-size;
+    property <length> interface-top: root.user-height + root.links-height;
+    property <length> total-height: root.interface-top + root.interface-height;
+    property <bool> interface-selected: (-sections-container.content-y + 50px >= root.interface-top)
+        || (-sections-container.content-y + sections-container.height >= root.total-height - 10px);
+
+    sections-container := Flickable {
+        x: root.menu-width;
+        y: 0px;
+        width: root.width - root.menu-width;
+        height: root.height;
+        content-width: self.width;
+        content-height: root.total-height;
+
+        SettingsSection {
+            x: root.sections-padding;
+            y: 0px;
+            width: root.section-width;
+            height: root.user-height;
+            rem-size: root.rem-size;
+
+            user := Rectangle {
+                x: 0px;
+                y: 3 * root.rem-size;
+                width: parent.width;
+                height: 5 * root.rem-size;
+
+                avatar-container := Rectangle {
+                    x: 0px;
+                    y: 0px;
+                    width: 5 * root.rem-size;
+                    height: 5 * root.rem-size;
+                    border-radius: self.width / 2;
+                    border-width: 2px;
+                    border-color: ClassStyles.color-or(ClassStyles.avatar-container, Theme.accent);
+                    background: ClassStyles.background-or(ClassStyles.avatar-container, Theme.text);
+                    opacity: ClassStyles.opacity-or(ClassStyles.avatar-container, 0.9);
+                    visible: !ClassStyles.avatar-container.hidden;
+                    clip: true;
+
+                    Image {
+                        source: @image-url("images/anonymous.png");
+                        x: 2px;
+                        y: 2px;
+                        width: parent.width - 4px;
+                        height: parent.height - 4px;
+                        image-fit: cover;
+                    }
+                }
+                email-label := Text {
+                    x: 6 * root.rem-size;
+                    y: (parent.height - self.preferred-height - 2 * root.rem-size) / 2;
+                    width: parent.width - 6 * root.rem-size;
+                    text: "Anonymous user";
+                    overflow: elide;
+                    font-size: 1.1 * root.rem-size;
+                    color: ClassStyles.color-or(ClassStyles.email-label, Theme.text);
+                    opacity: ClassStyles.opacity-or(ClassStyles.email-label, 0.7);
+                    visible: !ClassStyles.email-label.hidden;
+                }
+                SettingsLink {
+                    x: 6 * root.rem-size;
+                    y: email-label.y + email-label.preferred-height;
+                    rem-size: root.rem-size;
+                    label-text: "Log in / Sign up";
+                    clicked => {
+                        root.log-in();
+                    }
+                }
+            }
+        }
+
+        SettingsSection {
+            x: root.sections-padding;
+            y: root.user-height;
+            width: root.section-width;
+            height: root.links-height;
+            rem-size: root.rem-size;
+
+            SettingsLink { x: 0px; y: 3 * root.rem-size; rem-size: root.rem-size; label-text: "Contact support"; }
+            SettingsLink { x: 0px; y: 5 * root.rem-size; rem-size: root.rem-size; label-text: "Source code"; }
+            SettingsLink { x: 0px; y: 7 * root.rem-size; rem-size: root.rem-size; label-text: "Terms of Service"; }
+            SettingsLink { x: 0px; y: 9 * root.rem-size; rem-size: root.rem-size; label-text: "Privacy Policy"; }
+            // Web: `trakt-container option`, 2rem under the links.
+            trakt-container := SettingsOption {
+                x: 0px;
+                y: 13 * root.rem-size;
+                width: parent.width;
+                height: 4 * root.rem-size;
+                rem-size: root.rem-size;
+                label-text: "Trakt Scrobbling";
+                icon: @image-url("icons/trakt.svg");
+                has-icon: true;
+
+                SettingsButton {
+                    x: 0px;
+                    y: (parent.height - self.height) / 2;
+                    width: trakt-container.content-width;
+                    rem-size: root.rem-size;
+                    label-text: "Authenticate";
+                    disabled: true;
+                }
+            }
+        }
+
+        SettingsSection {
+            x: root.sections-padding;
+            y: root.interface-top;
+            width: root.section-width;
+            height: root.interface-height;
+            rem-size: root.rem-size;
+            label-text: "Interface";
+            last: true;
+
+            ui-language := SettingsOption {
+                x: 0px;
+                y: 8.4 * root.rem-size;
+                width: parent.width;
+                height: 3 * root.rem-size;
+                rem-size: root.rem-size;
+                label-text: "UI Language";
+
+                MultiselectMenu {
+                    x: 0px;
+                    y: 0px;
+                    width: ui-language.content-width;
+                    title: "English";
+                    options: [{ label: "English", selected: true }];
+                    selected-index: 0;
+                    rem-size: root.rem-size;
+                }
+            }
+        }
+    }
+
+    // Web: Settings/Menu. 18rem wide, 3rem 1.5rem padding, the version labels at the bottom.
+    menu := Rectangle {
+        x: 0px;
+        y: 0px;
+        width: root.menu-width;
+        height: root.height;
+        background: ClassStyles.background-or(ClassStyles.menu, transparent);
+        opacity: ClassStyles.opacity-or(ClassStyles.menu, 1.0);
+        visible: !ClassStyles.menu.hidden;
+
+        SettingsMenuButton {
+            x: 1.5 * root.rem-size;
+            y: 3 * root.rem-size;
+            width: 15 * root.rem-size;
+            rem-size: root.rem-size;
+            label-text: "General";
+            selected: !root.interface-selected;
+            clicked => {
+                sections-container.content-y = 0px;
+            }
+        }
+        SettingsMenuButton {
+            x: 1.5 * root.rem-size;
+            y: 7.5 * root.rem-size;
+            width: 15 * root.rem-size;
+            rem-size: root.rem-size;
+            label-text: "Interface";
+            selected: root.interface-selected;
+            clicked => {
+                sections-container.content-y = Math.min(Math.max(-root.interface-top, sections-container.height - root.total-height), 0px);
+            }
+        }
+        SettingsMenuButton { x: 1.5 * root.rem-size; y: 12 * root.rem-size; width: 15 * root.rem-size; rem-size: root.rem-size; label-text: "Player"; }
+        SettingsMenuButton { x: 1.5 * root.rem-size; y: 16.5 * root.rem-size; width: 15 * root.rem-size; rem-size: root.rem-size; label-text: "Streaming"; }
+        SettingsMenuButton { x: 1.5 * root.rem-size; y: 21 * root.rem-size; width: 15 * root.rem-size; rem-size: root.rem-size; label-text: "Shortcuts"; }
+
+        SettingsVersionLabel {
+            x: 1.5 * root.rem-size;
+            y: root.height - 99 * root.rem-size / 14;
+            width: 15 * root.rem-size;
+            rem-size: root.rem-size;
+            label-text: "App Version: " + root.app-version;
+        }
+        SettingsVersionLabel {
+            x: 1.5 * root.rem-size;
+            y: root.height - 67 * root.rem-size / 14;
+            width: 15 * root.rem-size;
+            rem-size: root.rem-size;
+            label-text: "Build Version: " + root.build-version;
+        }
+    }
+
+    ScrollBar {
+        x: root.width - 8px;
+        y: 0px;
+        height: root.height;
+        view-height: root.height;
+        content-height: sections-container.content-height;
+        offset <=> sections-container.content-y;
+    }
+}

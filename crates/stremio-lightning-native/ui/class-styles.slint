@@ -73,6 +73,14 @@ export global ClassStyles {
     in property <ClassStyle> share-button-container;
     in property <ClassStyle> search;
     in property <ClassStyle> message-container;
+    in property <ClassStyle> menu;
+    in property <ClassStyle> version-info-label;
+    in property <ClassStyle> sections-container;
+    in property <ClassStyle> section;
+    in property <ClassStyle> user;
+    in property <ClassStyle> avatar-container;
+    in property <ClassStyle> email-label;
+    in property <ClassStyle> link;
 
     pure public function color-or(style: ClassStyle, fallback: color) -> color {
         return style.has-color ? style.color : fallback;

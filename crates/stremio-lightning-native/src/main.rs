@@ -977,6 +977,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
+    window.set_app_version(env!("CARGO_PKG_VERSION").into());
+    window.set_build_version(option_env!("GITHUB_SHA").unwrap_or("dev").into());
+
     let weak = window.as_weak();
     let reader = runtime.clone();
     tokio_runtime.spawn(events.for_each({
