@@ -56,14 +56,14 @@ descendant selectors such as `.a .b`, sizes, margins, gradients and hover states
 | `select-input`, `multiselect-menu` | one filter button on Discover (Movie, Popular, Genre) | | yes | yes | yes |
 | `dropdown` | the list that opens under a filter button | | yes | | |
 | `option` | one row of that list. Hover stays white at 15% | yes | yes | | |
-| `placeholder` | the whole Library screen shown when logged out | | yes | yes | yes |
+| `placeholder` | the whole Library or Calendar screen shown when logged out | | yes | yes | yes |
 | `title` | "Library is only available for logged in users" | yes | | yes | yes |
 | `image-container`, `image` | the picture of posters on that screen | | container only | yes | yes |
 | `overview`, `point` | the two sentences under it. `overview` is layout only; `point` is one icon and sentence | | | `point` only | `point` only |
 | `text` | the sentence of one point | yes | | yes | yes |
 | `button`, `button-container` | the Log in button. Hover (outline, clear background) is not themable | yes | yes | yes | yes |
 
-The Board, the top bar, the side nav, Discover's filter menus and the logged-out Library screen are wired. Details, Player and the other sections have element
+The Board, the top bar, the side nav, Discover's filter menus and the logged-out Library and Calendar screens are wired. Details, Player and the other sections have element
 ids but no class styles yet. The `selected` and `active` states, hover and focus are not themable, and
 `icon` does not reach the selected nav icon or the caret next to the avatar. `.plugin.js` plugins do not
 run in the native app.

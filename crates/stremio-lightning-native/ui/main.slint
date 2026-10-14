@@ -3,7 +3,7 @@ import { Theme } from "theme.slint";
 import { HorizontalNavBar, Section, VerticalNavBar } from "shell.slint";
 import { BoardContent, CatalogRow, PosterData } from "board.slint";
 import { DiscoverContent, SelectInputData } from "discover.slint";
-import { LibraryPlaceholder } from "library-placeholder.slint";
+import { LoggedOutPlaceholder } from "logged-out-placeholder.slint";
 import { SelectOption } from "multiselect-menu.slint";
 import { LinkGroup, PreviewData } from "meta-preview.slint";
 export { LinkGroup, PreviewData, SelectInputData, SelectOption }
@@ -218,16 +218,36 @@ export component MainWindow inherits Window {
         }
     }
 
-    // No login in the native app yet, so Library is always the logged-out screen.
-    if root.section == Section.library && !root.details-open && !root.playing: LibraryPlaceholder {
+    // No login in the native app yet, so Library and Calendar are always the logged-out screens.
+    if root.section == Section.library && !root.details-open && !root.playing: LoggedOutPlaceholder {
         x: root.nav-width;
         y: root.bar-height;
         width: parent.width - root.nav-width;
         height: parent.height - root.bar-height;
         viewport-width: root.width;
+        title-text: "Library is only available for logged in users";
+        picture: @image-url("images/library-placeholder.png");
+        first-glyph: @image-url("icons/cloud-library.svg");
+        first-label: "Access your favorite movies and TV shows anytime, anywhere";
+        second-glyph: @image-url("icons/actors.svg");
+        second-label: "Recommendations tailored to your viewing history";
     }
 
-    if root.section != Section.board && root.section != Section.discover && root.section != Section.library && !root.details-open && !root.playing: VerticalLayout {
+    if root.section == Section.calendar && !root.details-open && !root.playing: LoggedOutPlaceholder {
+        x: root.nav-width;
+        y: root.bar-height;
+        width: parent.width - root.nav-width;
+        height: parent.height - root.bar-height;
+        viewport-width: root.width;
+        title-text: "Calendar is only available for logged in users";
+        picture: @image-url("images/calendar-placeholder.png");
+        first-glyph: @image-url("icons/megaphone.svg");
+        first-label: "Never miss an episode again";
+        second-glyph: @image-url("icons/calendar-thin.svg");
+        second-label: "Schedule your personal watching calendar";
+    }
+
+    if root.section != Section.board && root.section != Section.discover && root.section != Section.library && root.section != Section.calendar && !root.details-open && !root.playing: VerticalLayout {
         x: root.nav-width;
         y: root.bar-height;
         width: parent.width - root.nav-width;
