@@ -60,6 +60,7 @@ export component MainWindow inherits Window {
     background: #0c0b11;
 
     in property <string> status: "Loading...";
+    in property <string> server-status: "Stream server: starting...";
     in property <[CatalogRow]> rows: [];
 
     in-out property <bool> details-open: false;
@@ -85,7 +86,7 @@ export component MainWindow inherits Window {
             font-weight: 700;
         }
         Text {
-            text: root.status;
+            text: root.status + "  |  " + root.server-status;
             color: #9d9bb0;
             font-size: 14px;
         }

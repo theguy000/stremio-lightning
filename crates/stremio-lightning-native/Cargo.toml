@@ -8,9 +8,10 @@ build = "build.rs"
 
 [dependencies]
 stremio-lightning-native-env = { path = "../stremio-lightning-native-env" }
+stremio-lightning-core = { path = "../stremio-lightning-core" }
 stremio-core = { git = "https://github.com/theguy000/stremio-core", branch = "fix/watched-bitfield-flate2", features = ["env-future-send", "derive"] }
 slint = "1.18"
-tokio = { version = "1", features = ["rt-multi-thread", "sync", "fs"] }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "fs", "net", "time"] }
 futures = "0.3"
 serde = { version = "1", features = ["derive"] }
 dirs = "6"
