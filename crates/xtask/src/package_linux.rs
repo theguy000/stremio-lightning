@@ -69,6 +69,7 @@ pub fn package_linux_deb() -> Result<()> {
     fs::create_dir_all(&install_root)?;
     fs::create_dir_all(&bundled_lib_dir)?;
     fs::create_dir_all(deb_root.join("usr/share/applications"))?;
+    fs::create_dir_all(deb_root.join("etc/apparmor.d"))?;
     fs::create_dir_all(deb_root.join("usr/share/icons/hicolor/128x128/apps"))?;
     fs::create_dir_all(&dist_dir)?;
 
@@ -113,6 +114,15 @@ pub fn package_linux_deb() -> Result<()> {
     chmod_executable(install_root.join("resources/stream-server"))?;
     chmod_executable(install_root.join("resources/ffmpeg"))?;
     chmod_executable(install_root.join("resources/ffprobe"))?;
+
+    write_file(
+        deb_root.join("etc/apparmor.d/stremio-lightning"),
+        DEB_APPARMOR_PROFILE,
+    )?;
+    write_file(debian_dir.join("postinst"), DEB_POSTINST)?;
+    write_file(debian_dir.join("prerm"), DEB_PRERM)?;
+    chmod_executable(debian_dir.join("postinst"))?;
+    chmod_executable(debian_dir.join("prerm"))?;
 
     copy_file(
         root.join(format!("assets/{LINUX_DESKTOP_ID}.desktop")),
@@ -253,6 +263,26 @@ fn linux_flatpak_metadata() -> String {
         "[Application]\nname={LINUX_FLATPAK_ID}\nruntime={LINUX_FLATPAK_RUNTIME}/x86_64/{LINUX_FLATPAK_RUNTIME_VERSION}\nsdk={LINUX_FLATPAK_SDK}/x86_64/{LINUX_FLATPAK_RUNTIME_VERSION}\ncommand={PACKAGE_ID}\n\n[Context]\nshared=ipc;network;\nsockets=x11;pulseaudio;\ndevices=dri;\n\n[Session Bus Policy]\norg.freedesktop.Notifications=talk\n{LINUX_FLATPAK_ID}=own\n"
     )
 }
+
+/// Ubuntu 24.04 blocks unprivileged user namespaces, which WebKitGTK's sandbox needs. This profile
+/// allows them for the installed binary only; the sandbox itself stays on.
+const DEB_APPARMOR_PROFILE: &str = include_str!("../../../assets/apparmor/stremio-lightning");
+
+const DEB_POSTINST: &str = "#!/bin/sh
+set -e
+if [ \"$1\" = configure ] && [ -x /usr/sbin/apparmor_parser ] && [ -d /sys/kernel/security/apparmor ]; then
+    apparmor_parser -r -T -W /etc/apparmor.d/stremio-lightning || true
+fi
+exit 0
+";
+
+const DEB_PRERM: &str = "#!/bin/sh
+set -e
+if [ \"$1\" = remove ] && [ -x /usr/sbin/apparmor_parser ] && [ -d /sys/kernel/security/apparmor ]; then
+    apparmor_parser -R /etc/apparmor.d/stremio-lightning || true
+fi
+exit 0
+";
 
 fn linux_deb_launcher_script() -> String {
     format!(
@@ -893,6 +923,15 @@ mod tests {
         let deb = linux_deb_launcher_script();
         assert!(deb.contains("/usr/lib/stremio-lightning/lib"));
         assert!(deb.contains("exec \"/usr/lib/stremio-lightning/stremio-lightning-linux\""));
+    }
+
+    #[test]
+    fn deb_apparmor_profile_covers_the_installed_binary() {
+        let installed = format!("/usr/lib/{PACKAGE_ID}/{LINUX_BIN}");
+        assert!(DEB_APPARMOR_PROFILE.contains(&format!("profile {PACKAGE_ID} {installed} ")));
+        assert!(DEB_APPARMOR_PROFILE.contains("userns,"));
+        assert!(DEB_POSTINST.contains(&format!("/etc/apparmor.d/{PACKAGE_ID}")));
+        assert!(DEB_PRERM.contains(&format!("/etc/apparmor.d/{PACKAGE_ID}")));
     }
 
     #[test]
