@@ -38,6 +38,7 @@ use url::Url;
 mod addons;
 mod class_styles;
 mod player;
+mod settings;
 
 slint::include_modules!();
 
@@ -147,6 +148,7 @@ struct Snapshot {
     discover: DiscoverData,
     details: DetailsData,
     addons: addons::AddonsData,
+    settings: settings::SettingsData,
 }
 
 /// "Popular - Movie": the catalog's name (the addon's name when the catalog has none, as
@@ -471,6 +473,37 @@ fn select_input_data(input: Input) -> SelectInputData {
     }
 }
 
+fn settings_view_data(data: settings::SettingsData) -> SettingsViewData {
+    SettingsViewData {
+        user_email: data.user_email.into(),
+        logged_in: data.logged_in,
+        trakt_authenticated: data.trakt_authenticated,
+        streaming_server_url: data.streaming_server_url.into(),
+        ui_language: select_input_data(data.ui_language),
+        quit_on_close: data.quit_on_close,
+        esc_exit_fullscreen: data.esc_exit_fullscreen,
+        hide_spoilers: data.hide_spoilers,
+        subtitles_language: select_input_data(data.subtitles_language),
+        subtitles_size: select_input_data(data.subtitles_size),
+        subtitles_text_color: select_input_data(data.subtitles_text_color),
+        subtitles_bg_color: select_input_data(data.subtitles_bg_color),
+        subtitles_outline_color: select_input_data(data.subtitles_outline_color),
+        audio_language: select_input_data(data.audio_language),
+        surround_sound: data.surround_sound,
+        seek_time: select_input_data(data.seek_time),
+        seek_short_time: select_input_data(data.seek_short_time),
+        play_in_background: data.play_in_background,
+        binge_watching: data.binge_watching,
+        next_video_duration: select_input_data(data.next_video_duration),
+        external_player: select_input_data(data.external_player),
+        hardware_decoding: data.hardware_decoding,
+        pause_on_minimize: data.pause_on_minimize,
+        caching: select_input_data(data.caching),
+        torrent_profile: select_input_data(data.torrent_profile),
+        transcoding_profile: select_input_data(data.transcoding_profile),
+    }
+}
+
 fn push(weak: &Weak<MainWindow>, snapshot: Snapshot, posters: Posters) {
     let _ = weak.upgrade_in_event_loop(move |window| {
         let cache = posters.lock().unwrap();
@@ -544,6 +577,7 @@ fn push(weak: &Weak<MainWindow>, snapshot: Snapshot, posters: Posters) {
             .collect();
         window.set_addon_inputs(ModelRc::new(VecModel::from(addon_inputs)));
         window.set_addons_message(snapshot.addons.message.into());
+        window.set_settings(settings_view_data(snapshot.settings));
         let previews: Vec<PreviewData> = snapshot
             .discover
             .previews
@@ -833,7 +867,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let posters: Posters = Default::default();
     let requested = Arc::new(Mutex::new(HashSet::<String>::new()));
+    let local_extras = Arc::new(Mutex::new(settings::LocalExtras::load(&data_dir)));
     let latest = Arc::new(Mutex::new(Snapshot::default()));
+    if let Ok(initial_model) = runtime.model() {
+        let initial_settings =
+            settings::settings_data(&initial_model, &local_extras.lock().unwrap());
+        video.apply_settings(&initial_settings.player_config);
+        window.set_settings(settings_view_data(initial_settings.clone()));
+        latest.lock().unwrap().settings = initial_settings;
+    }
     let client = reqwest::Client::new();
     let selected = Arc::new(AtomicUsize::new(0));
 
@@ -876,6 +918,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     {
         let weak = window.as_weak();
+        let video = video.clone();
         window.on_stop_playback(move || {
             video.stop();
             if let Some(window) = weak.upgrade() {
@@ -977,6 +1020,112 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
+    {
+        let (weak, runtime, latest, posters, local_extras, data_dir, video) = (
+            window.as_weak(),
+            runtime.clone(),
+            latest.clone(),
+            posters.clone(),
+            local_extras.clone(),
+            data_dir.clone(),
+            video.clone(),
+        );
+        window.on_select_setting_option(move |key, option| {
+            let Ok(index) = usize::try_from(option) else {
+                return;
+            };
+            let Some(current_settings) =
+                runtime.model().ok().map(|m| m.ctx.profile.settings.clone())
+            else {
+                return;
+            };
+            let updated_profile_settings = {
+                let mut extras = local_extras.lock().unwrap();
+                let res =
+                    settings::apply_select_option(&current_settings, &mut extras, &key, index);
+                extras.save(&data_dir);
+                res
+            };
+            if let Some(new_settings) = updated_profile_settings {
+                settings::dispatch_settings(&runtime, new_settings);
+            }
+            if let Ok(model) = runtime.model() {
+                let new_data = settings::settings_data(&model, &local_extras.lock().unwrap());
+                video.apply_settings(&new_data.player_config);
+                let mut snap = latest.lock().unwrap();
+                snap.settings = new_data;
+                push(&weak, snap.clone(), posters.clone());
+            }
+        });
+    }
+
+    {
+        let (weak, runtime, latest, posters, local_extras, data_dir, video) = (
+            window.as_weak(),
+            runtime.clone(),
+            latest.clone(),
+            posters.clone(),
+            local_extras.clone(),
+            data_dir.clone(),
+            video.clone(),
+        );
+        window.on_toggle_setting_option(move |key, enabled| {
+            let Some(current_settings) =
+                runtime.model().ok().map(|m| m.ctx.profile.settings.clone())
+            else {
+                return;
+            };
+            let updated_profile_settings = {
+                let mut extras = local_extras.lock().unwrap();
+                let res =
+                    settings::apply_toggle_option(&current_settings, &mut extras, &key, enabled);
+                extras.save(&data_dir);
+                res
+            };
+            if let Some(new_settings) = updated_profile_settings {
+                settings::dispatch_settings(&runtime, new_settings);
+            }
+            if let Ok(model) = runtime.model() {
+                let new_data = settings::settings_data(&model, &local_extras.lock().unwrap());
+                video.apply_settings(&new_data.player_config);
+                let mut snap = latest.lock().unwrap();
+                snap.settings = new_data;
+                push(&weak, snap.clone(), posters.clone());
+            }
+        });
+    }
+
+    {
+        window.on_open_settings_link(move |kind| {
+            settings::open_external_url(&kind);
+        });
+    }
+
+    {
+        let runtime = runtime.clone();
+        window.on_logout_user(move || {
+            settings::logout(&runtime);
+        });
+    }
+
+    {
+        let (weak, runtime, server, handle) = (
+            window.as_weak(),
+            runtime.clone(),
+            server.clone(),
+            tokio_runtime.handle().clone(),
+        );
+        window.on_reload_streaming_server(move || {
+            let _ = weak.upgrade_in_event_loop(|w| {
+                w.set_server_status("Stream server: restarting...".into())
+            });
+            let _ = server.stop();
+            let started = server.start();
+            handle.spawn(report_server_state(weak.clone(), server.clone(), started));
+            settings::reload_server(&runtime);
+        });
+    }
+
     window.set_app_version(env!("CARGO_PKG_VERSION").into());
     window.set_build_version(option_env!("GITHUB_SHA").unwrap_or("dev").into());
 
@@ -986,6 +1135,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let posters = posters.clone();
         let latest = latest.clone();
         let selected = selected.clone();
+        let local_extras = local_extras.clone();
         move |event| {
             let weak = weak.clone();
             let reader = reader.clone();
@@ -994,6 +1144,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let latest = latest.clone();
             let client = client.clone();
             let selected = selected.clone();
+            let local_extras = local_extras.clone();
             async move {
                 if !matches!(event, RuntimeEvent::NewState(..)) {
                     return;
@@ -1003,6 +1154,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let discover = discover_data(&model);
                 let addons = addons::addons_data(&model);
                 let details = details_data(&model);
+                let settings = settings::settings_data(&model, &local_extras.lock().unwrap());
                 drop(model);
                 let snapshot = Snapshot {
                     status,
@@ -1010,6 +1162,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     discover,
                     details,
                     addons,
+                    settings,
                 };
                 *latest.lock().unwrap() = snapshot.clone();
 

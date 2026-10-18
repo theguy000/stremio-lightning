@@ -5,10 +5,10 @@ import { BoardContent, CatalogRow, PosterData } from "board.slint";
 import { AddonData, AddonsContent } from "addons.slint";
 import { DiscoverContent, SelectInputData } from "discover.slint";
 import { LoggedOutPlaceholder } from "logged-out-placeholder.slint";
-import { SettingsContent } from "settings.slint";
+import { SettingsContent, SettingsViewData } from "settings.slint";
 import { SelectOption } from "multiselect-menu.slint";
 import { LinkGroup, PreviewData } from "meta-preview.slint";
-export { AddonData, LinkGroup, PreviewData, SelectInputData, SelectOption }
+export { AddonData, LinkGroup, PreviewData, SelectInputData, SelectOption, SettingsViewData }
 import { ClassStyle, ClassStyles } from "class-styles.slint";
 
 export { CatalogRow, ClassStyle, ClassStyles, PosterData }
@@ -38,6 +38,7 @@ export component MainWindow inherits Window {
     in-out property <string> addons-query;
     in property <string> app-version;
     in property <string> build-version;
+    in property <SettingsViewData> settings;
 
     in-out property <bool> details-open: false;
     in property <string> details-title;
@@ -63,6 +64,11 @@ export component MainWindow inherits Window {
     callback select-input-option(int, int);
     callback select-addon-input-option(int, int);
     callback search-addons(string);
+    callback select-setting-option(string, int);
+    callback toggle-setting-option(string, bool);
+    callback open-settings-link(string);
+    callback reload-streaming-server();
+    callback logout-user();
     callback play-stream(int);
     callback stop-playback();
 
@@ -284,6 +290,13 @@ export component MainWindow inherits Window {
         viewport-width: root.width;
         app-version: root.app-version;
         build-version: root.build-version;
+        server-status: root.server-status;
+        data: root.settings;
+        log-out => { root.logout-user(); }
+        open-external-link(kind) => { root.open-settings-link(kind); }
+        select-setting-option(key, option) => { root.select-setting-option(key, option); }
+        toggle-setting-option(key, enabled) => { root.toggle-setting-option(key, enabled); }
+        reload-streaming-server => { root.reload-streaming-server(); }
     }
 
     if root.section != Section.board && root.section != Section.discover && root.section != Section.library && root.section != Section.calendar && !root.details-open && root.section != Section.addons && root.section != Section.settings && !root.playing: VerticalLayout {

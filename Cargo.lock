@@ -6010,6 +6010,7 @@ dependencies = [
  "libmpv2",
  "reqwest 0.12.28",
  "serde",
+ "serde_json",
  "slint",
  "slint-build",
  "stremio-core",
