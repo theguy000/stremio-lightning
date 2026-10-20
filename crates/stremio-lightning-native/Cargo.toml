@@ -23,3 +23,8 @@ url = "2"
 
 [build-dependencies]
 slint-build = "1.18"
+
+[dev-dependencies]
+# A test in tests/adversarial_m1_tests.rs instantiates a real Slint `Window`, which needs a
+# platform backend. The default winit backend requires a display, and CI containers have none.
+i-slint-backend-testing = "1.18"
