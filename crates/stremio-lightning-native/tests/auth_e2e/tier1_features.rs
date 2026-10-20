@@ -1,9 +1,9 @@
-use std::sync::{Arc, Mutex};
 use super::common::*;
+use std::path::Path;
+use std::sync::{Arc, Mutex};
 use stremio_core::runtime::msg::{Action, ActionCtx};
 use stremio_core::types::api::AuthRequest;
 use stremio_core::types::profile::GDPRConsent;
-use std::path::Path;
 
 // ============================================================================
 // Feature 1: Header Layout with Logo, Title, Slogan (§R1, Feature 1)
@@ -91,7 +91,10 @@ fn test_f2_credentials_text_input_class_registration() {
 #[test]
 fn test_f3_password_masked_by_default() {
     let state = IntroState::new();
-    assert!(state.password_masked, "Password should be masked by default for privacy");
+    assert!(
+        state.password_masked,
+        "Password should be masked by default for privacy"
+    );
 }
 
 #[test]
@@ -112,10 +115,18 @@ fn test_f3_password_toggle_remask() {
 #[test]
 fn test_f3_password_mask_icon_state() {
     let mut state = IntroState::new();
-    let icon_initial = if state.password_masked { "icons/eye.svg" } else { "icons/eye-off.svg" };
+    let icon_initial = if state.password_masked {
+        "icons/eye.svg"
+    } else {
+        "icons/eye-off.svg"
+    };
     assert_eq!(icon_initial, "icons/eye.svg");
     state.toggle_password_mask();
-    let icon_toggled = if state.password_masked { "icons/eye.svg" } else { "icons/eye-off.svg" };
+    let icon_toggled = if state.password_masked {
+        "icons/eye.svg"
+    } else {
+        "icons/eye-off.svg"
+    };
     assert_eq!(icon_toggled, "icons/eye-off.svg");
 }
 
@@ -162,7 +173,10 @@ fn test_f4_forgot_password_url_with_email_query() {
     let mut state = IntroState::new();
     state.email_input = "user+test@example.com".to_string();
     let url = state.generate_forgot_password_url();
-    assert_eq!(url, "https://www.strem.io/reset-password/?email=user%2Btest%40example.com");
+    assert_eq!(
+        url,
+        "https://www.strem.io/reset-password/?email=user%2Btest%40example.com"
+    );
 }
 
 #[test]
@@ -259,8 +273,12 @@ fn test_f6_submit_dispatches_register_action() {
     state.password_input = "pass123".to_string();
     state.gdpr_tos = true;
     state.gdpr_privacy = true;
-    let req = state.create_register_request().expect("valid register request");
-    assert!(matches!(req, AuthRequest::Register { email, gdpr_consent, .. } if email == "newuser@mail.com" && gdpr_consent.tos && gdpr_consent.privacy));
+    let req = state
+        .create_register_request()
+        .expect("valid register request");
+    assert!(
+        matches!(req, AuthRequest::Register { email, gdpr_consent, .. } if email == "newuser@mail.com" && gdpr_consent.tos && gdpr_consent.privacy)
+    );
 }
 
 // ============================================================================
@@ -293,7 +311,10 @@ fn test_f7_mode_switch_clears_error_message() {
     let mut state = IntroState::new();
     state.error_message = "Login failed".to_string();
     state.toggle_mode();
-    assert!(state.error_message.is_empty(), "Mode toggle should clear stale errors");
+    assert!(
+        state.error_message.is_empty(),
+        "Mode toggle should clear stale errors"
+    );
 }
 
 #[test]
@@ -367,7 +388,9 @@ fn test_f9_options_container_present() {
 fn test_f9_facebook_button_callback() {
     let callback_invoked = Arc::new(Mutex::new(false));
     let cb = callback_invoked.clone();
-    let click = move || { *cb.lock().unwrap() = true; };
+    let click = move || {
+        *cb.lock().unwrap() = true;
+    };
     click();
     assert!(*callback_invoked.lock().unwrap());
 }
@@ -376,7 +399,9 @@ fn test_f9_facebook_button_callback() {
 fn test_f9_apple_button_callback() {
     let callback_invoked = Arc::new(Mutex::new(false));
     let cb = callback_invoked.clone();
-    let click = move || { *cb.lock().unwrap() = true; };
+    let click = move || {
+        *cb.lock().unwrap() = true;
+    };
     click();
     assert!(*callback_invoked.lock().unwrap());
 }
@@ -487,7 +512,9 @@ fn test_f12_dismiss_button_present() {
 fn test_f12_dismiss_callback_invoked() {
     let invoked = Arc::new(Mutex::new(false));
     let inv_clone = invoked.clone();
-    let on_dismiss = move || { *inv_clone.lock().unwrap() = true; };
+    let on_dismiss = move || {
+        *inv_clone.lock().unwrap() = true;
+    };
     on_dismiss();
     assert!(*invoked.lock().unwrap());
 }
@@ -570,7 +597,11 @@ fn test_f13_auth_open_renders_above_settings() {
 #[test]
 fn test_f14_settings_link_label_when_logged_out() {
     let overlay = MainWindowOverlayState::new();
-    let label = if overlay.logged_in { "Log out" } else { "Log in / Sign up" };
+    let label = if overlay.logged_in {
+        "Log out"
+    } else {
+        "Log in / Sign up"
+    };
     assert_eq!(label, "Log in / Sign up");
 }
 
@@ -578,7 +609,11 @@ fn test_f14_settings_link_label_when_logged_out() {
 fn test_f14_settings_link_label_when_logged_in() {
     let mut overlay = MainWindowOverlayState::new();
     overlay.logged_in = true;
-    let label = if overlay.logged_in { "Log out" } else { "Log in / Sign up" };
+    let label = if overlay.logged_in {
+        "Log out"
+    } else {
+        "Log in / Sign up"
+    };
     assert_eq!(label, "Log out");
 }
 
@@ -601,7 +636,10 @@ fn test_f14_settings_logout_click_dispatches_logout() {
         overlay.handle_logout();
     }
     assert!(!overlay.logged_in);
-    assert!(matches!(runtime.last_dispatched_action(), Some(Action::Ctx(ActionCtx::Logout))));
+    assert!(matches!(
+        runtime.last_dispatched_action(),
+        Some(Action::Ctx(ActionCtx::Logout))
+    ));
 }
 
 #[test]
@@ -797,7 +835,10 @@ fn test_f19_login_action_structure() {
         facebook: false,
     };
     let action = Action::Ctx(ActionCtx::Authenticate(req));
-    assert!(matches!(action, Action::Ctx(ActionCtx::Authenticate(AuthRequest::Login { .. }))));
+    assert!(matches!(
+        action,
+        Action::Ctx(ActionCtx::Authenticate(AuthRequest::Login { .. }))
+    ));
 }
 
 #[test]
@@ -863,7 +904,10 @@ fn test_f20_register_action_structure() {
         },
     };
     let action = Action::Ctx(ActionCtx::Authenticate(req));
-    assert!(matches!(action, Action::Ctx(ActionCtx::Authenticate(AuthRequest::Register { .. }))));
+    assert!(matches!(
+        action,
+        Action::Ctx(ActionCtx::Authenticate(AuthRequest::Register { .. }))
+    ));
 }
 
 #[test]

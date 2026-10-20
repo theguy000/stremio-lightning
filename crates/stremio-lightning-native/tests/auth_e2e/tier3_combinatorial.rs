@@ -15,8 +15,14 @@ fn test_c1_mode_switch_login_to_signup_preserves_email_but_clears_error() {
     state.toggle_mode();
 
     assert!(state.is_signup);
-    assert_eq!(state.email_input, "alice@stremio.com", "Email must be preserved across mode switches");
-    assert!(state.error_message.is_empty(), "Error message must be cleared when switching modes");
+    assert_eq!(
+        state.email_input, "alice@stremio.com",
+        "Email must be preserved across mode switches"
+    );
+    assert!(
+        state.error_message.is_empty(),
+        "Error message must be cleared when switching modes"
+    );
 }
 
 #[test]
@@ -93,7 +99,11 @@ fn test_c1_dismiss_overlay_during_loading_state() {
 
     assert!(!overlay.auth_open);
     assert!(!overlay.auth_loading);
-    assert_eq!(overlay.section, AppSection::Discover, "Previous section restored cleanly");
+    assert_eq!(
+        overlay.section,
+        AppSection::Discover,
+        "Previous section restored cleanly"
+    );
 }
 
 #[test]
@@ -115,7 +125,11 @@ fn test_c1_double_submit_prevention() {
         runtime.dispatch(Action::Ctx(ActionCtx::Authenticate(req2)));
     }
 
-    assert_eq!(runtime.dispatched_actions.lock().unwrap().len(), 1, "Exactly one action dispatched");
+    assert_eq!(
+        runtime.dispatched_actions.lock().unwrap().len(),
+        1,
+        "Exactly one action dispatched"
+    );
 }
 
 #[test]
@@ -126,7 +140,10 @@ fn test_c1_password_unmask_mode_switch_preserves_visibility_preference() {
 
     // Switch mode to signup
     state.toggle_mode();
-    assert!(!state.password_masked, "Unmasked visibility preference retained");
+    assert!(
+        !state.password_masked,
+        "Unmasked visibility preference retained"
+    );
 }
 
 #[test]

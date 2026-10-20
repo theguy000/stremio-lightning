@@ -137,7 +137,8 @@ impl IntroState {
         if trimmed.is_empty() {
             "https://www.strem.io/reset-password/".to_string()
         } else {
-            let encoded = url::form_urlencoded::byte_serialize(trimmed.as_bytes()).collect::<String>();
+            let encoded =
+                url::form_urlencoded::byte_serialize(trimmed.as_bytes()).collect::<String>();
             format!("https://www.strem.io/reset-password/?email={}", encoded)
         }
     }
@@ -272,7 +273,8 @@ pub fn create_test_user(email: &str) -> User {
             "marketing": false,
             "from": "desktop"
         }
-    })).expect("deserialize test user")
+    }))
+    .expect("deserialize test user")
 }
 
 /// Helper to create a dummy Auth struct for testing.
@@ -297,7 +299,8 @@ pub fn create_test_auth(email: &str) -> Auth {
                 "from": "desktop"
             }
         }
-    })).expect("deserialize test auth")
+    }))
+    .expect("deserialize test auth")
 }
 
 /// Registered styling class names required by `PROJECT.md` § 8.2 and `THEMES.md`.

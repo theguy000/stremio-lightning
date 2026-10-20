@@ -12,9 +12,7 @@ slint::slint! {
 }
 
 fn create_default_settings(logged_in: bool, user_email: &str) -> SettingsViewData {
-    let empty_select = || {
-        import_empty_select()
-    };
+    let empty_select = || import_empty_select();
     SettingsViewData {
         user_email: user_email.into(),
         logged_in,
@@ -61,9 +59,20 @@ fn test_empirical_navigation_and_lifecycle_suite() {
     // ------------------------------------------------------------------------
     let window = MainWindow::new().expect("MainWindow should compile and initialize");
     assert!(!window.get_auth_open(), "auth-open must be false initially");
-    assert_eq!(window.get_section(), Section::Board, "Default section should be Board");
-    assert!(!window.get_auth_loading(), "auth-loading must be false initially");
-    assert_eq!(window.get_auth_error(), "", "auth-error must be empty initially");
+    assert_eq!(
+        window.get_section(),
+        Section::Board,
+        "Default section should be Board"
+    );
+    assert!(
+        !window.get_auth_loading(),
+        "auth-loading must be false initially"
+    );
+    assert_eq!(
+        window.get_auth_error(),
+        "",
+        "auth-error must be empty initially"
+    );
 
     // ------------------------------------------------------------------------
     // Part 2: Dismiss Restoration Without Modifying Active Section
@@ -86,7 +95,11 @@ fn test_empirical_navigation_and_lifecycle_suite() {
     for section in all_sections {
         // A. Navigate to target section
         window.set_section(section);
-        assert_eq!(window.get_section(), section, "Section should be set to target");
+        assert_eq!(
+            window.get_section(),
+            section,
+            "Section should be set to target"
+        );
 
         // B. Open auth overlay
         window.set_auth_open(true);
@@ -109,7 +122,10 @@ fn test_empirical_navigation_and_lifecycle_suite() {
         );
         assert!(!window.get_auth_open(), "Overlay must be closed");
         assert_eq!(window.get_auth_error(), "", "Error must be cleared");
-        assert!(!window.get_auth_loading(), "Loading spinner must be cleared");
+        assert!(
+            !window.get_auth_loading(),
+            "Loading spinner must be cleared"
+        );
     }
     assert_eq!(dismissed_count.load(Ordering::SeqCst), all_sections.len());
 
@@ -204,8 +220,15 @@ fn test_empirical_navigation_and_lifecycle_suite() {
         window.set_details_open(false);
         window.set_section(Section::Settings);
     }
-    assert!(window.get_auth_open(), "Avatar click while logged out MUST open auth overlay");
-    assert_eq!(window.get_section(), Section::Library, "Section must NOT be changed to Settings when logged out");
+    assert!(
+        window.get_auth_open(),
+        "Avatar click while logged out MUST open auth overlay"
+    );
+    assert_eq!(
+        window.get_section(),
+        Section::Library,
+        "Section must NOT be changed to Settings when logged out"
+    );
 
     // Close overlay
     window.set_auth_open(false);
@@ -220,13 +243,19 @@ fn test_empirical_navigation_and_lifecycle_suite() {
     if !window.get_settings().logged_in {
         window.set_auth_open(true);
     }
-    assert!(!window.get_auth_open(), "Avatar click while logged in must NOT open auth overlay");
+    assert!(
+        !window.get_auth_open(),
+        "Avatar click while logged in must NOT open auth overlay"
+    );
     assert_eq!(
         window.get_section(),
         Section::Library,
         "Avatar click while logged in must NOT navigate to Settings"
     );
-    assert!(window.get_details_open(), "Avatar click while logged in must not touch the details overlay");
+    assert!(
+        window.get_details_open(),
+        "Avatar click while logged in must not touch the details overlay"
+    );
 
     // ------------------------------------------------------------------------
     // Part 5: Cross-Screen Session Unlocking & Locking End-to-End Cycle
@@ -276,7 +305,10 @@ fn test_empirical_navigation_and_lifecycle_suite() {
     // Navigate to Calendar and verify unlocked immediately
     window.set_section(Section::Calendar);
     assert_eq!(window.get_section(), Section::Calendar);
-    assert!(window.get_settings().logged_in, "Calendar must be unlocked immediately following login");
+    assert!(
+        window.get_settings().logged_in,
+        "Calendar must be unlocked immediately following login"
+    );
 
     // Navigate to Settings and verify account info
     window.set_section(Section::Settings);
@@ -293,8 +325,14 @@ fn test_empirical_navigation_and_lifecycle_suite() {
 
     // Verify both Library and Calendar are immediately re-locked
     window.set_section(Section::Library);
-    assert!(!window.get_settings().logged_in, "Library must be locked after logout");
+    assert!(
+        !window.get_settings().logged_in,
+        "Library must be locked after logout"
+    );
 
     window.set_section(Section::Calendar);
-    assert!(!window.get_settings().logged_in, "Calendar must be locked after logout");
+    assert!(
+        !window.get_settings().logged_in,
+        "Calendar must be locked after logout"
+    );
 }

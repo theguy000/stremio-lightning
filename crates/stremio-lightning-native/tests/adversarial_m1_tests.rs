@@ -7,9 +7,9 @@
 //!    missing inputs, empty passwords, long passwords, rapid mode switching
 //!    between Log in and Sign up, GDPR consent checkbox combinations.
 
+use slint::{Color, ComponentHandle};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use slint::{Color, ComponentHandle};
 
 slint::slint! {
     import { IntroContent } from "ui/intro.slint";
@@ -167,7 +167,10 @@ fn test_extreme_valid_colors_accepted() {
     assert_eq!(parse_color("#ffff"), Some(Rgba(255, 255, 255, 255)));
     assert_eq!(parse_color("#1877F1"), Some(Rgba(0x18, 0x77, 0xf1, 255)));
     assert_eq!(parse_color("#1877f180"), Some(Rgba(0x18, 0x77, 0xf1, 0x80)));
-    assert_eq!(parse_color("rgb(255, 255, 255)"), Some(Rgba(255, 255, 255, 255)));
+    assert_eq!(
+        parse_color("rgb(255, 255, 255)"),
+        Some(Rgba(255, 255, 255, 255))
+    );
     assert_eq!(parse_color("rgba(0, 0, 0, 0)"), Some(Rgba(0, 0, 0, 0)));
     assert_eq!(parse_color("rgba(0, 0, 0, 1)"), Some(Rgba(0, 0, 0, 255)));
     assert_eq!(parse_color("rgba(0, 0, 0, 50%)"), Some(Rgba(0, 0, 0, 128)));
@@ -217,13 +220,33 @@ fn test_inheritance_and_override_hierarchy_on_intro_buttons() {
     assert_eq!(facebook_style.background, Some(Rgba(20, 20, 20, 255)));
 
     facebook_style.merge(form_button_rule);
-    assert_eq!(facebook_style.background, Some(Rgba(50, 50, 50, 255)), "form-button overrides button-container");
-    assert_eq!(facebook_style.color, Some(Rgba(10, 10, 10, 255)), "color inherited from button-container");
+    assert_eq!(
+        facebook_style.background,
+        Some(Rgba(50, 50, 50, 255)),
+        "form-button overrides button-container"
+    );
+    assert_eq!(
+        facebook_style.color,
+        Some(Rgba(10, 10, 10, 255)),
+        "color inherited from button-container"
+    );
 
     facebook_style.merge(facebook_button_rule);
-    assert_eq!(facebook_style.background, Some(Rgba(0x18, 0x77, 0xf1, 255)), "facebook-button overrides form-button");
-    assert_eq!(facebook_style.opacity, Some(0.8), "opacity inherited from form-button");
-    assert_eq!(facebook_style.color, Some(Rgba(10, 10, 10, 255)), "color retained from button-container");
+    assert_eq!(
+        facebook_style.background,
+        Some(Rgba(0x18, 0x77, 0xf1, 255)),
+        "facebook-button overrides form-button"
+    );
+    assert_eq!(
+        facebook_style.opacity,
+        Some(0.8),
+        "opacity inherited from form-button"
+    );
+    assert_eq!(
+        facebook_style.color,
+        Some(Rgba(10, 10, 10, 255)),
+        "color retained from button-container"
+    );
 }
 
 #[test]
@@ -235,9 +258,15 @@ fn test_gdpr_all_8_combinations_truth_table() {
             for _marketing in [false, true] {
                 let valid = tos && privacy;
                 if valid {
-                    assert!(tos && privacy, "Valid GDPR consent requires both TOS and Privacy");
+                    assert!(
+                        tos && privacy,
+                        "Valid GDPR consent requires both TOS and Privacy"
+                    );
                 } else {
-                    assert!(!tos || !privacy, "Invalid GDPR consent when TOS or Privacy is missing");
+                    assert!(
+                        !tos || !privacy,
+                        "Invalid GDPR consent when TOS or Privacy is missing"
+                    );
                 }
             }
         }
@@ -254,9 +283,17 @@ fn test_slint_intro_component_and_theming_adversarial_suite() {
 
     // 1. Initial State Invariants
     assert_eq!(harness.get_is_signup(), false, "Initial mode must be login");
-    assert_eq!(harness.get_error_message().as_str(), "", "Initial error message empty");
+    assert_eq!(
+        harness.get_error_message().as_str(),
+        "",
+        "Initial error message empty"
+    );
     assert_eq!(harness.get_is_loading(), false, "Initial loading false");
-    assert_eq!(harness.get_rem_size(), 14.0, "Initial rem size 14px at 1100x720");
+    assert_eq!(
+        harness.get_rem_size(),
+        14.0,
+        "Initial rem size 14px at 1100x720"
+    );
 
     // 2. Rapid Mode Switch Stress (1,000 continuous toggle cycles)
     for i in 0..1000 {
@@ -471,8 +508,14 @@ fn test_slint_intro_component_and_theming_adversarial_suite() {
         opacity: 1.0,
         hidden: false,
     };
-    assert_eq!(styles.invoke_color_or(empty_style.clone(), fallback_color), fallback_color);
-    assert_eq!(styles.invoke_background_or(empty_style.clone(), fallback_color), fallback_color);
+    assert_eq!(
+        styles.invoke_color_or(empty_style.clone(), fallback_color),
+        fallback_color
+    );
+    assert_eq!(
+        styles.invoke_background_or(empty_style.clone(), fallback_color),
+        fallback_color
+    );
     assert_eq!(styles.invoke_opacity_or(empty_style.clone(), 0.5), 0.5);
 
     let populated_style = ClassStyle {
@@ -484,7 +527,13 @@ fn test_slint_intro_component_and_theming_adversarial_suite() {
         opacity: 0.85,
         hidden: true,
     };
-    assert_eq!(styles.invoke_color_or(populated_style.clone(), fallback_color), set_color);
-    assert_eq!(styles.invoke_background_or(populated_style.clone(), fallback_color), set_color);
+    assert_eq!(
+        styles.invoke_color_or(populated_style.clone(), fallback_color),
+        set_color
+    );
+    assert_eq!(
+        styles.invoke_background_or(populated_style.clone(), fallback_color),
+        set_color
+    );
     assert_eq!(styles.invoke_opacity_or(populated_style.clone(), 0.5), 0.85);
 }

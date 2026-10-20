@@ -81,10 +81,7 @@ slint::slint! {
 #[test]
 fn test_error_extraction_all_env_error_variants() {
     let variants = vec![
-        (
-            EnvError::StorageUnavailable,
-            "Storage is not available",
-        ),
+        (EnvError::StorageUnavailable, "Storage is not available"),
         (
             EnvError::Fetch("connection refused".into()),
             "Failed to fetch: connection refused",
@@ -168,14 +165,17 @@ fn test_error_extraction_apierror_adversarial_payloads() {
         ("USER_ERR_INVALID_PASSWORD", 2),
         ("", 0),
         ("Invalid email or password", 401),
-        ("Account temporarily locked. Please try again in 15 minutes.", 429),
-        ("用户不存在", 100), // CJK
-        ("خطأ في المصادقة", 101), // Arabic
-        ("Неверный пароль", 102), // Cyrillic
-        ("💥 Fatal auth failure 🔒", 500), // Emojis
-        ("<script>alert('xss')</script>", 999), // HTML injection
+        (
+            "Account temporarily locked. Please try again in 15 minutes.",
+            429,
+        ),
+        ("用户不存在", 100),                                    // CJK
+        ("خطأ في المصادقة", 101),                               // Arabic
+        ("Неверный пароль", 102),                               // Cyrillic
+        ("💥 Fatal auth failure 🔒", 500),                      // Emojis
+        ("<script>alert('xss')</script>", 999),                 // HTML injection
         ("{\"error\": \"json_embedded\", \"code\": 123}", 888), // JSON
-        (long_string.as_str(), 1), // 10k characters
+        (long_string.as_str(), 1),                              // 10k characters
     ];
 
     for (msg_in, code) in payloads {
@@ -184,7 +184,10 @@ fn test_error_extraction_apierror_adversarial_payloads() {
             code,
         });
         let msg_out = ctx_error_message(&api_err);
-        assert_eq!(msg_out, msg_in, "APIError message must pass through verbatim");
+        assert_eq!(
+            msg_out, msg_in,
+            "APIError message must pass through verbatim"
+        );
     }
 }
 
@@ -278,7 +281,8 @@ fn test_forgot_password_url_encoding_edge_cases() {
         if trimmed.is_empty() {
             "reset-password".to_string()
         } else {
-            let encoded = url::form_urlencoded::byte_serialize(trimmed.as_bytes()).collect::<String>();
+            let encoded =
+                url::form_urlencoded::byte_serialize(trimmed.as_bytes()).collect::<String>();
             format!("https://www.strem.io/reset-password/?email={encoded}")
         }
     };
@@ -288,19 +292,31 @@ fn test_forgot_password_url_encoding_edge_cases() {
         let target = generate_forgot_password_target(empty);
         assert_eq!(target, "reset-password");
         let resolved = resolve_external_url(&target);
-        assert_eq!(resolved, Some("https://www.strem.io/reset-password/".to_string()));
+        assert_eq!(
+            resolved,
+            Some("https://www.strem.io/reset-password/".to_string())
+        );
     }
 
     // Case 2: Standard email
     let target = generate_forgot_password_target("user@example.com");
-    assert_eq!(target, "https://www.strem.io/reset-password/?email=user%40example.com");
+    assert_eq!(
+        target,
+        "https://www.strem.io/reset-password/?email=user%40example.com"
+    );
     let resolved = resolve_external_url(&target);
-    assert_eq!(resolved, Some("https://www.strem.io/reset-password/?email=user%40example.com".to_string()));
+    assert_eq!(
+        resolved,
+        Some("https://www.strem.io/reset-password/?email=user%40example.com".to_string())
+    );
 
     // Case 3: Email with special query/URL characters: '+', '&', '=', '?', '#', ' '
     let complex_email = "  user+filter&foo=bar?baz#hash @example.com  ";
     let target = generate_forgot_password_target(complex_email);
-    assert!(!target.contains('&'), "Ampersands must be encoded to avoid cmd/URL parameter injection");
+    assert!(
+        !target.contains('&'),
+        "Ampersands must be encoded to avoid cmd/URL parameter injection"
+    );
     assert!(!target.contains('#'), "Hash must be encoded");
     let resolved = resolve_external_url(&target);
     assert!(resolved.is_some());
@@ -318,16 +334,37 @@ fn test_forgot_password_url_encoding_edge_cases() {
 #[test]
 fn test_resolve_external_url_boundaries_and_rejections() {
     // Known endpoints
-    assert_eq!(resolve_external_url("support"), Some("https://stremio.zendesk.com/hc/en-us".into()));
-    assert_eq!(resolve_external_url("source"), Some("https://github.com/theguy000/stremio-lightning".into()));
-    assert_eq!(resolve_external_url("tos"), Some("https://www.stremio.com/tos".into()));
-    assert_eq!(resolve_external_url("privacy"), Some("https://www.stremio.com/privacy".into()));
-    assert_eq!(resolve_external_url("reset-password"), Some("https://www.strem.io/reset-password/".into()));
-    assert_eq!(resolve_external_url("web-intro"), Some("https://web.stremio.com/#/intro".into()));
+    assert_eq!(
+        resolve_external_url("support"),
+        Some("https://stremio.zendesk.com/hc/en-us".into())
+    );
+    assert_eq!(
+        resolve_external_url("source"),
+        Some("https://github.com/theguy000/stremio-lightning".into())
+    );
+    assert_eq!(
+        resolve_external_url("tos"),
+        Some("https://www.stremio.com/tos".into())
+    );
+    assert_eq!(
+        resolve_external_url("privacy"),
+        Some("https://www.stremio.com/privacy".into())
+    );
+    assert_eq!(
+        resolve_external_url("reset-password"),
+        Some("https://www.strem.io/reset-password/".into())
+    );
+    assert_eq!(
+        resolve_external_url("web-intro"),
+        Some("https://web.stremio.com/#/intro".into())
+    );
 
     // Only the bare "reset-password" target exists; a query must be passed as a full URL.
     assert_eq!(resolve_external_url("reset-password?email=a%40b.com"), None);
-    assert_eq!(resolve_external_url("reset-password/?email=a%40b.com"), None);
+    assert_eq!(
+        resolve_external_url("reset-password/?email=a%40b.com"),
+        None
+    );
 
     // Pass-through http / https
     assert_eq!(
@@ -360,8 +397,15 @@ fn test_slint_gui_component_and_callbacks() {
 
     // Check initial properties
     assert!(!harness.get_is_signup(), "Default mode must be login");
-    assert_eq!(harness.get_error_message().as_str(), "", "Default error message must be empty");
-    assert!(!harness.get_is_loading(), "Default loading state must be false");
+    assert_eq!(
+        harness.get_error_message().as_str(),
+        "",
+        "Default error message must be empty"
+    );
+    assert!(
+        !harness.get_is_loading(),
+        "Default loading state must be false"
+    );
 
     // Test property updates
     harness.set_is_signup(true);
@@ -463,22 +507,20 @@ struct MockWindowModel {
 fn test_event_loop_core_error_filtering_by_source() {
     // Tests lines 1261-1270 in src/main.rs:
     // Only Event::Error where source is Event::UserAuthenticated should update auth properties!
-    let simulate_event = |model: &mut MockWindowModel, event: &Event| {
-        match event {
-            Event::Error { error, source } => {
-                if matches!(**source, Event::UserAuthenticated { .. }) {
-                    let msg = ctx_error_message(error);
-                    model.auth_loading = false;
-                    model.auth_error = msg;
-                }
-            }
-            Event::UserAuthenticated { .. } => {
+    let simulate_event = |model: &mut MockWindowModel, event: &Event| match event {
+        Event::Error { error, source } => {
+            if matches!(**source, Event::UserAuthenticated { .. }) {
+                let msg = ctx_error_message(error);
                 model.auth_loading = false;
-                model.auth_error = String::new();
-                model.auth_open = false;
+                model.auth_error = msg;
             }
-            _ => {}
         }
+        Event::UserAuthenticated { .. } => {
+            model.auth_loading = false;
+            model.auth_error = String::new();
+            model.auth_open = false;
+        }
+        _ => {}
     };
 
     let mut model = MockWindowModel {
@@ -494,8 +536,14 @@ fn test_event_loop_core_error_filtering_by_source() {
     };
     simulate_event(&mut model, &unrelated_error);
     // auth_loading and auth_error must NOT be modified by unrelated errors!
-    assert!(model.auth_loading, "Unrelated error should not reset auth_loading");
-    assert_eq!(model.auth_error, "initial", "Unrelated error should not overwrite auth_error");
+    assert!(
+        model.auth_loading,
+        "Unrelated error should not reset auth_loading"
+    );
+    assert_eq!(
+        model.auth_error, "initial",
+        "Unrelated error should not overwrite auth_error"
+    );
 
     // Case 2: Error with source = Event::UserAuthenticated
     let auth_error = Event::Error {
@@ -512,8 +560,14 @@ fn test_event_loop_core_error_filtering_by_source() {
         }),
     };
     simulate_event(&mut model, &auth_error);
-    assert!(!model.auth_loading, "Auth error must reset auth_loading to false");
-    assert_eq!(model.auth_error, "invalid credentials", "Auth error must populate auth_error");
+    assert!(
+        !model.auth_loading,
+        "Auth error must reset auth_loading to false"
+    );
+    assert_eq!(
+        model.auth_error, "invalid credentials",
+        "Auth error must populate auth_error"
+    );
 
     // Case 3: Auth Success event
     model.auth_loading = true;

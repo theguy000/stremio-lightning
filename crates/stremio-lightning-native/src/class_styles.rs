@@ -601,16 +601,40 @@ mod tests {
              .checkbox { visibility: hidden }",
         );
         assert!(warnings.is_empty(), "{warnings:?}");
-        assert_eq!(style_of(&styles, "intro-container").background, Some(Rgba(0x10, 0x10, 0x20, 255)));
-        assert_eq!(style_of(&styles, "credentials-text-input").background, Some(Rgba(0x20, 0x20, 0x30, 255)));
-        assert_eq!(style_of(&styles, "credentials-text-input").color, Some(Rgba(255, 255, 255, 255)));
+        assert_eq!(
+            style_of(&styles, "intro-container").background,
+            Some(Rgba(0x10, 0x10, 0x20, 255))
+        );
+        assert_eq!(
+            style_of(&styles, "credentials-text-input").background,
+            Some(Rgba(0x20, 0x20, 0x30, 255))
+        );
+        assert_eq!(
+            style_of(&styles, "credentials-text-input").color,
+            Some(Rgba(255, 255, 255, 255))
+        );
         // Shared .form-button matches submit, apple, and guest buttons
-        assert_eq!(style_of(&styles, "submit-button").background, Some(Rgba(0x30, 0x30, 0x40, 255)));
-        assert_eq!(style_of(&styles, "apple-button").background, Some(Rgba(0x30, 0x30, 0x40, 255)));
-        assert_eq!(style_of(&styles, "guest-login-button").background, Some(Rgba(0x30, 0x30, 0x40, 255)));
+        assert_eq!(
+            style_of(&styles, "submit-button").background,
+            Some(Rgba(0x30, 0x30, 0x40, 255))
+        );
+        assert_eq!(
+            style_of(&styles, "apple-button").background,
+            Some(Rgba(0x30, 0x30, 0x40, 255))
+        );
+        assert_eq!(
+            style_of(&styles, "guest-login-button").background,
+            Some(Rgba(0x30, 0x30, 0x40, 255))
+        );
         // Later .facebook-button rule overrides .form-button for facebook-button
-        assert_eq!(style_of(&styles, "facebook-button").background, Some(Rgba(0x18, 0x77, 0xf1, 255)));
-        assert_eq!(style_of(&styles, "error-message").color, Some(Rgba(0xff, 0x55, 0x55, 255)));
+        assert_eq!(
+            style_of(&styles, "facebook-button").background,
+            Some(Rgba(0x18, 0x77, 0xf1, 255))
+        );
+        assert_eq!(
+            style_of(&styles, "error-message").color,
+            Some(Rgba(0xff, 0x55, 0x55, 255))
+        );
         assert_eq!(style_of(&styles, "slogan-container").opacity, Some(0.8));
         assert_eq!(style_of(&styles, "checkbox").hidden, Some(true));
     }

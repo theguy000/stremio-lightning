@@ -48,7 +48,9 @@ fn test_flow1_new_user_registration_journey() {
 
     // 6. Backend runtime processes registration and emits UserAuthenticated
     let new_user = create_test_user("new_customer@stremio.com");
-    runtime.emit_event(Event::UserAuthenticated { auth_request: reg_req });
+    runtime.emit_event(Event::UserAuthenticated {
+        auth_request: reg_req,
+    });
 
     // 7. Event handler in main.rs triggers UI updates
     window.handle_auth_success(&new_user);
@@ -57,10 +59,23 @@ fn test_flow1_new_user_registration_journey() {
     assert!(!window.auth_open, "Overlay must be closed");
     assert!(!window.auth_loading, "Loading spinner must be dismissed");
     assert!(window.logged_in, "Session must be authenticated");
-    assert_eq!(window.user_email, "new_customer@stremio.com", "Email must match registered user");
-    assert_eq!(window.section, AppSection::Settings, "User returned to Settings view");
-    assert!(window.is_library_unlocked(), "Library now unlocked for registered user");
-    assert!(window.is_calendar_unlocked(), "Calendar now unlocked for registered user");
+    assert_eq!(
+        window.user_email, "new_customer@stremio.com",
+        "Email must match registered user"
+    );
+    assert_eq!(
+        window.section,
+        AppSection::Settings,
+        "User returned to Settings view"
+    );
+    assert!(
+        window.is_library_unlocked(),
+        "Library now unlocked for registered user"
+    );
+    assert!(
+        window.is_calendar_unlocked(),
+        "Calendar now unlocked for registered user"
+    );
 }
 
 /// Flow 2: Existing User Credential Login from Library Placeholder
@@ -93,14 +108,19 @@ fn test_flow2_existing_user_login_from_library() {
 
     // 5. Runtime authentication event fires
     let user = create_test_user("existing.user@gmail.com");
-    runtime.emit_event(Event::UserAuthenticated { auth_request: login_req });
+    runtime.emit_event(Event::UserAuthenticated {
+        auth_request: login_req,
+    });
     window.handle_auth_success(&user);
 
     // 6. Verify Library is now accessible
     assert!(!window.auth_open);
     assert!(window.logged_in);
     assert_eq!(window.section, AppSection::Library);
-    assert!(window.is_library_unlocked(), "Library is now unlocked and accessible");
+    assert!(
+        window.is_library_unlocked(),
+        "Library is now unlocked and accessible"
+    );
 }
 
 /// Flow 3: Guest User Flow from Calendar Placeholder
@@ -123,7 +143,10 @@ fn test_flow3_guest_login_from_calendar() {
     assert!(!window.auth_open, "Overlay dismissed");
     assert!(!window.logged_in, "Remains anonymous guest");
     assert_eq!(window.section, AppSection::Calendar, "Returned to Calendar");
-    assert!(!window.is_calendar_unlocked(), "Calendar remains gated for guests");
+    assert!(
+        !window.is_calendar_unlocked(),
+        "Calendar remains gated for guests"
+    );
 }
 
 /// Flow 4: Authentication Error & Recovery Flow
@@ -153,7 +176,10 @@ fn test_flow4_auth_error_and_recovery_flow() {
 
     assert_eq!(intro.error_message, "USER_ERR_INVALID_PASSWORD");
     assert!(!window.auth_loading);
-    assert!(window.auth_open, "Overlay stays open so user can fix password");
+    assert!(
+        window.auth_open,
+        "Overlay stays open so user can fix password"
+    );
 
     // 4. User corrects password and resubmits
     intro.password_input = "correct_password".to_string();
@@ -187,7 +213,10 @@ fn test_flow5_forgot_password_external_workflow() {
 
     assert!(reset_url.starts_with("https://www.strem.io/reset-password/?email="));
     assert!(reset_url.contains("lostpassword%40stremio.com"));
-    assert!(window.auth_open, "Overlay remains active after launching browser");
+    assert!(
+        window.auth_open,
+        "Overlay remains active after launching browser"
+    );
 }
 
 /// Flow 6: Social Login Fallback Workflow

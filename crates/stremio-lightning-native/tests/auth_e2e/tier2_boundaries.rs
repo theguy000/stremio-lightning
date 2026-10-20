@@ -90,7 +90,9 @@ fn test_b2_password_leading_trailing_spaces_preserved() {
     let mut state = IntroState::new();
     state.email_input = "user@domain.com".to_string();
     state.password_input = "  password with spaces  ".to_string();
-    let req = state.create_login_request().expect("preserves password spaces");
+    let req = state
+        .create_login_request()
+        .expect("preserves password spaces");
     if let AuthRequest::Login { password, .. } = req {
         assert_eq!(password, "  password with spaces  ");
     } else {
@@ -103,7 +105,9 @@ fn test_b2_password_all_whitespace() {
     let mut state = IntroState::new();
     state.email_input = "user@domain.com".to_string();
     state.password_input = "   ".to_string();
-    let req = state.create_login_request().expect("allows whitespace password");
+    let req = state
+        .create_login_request()
+        .expect("allows whitespace password");
     if let AuthRequest::Login { password, .. } = req {
         assert_eq!(password, "   ");
     } else {
@@ -270,7 +274,9 @@ fn test_b5_password_with_cyrillic_and_arabic_rtl() {
     let mut state = IntroState::new();
     state.email_input = "intl@test.com".to_string();
     state.password_input = "парольكلمةالسر".to_string();
-    let req = state.create_login_request().expect("Cyrillic & Arabic password valid");
+    let req = state
+        .create_login_request()
+        .expect("Cyrillic & Arabic password valid");
     if let AuthRequest::Login { password, .. } = req {
         assert_eq!(password, "парольكلمةالسر");
     } else {
@@ -296,7 +302,9 @@ fn test_b5_password_with_accents_and_umlauts() {
     let mut state = IntroState::new();
     state.email_input = "accents@test.com".to_string();
     state.password_input = "éàçüößñøå".to_string();
-    let req = state.create_login_request().expect("Accented password valid");
+    let req = state
+        .create_login_request()
+        .expect("Accented password valid");
     if let AuthRequest::Login { password, .. } = req {
         assert_eq!(password, "éàçüößñøå");
     } else {
@@ -378,7 +386,9 @@ fn test_b7_email_with_sql_injection_payload() {
     let mut state = IntroState::new();
     state.email_input = "' OR '1'='1'@test.com".to_string();
     state.password_input = "pass".to_string();
-    let req = state.create_login_request().expect("Payload preserved safely");
+    let req = state
+        .create_login_request()
+        .expect("Payload preserved safely");
     if let AuthRequest::Login { email, .. } = req {
         assert_eq!(email, "' OR '1'='1'@test.com");
     } else {
@@ -401,7 +411,9 @@ fn test_b7_email_with_null_bytes() {
     let mut state = IntroState::new();
     state.email_input = "user\0name@domain.com".to_string();
     state.password_input = "pass".to_string();
-    let req = state.create_login_request().expect("Handles null byte safely");
+    let req = state
+        .create_login_request()
+        .expect("Handles null byte safely");
     if let AuthRequest::Login { email, .. } = req {
         assert!(email.contains('\0'));
     }
@@ -423,7 +435,9 @@ fn test_b7_password_with_control_characters() {
     let mut state = IntroState::new();
     state.email_input = "user@test.org".to_string();
     state.password_input = "\x01\x02\x03\x1F\x7F".to_string();
-    let req = state.create_login_request().expect("Handles control chars safely");
+    let req = state
+        .create_login_request()
+        .expect("Handles control chars safely");
     if let AuthRequest::Login { password, .. } = req {
         assert_eq!(password, "\x01\x02\x03\x1F\x7F");
     }
