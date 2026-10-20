@@ -82,6 +82,28 @@ export global ClassStyles {
     in property <ClassStyle> email-label;
     in property <ClassStyle> link;
 
+    // Intro & authentication overlay
+    in property <ClassStyle> intro-container;
+    in property <ClassStyle> background-container;
+    in property <ClassStyle> close-button-container;
+    in property <ClassStyle> heading-container;
+    in property <ClassStyle> slogan-container;
+    in property <ClassStyle> content-container;
+    in property <ClassStyle> form-container;
+    in property <ClassStyle> credentials-text-input;
+    in property <ClassStyle> forgot-password-link-container;
+    in property <ClassStyle> forgot-password-link;
+    in property <ClassStyle> error-message;
+    in property <ClassStyle> submit-button;
+    in property <ClassStyle> checkbox-container;
+    in property <ClassStyle> checkbox;
+    in property <ClassStyle> options-container;
+    in property <ClassStyle> facebook-button;
+    in property <ClassStyle> apple-button;
+    in property <ClassStyle> login-form-button;
+    in property <ClassStyle> signup-form-button;
+    in property <ClassStyle> guest-login-button;
+
     pure public function color-or(style: ClassStyle, fallback: color) -> color {
         return style.has-color ? style.color : fallback;
     }

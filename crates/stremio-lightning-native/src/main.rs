@@ -16,14 +16,15 @@ use stremio_core::models::installed_addons_with_filters::{
 };
 use stremio_core::models::meta_details::{MetaDetails, Selected as DetailsSelected};
 use stremio_core::runtime::msg::{
-    Action, ActionCatalogWithFilters, ActionCatalogsWithExtra, ActionLoad,
+    Action, ActionCatalogWithFilters, ActionCatalogsWithExtra, ActionCtx, ActionLoad, Event,
 };
 use stremio_core::runtime::{Env, Runtime, RuntimeAction, RuntimeEvent};
 use stremio_core::types::addon::{ResourcePath, ResourceRequest};
+use stremio_core::types::api::AuthRequest;
 use stremio_core::types::events::DismissedEventsBucket;
 use stremio_core::types::library::LibraryBucket;
 use stremio_core::types::notifications::NotificationsBucket;
-use stremio_core::types::profile::Profile;
+use stremio_core::types::profile::{GDPRConsent, Profile};
 use stremio_core::types::resource::{MetaItemPreview, PosterShape, Stream, StreamUrls};
 use stremio_core::types::search_history::SearchHistoryBucket;
 use stremio_core::types::server_urls::ServerUrlsBucket;
@@ -806,6 +807,14 @@ async fn report_server_state(
     let _ = weak.upgrade_in_event_loop(move |window| window.set_server_status(text.into()));
 }
 
+fn ctx_error_message(error: &stremio_core::models::ctx::CtxError) -> String {
+    match error {
+        stremio_core::models::ctx::CtxError::API(api_err) => api_err.message.clone(),
+        stremio_core::models::ctx::CtxError::Env(env_err) => env_err.message(),
+        stremio_core::models::ctx::CtxError::Other(other_err) => other_err.message(),
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tokio_runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -1126,6 +1135,108 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
+    {
+        let (weak, runtime) = (window.as_weak(), runtime.clone());
+        window.on_submit_auth_login(move |email, password| {
+            let email_str = email.trim().to_string();
+            let password_str = password.to_string();
+            let _ = weak.upgrade_in_event_loop(|w| {
+                w.set_auth_loading(true);
+                w.set_auth_error("".into());
+            });
+            runtime.dispatch(RuntimeAction {
+                field: None,
+                action: Action::Ctx(ActionCtx::Authenticate(AuthRequest::Login {
+                    email: email_str,
+                    password: password_str,
+                    facebook: false,
+                })),
+            });
+        });
+    }
+
+    {
+        let (weak, runtime) = (window.as_weak(), runtime.clone());
+        window.on_submit_auth_register(move |email, password, tos, privacy, marketing| {
+            let email_str = email.trim().to_string();
+            let password_str = password.to_string();
+            let _ = weak.upgrade_in_event_loop(|w| {
+                w.set_auth_loading(true);
+                w.set_auth_error("".into());
+            });
+            runtime.dispatch(RuntimeAction {
+                field: None,
+                action: Action::Ctx(ActionCtx::Authenticate(AuthRequest::Register {
+                    email: email_str,
+                    password: password_str,
+                    gdpr_consent: GDPRConsent {
+                        tos,
+                        privacy,
+                        marketing,
+                        from: Some("stremio-lightning-native".to_string()),
+                    },
+                })),
+            });
+        });
+    }
+
+    {
+        let weak = window.as_weak();
+        window.on_auth_guest_login(move || {
+            let _ = weak.upgrade_in_event_loop(|w| {
+                w.set_auth_open(false);
+                w.set_auth_error("".into());
+                w.set_auth_loading(false);
+            });
+        });
+    }
+
+    {
+        let weak = window.as_weak();
+        window.on_auth_facebook_login(move || {
+            settings::open_external_url("web-intro");
+            let _ = weak.upgrade_in_event_loop(|w| {
+                w.set_auth_error("Please authenticate via the browser window.".into());
+            });
+        });
+    }
+
+    {
+        let weak = window.as_weak();
+        window.on_auth_apple_login(move || {
+            settings::open_external_url("web-intro");
+            let _ = weak.upgrade_in_event_loop(|w| {
+                w.set_auth_error("Please authenticate via the browser window.".into());
+            });
+        });
+    }
+
+    {
+        window.on_auth_forgot_password(move |email| {
+            let trimmed = email.trim();
+            if trimmed.is_empty() {
+                settings::open_external_url("reset-password");
+            } else {
+                let encoded =
+                    url::form_urlencoded::byte_serialize(trimmed.as_bytes()).collect::<String>();
+                settings::open_external_url(&format!(
+                    "https://www.strem.io/reset-password/?email={encoded}"
+                ));
+            }
+        });
+    }
+
+    {
+        let weak = window.as_weak();
+        window.on_auth_dismissed(move || {
+            let _ = weak.upgrade_in_event_loop(|w| {
+                w.set_auth_open(false);
+                w.set_auth_error("".into());
+                w.set_auth_loading(false);
+            });
+        });
+    }
+
     window.set_app_version(env!("CARGO_PKG_VERSION").into());
     window.set_build_version(option_env!("GITHUB_SHA").unwrap_or("dev").into());
 
@@ -1146,10 +1257,39 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let selected = selected.clone();
             let local_extras = local_extras.clone();
             async move {
-                if !matches!(event, RuntimeEvent::NewState(..)) {
-                    return;
+                match &event {
+                    RuntimeEvent::CoreEvent(Event::Error { error, source }) => {
+                        // Any error means the attempt has finished, so always stop the
+                        // spinner; only authentication errors belong in the auth banner.
+                        let msg = matches!(**source, Event::UserAuthenticated { .. })
+                            .then(|| ctx_error_message(error));
+                        let _ = weak.upgrade_in_event_loop(move |w| {
+                            w.set_auth_loading(false);
+                            if let Some(msg) = msg {
+                                w.set_auth_error(msg.into());
+                            }
+                        });
+                        return;
+                    }
+                    RuntimeEvent::CoreEvent(Event::UserAuthenticated { .. }) => {
+                        let _ = weak.upgrade_in_event_loop(|w| {
+                            w.set_auth_loading(false);
+                            w.set_auth_error("".into());
+                            w.set_auth_open(false);
+                        });
+                        return;
+                    }
+                    RuntimeEvent::NewState(..) => {}
+                    _ => return,
                 }
                 let Ok(model) = reader.model() else { return };
+                if model.ctx.profile.auth.is_some() {
+                    let _ = weak.upgrade_in_event_loop(|w| {
+                        w.set_auth_loading(false);
+                        w.set_auth_error("".into());
+                        w.set_auth_open(false);
+                    });
+                }
                 let (status, rows) = board_rows(&model);
                 let discover = discover_data(&model);
                 let addons = addons::addons_data(&model);
@@ -1273,5 +1413,24 @@ mod tests {
         let path = spec.env.get("PATH").expect("PATH is set");
         assert_eq!(std::env::split_paths(path).next(), Some(resources));
         assert_eq!(spec.stdout_log.parent(), Some(Path::new("data/logs")));
+    }
+
+    #[test]
+    fn ctx_error_message_handles_all_variants_cleanly() {
+        use stremio_core::models::ctx::{CtxError, OtherError};
+        use stremio_core::runtime::EnvError;
+        use stremio_core::types::api::APIError;
+
+        let api_err = CtxError::API(APIError {
+            message: "user not found".to_string(),
+            code: 1,
+        });
+        assert_eq!(ctx_error_message(&api_err), "user not found");
+
+        let env_err = CtxError::Env(EnvError::StorageUnavailable);
+        assert_eq!(ctx_error_message(&env_err), "Storage is not available");
+
+        let other_err = CtxError::Other(OtherError::UserNotLoggedIn);
+        assert_eq!(ctx_error_message(&other_err), "User is not logged in");
     }
 }

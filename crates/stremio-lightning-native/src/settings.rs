@@ -480,22 +480,31 @@ pub(super) fn reload_server(runtime: &AppRuntime) {
     });
 }
 
+pub(super) fn resolve_external_url(kind: &str) -> Option<String> {
+    match kind {
+        "support" => Some("https://stremio.zendesk.com/hc/en-us".to_string()),
+        "source" => Some("https://github.com/theguy000/stremio-lightning".to_string()),
+        "tos" => Some("https://www.stremio.com/tos".to_string()),
+        "privacy" => Some("https://www.stremio.com/privacy".to_string()),
+        "reset-password" => Some("https://www.strem.io/reset-password/".to_string()),
+        "web-intro" => Some("https://web.stremio.com/#/intro".to_string()),
+        s if s.starts_with("http://") || s.starts_with("https://") => Some(s.to_string()),
+        _ => None,
+    }
+}
+
 pub(super) fn open_external_url(kind: &str) {
-    let url = match kind {
-        "support" => "https://stremio.zendesk.com/hc/en-us",
-        "source" => "https://github.com/theguy000/stremio-lightning",
-        "tos" => "https://www.stremio.com/tos",
-        "privacy" => "https://www.stremio.com/privacy",
-        _ => return,
+    let Some(url) = resolve_external_url(kind) else {
+        return;
     };
     #[cfg(target_os = "windows")]
     let _ = std::process::Command::new("cmd")
-        .args(["/C", "start", "", url])
+        .args(["/C", "start", "", &url])
         .spawn();
     #[cfg(target_os = "macos")]
-    let _ = std::process::Command::new("open").arg(url).spawn();
+    let _ = std::process::Command::new("open").arg(&url).spawn();
     #[cfg(all(unix, not(target_os = "macos")))]
-    let _ = std::process::Command::new("xdg-open").arg(url).spawn();
+    let _ = std::process::Command::new("xdg-open").arg(&url).spawn();
 }
 
 #[cfg(test)]
@@ -550,5 +559,26 @@ mod tests {
         let data = settings_data_from_profile(&updated_profile, &extras);
         assert_eq!(data.caching.title, "10 GB");
         assert!(data.quit_on_close);
+    }
+
+    #[test]
+    fn resolve_external_url_resolves_known_targets_and_queries() {
+        assert_eq!(
+            resolve_external_url("reset-password"),
+            Some("https://www.strem.io/reset-password/".to_string())
+        );
+        assert_eq!(
+            resolve_external_url("https://www.strem.io/reset-password/?email=user%40test.com"),
+            Some("https://www.strem.io/reset-password/?email=user%40test.com".to_string())
+        );
+        assert_eq!(
+            resolve_external_url("web-intro"),
+            Some("https://web.stremio.com/#/intro".to_string())
+        );
+        assert_eq!(
+            resolve_external_url("tos"),
+            Some("https://www.stremio.com/tos".to_string())
+        );
+        assert_eq!(resolve_external_url("invalid-target"), None);
     }
 }
