@@ -5,6 +5,8 @@
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 
+mod support;
+
 slint::slint! {
     import { MainWindow, SettingsViewData } from "ui/main.slint";
     import { Section } from "ui/shell.slint";
@@ -57,6 +59,7 @@ fn test_empirical_navigation_and_lifecycle_suite() {
     // ------------------------------------------------------------------------
     // Part 1: MainWindow Slint Compilation & Initial Properties
     // ------------------------------------------------------------------------
+    support::init_slint_backend();
     let window = MainWindow::new().expect("MainWindow should compile and initialize");
     assert!(!window.get_auth_open(), "auth-open must be false initially");
     assert_eq!(

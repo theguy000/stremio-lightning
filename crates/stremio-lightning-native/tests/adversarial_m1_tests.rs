@@ -11,6 +11,8 @@ use slint::{Color, ComponentHandle};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+mod support;
+
 slint::slint! {
     import { IntroContent } from "ui/intro.slint";
     import { ClassStyles, ClassStyle } from "ui/class-styles.slint";
@@ -277,18 +279,9 @@ fn test_gdpr_all_8_combinations_truth_table() {
 // PART 2: Comprehensive Slint Runtime Component & Theming Suite
 // ============================================================================
 
-/// Slint needs a platform backend before the first `Window` is created, and the default
-/// winit backend needs `DISPLAY`/`WAYLAND_DISPLAY`, which CI containers do not have.
-/// The testing backend renders nothing and, with `init_no_event_loop`, gives each test
-/// thread its own instance, so it stays independent of the other tests in this binary.
-fn init_test_backend() {
-    static INIT: std::sync::Once = std::sync::Once::new();
-    INIT.call_once(i_slint_backend_testing::init_no_event_loop);
-}
-
 #[test]
 fn test_slint_intro_component_and_theming_adversarial_suite() {
-    init_test_backend();
+    support::init_slint_backend();
     let harness = AdversarialIntroHarness::new().expect("create harness");
 
     // 1. Initial State Invariants

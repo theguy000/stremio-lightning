@@ -10,6 +10,8 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+mod support;
+
 use stremio_core::models::ctx::{CtxError, OtherError};
 use stremio_core::runtime::msg::Event;
 use stremio_core::runtime::EnvError;
@@ -393,6 +395,7 @@ fn test_resolve_external_url_boundaries_and_rejections() {
 
 #[test]
 fn test_slint_gui_component_and_callbacks() {
+    support::init_slint_backend();
     let harness = ChallengerIntroHarness::new().expect("create ChallengerIntroHarness");
 
     // Check initial properties
