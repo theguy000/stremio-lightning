@@ -101,6 +101,27 @@ elements! {
     set_avatar_container => ["avatar-container"],
     set_email_label => ["email-label"],
     set_link => ["link", "button-container"],
+    // Intro & authentication overlay
+    set_intro_container => ["intro-container"],
+    set_background_container => ["background-container"],
+    set_close_button_container => ["close-button-container", "close-button", "dismiss-button", "button-container"],
+    set_heading_container => ["heading-container"],
+    set_slogan_container => ["slogan-container", "slogan"],
+    set_content_container => ["content-container"],
+    set_form_container => ["form-container"],
+    set_credentials_text_input => ["credentials-text-input", "text-input"],
+    set_forgot_password_link_container => ["forgot-password-link-container"],
+    set_forgot_password_link => ["forgot-password-link", "link", "button-container"],
+    set_error_message => ["error-message", "message-container"],
+    set_submit_button => ["submit-button", "form-button", "button-container"],
+    set_checkbox_container => ["checkbox-container", "checkboxes-container"],
+    set_checkbox => ["checkbox"],
+    set_options_container => ["options-container"],
+    set_facebook_button => ["facebook-button", "form-button", "button-container"],
+    set_apple_button => ["apple-button", "form-button", "button-container"],
+    set_login_form_button => ["login-form-button", "form-button", "button-container"],
+    set_signup_form_button => ["signup-form-button", "form-button", "button-container"],
+    set_guest_login_button => ["guest-login-button", "form-button", "button-container"],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -566,5 +587,55 @@ mod tests {
         assert_eq!(parse_color("transparent"), Some(Rgba(0, 0, 0, 0)));
         assert_eq!(parse_color("rgb(300, 0, 0)"), None);
         assert_eq!(parse_color("red"), None);
+    }
+
+    #[test]
+    fn intro_components_theming() {
+        let (styles, warnings) = resolved(
+            ".intro-container { background: #101020 }\n\
+             .credentials-text-input { background: #202030; color: #ffffff }\n\
+             .form-button { background: #303040 }\n\
+             .facebook-button { background: #1877f1 }\n\
+             .error-message { color: #ff5555 }\n\
+             .slogan { opacity: 0.8 }\n\
+             .checkbox { visibility: hidden }",
+        );
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert_eq!(
+            style_of(&styles, "intro-container").background,
+            Some(Rgba(0x10, 0x10, 0x20, 255))
+        );
+        assert_eq!(
+            style_of(&styles, "credentials-text-input").background,
+            Some(Rgba(0x20, 0x20, 0x30, 255))
+        );
+        assert_eq!(
+            style_of(&styles, "credentials-text-input").color,
+            Some(Rgba(255, 255, 255, 255))
+        );
+        // Shared .form-button matches submit, apple, and guest buttons
+        assert_eq!(
+            style_of(&styles, "submit-button").background,
+            Some(Rgba(0x30, 0x30, 0x40, 255))
+        );
+        assert_eq!(
+            style_of(&styles, "apple-button").background,
+            Some(Rgba(0x30, 0x30, 0x40, 255))
+        );
+        assert_eq!(
+            style_of(&styles, "guest-login-button").background,
+            Some(Rgba(0x30, 0x30, 0x40, 255))
+        );
+        // Later .facebook-button rule overrides .form-button for facebook-button
+        assert_eq!(
+            style_of(&styles, "facebook-button").background,
+            Some(Rgba(0x18, 0x77, 0xf1, 255))
+        );
+        assert_eq!(
+            style_of(&styles, "error-message").color,
+            Some(Rgba(0xff, 0x55, 0x55, 255))
+        );
+        assert_eq!(style_of(&styles, "slogan-container").opacity, Some(0.8));
+        assert_eq!(style_of(&styles, "checkbox").hidden, Some(true));
     }
 }

@@ -243,6 +243,7 @@ component NavButton inherits Rectangle {
 export component HorizontalNavBar inherits Rectangle {
     in property <length> rem-size: 14px;
     callback toggle-fullscreen();
+    callback user-avatar-clicked();
     // Web: the top bar hides its search box on the Addons route.
     in property <bool> show-search: true;
     height: (77 * root.rem-size / 14);
@@ -328,6 +329,13 @@ export component HorizontalNavBar inherits Rectangle {
                     width: (14 * root.rem-size / 14);
                     height: (14 * root.rem-size / 14);
                     colorize: Theme.caret-icon;
+                }
+
+                TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.user-avatar-clicked();
+                    }
                 }
             }
         }

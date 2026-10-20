@@ -85,11 +85,28 @@ descendant selectors such as `.a .b`, sizes, margins, gradients and hover states
 | `avatar-container` | the round picture in the user block. `color` is its ring | yes | yes | yes | yes |
 | `email-label` | "Anonymous user" | yes | | yes | yes |
 | `link`, `button-container` | a text link on Settings ("Log in / Sign up", "Contact support", ...). Hover underline is not themable | yes | yes | yes | yes |
+| `intro-container` | the full login and registration overlay screen | | yes | yes | yes |
+| `background-container` | the backdrop layer of the intro screen | | yes | yes | yes |
+| `close-button-container`, `close-button`, `dismiss-button`, `button-container` | the dismiss/back button on the intro screen | yes | yes | yes | yes |
+| `heading-container` | the brand header container (logo, title and slogan) on the intro screen | | yes | yes | yes |
+| `slogan-container`, `slogan` | the "All the video content you enjoy in one place" line under the title | yes | | yes | yes |
+| `content-container` | the main container holding the form and options columns | | yes | yes | yes |
+| `form-container` | the credential form column | | yes | yes | yes |
+| `credentials-text-input`, `text-input` | the text input fields (email, password, confirm password) | yes | yes | yes | yes |
+| `forgot-password-link-container` | the container for the "Forgot password?" link | | yes | yes | yes |
+| `forgot-password-link`, `link`, `button-container` | the "Forgot password?" link text | yes | yes | yes | yes |
+| `error-message`, `message-container` | the authentication error banner | yes | yes | yes | yes |
+| `submit-button`, `form-button`, `button-container` | the primary "Log in" or "Sign up" button | yes | yes | yes | yes |
+| `checkbox-container`, `checkboxes-container` | the container holding the GDPR consent checkboxes | | yes | yes | yes |
+| `checkbox` | one GDPR consent checkbox (Terms, Privacy, Marketing) | yes | yes | yes | yes |
+| `options-container` | the authentication options column | | yes | yes | yes |
+| `facebook-button`, `form-button`, `button-container` | the "Log in with Facebook" button | yes | yes | yes | yes |
+| `apple-button`, `form-button`, `button-container` | the "Log in with Apple" button | yes | yes | yes | yes |
+| `login-form-button`, `form-button`, `button-container` | the "Log in" mode switch button | yes | yes | yes | yes |
+| `signup-form-button`, `form-button`, `button-container` | the "Sign up with email" mode switch button | yes | yes | yes | yes |
+| `guest-login-button`, `form-button`, `button-container` | the "Log in as Guest" button | yes | yes | yes | yes |
 
-The Board, the top bar, the side nav, Discover's filter menus, the logged-out Library and Calendar screens the installed-addons list on Addons and General and Interface on Settings are wired. On Settings, `button` is also the side menu buttons and the Authenticate button, `option` is also an option row and `label` is also a section or option label, as on the web. Details, Player and the other sections have element
-ids but no class styles yet. The `selected` and `active` states, hover and focus are not themable, and
-`icon` does not reach the selected nav icon or the caret next to the avatar. `.plugin.js` plugins do not
-run in the native app.
+The intro/login and registration screen, the Board, the top bar, the side nav, Discover's filter menus, the logged-out Library and Calendar screens, the installed-addons list on Addons, and General and Interface on Settings are wired. On the intro screen, `title-container` is the Stremio brand title, `logo-container` is the logo wrapper, and `logo` is the logo image. On Settings, `button` is also the side menu buttons and the Authenticate button, `option` is also an option row and `label` is also a section or option label, as on the web. Details, Player and the other sections have element ids but no class styles yet. The `selected` and `active` states, hover and focus are not themable, and `icon` does not reach the selected nav icon or the caret next to the avatar. `.plugin.js` plugins do not run in the native app.
 
 ## Elements with several web classes
 

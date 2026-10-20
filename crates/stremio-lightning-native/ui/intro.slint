@@ -1,0 +1,704 @@
+// Based on stremio-web (https://github.com/Stremio/stremio-web),
+// Copyright (C) 2017-2025 Smart code 203358507.
+// Numbers translated by hand from web.stremio.com .intro-container and measured at 1100x720 (1rem = 14px).
+// Element ids reuse the web class names.
+import { ClassStyles } from "class-styles.slint";
+import { ScrollBar } from "scroll-bar.slint";
+import { Theme } from "theme.slint";
+
+// Web: .credentials-text-input. Height 3.5rem, rounded 0.75rem, with optional password mask toggle.
+component IntroTextInput inherits Rectangle {
+    in property <length> rem-size: 14px;
+    in property <string> placeholder: "";
+    in-out property <string> text <=> input.text;
+    in property <bool> is-password: false;
+    in-out property <bool> password-masked: true;
+    callback edited(string);
+    callback enter-pressed();
+
+    height: 3.5 * root.rem-size;
+    border-radius: 0.75 * root.rem-size;
+    background: ClassStyles.background-or(ClassStyles.credentials-text-input, Theme.overlay);
+    opacity: ClassStyles.opacity-or(ClassStyles.credentials-text-input, 1.0);
+    visible: !ClassStyles.credentials-text-input.hidden;
+
+    // Focus/Hover outline ring
+    border-width: (input.has-focus || hover-area.has-hover) ? 1.5px : 1px;
+    border-color: input.has-focus ? Theme.accent : (hover-area.has-hover ? Theme.text : transparent);
+
+    hover-area := TouchArea {
+        width: parent.width;
+        height: parent.height;
+        clicked => {
+            input.focus();
+        }
+    }
+
+    input := TextInput {
+        x: 1.25 * root.rem-size;
+        y: 0px;
+        width: parent.width - (root.is-password ? 4.5 * root.rem-size : 2.5 * root.rem-size);
+        height: parent.height;
+        single-line: true;
+        vertical-alignment: center;
+        font-size: 1.1 * root.rem-size;
+        font-weight: 500;
+        color: ClassStyles.color-or(ClassStyles.credentials-text-input, Theme.text);
+        input-type: (root.is-password && root.password-masked) ? InputType.password : InputType.text;
+        edited => {
+            root.edited(self.text);
+        }
+        accepted => {
+            root.enter-pressed();
+        }
+    }
+
+    if input.text == "": Text {
+        x: 1.25 * root.rem-size;
+        y: 0px;
+        width: parent.width - 2.5 * root.rem-size;
+        height: parent.height;
+        text: root.placeholder;
+        vertical-alignment: center;
+        font-size: 1.1 * root.rem-size;
+        font-weight: 500;
+        color: Theme.placeholder;
+    }
+
+    if root.is-password: TouchArea {
+        x: parent.width - 3.5 * root.rem-size;
+        y: 0px;
+        width: 3.5 * root.rem-size;
+        height: parent.height;
+        mouse-cursor: pointer;
+        clicked => {
+            root.password-masked = !root.password-masked;
+        }
+
+        Image {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: 1.5 * root.rem-size;
+            height: 1.5 * root.rem-size;
+            source: root.password-masked ? @image-url("icons/eye.svg") : @image-url("icons/eye-off.svg");
+            colorize: parent.has-hover ? Theme.text : Theme.placeholder;
+            opacity: parent.has-hover ? 1.0 : 0.7;
+        }
+    }
+}
+
+// Web: .checkbox-container and .checkbox for GDPR consent.
+component IntroCheckbox inherits Rectangle {
+    in property <length> rem-size: 14px;
+    in property <string> label: "";
+    in-out property <bool> checked: false;
+    callback toggled(bool);
+
+    height: Math.max(1.5 * root.rem-size, text-label.preferred-height);
+    opacity: ClassStyles.opacity-or(ClassStyles.checkbox, 1.0);
+    visible: !ClassStyles.checkbox.hidden;
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.checked = !root.checked;
+            root.toggled(root.checked);
+        }
+    }
+
+    box := Rectangle {
+        x: 0px;
+        y: (parent.height - self.height) / 2;
+        width: 1.5 * root.rem-size;
+        height: 1.5 * root.rem-size;
+        border-radius: 0.3 * root.rem-size;
+        // Web: no border, the box is a 5% white overlay that turns accent when checked.
+        background: root.checked ? Theme.accent : (touch.has-hover ? #ffffff14 : Theme.overlay);
+
+        // Web: .checkbox-icon is stremio-icons' "checkmark" (a 60px round stroke).
+        if root.checked: Path {
+            x: 0.2 * root.rem-size;
+            y: 0.2 * root.rem-size;
+            width: parent.width - 0.4 * root.rem-size;
+            height: parent.height - 0.4 * root.rem-size;
+            viewbox-width: 512;
+            viewbox-height: 512;
+            commands: "M421 128 L197 384 L101 288";
+            fill: transparent;
+            stroke: #ffffffe6;
+            stroke-width: 0.14 * root.rem-size;
+        }
+    }
+
+    text-label := Text {
+        x: 2.5 * root.rem-size;
+        y: (parent.height - self.height) / 2;
+        width: parent.width - 2.5 * root.rem-size;
+        text: root.label;
+        font-size: 0.9 * root.rem-size;
+        font-weight: 400;
+        color: touch.has-hover ? Theme.text : ClassStyles.color-or(ClassStyles.checkbox, Theme.text);
+        opacity: root.checked ? 1.0 : 0.75;
+        wrap: word-wrap;
+    }
+}
+
+// Web: .form-button pill shaped button (4rem height).
+component IntroPillButton inherits Rectangle {
+    in property <length> rem-size: 14px;
+    in property <string> text: "";
+    in property <bool> has-icon: false;
+    in property <image> icon-source;
+    in property <color> icon-color: Theme.text;
+    in property <color> normal-bg: transparent;
+    in property <color> hover-bg: Theme.overlay;
+    in property <color> normal-color: Theme.text;
+    in property <color> hover-color: Theme.text;
+    in property <bool> has-border: true;
+    in property <color> border-col: Theme.text;
+    in property <bool> is-loading: false;
+    callback clicked();
+
+    height: 4 * root.rem-size;
+    border-radius: self.height / 2;
+    border-width: root.has-border ? 2px : 0px;
+    border-color: touch.has-hover ? Theme.text : root.border-col;
+    background: touch.has-hover ? root.hover-bg : root.normal-bg;
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            if (!root.is-loading) {
+                root.clicked();
+            }
+        }
+    }
+
+    HorizontalLayout {
+        alignment: center;
+        spacing: 1 * root.rem-size;
+        padding-left: 1.5 * root.rem-size;
+        padding-right: 1.5 * root.rem-size;
+
+        if root.has-icon: Image {
+            width: 1.8 * root.rem-size;
+            height: 1.8 * root.rem-size;
+            y: (parent.height - self.height) / 2;
+            source: root.icon-source;
+            colorize: touch.has-hover ? root.hover-color : root.icon-color;
+        }
+
+        Text {
+            y: (parent.height - self.height) / 2;
+            text: root.is-loading ? "Please wait..." : root.text;
+            font-size: 1.1 * root.rem-size;
+            font-weight: 700;
+            color: touch.has-hover ? root.hover-color : root.normal-color;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+}
+
+// Web: .intro-container matching web.stremio.com login and registration view.
+export component IntroContent inherits Rectangle {
+    // Contract Properties
+    in-out property <bool> is-signup: false;
+    in property <string> error-message: "";
+    in property <bool> is-loading: false;
+    in property <length> rem-size: 14px;
+
+    // Contract Callbacks
+    callback submit-login(string /* email */, string /* password */);
+    callback submit-register(string /* email */, string /* password */, bool /* gdpr_tos */, bool /* gdpr_privacy */, bool /* gdpr_marketing */);
+    callback login-guest();
+    callback login-facebook();
+    callback login-apple();
+    callback forgot-password(string /* email */);
+    callback dismiss();
+
+    // Internal Form State
+    property <string> email-value: "";
+    property <string> password-value: "";
+    property <string> confirm-password-value: "";
+    property <bool> password-masked: true;
+    property <bool> confirm-password-masked: true;
+    property <bool> gdpr-tos: false;
+    property <bool> gdpr-privacy: false;
+    property <bool> gdpr-marketing: false;
+    property <string> local-error: "";
+    property <string> active-error: root.error-message != "" ? root.error-message : root.local-error;
+
+    // Web swaps the form on click; a short fade keeps it from snapping between
+    // the login and sign-up fields.
+    property <bool> form-shown: true;
+    property <bool> pending-signup: false;
+    property <bool> switching-form: false;
+    // Web: .animation-fade-in (350ms ease-in-out, 4px rise) is applied to the routed
+    // content, so the whole screen comes in rather than snapping on.
+    property <bool> mounted: false;
+
+    Timer {
+        interval: 16ms;
+        running: !root.mounted;
+        triggered => {
+            root.mounted = true;
+        }
+    }
+
+    Timer {
+        interval: 120ms;
+        running: root.switching-form;
+        triggered => {
+            root.is-signup = root.pending-signup;
+            root.switching-form = false;
+            root.form-shown = true;
+        }
+    }
+
+    function switch-form(to-signup: bool) {
+        if (root.is-signup == to-signup) {
+            return;
+        }
+        root.pending-signup = to-signup;
+        root.form-shown = false;
+        root.switching-form = true;
+    }
+
+    // Helper functions
+    function handle-submit() {
+        if (!root.is-signup) {
+            // Login validation
+            if (root.email-value == "" || root.password-value == "") {
+                root.local-error = "Please enter both email and password.";
+            } else {
+                root.local-error = "";
+                root.submit-login(root.email-value, root.password-value);
+            }
+        } else {
+            // Sign up validation
+            if (root.email-value == "" || root.password-value == "" || root.confirm-password-value == "") {
+                root.local-error = "Please fill in all registration fields.";
+            } else if (root.password-value != root.confirm-password-value) {
+                root.local-error = "Passwords do not match.";
+            } else if (!root.gdpr-tos || !root.gdpr-privacy) {
+                root.local-error = "You must accept the Terms of Service and Privacy Policy.";
+            } else {
+                root.local-error = "";
+                root.submit-register(root.email-value, root.password-value, root.gdpr-tos, root.gdpr-privacy, root.gdpr-marketing);
+            }
+        }
+    }
+
+    width: 100%;
+    height: 100%;
+
+    intro-container := Rectangle {
+        width: parent.width;
+        height: parent.height;
+        background: ClassStyles.background-or(ClassStyles.intro-container, Theme.modal-background);
+        opacity: (root.mounted ? 1.0 : 0.0) * ClassStyles.opacity-or(ClassStyles.intro-container, 1.0);
+        visible: !ClassStyles.intro-container.hidden;
+        animate opacity { duration: 350ms; easing: ease-in-out; }
+
+        background-container := Rectangle {
+            width: 100%;
+            height: 100%;
+            background: ClassStyles.background-or(ClassStyles.background-container, transparent);
+            opacity: ClassStyles.opacity-or(ClassStyles.background-container, 1.0);
+            visible: !ClassStyles.background-container.hidden;
+            clip: true;
+
+            // Web: background_1/background_2.svg blurred 6rem — a purple glow in the
+            // bottom-left and another top-right. Slint radial gradients are centred in
+            // their own rectangle, so each glow is an oversized square parked off-window.
+            Rectangle {
+                x: (root.width * 0.12) - (root.width * 0.75);
+                y: root.height - (root.width * 0.75);
+                width: root.width * 1.5;
+                height: root.width * 1.5;
+                background: @radial-gradient(circle, #5126ed66 0%, #5126ed00 65%);
+            }
+
+            Rectangle {
+                x: (root.width * 0.95) - (root.width * 0.75);
+                y: 0px - (root.width * 0.75);
+                width: root.width * 1.5;
+                height: root.width * 1.5;
+                background: @radial-gradient(circle, #7b5bf559 0%, #7b5bf500 65%);
+            }
+        }
+
+        // Dismiss / Back Button (.close-button / .back-button)
+        close-button-container := Rectangle {
+            x: 2 * root.rem-size;
+            y: 2 * root.rem-size;
+            width: 3.5 * root.rem-size;
+            height: 3.5 * root.rem-size;
+            border-radius: 0.75 * root.rem-size;
+            background: back-touch.has-hover ? Theme.overlay : ClassStyles.background-or(ClassStyles.close-button-container, transparent);
+            opacity: back-touch.has-hover ? 1.0 : ClassStyles.opacity-or(ClassStyles.close-button-container, 0.6);
+            visible: !ClassStyles.close-button-container.hidden;
+            z: 10;
+
+            back-touch := TouchArea {
+                mouse-cursor: pointer;
+                clicked => {
+                    root.dismiss();
+                }
+            }
+
+            Image {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                width: 1.5 * root.rem-size;
+                height: 1.5 * root.rem-size;
+                source: @image-url("icons/chevron-back.svg");
+                colorize: ClassStyles.color-or(ClassStyles.close-button-container, Theme.text);
+            }
+        }
+
+        // Scrollable intro viewport
+        flickable := Flickable {
+            x: 0px;
+            y: 0px;
+            width: parent.width;
+            height: parent.height;
+            content-width: parent.width;
+            // Only scroll once the content genuinely exceeds the window.
+            content-height: Math.max(parent.height, scroll-body.preferred-height);
+
+            scroll-body := VerticalLayout {
+                width: parent.width;
+                height: Math.max(flickable.height, self.preferred-height);
+                alignment: center;
+                padding-top: 2 * root.rem-size;
+                padding-bottom: 2 * root.rem-size;
+                spacing: 2.5 * root.rem-size;
+                // Every element in the page — logo row, both headlines and the columns —
+                // fades together when the form switches.
+                opacity: root.form-shown ? 1.0 : 0.0;
+                animate opacity { duration: 120ms; easing: ease-in-out; }
+
+                // 1. Header Layout (.heading-container)
+                heading-container := VerticalLayout {
+                    alignment: center;
+                    spacing: 3 * root.rem-size;
+                    opacity: ClassStyles.opacity-or(ClassStyles.heading-container, 1.0);
+                    visible: !ClassStyles.heading-container.hidden;
+
+                    // Web: .heading-container is a centred flex column, so the logo sits above
+                    // the title. A VerticalLayout only centres vertically, hence the row wrapper.
+                    logo-row := HorizontalLayout {
+                        alignment: center;
+                        spacing: 1.5 * root.rem-size;
+
+                        logo-container := Rectangle {
+                            height: 5 * root.rem-size;
+                            width: 5 * root.rem-size;
+                            background: ClassStyles.background-or(ClassStyles.logo-container, transparent);
+                            visible: !ClassStyles.logo-container.hidden;
+
+                            logo := Image {
+                                width: 100%;
+                                height: 100%;
+                                source: @image-url("images/logo.png");
+                                image-fit: contain;
+                                opacity: ClassStyles.opacity-or(ClassStyles.logo, 0.9);
+                                visible: !ClassStyles.logo.hidden;
+                            }
+                        }
+
+                        // Web renders its wordmark as an SVG next to the symbol; a Text keeps
+                        // the fork's own name editable instead of baking a second image.
+                        brand-name := Text {
+                            text: "Stremio Lightning";
+                            font-size: 2.75 * root.rem-size;
+                            font-weight: 300;
+                            color: Theme.text;
+                            opacity: 0.9;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    text-block := VerticalLayout {
+                        spacing: 0.5 * root.rem-size;
+
+                        title-container := Text {
+                            text: "Freedom to Stream Faster";
+                            font-size: 3 * root.rem-size;
+                            font-weight: 600;
+                            color: ClassStyles.color-or(ClassStyles.title-container, Theme.text);
+                            opacity: ClassStyles.opacity-or(ClassStyles.title-container, 1.0);
+                            visible: !ClassStyles.title-container.hidden;
+                            horizontal-alignment: center;
+                        }
+
+                        slogan-container := Text {
+                            text: "All the video content you enjoy in one place";
+                            font-size: 1.5 * root.rem-size;
+                            font-weight: 400;
+                            color: ClassStyles.color-or(ClassStyles.slogan-container, Theme.text);
+                            opacity: ClassStyles.opacity-or(ClassStyles.slogan-container, 0.6);
+                            visible: !ClassStyles.slogan-container.hidden;
+                            horizontal-alignment: center;
+                        }
+                    }
+                }
+
+                // 2. Content Container (.content-container: Form + Options)
+                content-container := HorizontalLayout {
+                    alignment: center;
+                    spacing: 4 * root.rem-size;
+                    // Every element in the page fades together when the form switches.
+                    opacity: ClassStyles.opacity-or(ClassStyles.content-container, 1.0);
+                    visible: !ClassStyles.content-container.hidden;
+
+                    // Left Column: Credential Form (.form-container)
+                    form-container := VerticalLayout {
+                        width: 22 * root.rem-size;
+                        spacing: 1 * root.rem-size;
+                        opacity: ClassStyles.opacity-or(ClassStyles.form-container, 1.0);
+                        visible: !ClassStyles.form-container.hidden;
+
+                        // Email text input
+                        IntroTextInput {
+                            rem-size: root.rem-size;
+                            placeholder: "Email";
+                            text <=> root.email-value;
+                            is-password: false;
+                            edited => {
+                                root.local-error = "";
+                            }
+                            enter-pressed => {
+                                root.handle-submit();
+                            }
+                        }
+
+                        // Password text input
+                        IntroTextInput {
+                            rem-size: root.rem-size;
+                            placeholder: "Password";
+                            text <=> root.password-value;
+                            is-password: true;
+                            password-masked <=> root.password-masked;
+                            edited => {
+                                root.local-error = "";
+                            }
+                            enter-pressed => {
+                                root.handle-submit();
+                            }
+                        }
+
+                        // Confirm password input (Sign-up mode only)
+                        if root.is-signup: IntroTextInput {
+                            rem-size: root.rem-size;
+                            placeholder: "Confirm password";
+                            text <=> root.confirm-password-value;
+                            is-password: true;
+                            password-masked <=> root.confirm-password-masked;
+                            edited => {
+                                root.local-error = "";
+                            }
+                            enter-pressed => {
+                                root.handle-submit();
+                            }
+                        }
+
+                        // GDPR Checkboxes (Sign-up mode only)
+                        if root.is-signup: checkboxes-container := VerticalLayout {
+                            spacing: 0.75 * root.rem-size;
+                            opacity: ClassStyles.opacity-or(ClassStyles.checkbox-container, 1.0);
+                            visible: !ClassStyles.checkbox-container.hidden;
+
+                            IntroCheckbox {
+                                rem-size: root.rem-size;
+                                label: "I agree to the Terms of Service";
+                                checked <=> root.gdpr-tos;
+                                toggled => {
+                                    root.local-error = "";
+                                }
+                            }
+
+                            IntroCheckbox {
+                                rem-size: root.rem-size;
+                                label: "I agree to the Privacy Policy";
+                                checked <=> root.gdpr-privacy;
+                                toggled => {
+                                    root.local-error = "";
+                                }
+                            }
+
+                            IntroCheckbox {
+                                rem-size: root.rem-size;
+                                label: "Subscribe to newsletter and product updates";
+                                checked <=> root.gdpr-marketing;
+                            }
+                        }
+
+                        // Forgot password action (Log-in mode only)
+                        if !root.is-signup: forgot-password-link-container := HorizontalLayout {
+                            alignment: end;
+                            height: 1.5 * root.rem-size;
+                            opacity: ClassStyles.opacity-or(ClassStyles.forgot-password-link-container, 1.0);
+                            visible: !ClassStyles.forgot-password-link-container.hidden;
+
+                            forgot-touch := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => {
+                                    root.forgot-password(root.email-value);
+                                }
+
+                                Text {
+                                    width: self.preferred-width;
+                                    height: parent.height;
+                                    text: "Forgot password?";
+                                    font-size: 0.95 * root.rem-size;
+                                    font-weight: 500;
+                                    color: forgot-touch.has-hover ? Theme.text : ClassStyles.color-or(ClassStyles.forgot-password-link, Theme.accent);
+                                    opacity: ClassStyles.opacity-or(ClassStyles.forgot-password-link, 1.0);
+                                    visible: !ClassStyles.forgot-password-link.hidden;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+
+                        // Error message banner (.error-message)
+                        if root.active-error != "": error-message := Rectangle {
+                            border-radius: 0.5 * root.rem-size;
+                            background: Theme.overlay;
+                            opacity: ClassStyles.opacity-or(ClassStyles.error-message, 1.0);
+                            visible: !ClassStyles.error-message.hidden;
+
+                            VerticalLayout {
+                                padding: 0.75 * root.rem-size;
+                                alignment: center;
+
+                                Text {
+                                    text: root.active-error;
+                                    font-size: 0.95 * root.rem-size;
+                                    font-weight: 500;
+                                    // Web: .error-message is the #f6c700 warning yellow.
+                                    color: ClassStyles.color-or(ClassStyles.error-message, #f6c700);
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                    wrap: word-wrap;
+                                }
+                            }
+                        }
+
+                        // Primary Submit Button (.submit-button)
+                        submit-button := IntroPillButton {
+                            rem-size: root.rem-size;
+                            text: root.is-signup ? "Sign up" : "Log in";
+                            normal-bg: ClassStyles.background-or(ClassStyles.submit-button, Theme.overlay);
+                            hover-bg: Theme.text;
+                            normal-color: ClassStyles.color-or(ClassStyles.submit-button, Theme.text);
+                            hover-color: #0c0b11;
+                            has-border: true;
+                            border-col: Theme.text;
+                            opacity: ClassStyles.opacity-or(ClassStyles.submit-button, 1.0);
+                            visible: !ClassStyles.submit-button.hidden;
+                            is-loading: root.is-loading;
+                            clicked => {
+                                root.handle-submit();
+                            }
+                        }
+                    }
+
+                    // Right Column: Options Container (.options-container)
+                    options-container := VerticalLayout {
+                        width: 22 * root.rem-size;
+                        spacing: 1 * root.rem-size;
+                        opacity: ClassStyles.opacity-or(ClassStyles.options-container, 1.0);
+                        visible: !ClassStyles.options-container.hidden;
+
+                        // Facebook Login Button
+                        facebook-button := IntroPillButton {
+                            rem-size: root.rem-size;
+                            text: "Log in with Facebook";
+                            has-icon: true;
+                            icon-source: @image-url("icons/facebook.svg");
+                            icon-color: ClassStyles.color-or(ClassStyles.facebook-button, #ffffff);
+                            normal-bg: ClassStyles.background-or(ClassStyles.facebook-button, #1877F1);
+                            hover-bg: #2883f3;
+                            normal-color: ClassStyles.color-or(ClassStyles.facebook-button, #ffffff);
+                            hover-color: #ffffff;
+                            has-border: false;
+                            opacity: ClassStyles.opacity-or(ClassStyles.facebook-button, 1.0);
+                            visible: !ClassStyles.facebook-button.hidden;
+                            clicked => {
+                                root.login-facebook();
+                            }
+                        }
+
+                        // Apple Login Button
+                        apple-button := IntroPillButton {
+                            rem-size: root.rem-size;
+                            text: "Log in with Apple";
+                            has-icon: true;
+                            // Web: stremio-icons' "macos" glyph, on the .apple-button.
+                            icon-source: @image-url("icons/apple.svg");
+                            icon-color: ClassStyles.color-or(ClassStyles.apple-button, #0c0b11);
+                            normal-bg: ClassStyles.background-or(ClassStyles.apple-button, #ffffff);
+                            hover-bg: #e6e6e6;
+                            normal-color: ClassStyles.color-or(ClassStyles.apple-button, #0c0b11);
+                            hover-color: #0c0b11;
+                            has-border: false;
+                            opacity: ClassStyles.opacity-or(ClassStyles.apple-button, 1.0);
+                            visible: !ClassStyles.apple-button.hidden;
+                            clicked => {
+                                root.login-apple();
+                            }
+                        }
+
+                        // Mode Switch Button (.signup-form-button / .login-form-button)
+                        mode-switch-button := IntroPillButton {
+                            rem-size: root.rem-size;
+                            text: root.is-signup ? "Log in" : "Sign up with email";
+                            normal-bg: root.is-signup ? ClassStyles.background-or(ClassStyles.login-form-button, transparent) : ClassStyles.background-or(ClassStyles.signup-form-button, transparent);
+                            hover-bg: Theme.overlay;
+                            normal-color: root.is-signup ? ClassStyles.color-or(ClassStyles.login-form-button, Theme.text) : ClassStyles.color-or(ClassStyles.signup-form-button, Theme.text);
+                            hover-color: Theme.text;
+                            has-border: true;
+                            border-col: Theme.text;
+                            opacity: root.is-signup ? ClassStyles.opacity-or(ClassStyles.login-form-button, 1.0) : ClassStyles.opacity-or(ClassStyles.signup-form-button, 1.0);
+                            visible: root.is-signup ? !ClassStyles.login-form-button.hidden : !ClassStyles.signup-form-button.hidden;
+                            clicked => {
+                                root.switch-form(!root.is-signup);
+                                root.local-error = "";
+                            }
+                        }
+
+                        // Guest Login Button (.guest-login-button)
+                        guest-login-button := IntroPillButton {
+                            rem-size: root.rem-size;
+                            text: "Log in as Guest";
+                            normal-bg: ClassStyles.background-or(ClassStyles.guest-login-button, transparent);
+                            hover-bg: Theme.overlay;
+                            normal-color: ClassStyles.color-or(ClassStyles.guest-login-button, Theme.text);
+                            hover-color: Theme.text;
+                            has-border: true;
+                            border-col: Theme.text;
+                            opacity: ClassStyles.opacity-or(ClassStyles.guest-login-button, 1.0);
+                            visible: !ClassStyles.guest-login-button.hidden;
+                            clicked => {
+                                root.login-guest();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Vertical ScrollBar for overflow
+        ScrollBar {
+            x: root.width - 8px;
+            y: 0px;
+            height: root.height;
+            view-height: root.height;
+            content-height: flickable.content-height;
+            offset <=> flickable.content-y;
+        }
+    }
+}

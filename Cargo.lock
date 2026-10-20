@@ -6006,10 +6006,12 @@ version = "0.1.0"
 dependencies = [
  "dirs",
  "futures",
+ "i-slint-backend-testing",
  "image",
  "libmpv2",
  "reqwest 0.12.28",
  "serde",
+ "serde_json",
  "slint",
  "slint-build",
  "stremio-core",

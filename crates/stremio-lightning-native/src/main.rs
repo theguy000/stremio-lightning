@@ -16,14 +16,15 @@ use stremio_core::models::installed_addons_with_filters::{
 };
 use stremio_core::models::meta_details::{MetaDetails, Selected as DetailsSelected};
 use stremio_core::runtime::msg::{
-    Action, ActionCatalogWithFilters, ActionCatalogsWithExtra, ActionLoad,
+    Action, ActionCatalogWithFilters, ActionCatalogsWithExtra, ActionCtx, ActionLoad, Event,
 };
 use stremio_core::runtime::{Env, Runtime, RuntimeAction, RuntimeEvent};
 use stremio_core::types::addon::{ResourcePath, ResourceRequest};
+use stremio_core::types::api::AuthRequest;
 use stremio_core::types::events::DismissedEventsBucket;
 use stremio_core::types::library::LibraryBucket;
 use stremio_core::types::notifications::NotificationsBucket;
-use stremio_core::types::profile::Profile;
+use stremio_core::types::profile::{GDPRConsent, Profile};
 use stremio_core::types::resource::{MetaItemPreview, PosterShape, Stream, StreamUrls};
 use stremio_core::types::search_history::SearchHistoryBucket;
 use stremio_core::types::server_urls::ServerUrlsBucket;
@@ -38,6 +39,7 @@ use url::Url;
 mod addons;
 mod class_styles;
 mod player;
+mod settings;
 
 slint::include_modules!();
 
@@ -147,6 +149,7 @@ struct Snapshot {
     discover: DiscoverData,
     details: DetailsData,
     addons: addons::AddonsData,
+    settings: settings::SettingsData,
 }
 
 /// "Popular - Movie": the catalog's name (the addon's name when the catalog has none, as
@@ -471,6 +474,37 @@ fn select_input_data(input: Input) -> SelectInputData {
     }
 }
 
+fn settings_view_data(data: settings::SettingsData) -> SettingsViewData {
+    SettingsViewData {
+        user_email: data.user_email.into(),
+        logged_in: data.logged_in,
+        trakt_authenticated: data.trakt_authenticated,
+        streaming_server_url: data.streaming_server_url.into(),
+        ui_language: select_input_data(data.ui_language),
+        quit_on_close: data.quit_on_close,
+        esc_exit_fullscreen: data.esc_exit_fullscreen,
+        hide_spoilers: data.hide_spoilers,
+        subtitles_language: select_input_data(data.subtitles_language),
+        subtitles_size: select_input_data(data.subtitles_size),
+        subtitles_text_color: select_input_data(data.subtitles_text_color),
+        subtitles_bg_color: select_input_data(data.subtitles_bg_color),
+        subtitles_outline_color: select_input_data(data.subtitles_outline_color),
+        audio_language: select_input_data(data.audio_language),
+        surround_sound: data.surround_sound,
+        seek_time: select_input_data(data.seek_time),
+        seek_short_time: select_input_data(data.seek_short_time),
+        play_in_background: data.play_in_background,
+        binge_watching: data.binge_watching,
+        next_video_duration: select_input_data(data.next_video_duration),
+        external_player: select_input_data(data.external_player),
+        hardware_decoding: data.hardware_decoding,
+        pause_on_minimize: data.pause_on_minimize,
+        caching: select_input_data(data.caching),
+        torrent_profile: select_input_data(data.torrent_profile),
+        transcoding_profile: select_input_data(data.transcoding_profile),
+    }
+}
+
 fn push(weak: &Weak<MainWindow>, snapshot: Snapshot, posters: Posters) {
     let _ = weak.upgrade_in_event_loop(move |window| {
         let cache = posters.lock().unwrap();
@@ -544,6 +578,7 @@ fn push(weak: &Weak<MainWindow>, snapshot: Snapshot, posters: Posters) {
             .collect();
         window.set_addon_inputs(ModelRc::new(VecModel::from(addon_inputs)));
         window.set_addons_message(snapshot.addons.message.into());
+        window.set_settings(settings_view_data(snapshot.settings));
         let previews: Vec<PreviewData> = snapshot
             .discover
             .previews
@@ -772,6 +807,14 @@ async fn report_server_state(
     let _ = weak.upgrade_in_event_loop(move |window| window.set_server_status(text.into()));
 }
 
+fn ctx_error_message(error: &stremio_core::models::ctx::CtxError) -> String {
+    match error {
+        stremio_core::models::ctx::CtxError::API(api_err) => api_err.message.clone(),
+        stremio_core::models::ctx::CtxError::Env(env_err) => env_err.message(),
+        stremio_core::models::ctx::CtxError::Other(other_err) => other_err.message(),
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tokio_runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -833,7 +876,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let posters: Posters = Default::default();
     let requested = Arc::new(Mutex::new(HashSet::<String>::new()));
+    let local_extras = Arc::new(Mutex::new(settings::LocalExtras::load(&data_dir)));
     let latest = Arc::new(Mutex::new(Snapshot::default()));
+    if let Ok(initial_model) = runtime.model() {
+        let initial_settings =
+            settings::settings_data(&initial_model, &local_extras.lock().unwrap());
+        video.apply_settings(&initial_settings.player_config);
+        window.set_settings(settings_view_data(initial_settings.clone()));
+        latest.lock().unwrap().settings = initial_settings;
+    }
     let client = reqwest::Client::new();
     let selected = Arc::new(AtomicUsize::new(0));
 
@@ -876,6 +927,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     {
         let weak = window.as_weak();
+        let video = video.clone();
         window.on_stop_playback(move || {
             video.stop();
             if let Some(window) = weak.upgrade() {
@@ -977,6 +1029,214 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
+    {
+        let (weak, runtime, latest, posters, local_extras, data_dir, video) = (
+            window.as_weak(),
+            runtime.clone(),
+            latest.clone(),
+            posters.clone(),
+            local_extras.clone(),
+            data_dir.clone(),
+            video.clone(),
+        );
+        window.on_select_setting_option(move |key, option| {
+            let Ok(index) = usize::try_from(option) else {
+                return;
+            };
+            let Some(current_settings) =
+                runtime.model().ok().map(|m| m.ctx.profile.settings.clone())
+            else {
+                return;
+            };
+            let updated_profile_settings = {
+                let mut extras = local_extras.lock().unwrap();
+                let res =
+                    settings::apply_select_option(&current_settings, &mut extras, &key, index);
+                extras.save(&data_dir);
+                res
+            };
+            if let Some(new_settings) = updated_profile_settings {
+                settings::dispatch_settings(&runtime, new_settings);
+            }
+            if let Ok(model) = runtime.model() {
+                let new_data = settings::settings_data(&model, &local_extras.lock().unwrap());
+                video.apply_settings(&new_data.player_config);
+                let mut snap = latest.lock().unwrap();
+                snap.settings = new_data;
+                push(&weak, snap.clone(), posters.clone());
+            }
+        });
+    }
+
+    {
+        let (weak, runtime, latest, posters, local_extras, data_dir, video) = (
+            window.as_weak(),
+            runtime.clone(),
+            latest.clone(),
+            posters.clone(),
+            local_extras.clone(),
+            data_dir.clone(),
+            video.clone(),
+        );
+        window.on_toggle_setting_option(move |key, enabled| {
+            let Some(current_settings) =
+                runtime.model().ok().map(|m| m.ctx.profile.settings.clone())
+            else {
+                return;
+            };
+            let updated_profile_settings = {
+                let mut extras = local_extras.lock().unwrap();
+                let res =
+                    settings::apply_toggle_option(&current_settings, &mut extras, &key, enabled);
+                extras.save(&data_dir);
+                res
+            };
+            if let Some(new_settings) = updated_profile_settings {
+                settings::dispatch_settings(&runtime, new_settings);
+            }
+            if let Ok(model) = runtime.model() {
+                let new_data = settings::settings_data(&model, &local_extras.lock().unwrap());
+                video.apply_settings(&new_data.player_config);
+                let mut snap = latest.lock().unwrap();
+                snap.settings = new_data;
+                push(&weak, snap.clone(), posters.clone());
+            }
+        });
+    }
+
+    {
+        window.on_open_settings_link(move |kind| {
+            settings::open_external_url(&kind);
+        });
+    }
+
+    {
+        let runtime = runtime.clone();
+        window.on_logout_user(move || {
+            settings::logout(&runtime);
+        });
+    }
+
+    {
+        let (weak, runtime, server, handle) = (
+            window.as_weak(),
+            runtime.clone(),
+            server.clone(),
+            tokio_runtime.handle().clone(),
+        );
+        window.on_reload_streaming_server(move || {
+            let _ = weak.upgrade_in_event_loop(|w| {
+                w.set_server_status("Stream server: restarting...".into())
+            });
+            let _ = server.stop();
+            let started = server.start();
+            handle.spawn(report_server_state(weak.clone(), server.clone(), started));
+            settings::reload_server(&runtime);
+        });
+    }
+
+    {
+        let (weak, runtime) = (window.as_weak(), runtime.clone());
+        window.on_submit_auth_login(move |email, password| {
+            let email_str = email.trim().to_string();
+            let password_str = password.to_string();
+            let _ = weak.upgrade_in_event_loop(|w| {
+                w.set_auth_loading(true);
+                w.set_auth_error("".into());
+            });
+            runtime.dispatch(RuntimeAction {
+                field: None,
+                action: Action::Ctx(ActionCtx::Authenticate(AuthRequest::Login {
+                    email: email_str,
+                    password: password_str,
+                    facebook: false,
+                })),
+            });
+        });
+    }
+
+    {
+        let (weak, runtime) = (window.as_weak(), runtime.clone());
+        window.on_submit_auth_register(move |email, password, tos, privacy, marketing| {
+            let email_str = email.trim().to_string();
+            let password_str = password.to_string();
+            let _ = weak.upgrade_in_event_loop(|w| {
+                w.set_auth_loading(true);
+                w.set_auth_error("".into());
+            });
+            runtime.dispatch(RuntimeAction {
+                field: None,
+                action: Action::Ctx(ActionCtx::Authenticate(AuthRequest::Register {
+                    email: email_str,
+                    password: password_str,
+                    gdpr_consent: GDPRConsent {
+                        tos,
+                        privacy,
+                        marketing,
+                        from: Some("stremio-lightning-native".to_string()),
+                    },
+                })),
+            });
+        });
+    }
+
+    {
+        let weak = window.as_weak();
+        window.on_auth_guest_login(move || {
+            let _ = weak.upgrade_in_event_loop(|w| {
+                w.set_auth_open(false);
+                w.set_auth_error("".into());
+                w.set_auth_loading(false);
+            });
+        });
+    }
+
+    {
+        let weak = window.as_weak();
+        window.on_auth_facebook_login(move || {
+            settings::open_external_url("web-intro");
+            let _ = weak.upgrade_in_event_loop(|w| {
+                w.set_auth_error("Please authenticate via the browser window.".into());
+            });
+        });
+    }
+
+    {
+        let weak = window.as_weak();
+        window.on_auth_apple_login(move || {
+            settings::open_external_url("web-intro");
+            let _ = weak.upgrade_in_event_loop(|w| {
+                w.set_auth_error("Please authenticate via the browser window.".into());
+            });
+        });
+    }
+
+    {
+        window.on_auth_forgot_password(move |email| {
+            let trimmed = email.trim();
+            if trimmed.is_empty() {
+                settings::open_external_url("reset-password");
+            } else {
+                let encoded =
+                    url::form_urlencoded::byte_serialize(trimmed.as_bytes()).collect::<String>();
+                settings::open_external_url(&format!(
+                    "https://www.strem.io/reset-password/?email={encoded}"
+                ));
+            }
+        });
+    }
+
+    {
+        let weak = window.as_weak();
+        window.on_auth_dismissed(move || {
+            let _ = weak.upgrade_in_event_loop(|w| {
+                w.set_auth_open(false);
+                w.set_auth_error("".into());
+                w.set_auth_loading(false);
+            });
+        });
+    }
+
     window.set_app_version(env!("CARGO_PKG_VERSION").into());
     window.set_build_version(option_env!("GITHUB_SHA").unwrap_or("dev").into());
 
@@ -986,6 +1246,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let posters = posters.clone();
         let latest = latest.clone();
         let selected = selected.clone();
+        let local_extras = local_extras.clone();
         move |event| {
             let weak = weak.clone();
             let reader = reader.clone();
@@ -994,15 +1255,46 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let latest = latest.clone();
             let client = client.clone();
             let selected = selected.clone();
+            let local_extras = local_extras.clone();
             async move {
-                if !matches!(event, RuntimeEvent::NewState(..)) {
-                    return;
+                match &event {
+                    RuntimeEvent::CoreEvent(Event::Error { error, source }) => {
+                        // Any error means the attempt has finished, so always stop the
+                        // spinner; only authentication errors belong in the auth banner.
+                        let msg = matches!(**source, Event::UserAuthenticated { .. })
+                            .then(|| ctx_error_message(error));
+                        let _ = weak.upgrade_in_event_loop(move |w| {
+                            w.set_auth_loading(false);
+                            if let Some(msg) = msg {
+                                w.set_auth_error(msg.into());
+                            }
+                        });
+                        return;
+                    }
+                    RuntimeEvent::CoreEvent(Event::UserAuthenticated { .. }) => {
+                        let _ = weak.upgrade_in_event_loop(|w| {
+                            w.set_auth_loading(false);
+                            w.set_auth_error("".into());
+                            w.set_auth_open(false);
+                        });
+                        return;
+                    }
+                    RuntimeEvent::NewState(..) => {}
+                    _ => return,
                 }
                 let Ok(model) = reader.model() else { return };
+                if model.ctx.profile.auth.is_some() {
+                    let _ = weak.upgrade_in_event_loop(|w| {
+                        w.set_auth_loading(false);
+                        w.set_auth_error("".into());
+                        w.set_auth_open(false);
+                    });
+                }
                 let (status, rows) = board_rows(&model);
                 let discover = discover_data(&model);
                 let addons = addons::addons_data(&model);
                 let details = details_data(&model);
+                let settings = settings::settings_data(&model, &local_extras.lock().unwrap());
                 drop(model);
                 let snapshot = Snapshot {
                     status,
@@ -1010,6 +1302,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     discover,
                     details,
                     addons,
+                    settings,
                 };
                 *latest.lock().unwrap() = snapshot.clone();
 
@@ -1120,5 +1413,24 @@ mod tests {
         let path = spec.env.get("PATH").expect("PATH is set");
         assert_eq!(std::env::split_paths(path).next(), Some(resources));
         assert_eq!(spec.stdout_log.parent(), Some(Path::new("data/logs")));
+    }
+
+    #[test]
+    fn ctx_error_message_handles_all_variants_cleanly() {
+        use stremio_core::models::ctx::{CtxError, OtherError};
+        use stremio_core::runtime::EnvError;
+        use stremio_core::types::api::APIError;
+
+        let api_err = CtxError::API(APIError {
+            message: "user not found".to_string(),
+            code: 1,
+        });
+        assert_eq!(ctx_error_message(&api_err), "user not found");
+
+        let env_err = CtxError::Env(EnvError::StorageUnavailable);
+        assert_eq!(ctx_error_message(&env_err), "Storage is not available");
+
+        let other_err = CtxError::Other(OtherError::UserNotLoggedIn);
+        assert_eq!(ctx_error_message(&other_err), "User is not logged in");
     }
 }

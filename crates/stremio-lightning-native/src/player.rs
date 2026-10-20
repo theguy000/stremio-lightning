@@ -180,4 +180,48 @@ impl VideoPlayer {
             let _ = player.mpv.command("stop", &[]);
         }
     }
+
+    pub fn apply_settings(&self, settings: &crate::settings::PlayerConfig) {
+        if let Some(player) = self.player.borrow().as_ref() {
+            let hwdec = if settings.hardware_decoding {
+                "auto-safe"
+            } else {
+                "no"
+            };
+            let _ = player.mpv.set_property("hwdec", hwdec);
+            let _ = player
+                .mpv
+                .set_property("sub-scale", f64::from(settings.subtitles_size) / 100.0);
+            if !settings.subtitles_language.is_empty() && settings.subtitles_language != "none" {
+                let _ = player
+                    .mpv
+                    .set_property("slang", settings.subtitles_language.as_str());
+                let _ = player.mpv.set_property("sub-visibility", "yes");
+            } else if settings.subtitles_language == "none" {
+                let _ = player.mpv.set_property("sub-visibility", "no");
+            }
+            if !settings.audio_language.is_empty() {
+                let _ = player
+                    .mpv
+                    .set_property("alang", settings.audio_language.as_str());
+            }
+            if !settings.subtitles_text_color.is_empty() {
+                let _ = player
+                    .mpv
+                    .set_property("sub-color", settings.subtitles_text_color.as_str());
+            }
+            if !settings.subtitles_background_color.is_empty() {
+                let _ = player.mpv.set_property(
+                    "sub-back-color",
+                    settings.subtitles_background_color.as_str(),
+                );
+            }
+            if !settings.subtitles_outline_color.is_empty() {
+                let _ = player.mpv.set_property(
+                    "sub-border-color",
+                    settings.subtitles_outline_color.as_str(),
+                );
+            }
+        }
+    }
 }
