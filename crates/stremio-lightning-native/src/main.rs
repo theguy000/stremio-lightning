@@ -807,9 +807,25 @@ async fn report_server_state(
     let _ = weak.upgrade_in_event_loop(move |window| window.set_server_status(text.into()));
 }
 
+/// Stremio's login API has three failure answers that do not read like a login form: a wrong password
+/// is "Wrong passphrase", an account created with Facebook gets that plus "(hint: account created with
+/// Facebook login, you can try logging in with Facebook)", and an address with no account at all is
+/// "User not found". Each becomes a sentence that says what to do next; every other message already
+/// reads like one, so it passes through untouched.
 fn ctx_error_message(error: &stremio_core::models::ctx::CtxError) -> String {
     match error {
-        stremio_core::models::ctx::CtxError::API(api_err) => api_err.message.clone(),
+        stremio_core::models::ctx::CtxError::API(api_err) => match api_err.message.as_str() {
+            message if message.starts_with("Wrong passphrase") && message.contains("Facebook") => {
+                "Wrong password. This account was created with Facebook, so log in with the Facebook button instead.".to_string()
+            }
+            message if message.starts_with("Wrong passphrase") => {
+                "Wrong password. Please try again.".to_string()
+            }
+            "User not found" => {
+                "No account uses that email address. Check the spelling, or sign up.".to_string()
+            }
+            message => message.to_string(),
+        },
         stremio_core::models::ctx::CtxError::Env(env_err) => env_err.message(),
         stremio_core::models::ctx::CtxError::Other(other_err) => other_err.message(),
     }
@@ -1416,16 +1432,39 @@ mod tests {
     }
 
     #[test]
-    fn ctx_error_message_handles_all_variants_cleanly() {
+    fn ctx_error_message_maps_auth_failures_to_actionable_text() {
         use stremio_core::models::ctx::{CtxError, OtherError};
         use stremio_core::runtime::EnvError;
         use stremio_core::types::api::APIError;
 
-        let api_err = CtxError::API(APIError {
-            message: "user not found".to_string(),
-            code: 1,
-        });
-        assert_eq!(ctx_error_message(&api_err), "user not found");
+        let api_err = |message: &str, code: u64| {
+            ctx_error_message(&CtxError::API(APIError {
+                message: message.to_string(),
+                code,
+            }))
+        };
+        // A wrong password on an email account.
+        assert_eq!(
+            api_err("Wrong passphrase", 3),
+            "Wrong password. Please try again."
+        );
+        // A wrong password on an account created with Facebook: the API appends its hint in the
+        // message and reports code 33, not 3.
+        let hinted = "Wrong passphrase (hint: account created with Facebook login, you can try logging in with Facebook)";
+        assert_eq!(
+            api_err(hinted, 33),
+            "Wrong password. This account was created with Facebook, so log in with the Facebook button instead."
+        );
+        // An address with no account at all.
+        assert_eq!(
+            api_err("User not found", 2),
+            "No account uses that email address. Check the spelling, or sign up."
+        );
+        // Other API messages are already written for people.
+        assert_eq!(
+            api_err("User with this email already exists", 36),
+            "User with this email already exists"
+        );
 
         let env_err = CtxError::Env(EnvError::StorageUnavailable);
         assert_eq!(ctx_error_message(&env_err), "Storage is not available");

@@ -18,10 +18,21 @@ use stremio_core::runtime::EnvError;
 use stremio_core::types::api::{APIError, AuthRequest};
 use stremio_core::types::profile::GDPRConsent;
 
-// Match implementation in src/main.rs:810-816
+// Match implementation in src/main.rs:815-832
 fn ctx_error_message(error: &CtxError) -> String {
     match error {
-        CtxError::API(api_err) => api_err.message.clone(),
+        CtxError::API(api_err) => match api_err.message.as_str() {
+            message if message.starts_with("Wrong passphrase") && message.contains("Facebook") => {
+                "Wrong password. This account was created with Facebook, so log in with the Facebook button instead.".to_string()
+            }
+            message if message.starts_with("Wrong passphrase") => {
+                "Wrong password. Please try again.".to_string()
+            }
+            "User not found" => {
+                "No account uses that email address. Check the spelling, or sign up.".to_string()
+            }
+            message => message.to_string(),
+        },
         CtxError::Env(env_err) => env_err.message(),
         CtxError::Other(other_err) => other_err.message(),
     }
@@ -191,6 +202,36 @@ fn test_error_extraction_apierror_adversarial_payloads() {
             "APIError message must pass through verbatim"
         );
     }
+}
+
+#[test]
+fn test_error_extraction_rewrites_only_known_auth_failures() {
+    let message_of = |message: &str, code: u64| {
+        ctx_error_message(&CtxError::API(APIError {
+            message: message.to_string(),
+            code,
+        }))
+    };
+
+    // A wrong password must not read as a missing account.
+    assert_eq!(
+        message_of("Wrong passphrase", 3),
+        "Wrong password. Please try again."
+    );
+    // A Facebook-created account gets the hint appended and code 33, so the hint branch must win.
+    let hinted = "Wrong passphrase (hint: account created with Facebook login, you can try logging in with Facebook)";
+    assert_eq!(
+        message_of(hinted, 33),
+        "Wrong password. This account was created with Facebook, so log in with the Facebook button instead."
+    );
+    assert_eq!(
+        message_of("User not found", 2),
+        "No account uses that email address. Check the spelling, or sign up."
+    );
+    assert_eq!(
+        message_of("User with this email already exists", 36),
+        "User with this email already exists"
+    );
 }
 
 // ============================================================================
