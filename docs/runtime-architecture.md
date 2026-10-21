@@ -57,4 +57,5 @@ Platform implementation and setup details are documented in the
 [Linux](platforms/linux.md), [macOS](platforms/macos.md), and
 [Windows](platforms/windows.md) guides.
 
-The native client's shape is described in [the modularization spec](native-modularization.md).
+The native client's shape is recorded in
+[ADR 0002](adr/0002-native-client-is-a-library.md).
