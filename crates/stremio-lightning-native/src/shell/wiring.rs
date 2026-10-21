@@ -31,6 +31,8 @@ pub(crate) struct Wiring {
     pub(crate) images: Images,
     pub(crate) latest: Arc<Mutex<Snapshot>>,
     pub(crate) selected: Arc<AtomicUsize>,
+    /// The Season the details screen's episode picker is showing, if it has been touched.
+    pub(crate) season: Arc<AtomicUsize>,
     pub(crate) local_extras: Arc<Mutex<settings::LocalExtras>>,
     pub(crate) data_dir: std::path::PathBuf,
     pub(crate) server: Arc<Supervisor>,
@@ -54,6 +56,8 @@ impl Wiring {
     fn open_item(&self, id: String, kind: String, title: String) {
         // Drop what the previous item left behind so it can't flash up before the new data.
         self.latest.lock().unwrap().details = details::Data::default();
+        // A new title opens on the Season the core suggests, not the one last browsed.
+        self.season.store(details::NO_SEASON, Ordering::Relaxed);
         if let Some(window) = self.window.upgrade() {
             window.set_details_title(title.into());
             window.set_details_description("".into());
@@ -63,6 +67,29 @@ impl Wiring {
             window.set_streams(ModelRc::default());
         }
         details::open(&self.runtime, &id, &kind);
+    }
+
+    /// Browsing the episode picker: nothing is loaded, so this only remembers the Season and
+    /// repaints the list.
+    fn select_season(&self, index: i32) {
+        let Some(season) = usize::try_from(index).ok().and_then(|index| {
+            self.latest
+                .lock()
+                .unwrap()
+                .details
+                .seasons
+                .get(index)
+                .map(|season| season.number)
+        }) else {
+            return;
+        };
+        self.season.store(season as usize, Ordering::Relaxed);
+        let Ok(model) = self.runtime.model() else {
+            return;
+        };
+        let mut snapshot = self.latest.lock().unwrap().clone();
+        snapshot.details = details::data(&model, Some(season));
+        self.repaint_with(snapshot);
     }
 
     fn play_stream(&self, index: i32) {
@@ -276,6 +303,10 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
     {
         let wiring = wiring.clone();
         window.on_play_stream(move |index| wiring.play_stream(index));
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_select_season(move |index| wiring.select_season(index));
     }
     {
         let wiring = wiring.clone();

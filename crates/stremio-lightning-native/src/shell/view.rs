@@ -10,8 +10,8 @@ use crate::plumbing::images::Images;
 use crate::screens::settings::Data as SettingsData;
 use crate::screens::{Card, Input};
 use crate::{
-    AddonData, CatalogRow, LinkGroup, MainWindow, PosterData, PreviewData, SelectInputData,
-    SettingsViewData, StreamData,
+    AddonData, CatalogRow, EpisodeData, LinkGroup, MainWindow, PosterData, PreviewData,
+    SelectInputData, SelectOption, SettingsViewData, StreamData,
 };
 
 /// Copies everything a snapshot describes onto the window. Runs on the window's thread.
@@ -125,6 +125,43 @@ fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
             .map(|(name, description)| StreamData {
                 name: name.clone().into(),
                 description: description.clone().into(),
+            })
+            .collect::<Vec<_>>(),
+    )));
+
+    window.set_details_show_picker(details.show_picker);
+    window.set_details_season_index(i32::try_from(details.season).unwrap_or_default());
+    window.set_details_season_title(
+        details
+            .seasons
+            .get(details.season)
+            .map(|season| season.label.clone())
+            .unwrap_or_default()
+            .into(),
+    );
+    window.set_details_seasons(ModelRc::new(VecModel::from(
+        details
+            .seasons
+            .iter()
+            .enumerate()
+            .map(|(index, season)| SelectOption {
+                label: season.label.clone().into(),
+                selected: index == details.season,
+            })
+            .collect::<Vec<_>>(),
+    )));
+    window.set_details_episodes(ModelRc::new(VecModel::from(
+        details
+            .episodes
+            .iter()
+            .map(|episode| {
+                let thumbnail = images.get(&episode.thumbnail);
+                EpisodeData {
+                    label: episode.label.clone().into(),
+                    title: episode.title.clone().into(),
+                    has_thumbnail: thumbnail.is_some(),
+                    thumbnail: thumbnail.unwrap_or_default(),
+                }
             })
             .collect::<Vec<_>>(),
     )));

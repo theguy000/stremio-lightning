@@ -6,7 +6,7 @@ import { AddonData, AddonsContent } from "addons.slint";
 import { DiscoverContent, SelectInputData } from "discover.slint";
 import { LoggedOutPlaceholder } from "logged-out-placeholder.slint";
 import { SettingsContent, SettingsViewData } from "settings.slint";
-import { SelectOption } from "multiselect-menu.slint";
+import { MultiselectMenu, SelectOption } from "multiselect-menu.slint";
 import { LinkGroup, PreviewData } from "meta-preview.slint";
 export { AddonData, LinkGroup, PreviewData, SelectInputData, SelectOption, SettingsViewData }
 import { ClassStyle, ClassStyles } from "class-styles.slint";
@@ -17,6 +17,14 @@ export { CatalogRow, ClassStyle, ClassStyles, PosterData }
 export struct StreamData {
     name: string,
     description: string,
+}
+
+// One row of the episode picker: `S2E5` or `SPECIAL 5`, the Episode's title, and its thumbnail.
+export struct EpisodeData {
+    label: string,
+    title: string,
+    has-thumbnail: bool,
+    thumbnail: image,
 }
 
 export component MainWindow inherits Window {
@@ -48,6 +56,12 @@ export component MainWindow inherits Window {
     in property <bool> details-has-poster: false;
     in property <string> details-status;
     in property <[StreamData]> streams: [];
+    // The episode picker: shown instead of the Streams while no Episode has been picked.
+    in property <bool> details-show-picker: false;
+    in property <[SelectOption]> details-seasons: [];
+    in property <int> details-season-index: 0;
+    in property <string> details-season-title;
+    in property <[EpisodeData]> details-episodes: [];
     in-out property <bool> playing: false;
     in-out property <Section> section: Section.board;
     in-out property <bool> auth-open: false;
@@ -77,6 +91,7 @@ export component MainWindow inherits Window {
     callback reload-streaming-server();
     callback logout-user();
     callback play-stream(int);
+    callback select-season(int);
     callback stop-playback();
     callback submit-auth-login(string, string);
     callback submit-auth-register(string, string, bool, bool, bool);
@@ -174,13 +189,41 @@ export component MainWindow inherits Window {
                 }
             }
         }
+        if root.details-show-picker: HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+            Button {
+                text: "‹";
+                enabled: root.details-season-index > 0;
+                clicked => {
+                    root.select-season(root.details-season-index - 1);
+                }
+            }
+            MultiselectMenu {
+                width: 16 * root.rem-size;
+                title: root.details-season-title;
+                options: root.details-seasons;
+                selected-index: root.details-season-index;
+                rem-size: root.rem-size;
+                select(index) => {
+                    root.select-season(index);
+                }
+            }
+            Button {
+                text: "›";
+                enabled: root.details-season-index < root.details-seasons.length - 1;
+                clicked => {
+                    root.select-season(root.details-season-index + 1);
+                }
+            }
+        }
         Text {
-            text: "Streams";
+            text: root.details-show-picker ? "Episodes" : "Streams";
             color: white;
             font-size: 18px;
             font-weight: 600;
         }
-        Text {
+        if root.details-show-picker == false: Text {
             text: root.details-status;
             color: #9d9bb0;
             font-size: 13px;
@@ -191,7 +234,51 @@ export component MainWindow inherits Window {
             font-size: 13px;
             wrap: word-wrap;
         }
-        ScrollView {
+        if root.details-show-picker: ScrollView {
+            VerticalLayout {
+                alignment: start;
+                spacing: 8px;
+                for episode[index] in root.details-episodes: Rectangle {
+                    height: 64px;
+                    background: #1b1a24;
+                    border-radius: 6px;
+                    HorizontalLayout {
+                        padding: 8px;
+                        spacing: 12px;
+                        Rectangle {
+                            width: 80px;
+                            height: 48px;
+                            background: #2a2843;
+                            border-radius: 4px;
+                            clip: true;
+                            if episode.has-thumbnail: Image {
+                                source: episode.thumbnail;
+                                width: 100%;
+                                height: 100%;
+                                image-fit: cover;
+                            }
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            spacing: 2px;
+                            Text {
+                                text: episode.label;
+                                color: #9d9bb0;
+                                font-size: 12px;
+                            }
+                            Text {
+                                text: episode.title;
+                                color: white;
+                                font-size: 14px;
+                                font-weight: 600;
+                                overflow: elide;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if root.details-show-picker == false: ScrollView {
             VerticalLayout {
                 alignment: start;
                 spacing: 8px;

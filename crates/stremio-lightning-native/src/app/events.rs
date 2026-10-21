@@ -26,6 +26,8 @@ pub(crate) struct Context {
     pub(crate) latest: Arc<Mutex<Snapshot>>,
     /// The Discover card whose preview panel is open.
     pub(crate) selected: Arc<AtomicUsize>,
+    /// The Season the details screen's episode picker is showing, if it has been touched.
+    pub(crate) season: Arc<AtomicUsize>,
     pub(crate) local_extras: Arc<Mutex<settings::LocalExtras>>,
     pub(crate) auth: auth::Generation,
     /// Repaint now, with whatever the cache holds. Used when an image arrives.
@@ -99,7 +101,10 @@ fn snapshot(model: &AppModel, context: &Context) -> Snapshot {
         rows,
         discover: discover::data(model),
         addons: crate::screens::addons::data(model),
-        details: crate::screens::details::data(model),
+        details: crate::screens::details::data(
+            model,
+            crate::screens::details::chosen_season(context.season.load(Ordering::Relaxed)),
+        ),
         settings: settings::data(model, &context.extras()),
     }
 }
@@ -119,6 +124,13 @@ fn request_images(snapshot: &Snapshot, context: &Context) {
                 .filter_map(|card| card.poster.clone()),
         )
         .chain(snapshot.details.poster.clone())
+        .chain(
+            snapshot
+                .details
+                .episodes
+                .iter()
+                .filter_map(|episode| episode.thumbnail.clone()),
+        )
         .chain(
             snapshot
                 .addons
