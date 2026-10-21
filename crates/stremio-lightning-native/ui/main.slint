@@ -192,7 +192,8 @@ export component MainWindow inherits Window {
         x: 0px;
         y: 0px;
         width: parent.width;
-        show-search: root.section != Section.addons;
+        // Web: the details route has no search box in the bar either.
+        show-search: root.section != Section.addons && !root.details-open;
         // Web: the details route turns the bar's first slot into the way back.
         show-back: root.details-open;
         back-clicked => {
