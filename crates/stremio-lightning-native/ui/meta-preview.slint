@@ -163,17 +163,20 @@ export component MetaPreview inherits Rectangle {
     in property <PreviewData> preview;
     in property <bool> has-preview;
     in property <length> rem-size;
+    // On the details route the preview is not a panel: web paints the title's background across
+    // the whole screen (`.background-image-layer`) and lays this info straight onto it.
+    in property <bool> on-page: false;
 
     meta-preview-container := Rectangle {
         width: parent.width;
         height: parent.height;
-        background: Theme.modal-background;
-        border-top-left-radius: 0.75 * root.rem-size;
-        border-bottom-left-radius: 0.75 * root.rem-size;
+        background: root.on-page ? transparent : Theme.modal-background;
+        border-top-left-radius: root.on-page ? 0px : 0.75 * root.rem-size;
+        border-bottom-left-radius: root.on-page ? 0px : 0.75 * root.rem-size;
         clip: true;
 
         // Web: blurred at 10px. Slint has no blur, so the image is fetched tiny and scaled up smoothly.
-        if root.has-preview && root.preview.has-background: background-image-layer := Rectangle {
+        if root.has-preview && root.preview.has-background && !root.on-page: background-image-layer := Rectangle {
             x: -10px;
             y: -10px;
             width: parent.width + 20px;

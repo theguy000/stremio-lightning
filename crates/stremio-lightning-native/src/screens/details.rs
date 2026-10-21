@@ -226,7 +226,13 @@ pub fn data(model: &AppModel, chosen: Option<u32>, picked: Option<&str>) -> Data
         .collect();
 
     Data {
-        preview: item.map(|item| crate::screens::preview_of(&item.preview)),
+        // The details route paints the artwork across the whole screen, so it wants the real
+        // image, not the tiny one `preview_of` swaps in for the Discover panel's 10px blur.
+        preview: item.map(|item| {
+            let mut preview = crate::screens::preview_of(&item.preview);
+            preview.background = item.preview.background.as_ref().map(|url| url.to_string());
+            preview
+        }),
         status: format!(
             "{found} streams from {ready} sources, {empty} had nothing, {failed} failed, {loading} loading"
         ),

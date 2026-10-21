@@ -155,6 +155,18 @@ export component DetailsScreen inherits Rectangle {
     callback back-to-episodes();
     callback play-stream(int);
 
+    background: Theme.modal-background;
+
+    // Web: .background-image-layer — the title's own artwork across the whole screen at 0.3,
+    // anchored right, with everything else laid on top of it.
+    if root.has-preview && root.preview.has-background: Image {
+        width: 100%;
+        height: 100%;
+        source: root.preview.background;
+        image-fit: cover;
+        opacity: 0.3;
+    }
+
     HorizontalLayout {
         // Web: .meta-preview — flex 0 1 auto with `padding: 0 4rem 2rem 4rem`.
         Rectangle {
@@ -167,6 +179,7 @@ export component DetailsScreen inherits Rectangle {
                     preview: root.preview;
                     has-preview: root.has-preview;
                     rem-size: root.rem-size;
+                    on-page: true;
                 }
             }
         }
@@ -200,7 +213,7 @@ export component DetailsScreen inherits Rectangle {
                     padding-left: 1 * root.rem-size;
                     padding-right: 1 * root.rem-size;
                     spacing: 0.5 * root.rem-size;
-                    alignment: start;
+                    alignment: center;
                     Rectangle {
                         width: 3 * root.rem-size;
                         height: 3 * root.rem-size;
