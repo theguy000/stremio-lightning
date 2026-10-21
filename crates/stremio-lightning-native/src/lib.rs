@@ -70,6 +70,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let selected = Arc::new(AtomicUsize::new(0));
     let season = Arc::new(AtomicUsize::new(screens::details::NO_SEASON));
     let picked: Arc<Mutex<Option<String>>> = Default::default();
+    let video_query: Arc<Mutex<String>> = Default::default();
 
     let wiring = shell::wiring::Wiring {
         window: window.as_weak(),
@@ -80,6 +81,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         selected: selected.clone(),
         season: season.clone(),
         picked: picked.clone(),
+        video_query: video_query.clone(),
         local_extras: local_extras.clone(),
         data_dir: data_dir.clone(),
         server: server.clone(),
@@ -116,6 +118,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             selected,
             season,
             picked,
+            video_query,
             local_extras,
             auth: wiring.auth.clone(),
             repaint,

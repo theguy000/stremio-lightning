@@ -113,7 +113,12 @@ pub(crate) fn episodes(videos: &[Video], season: u32) -> Vec<Episode> {
                 } else {
                     format!("S{}E{}", info.season, info.episode)
                 },
-                title: video.title.clone(),
+                // Web numbers the row: `15. Scarlett Fever`.
+                title: if video.title.trim().is_empty() {
+                    format!("{}.", info.episode)
+                } else {
+                    format!("{}. {}", info.episode, video.title.trim())
+                },
                 released: released_label(video.released.as_ref()),
                 thumbnail: video.thumbnail.clone(),
             })
@@ -185,7 +190,7 @@ pub fn chosen_season(stored: usize) -> Option<u32> {
     u32::try_from(stored).ok()
 }
 
-pub fn data(model: &AppModel, chosen: Option<u32>, picked: Option<&str>) -> Data {
+pub fn data(model: &AppModel, chosen: Option<u32>, picked: Option<&str>, query: &str) -> Data {
     let details = &model.meta_details;
     let item = details
         .meta_items
@@ -206,9 +211,14 @@ pub fn data(model: &AppModel, chosen: Option<u32>, picked: Option<&str>) -> Data
     let season = shown
         .and_then(|number| listed.iter().position(|season| season.number == number))
         .unwrap_or_default();
-    let season_episodes = shown
+    // Web: the search bar above the rows filters them.
+    let needle = query.trim().to_lowercase();
+    let mut season_episodes = shown
         .map(|number| episodes(videos, number))
         .unwrap_or_default();
+    if !needle.is_empty() {
+        season_episodes.retain(|episode| episode.title.to_lowercase().contains(&needle));
+    }
 
     let (mut ready, mut loading, mut empty, mut failed) = (0, 0, 0, 0);
     for page in &details.streams {
@@ -230,7 +240,9 @@ pub fn data(model: &AppModel, chosen: Option<u32>, picked: Option<&str>) -> Data
         // image, not the tiny one `preview_of` swaps in for the Discover panel's 10px blur.
         preview: item.map(|item| {
             let mut preview = crate::screens::preview_of(&item.preview);
-            preview.background = item.preview.background.as_ref().map(|url| url.to_string());
+            preview.background = item.preview.background.as_ref().map(|url| {
+                format!("{url}{}", crate::plumbing::images::PAGE_SUFFIX)
+            });
             preview
         }),
         status: format!(
@@ -489,7 +501,8 @@ mod tests {
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].id, "a");
         assert_eq!(listed[0].label, "S1E2");
-        assert_eq!(listed[0].title, "Second");
+        // Web numbers the row: `2. Second`.
+        assert_eq!(listed[0].title, "2. Second");
     }
 
     #[test]

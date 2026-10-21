@@ -140,6 +140,7 @@ export component DetailsScreen inherits Rectangle {
     in property <PreviewData> preview;
     in property <bool> has-preview: false;
     in property <[VideoRow]> episodes;
+    in property <string> video-query;
     in property <[SelectOption]> seasons;
     in property <int> season-index: 0;
     in property <string> season-title;
@@ -150,15 +151,18 @@ export component DetailsScreen inherits Rectangle {
     in property <string> status;
     in property <string> play-message;
     in property <length> rem-size: 14px;
+    /// The top bar's height: the artwork runs under it, the content does not.
+    in property <length> bar-height: 0px;
     callback select-season(int);
     callback pick-video(string);
+    callback search-videos(string);
     callback back-to-episodes();
     callback play-stream(int);
 
     background: Theme.modal-background;
 
-    // Web: .background-image-layer — the title's own artwork across the whole screen at 0.3,
-    // anchored right, with everything else laid on top of it.
+    // Web: .background-image-layer — fixed over the whole viewport, so the artwork also runs
+    // under the top bar, with everything else laid on top of it.
     if root.has-preview && root.preview.has-background: Image {
         width: 100%;
         height: 100%;
@@ -168,6 +172,9 @@ export component DetailsScreen inherits Rectangle {
     }
 
     HorizontalLayout {
+        y: root.bar-height;
+        height: parent.height - root.bar-height;
+
         // Web: .meta-preview — flex 0 1 auto with `padding: 0 4rem 2rem 4rem`.
         Rectangle {
             horizontal-stretch: 1;
@@ -196,11 +203,15 @@ export component DetailsScreen inherits Rectangle {
                 season-title: root.season-title;
                 videos: root.episodes;
                 rem-size: root.rem-size;
+                query: root.video-query;
                 select-season(index) => {
                     root.select-season(index);
                 }
                 pick-video(id) => {
                     root.pick-video(id);
+                }
+                search-videos(text) => {
+                    root.search-videos(text);
                 }
             }
 
@@ -213,7 +224,7 @@ export component DetailsScreen inherits Rectangle {
                     padding-left: 1 * root.rem-size;
                     padding-right: 1 * root.rem-size;
                     spacing: 0.5 * root.rem-size;
-                    alignment: center;
+                    alignment: start;
                     Rectangle {
                         width: 3 * root.rem-size;
                         height: 3 * root.rem-size;
@@ -237,6 +248,8 @@ export component DetailsScreen inherits Rectangle {
                         }
                     }
                     Text {
+                        // Button height, so its centred text lines up with the chevron beside it.
+                        height: 3 * root.rem-size;
                         text: root.picked-label;
                         color: Theme.text;
                         font-size: root.rem-size;

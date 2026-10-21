@@ -12,6 +12,8 @@ use slint::{Image, Rgba8Pixel, SharedPixelBuffer};
 /// The size each kind of image is stored at, so a 4K poster is never held in memory.
 pub(crate) const LOGO_SUFFIX: &str = "#logo";
 pub(crate) const BLUR_SUFFIX: &str = "#blur";
+/// Artwork that fills the window, so it must not be squeezed into a poster.
+pub(crate) const PAGE_SUFFIX: &str = "#page";
 
 pub(crate) type Cache = Arc<Mutex<HashMap<String, SharedPixelBuffer<Rgba8Pixel>>>>;
 
@@ -62,6 +64,8 @@ fn source(key: &str) -> (&str, (u32, u32)) {
         (url, (672, 168))
     } else if let Some(url) = key.strip_suffix(BLUR_SUFFIX) {
         (url, (24, 36))
+    } else if let Some(url) = key.strip_suffix(PAGE_SUFFIX) {
+        (url, (1920, 1080))
     } else {
         (key, (300, 450))
     }

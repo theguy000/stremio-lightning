@@ -50,6 +50,7 @@ export component MainWindow inherits Window {
     in property <int> details-season-index: 0;
     in property <string> details-season-title;
     in property <[VideoRow]> details-episodes: [];
+    in-out property <string> details-video-query;
     in property <string> details-picked-label;
     in property <bool> details-has-next-episode: false;
     in-out property <bool> playing: false;
@@ -84,6 +85,7 @@ export component MainWindow inherits Window {
     callback play-stream(int);
     callback select-season(int);
     callback pick-video(string);
+    callback search-videos(string);
     callback back-to-episodes();
     callback next-episode();
     callback stop-playback();
@@ -134,15 +136,19 @@ export component MainWindow inherits Window {
     }
 
     // Web: the details route — MetaPreview beside a 30rem column of Episodes or Streams.
+    // Web: the details route starts at the very top — its artwork sits behind the nav bar — and
+    // pads its own content down past the bar.
     if root.details-open && !root.playing: DetailsScreen {
-        x: root.nav-width;
-        y: root.bar-height;
-        width: parent.width - root.nav-width;
-        height: parent.height - root.bar-height;
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
         rem-size: root.rem-size;
         preview: root.details-preview;
         has-preview: root.details-has-preview;
         episodes: root.details-episodes;
+        video-query: root.details-video-query;
+        bar-height: root.bar-height;
         seasons: root.details-seasons;
         season-index: root.details-season-index;
         season-title: root.details-season-title;
@@ -157,6 +163,9 @@ export component MainWindow inherits Window {
         }
         pick-video(id) => {
             root.pick-video(id);
+        }
+        search-videos(text) => {
+            root.search-videos(text);
         }
         back-to-episodes => {
             root.back-to-episodes();

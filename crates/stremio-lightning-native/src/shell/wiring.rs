@@ -35,6 +35,8 @@ pub(crate) struct Wiring {
     pub(crate) season: Arc<AtomicUsize>,
     /// The Video id whose Streams the details screen is showing, if one was picked.
     pub(crate) picked: Arc<Mutex<Option<String>>>,
+    /// What the details screen's search box holds.
+    pub(crate) video_query: Arc<Mutex<String>>,
     pub(crate) local_extras: Arc<Mutex<settings::LocalExtras>>,
     pub(crate) data_dir: std::path::PathBuf,
     pub(crate) server: Arc<Supervisor>,
@@ -62,6 +64,7 @@ impl Wiring {
         // no Episode picked.
         self.season.store(details::NO_SEASON, Ordering::Relaxed);
         *self.picked.lock().unwrap() = None;
+        *self.video_query.lock().unwrap() = String::new();
         if let Some(window) = self.window.upgrade() {
             window.set_details_has_preview(false);
             window.set_details_status("Loading...".into());
@@ -94,8 +97,23 @@ impl Wiring {
             return;
         };
         let picked = self.picked.lock().unwrap().clone();
+        let query = self.video_query.lock().unwrap().clone();
         let mut snapshot = self.latest.lock().unwrap().clone();
-        snapshot.details = details::data(&model, Some(season), picked.as_deref());
+        snapshot.details = details::data(&model, Some(season), picked.as_deref(), &query);
+        self.repaint_with(snapshot);
+    }
+
+    /// The search box changed: refilter the rows, nothing to load.
+    fn search_videos(&self, query: String) {
+        *self.video_query.lock().unwrap() = query;
+        let Ok(model) = self.runtime.model() else {
+            return;
+        };
+        let picked = self.picked.lock().unwrap().clone();
+        let chosen = details::chosen_season(self.season.load(Ordering::Relaxed));
+        let query = self.video_query.lock().unwrap().clone();
+        let mut snapshot = self.latest.lock().unwrap().clone();
+        snapshot.details = details::data(&model, chosen, picked.as_deref(), &query);
         self.repaint_with(snapshot);
     }
 
@@ -338,6 +356,10 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
     {
         let wiring = wiring.clone();
         window.on_pick_video(move |video_id| wiring.pick_video(video_id.to_string()));
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_search_videos(move |query| wiring.search_videos(query.to_string()));
     }
     {
         let wiring = wiring.clone();

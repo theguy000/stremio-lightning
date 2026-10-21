@@ -122,29 +122,6 @@ component VideoListItem inherits Rectangle {
             }
         }
 
-        // Web: .play-button-container — a 3rem disc of overlay colour holding a 1.5rem glyph,
-        // turning green under the pointer. The disc is opaque enough to read on the dark column.
-        Rectangle {
-            width: 3 * root.rem-size;
-            height: 3 * root.rem-size;
-            border-radius: 1.5 * root.rem-size;
-            background: touch.has-hover ? Theme.accent-green : #ffffff1a;
-            HorizontalLayout {
-                alignment: center;
-                Image {
-                    width: 1.15 * root.rem-size;
-                    height: 1.15 * root.rem-size;
-                    source: @image-url("icons/play.svg");
-                    colorize: touch.has-hover ? Theme.modal-background : Theme.text;
-                }
-            }
-            play := TouchArea {
-                mouse-cursor: pointer;
-                clicked => {
-                    root.clicked();
-                }
-            }
-        }
     }
     touch := TouchArea {
         mouse-cursor: pointer;
@@ -161,8 +138,10 @@ export component VideosList inherits Rectangle {
     in property <string> season-title;
     in property <[VideoRow]> videos;
     in property <length> rem-size;
+    in property <string> query;
     callback select-season(int);
     callback pick-video(string);
+    callback search-videos(string);
 
     background: ClassStyles.background-or(ClassStyles.videos_list_container, transparent);
     visible: !(ClassStyles.videos_list_container).hidden;
@@ -209,6 +188,45 @@ export component VideosList inherits Rectangle {
                 clicked => {
                     root.select-season(Math.min(root.season-index + 1, root.seasons.length - 1));
                 }
+            }
+        }
+
+        // Web: .search-bar — a pill above the rows, with the magnifier at its right.
+        Rectangle {
+            height: 3 * root.rem-size;
+            border-radius: 1.5 * root.rem-size;
+            background: #ffffff1a;
+
+            input := TextInput {
+                x: 1.5 * root.rem-size;
+                width: parent.width - 5 * root.rem-size;
+                height: parent.height;
+                text: root.query;
+                color: Theme.text;
+                font-size: root.rem-size;
+                single-line: true;
+                vertical-alignment: center;
+                edited => {
+                    root.search-videos(self.text);
+                }
+            }
+            if root.query == "": Text {
+                x: 1.5 * root.rem-size;
+                width: input.width;
+                height: parent.height;
+                text: "search videos";
+                color: Theme.placeholder;
+                font-size: root.rem-size;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+            Image {
+                x: parent.width - 1.5 * root.rem-size - 1.1 * root.rem-size;
+                y: (parent.height - self.height) / 2;
+                width: 1.1 * root.rem-size;
+                height: 1.1 * root.rem-size;
+                source: @image-url("icons/search.svg");
+                colorize: Theme.search-icon;
             }
         }
 
