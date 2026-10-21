@@ -227,7 +227,9 @@ export component MetaPreview inherits Rectangle {
 
                     runtime-release-info-container := HorizontalLayout {
                         height: 3.5714 * root.rem-size;
-                        alignment: space-between;
+                        // Web groups runtime, release and rating at the start of the row.
+                        alignment: start;
+                        spacing: 3 * root.rem-size;
 
                         if root.preview.runtime != "": runtime-label := InfoLabel {
                             text: root.preview.runtime;
