@@ -145,7 +145,6 @@ export component DetailsScreen inherits Rectangle {
     in property <string> season-title;
     in property <bool> show-picker: false;
     in property <string> picked-label;
-    in property <bool> has-next-episode: false;
     in property <[StreamData]> streams;
     in property <int> streams-loading: 0;
     in property <string> status;
@@ -154,7 +153,6 @@ export component DetailsScreen inherits Rectangle {
     callback select-season(int);
     callback pick-video(string);
     callback back-to-episodes();
-    callback next-episode();
     callback play-stream(int);
 
     HorizontalLayout {
@@ -232,32 +230,6 @@ export component DetailsScreen inherits Rectangle {
                         vertical-alignment: center;
                         overflow: elide;
                         horizontal-stretch: 1;
-                    }
-                    // The Next Episode control. The web has no such button — its next-episode
-                    // affordance is the player's countdown — so this is this client's own, in the
-                    // web's pill shape and accent.
-                    if root.has-next-episode: Rectangle {
-                        height: 2.6 * root.rem-size;
-                        border-radius: 1.3 * root.rem-size;
-                        background: next-touch.has-hover ? Theme.accent : Theme.overlay;
-                        HorizontalLayout {
-                            padding-left: 1.2 * root.rem-size;
-                            padding-right: 1.2 * root.rem-size;
-                            alignment: center;
-                            Text {
-                                text: "Next Episode";
-                                color: Theme.text;
-                                font-size: 0.9 * root.rem-size;
-                                font-weight: 600;
-                                vertical-alignment: center;
-                            }
-                        }
-                        next-touch := TouchArea {
-                            mouse-cursor: pointer;
-                            clicked => {
-                                root.next-episode();
-                            }
-                        }
                     }
                 }
 

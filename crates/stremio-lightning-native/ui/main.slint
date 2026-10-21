@@ -61,7 +61,8 @@ export component MainWindow inherits Window {
     in-out property <bool> auth-apple-loading: false;
     in-out property <bool> auth-is-signup: false;
     property <length> rem-size: Theme.rem-size(root.width);
-    property <length> nav-width: root.playing ? 0px : 6 * root.rem-size;
+    // Web: the details route has no nav rail, so neither the rail nor its gutter exists there.
+    property <length> nav-width: root.playing || root.details-open ? 0px : 6 * root.rem-size;
     property <length> bar-height: root.playing ? 0px : 5.5 * root.rem-size;
     property <string> section-title: root.section == Section.discover ? "Discover"
         : root.section == Section.library ? "Library"
@@ -146,7 +147,6 @@ export component MainWindow inherits Window {
         season-index: root.details-season-index;
         season-title: root.details-season-title;
         picked-label: root.details-picked-label;
-        has-next-episode: root.details-has-next-episode;
         show-picker: root.details-show-picker;
         streams: root.streams;
         streams-loading: root.streams-loading;
@@ -161,15 +161,12 @@ export component MainWindow inherits Window {
         back-to-episodes => {
             root.back-to-episodes();
         }
-        next-episode => {
-            root.next-episode();
-        }
         play-stream(index) => {
             root.play-stream(index);
         }
     }
 
-    if !root.playing: VerticalNavBar {
+    if !root.playing && !root.details-open: VerticalNavBar {
         rem-size: root.rem-size;
         x: 0px;
         y: root.bar-height;

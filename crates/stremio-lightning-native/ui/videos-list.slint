@@ -122,18 +122,20 @@ component VideoListItem inherits Rectangle {
             }
         }
 
+        // Web: .play-button-container — a 3rem disc of overlay colour holding a 1.5rem glyph,
+        // turning green under the pointer. The disc is opaque enough to read on the dark column.
         Rectangle {
             width: 3 * root.rem-size;
             height: 3 * root.rem-size;
             border-radius: 1.5 * root.rem-size;
-            background: play.has-hover ? Theme.accent-green : Theme.overlay;
+            background: touch.has-hover ? Theme.accent-green : #ffffff1a;
             HorizontalLayout {
                 alignment: center;
                 Image {
-                    width: 1.5 * root.rem-size;
-                    height: 1.5 * root.rem-size;
+                    width: 1.15 * root.rem-size;
+                    height: 1.15 * root.rem-size;
                     source: @image-url("icons/play.svg");
-                    colorize: Theme.text;
+                    colorize: touch.has-hover ? Theme.modal-background : Theme.text;
                 }
             }
             play := TouchArea {
@@ -178,7 +180,7 @@ export component VideosList inherits Rectangle {
             alignment: space-between;
 
             SeasonButton {
-                label: "Previous";
+                label: "Prev";
                 glyph: @image-url("icons/chevron-back.svg");
                 disabled: root.season-index <= 0;
                 rem-size: root.rem-size;
