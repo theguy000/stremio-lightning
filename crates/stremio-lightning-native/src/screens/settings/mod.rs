@@ -23,14 +23,14 @@ pub(crate) use options::TOGGLES;
 /// The settings the player itself needs, pulled out of the profile so mpv does not have to read
 /// JSON.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct PlayerConfig {
-    pub(crate) hardware_decoding: bool,
-    pub(crate) subtitles_size: u32,
-    pub(crate) subtitles_language: String,
-    pub(crate) subtitles_text_color: String,
-    pub(crate) subtitles_background_color: String,
-    pub(crate) subtitles_outline_color: String,
-    pub(crate) audio_language: String,
+pub struct PlayerConfig {
+    pub hardware_decoding: bool,
+    pub subtitles_size: u32,
+    pub subtitles_language: String,
+    pub subtitles_text_color: String,
+    pub subtitles_background_color: String,
+    pub subtitles_outline_color: String,
+    pub audio_language: String,
 }
 
 impl Default for PlayerConfig {
@@ -51,8 +51,8 @@ impl Default for PlayerConfig {
 /// `Profile` does not carry. They are written next to the app's data, not into the profile, and
 /// merged over it when the screen is built.
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
-pub(crate) struct LocalExtras {
-    pub(crate) overrides: HashMap<String, Value>,
+pub struct LocalExtras {
+    pub overrides: HashMap<String, Value>,
 }
 
 impl LocalExtras {
@@ -74,34 +74,34 @@ impl LocalExtras {
 }
 
 #[derive(Clone, Default)]
-pub(crate) struct Data {
-    pub(crate) user_email: String,
-    pub(crate) logged_in: bool,
-    pub(crate) trakt_authenticated: bool,
-    pub(crate) streaming_server_url: String,
-    pub(crate) ui_language: Input,
-    pub(crate) quit_on_close: bool,
-    pub(crate) esc_exit_fullscreen: bool,
-    pub(crate) hide_spoilers: bool,
-    pub(crate) subtitles_language: Input,
-    pub(crate) subtitles_size: Input,
-    pub(crate) subtitles_text_color: Input,
-    pub(crate) subtitles_bg_color: Input,
-    pub(crate) subtitles_outline_color: Input,
-    pub(crate) audio_language: Input,
-    pub(crate) surround_sound: bool,
-    pub(crate) seek_time: Input,
-    pub(crate) seek_short_time: Input,
-    pub(crate) play_in_background: bool,
-    pub(crate) binge_watching: bool,
-    pub(crate) next_video_duration: Input,
-    pub(crate) external_player: Input,
-    pub(crate) hardware_decoding: bool,
-    pub(crate) pause_on_minimize: bool,
-    pub(crate) caching: Input,
-    pub(crate) torrent_profile: Input,
-    pub(crate) transcoding_profile: Input,
-    pub(crate) player_config: PlayerConfig,
+pub struct Data {
+    pub user_email: String,
+    pub logged_in: bool,
+    pub trakt_authenticated: bool,
+    pub streaming_server_url: String,
+    pub ui_language: Input,
+    pub quit_on_close: bool,
+    pub esc_exit_fullscreen: bool,
+    pub hide_spoilers: bool,
+    pub subtitles_language: Input,
+    pub subtitles_size: Input,
+    pub subtitles_text_color: Input,
+    pub subtitles_bg_color: Input,
+    pub subtitles_outline_color: Input,
+    pub audio_language: Input,
+    pub surround_sound: bool,
+    pub seek_time: Input,
+    pub seek_short_time: Input,
+    pub play_in_background: bool,
+    pub binge_watching: bool,
+    pub next_video_duration: Input,
+    pub external_player: Input,
+    pub hardware_decoding: bool,
+    pub pause_on_minimize: bool,
+    pub caching: Input,
+    pub torrent_profile: Input,
+    pub transcoding_profile: Input,
+    pub player_config: PlayerConfig,
 }
 
 fn merged_settings_value(settings: &ProfileSettings, extras: &LocalExtras) -> Value {
@@ -118,7 +118,7 @@ fn bool_field(value: &Value, key: &str, default: bool) -> bool {
     value.get(key).and_then(Value::as_bool).unwrap_or(default)
 }
 
-pub(crate) fn data(model: &AppModel, extras: &LocalExtras) -> Data {
+pub fn data(model: &AppModel, extras: &LocalExtras) -> Data {
     data_from_profile(&model.ctx.profile, extras)
 }
 

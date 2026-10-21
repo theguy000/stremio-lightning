@@ -24,7 +24,7 @@ use super::{AppModel, AppRuntime};
 
 /// The runtime, and the events it will report. The effects the models asked for are already
 /// queued inside it, so calling this and then [`load_everything`] is all a caller has to do.
-pub(crate) fn runtime(profile: Profile) -> (AppRuntime, Receiver<RuntimeEvent<AppEnv, AppModel>>) {
+pub fn runtime(profile: Profile) -> (AppRuntime, Receiver<RuntimeEvent<AppEnv, AppModel>>) {
     let uid = profile.uid();
     // `default()` has nothing to pick from, so a `Load` with no selection would select nothing.
     let (discover, discover_effects) = CatalogWithFilters::<MetaItemPreview>::new(&profile);
@@ -56,7 +56,7 @@ pub(crate) fn runtime(profile: Profile) -> (AppRuntime, Receiver<RuntimeEvent<Ap
 }
 
 /// The loads that fill every screen on startup, in the order the window needs them.
-pub(crate) fn load_everything(runtime: &AppRuntime) {
+pub fn load_everything(runtime: &AppRuntime) {
     runtime.dispatch(RuntimeAction {
         field: None,
         action: Action::Load(ActionLoad::CatalogsWithExtra(Selected {

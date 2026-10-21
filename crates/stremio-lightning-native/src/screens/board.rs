@@ -10,14 +10,14 @@ use crate::AppModel;
 const CATALOG_PREVIEW_SIZE: usize = 10;
 
 #[derive(Clone)]
-pub(crate) struct Row {
-    pub(crate) title: String,
-    pub(crate) shape: &'static str,
-    pub(crate) cards: Vec<Card>,
+pub struct Row {
+    pub title: String,
+    pub shape: &'static str,
+    pub cards: Vec<Card>,
 }
 
 /// What the Board shows, and the line of text above it.
-pub(crate) fn data(model: &AppModel) -> (String, Vec<Row>) {
+pub fn data(model: &AppModel) -> (String, Vec<Row>) {
     let mut rows = Vec::new();
     let (mut loading, mut failed) = (0, 0);
     for catalog in &model.board.catalogs {

@@ -1,4 +1,4 @@
-﻿// What the Addons screen shows: the installed addons from stremio-core's `InstalledAddonsWithFilters`.
+// What the Addons screen shows: the installed addons from stremio-core's `InstalledAddonsWithFilters`.
 // Based on stremio-web src/routes/Addons (Addons.js, Addon/Addon.js, useSelectableInputs.js).
 // Licence basis: ../../THIRD_PARTY_NOTICES.md.
 use stremio_core::models::installed_addons_with_filters::{InstalledAddonsRequest, SelectableType};
@@ -7,22 +7,22 @@ use stremio_core::types::addon::Descriptor;
 use super::{capitalise, AppModel, Input};
 
 #[derive(Clone, Debug, Default, PartialEq)]
-pub(crate) struct AddonCard {
-    pub(crate) name: String,
-    pub(crate) version: String,
-    pub(crate) types: String,
-    pub(crate) description: String,
-    pub(crate) logo: Option<String>,
+pub struct AddonCard {
+    pub name: String,
+    pub version: String,
+    pub types: String,
+    pub description: String,
+    pub logo: Option<String>,
 }
 
 #[derive(Clone, Default)]
-pub(crate) struct Data {
+pub struct Data {
     /// The catalog menu ("Installed") and the type menu ("All", "Movie", ...).
-    pub(crate) inputs: Vec<Input>,
+    pub inputs: Vec<Input>,
     /// What each option of the type menu loads, in the menu's order.
-    pub(crate) type_requests: Vec<InstalledAddonsRequest>,
-    pub(crate) cards: Vec<AddonCard>,
-    pub(crate) message: String,
+    pub type_requests: Vec<InstalledAddonsRequest>,
+    pub cards: Vec<AddonCard>,
+    pub message: String,
 }
 
 /// "Movie", "Movie & Series", "Movie, Series & Channel", like `Addon.js`.
@@ -58,7 +58,7 @@ fn type_label(item: &SelectableType) -> String {
         .map_or_else(|| "All".to_owned(), capitalise)
 }
 
-pub(crate) fn data(model: &AppModel) -> Data {
+pub fn data(model: &AppModel) -> Data {
     let installed = &model.installed_addons;
     let types = &installed.selectable.types;
     let selected = types.iter().position(|item| item.selected).unwrap_or(0);

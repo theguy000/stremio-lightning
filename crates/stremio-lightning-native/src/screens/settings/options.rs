@@ -24,7 +24,7 @@ enum Default {
 }
 
 pub(crate) struct Setting {
-    pub(crate) key: &'static str,
+    pub key: &'static str,
     options: Options,
     default: Default,
     /// The option code that means "not set", written to the profile as null.

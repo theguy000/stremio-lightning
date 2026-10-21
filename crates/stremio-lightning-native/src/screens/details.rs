@@ -17,15 +17,15 @@ const MAX_STREAMS: usize = 100;
 /// `title` is `None` until the addons have answered the meta request, so the window keeps
 /// showing the title of the card that was clicked.
 #[derive(Clone, Default)]
-pub(crate) struct Data {
-    pub(crate) title: Option<String>,
-    pub(crate) description: String,
-    pub(crate) poster: Option<String>,
-    pub(crate) status: String,
-    pub(crate) streams: Vec<(String, String)>,
+pub struct Data {
+    pub title: Option<String>,
+    pub description: String,
+    pub poster: Option<String>,
+    pub status: String,
+    pub streams: Vec<(String, String)>,
 }
 
-pub(crate) fn data(model: &AppModel) -> Data {
+pub fn data(model: &AppModel) -> Data {
     let details = &model.meta_details;
     let item = details
         .meta_items

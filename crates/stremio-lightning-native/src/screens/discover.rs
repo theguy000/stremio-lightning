@@ -10,14 +10,14 @@ use crate::AppModel;
 /// What the Discover screen shows: the labels of its first three inputs and every card loaded
 /// so far.
 #[derive(Clone, Default)]
-pub(crate) struct Data {
-    pub(crate) shape: &'static str,
-    pub(crate) cards: Vec<Card>,
-    pub(crate) inputs: Vec<Input>,
-    pub(crate) previews: Vec<Preview>,
+pub struct Data {
+    pub shape: &'static str,
+    pub cards: Vec<Card>,
+    pub inputs: Vec<Input>,
+    pub previews: Vec<Preview>,
 }
 
-pub(crate) fn data(model: &AppModel) -> Data {
+pub fn data(model: &AppModel) -> Data {
     let discover = &model.discover;
     let mut items: Vec<&stremio_core::types::resource::MetaItemPreview> = Vec::new();
     for page in &discover.catalog {
@@ -87,7 +87,7 @@ pub(crate) fn data(model: &AppModel) -> Data {
 }
 
 /// The image keys the preview panel needs for the card at `index`.
-pub(crate) fn preview_images(data: &Data, index: usize) -> Vec<String> {
+pub fn preview_images(data: &Data, index: usize) -> Vec<String> {
     data.previews
         .get(index)
         .into_iter()

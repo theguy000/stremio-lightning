@@ -4,8 +4,9 @@
 //! Nothing here knows about a particular screen. Screens live in `crate::screens`; the wiring
 //! that connects them to the window lives in `crate::shell`.
 
-pub(crate) mod build;
+pub mod build;
 pub(crate) mod events;
-pub(crate) mod model;
+pub mod model;
 
-pub(crate) use model::{AppModel, AppRuntime, Snapshot};
+pub(crate) use model::Snapshot;
+pub use model::{AppModel, AppRuntime};

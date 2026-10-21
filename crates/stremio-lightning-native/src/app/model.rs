@@ -16,15 +16,15 @@ use crate::screens::{addons, board, details, discover, settings};
 /// Everything stremio-core holds for this app. One value of this type is the whole app state.
 #[derive(Model, Clone)]
 #[model(AppEnv)]
-pub(crate) struct AppModel {
-    pub(crate) ctx: Ctx,
-    pub(crate) board: CatalogsWithExtra,
-    pub(crate) discover: CatalogWithFilters<MetaItemPreview>,
-    pub(crate) installed_addons: InstalledAddonsWithFilters,
-    pub(crate) meta_details: MetaDetails,
+pub struct AppModel {
+    pub ctx: Ctx,
+    pub board: CatalogsWithExtra,
+    pub discover: CatalogWithFilters<MetaItemPreview>,
+    pub installed_addons: InstalledAddonsWithFilters,
+    pub meta_details: MetaDetails,
 }
 
-pub(crate) type AppRuntime = Runtime<AppEnv, AppModel>;
+pub type AppRuntime = Runtime<AppEnv, AppModel>;
 
 /// What the window currently shows, built from the model whenever it changes. Every field is
 /// plain data, so a test can build one and ask what a screen would look like.
@@ -32,7 +32,7 @@ pub(crate) type AppRuntime = Runtime<AppEnv, AppModel>;
 pub(crate) struct Snapshot {
     pub(crate) status: String,
     pub(crate) rows: Vec<board::Row>,
-    pub(crate) discover: discover::Data,
+    pub discover: discover::Data,
     pub(crate) details: details::Data,
     pub(crate) addons: addons::Data,
     pub(crate) settings: settings::Data,

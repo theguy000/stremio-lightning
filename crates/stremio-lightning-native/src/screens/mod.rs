@@ -7,12 +7,12 @@
 //! This file holds the vocabulary the screens share: a card, a filter, a preview, and the
 //! handful of conversions several screens need.
 
-pub(crate) mod addons;
+pub mod addons;
 pub mod auth;
-pub(crate) mod board;
-pub(crate) mod details;
-pub(crate) mod discover;
-pub(crate) mod settings;
+pub mod board;
+pub mod details;
+pub mod discover;
+pub mod settings;
 
 use stremio_core::constants::IMDB_LINK_CATEGORY;
 use stremio_core::types::addon::ResourceRequest;
@@ -22,21 +22,21 @@ use crate::{AppModel, SelectInputData, SelectOption};
 
 /// One poster tile.
 #[derive(Clone)]
-pub(crate) struct Card {
-    pub(crate) id: String,
-    pub(crate) kind: String,
-    pub(crate) title: String,
-    pub(crate) poster: Option<String>,
+pub struct Card {
+    pub id: String,
+    pub kind: String,
+    pub title: String,
+    pub poster: Option<String>,
 }
 
 /// One filter in a screen's bar (type, catalog, or an extra such as genre): the closed label,
 /// the options, and the request each option loads.
 #[derive(Clone, Default)]
-pub(crate) struct Input {
-    pub(crate) title: String,
-    pub(crate) selected: usize,
-    pub(crate) options: Vec<(String, bool)>,
-    pub(crate) requests: Vec<ResourceRequest>,
+pub struct Input {
+    pub title: String,
+    pub selected: usize,
+    pub options: Vec<(String, bool)>,
+    pub requests: Vec<ResourceRequest>,
 }
 
 impl Input {
@@ -58,16 +58,16 @@ impl Input {
 
 /// What a preview panel shows for one card. `logo` and `background` are image-cache keys.
 #[derive(Clone, Default)]
-pub(crate) struct Preview {
-    pub(crate) title: String,
-    pub(crate) runtime: String,
-    pub(crate) release: String,
-    pub(crate) rating: String,
-    pub(crate) description: String,
-    pub(crate) groups: Vec<(String, Vec<String>)>,
-    pub(crate) has_trailer: bool,
-    pub(crate) logo: Option<String>,
-    pub(crate) background: Option<String>,
+pub struct Preview {
+    pub title: String,
+    pub runtime: String,
+    pub release: String,
+    pub rating: String,
+    pub description: String,
+    pub groups: Vec<(String, Vec<String>)>,
+    pub has_trailer: bool,
+    pub logo: Option<String>,
+    pub background: Option<String>,
 }
 
 /// "Popular - Movie": the catalog's name (the addon's name when the catalog has none, as
@@ -170,7 +170,7 @@ pub(crate) fn preview_of(item: &MetaItemPreview) -> Preview {
 }
 
 /// One filter of a screen's bar as Slint wants it.
-pub(crate) fn select_input_data(input: Input) -> SelectInputData {
+pub fn select_input_data(input: Input) -> SelectInputData {
     SelectInputData {
         title: input.title.into(),
         selected_index: i32::try_from(input.selected).unwrap_or(0),

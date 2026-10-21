@@ -22,7 +22,7 @@ use stremio_lightning_native_env::AppEnv;
 
 slint::include_modules!();
 
-pub(crate) mod app;
+pub mod app;
 pub mod plumbing;
 pub mod screens;
 pub(crate) mod shell;
