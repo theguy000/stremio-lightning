@@ -221,7 +221,9 @@ export component DetailsScreen inherits Rectangle {
 
                 // Web: .select-choices-wrapper — the way back beside the Episode's name.
                 HorizontalLayout {
-                    height: 3 * root.rem-size;
+                    // Web: .select-choices-wrapper carries a 1em top margin above the 3rem button.
+                    height: 4 * root.rem-size;
+                    padding-top: 1 * root.rem-size;
                     padding-left: 1 * root.rem-size;
                     padding-right: 1 * root.rem-size;
                     spacing: 0.5 * root.rem-size;

@@ -291,7 +291,10 @@ export component MetaPreview inherits Rectangle {
             y: parent.height - 7 * root.rem-size;
             width: root.width - 5 * root.rem-size;
             height: 4 * root.rem-size;
-            alignment: space-between;
+            // Web groups these at the start of the row with a fixed gap; spreading them across
+            // the width is what made them read as three loose buttons.
+            alignment: start;
+            spacing: 1 * root.rem-size;
 
             if root.preview.has-trailer: action-button-container := ActionButton {
                 icon: @image-url("icons/trailer.svg");
@@ -322,7 +325,9 @@ export component MetaPreview inherits Rectangle {
                     height: 1.75 * root.rem-size;
                 }
             }
-            show-button := ActionButton {
+            // The Show button belongs to the hover panel. On the details route web has no such
+            // button: the rows below are what you pick from.
+            if !root.on-page: show-button := ActionButton {
                 icon: @image-url("icons/play.svg");
                 label: "Show";
                 rem-size: root.rem-size;
