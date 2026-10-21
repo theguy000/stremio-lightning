@@ -219,6 +219,8 @@ export component MetaPreview inherits Rectangle {
                             height: 6 * root.rem-size;
                             source: root.preview.logo;
                             image-fit: contain;
+                            // Web's logo sits at the content's left edge; `contain` alone centres it.
+                            horizontal-alignment: left;
                         }
                         // Web shows no title text here while the logo loads, and none when the item has no logo.
                     }
