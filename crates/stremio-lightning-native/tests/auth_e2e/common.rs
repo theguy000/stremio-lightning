@@ -17,8 +17,7 @@ pub enum AppSection {
     Settings,
 }
 
-/// In-memory representation of Slint UI state for `IntroContent`
-/// as defined in `PROJECT.md` § Interface Contracts.
+/// In-memory representation of Slint UI state for `IntroContent`.
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct IntroState {
@@ -144,8 +143,7 @@ impl IntroState {
     }
 }
 
-/// In-memory representation of `MainWindow` overlay routing & shell navigation state
-/// as defined in `PROJECT.md` § Interface Contracts.
+/// In-memory representation of `MainWindow` overlay routing & shell navigation state.
 #[derive(Debug, Clone)]
 pub struct MainWindowOverlayState {
     pub auth_open: bool,
@@ -303,7 +301,7 @@ pub fn create_test_auth(email: &str) -> Auth {
     .expect("deserialize test auth")
 }
 
-/// Registered styling class names required by `PROJECT.md` § 8.2 and `THEMES.md`.
+/// Registered styling class names, as documented in `THEMES.md`.
 pub const EXPECTED_INTRO_THEME_CLASSES: &[&str] = &[
     "intro-container",
     "form-container",
