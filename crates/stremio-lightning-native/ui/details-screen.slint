@@ -230,15 +230,15 @@ export component DetailsScreen inherits Rectangle {
                         height: 3 * root.rem-size;
                         border-radius: 0.5 * root.rem-size;
                         background: back-touch.has-hover ? Theme.overlay : transparent;
-                        HorizontalLayout {
-                            alignment: center;
-                            Image {
-                                width: 1.5 * root.rem-size;
-                                height: 1.5 * root.rem-size;
-                                source: @image-url("icons/chevron-back.svg");
-                                colorize: Theme.text;
-                                opacity: 0.6;
-                            }
+                        // Centred by hand: a HorizontalLayout stretches its children instead.
+                        Image {
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                            width: 1.5 * root.rem-size;
+                            height: 1.5 * root.rem-size;
+                            source: @image-url("icons/chevron-back.svg");
+                            colorize: Theme.text;
+                            opacity: 0.6;
                         }
                         back-touch := TouchArea {
                             mouse-cursor: pointer;
