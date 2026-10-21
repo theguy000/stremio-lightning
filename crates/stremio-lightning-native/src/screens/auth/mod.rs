@@ -25,20 +25,20 @@ pub(crate) use browser::Provider;
 /// Every browser sign-in owns a generation; bumping it stops that attempt's poll task without
 /// letting it touch the window or the runtime again.
 #[derive(Clone, Default)]
-pub(crate) struct Generation(Arc<AtomicU64>);
+pub struct Generation(Arc<AtomicU64>);
 
 impl Generation {
     /// Takes over: the returned id is the one this attempt must still hold to be heard.
-    fn begin(&self) -> u64 {
+    pub fn begin(&self) -> u64 {
         self.0.fetch_add(1, Ordering::SeqCst) + 1
     }
 
     /// Drops whatever attempt is in flight.
-    pub(crate) fn cancel(&self) {
+    pub fn cancel(&self) {
         self.0.fetch_add(1, Ordering::SeqCst);
     }
 
-    fn is_current(&self, id: u64) -> bool {
+    pub fn is_current(&self, id: u64) -> bool {
         self.0.load(Ordering::SeqCst) == id
     }
 }
@@ -56,7 +56,7 @@ pub(crate) fn clear_progress(window: &MainWindow) {
 /// account created with Facebook login, you can try logging in with Facebook)", and an address
 /// with no account at all is "User not found". Each becomes a sentence that says what to do
 /// next; every other message already reads like one, so it passes through untouched.
-pub(crate) fn error_message(error: &CtxError) -> String {
+pub fn error_message(error: &CtxError) -> String {
     match error {
         CtxError::API(api_err) => match api_err.message.as_str() {
             message if message.starts_with("Wrong passphrase") && message.contains("Facebook") => {

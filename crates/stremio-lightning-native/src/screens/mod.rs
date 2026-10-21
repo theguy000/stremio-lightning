@@ -1,4 +1,4 @@
-﻿//! One module per screen. Each holds that screen's data (plain structs and the functions that
+//! One module per screen. Each holds that screen's data (plain structs and the functions that
 //! build them from the app state) and, beside it, the actions the screen can ask for.
 //!
 //! Screens never touch the window. They are given a model and return what to show; the wiring
@@ -8,7 +8,7 @@
 //! handful of conversions several screens need.
 
 pub(crate) mod addons;
-pub(crate) mod auth;
+pub mod auth;
 pub(crate) mod board;
 pub(crate) mod details;
 pub(crate) mod discover;

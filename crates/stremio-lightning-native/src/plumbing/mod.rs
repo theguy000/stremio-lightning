@@ -4,8 +4,8 @@
 //! Every module in this folder reports plain values and never Slint types or window
 //! properties, so a screen can use it without knowing it exists.
 
-pub(crate) mod images;
-pub(crate) mod links;
-pub(crate) mod player;
-pub(crate) mod stream_server;
-pub(crate) mod theme;
+pub mod images;
+pub mod links;
+pub mod player;
+pub mod stream_server;
+pub mod theme;

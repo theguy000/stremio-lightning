@@ -4,14 +4,14 @@
 use std::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct Rgba(pub(crate) u8, pub(crate) u8, pub(crate) u8, pub(crate) u8);
+pub struct Rgba(pub u8, pub u8, pub u8, pub u8);
 
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
-pub(crate) struct Style {
-    pub(crate) color: Option<Rgba>,
-    pub(crate) background: Option<Rgba>,
-    pub(crate) opacity: Option<f32>,
-    pub(crate) hidden: Option<bool>,
+pub struct Style {
+    pub color: Option<Rgba>,
+    pub background: Option<Rgba>,
+    pub opacity: Option<f32>,
+    pub hidden: Option<bool>,
 }
 
 impl Style {
@@ -51,15 +51,16 @@ impl fmt::Display for Selector {
 }
 
 #[derive(Debug)]
-pub(crate) struct Rule {
+pub struct Rule {
     selectors: Vec<Selector>,
     style: Style,
 }
 
 #[derive(Debug, Default)]
-pub(crate) struct ParsedTheme {
-    pub(crate) rules: Vec<Rule>,
-    pub(crate) warnings: Vec<String>,
+pub struct Theme {
+    pub rules: Vec<Rule>,
+    /// Everything the file said that this app does not understand.
+    pub warnings: Vec<String>,
 }
 
 fn is_class_name(text: &str) -> bool {
@@ -221,9 +222,9 @@ fn parse_declarations(body: &str, rule: &str, warnings: &mut Vec<String>) -> Sty
     style
 }
 
-pub(crate) fn parse_theme(css: &str) -> ParsedTheme {
+pub fn parse_theme(css: &str) -> Theme {
     let css = strip_comments(css);
-    let mut theme = ParsedTheme::default();
+    let mut theme = Theme::default();
     let mut rest = css.as_str();
     while let Some(open) = rest.find('{') {
         let Some(len) = block_len(&rest[open + 1..]) else {
@@ -273,7 +274,7 @@ pub(crate) fn parse_theme(css: &str) -> ParsedTheme {
 /// carries, plus a warning for each selector that reaches none. Rules apply in file order. All
 /// supported selectors weigh the same, so the last rule that reaches an element wins, whichever
 /// of the element's classes it names.
-pub(crate) fn resolve(rules: &[Rule], elements: &[&[&str]]) -> (Vec<Style>, Vec<String>) {
+pub fn resolve(rules: &[Rule], elements: &[&[&str]]) -> (Vec<Style>, Vec<String>) {
     let mut styles = vec![Style::default(); elements.len()];
     let mut warnings = Vec::new();
     for rule in rules {

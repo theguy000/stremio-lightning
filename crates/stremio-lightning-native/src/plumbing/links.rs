@@ -2,7 +2,7 @@
 //! that decides which addresses the app will open.
 
 /// The address behind a name the UI uses, or the address itself, or nothing.
-pub(crate) fn resolve(kind: &str) -> Option<String> {
+pub fn resolve(kind: &str) -> Option<String> {
     match kind {
         "support" => Some("https://stremio.zendesk.com/hc/en-us".to_string()),
         "source" => Some("https://github.com/theguy000/stremio-lightning".to_string()),

@@ -26,9 +26,9 @@ use stremio_lightning_core::mods::{list_mods, read_mod_content, ModType};
 
 use crate::{ClassStyle, ClassStyles, MainWindow};
 
-mod parse;
+pub mod parse;
 
-use parse::{resolve, Rgba, Style};
+pub use parse::{Rgba, Style};
 
 type Setter = fn(&ClassStyles<'_>, ClassStyle);
 
@@ -127,6 +127,37 @@ elements! {
     set_guest_login_button => ["guest-login-button", "form-button", "button-container"],
 }
 
+/// Reads a theme file's text and answers what it does to this app's components, so a theme can
+/// be checked without a window.
+pub fn inspect(css: &str) -> InspectedTheme {
+    let theme = parse::parse_theme(css);
+    let (styles, unmatched) = parse::resolve(&theme.rules, CLASSES);
+    let mut warnings = theme.warnings;
+    warnings.extend(unmatched);
+    InspectedTheme {
+        ids: ELEMENTS.iter().map(|(classes, _)| classes[0]).collect(),
+        styles,
+        warnings,
+    }
+}
+
+/// What one theme file does, as plain data.
+pub struct InspectedTheme {
+    ids: Vec<&'static str>,
+    styles: Vec<parse::Style>,
+    /// Everything the file said that this app does not understand, or that reaches no component.
+    pub warnings: Vec<String>,
+}
+
+impl InspectedTheme {
+    /// The style the file gives the component with this id, or `None` if this app has no such
+    /// component.
+    pub fn style_of(&self, id: &str) -> Option<parse::Style> {
+        let index = self.ids.iter().position(|known| *known == id)?;
+        Some(self.styles[index])
+    }
+}
+
 fn to_slint(style: Style) -> ClassStyle {
     let color = |rgba: Rgba| Color::from_argb_u8(rgba.3, rgba.0, rgba.1, rgba.2);
     ClassStyle {
@@ -171,7 +202,7 @@ pub(crate) fn apply(window: &MainWindow) {
         return;
     }
 
-    let (styles, unmatched) = resolve(&rules, CLASSES);
+    let (styles, unmatched) = parse::resolve(&rules, CLASSES);
     for warning in unmatched {
         eprintln!("themes: {warning}");
     }
@@ -196,7 +227,7 @@ mod tests {
 
     fn resolved(css: &str) -> (Vec<Style>, Vec<String>) {
         let theme = parse_theme(css);
-        let (styles, unmatched) = resolve(&theme.rules, CLASSES);
+        let (styles, unmatched) = parse::resolve(&theme.rules, CLASSES);
         (
             styles,
             theme.warnings.into_iter().chain(unmatched).collect(),

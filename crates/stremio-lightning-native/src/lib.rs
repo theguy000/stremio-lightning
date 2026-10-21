@@ -23,19 +23,17 @@ use stremio_lightning_native_env::AppEnv;
 slint::include_modules!();
 
 pub(crate) mod app;
-pub(crate) mod plumbing;
-pub(crate) mod screens;
+pub mod plumbing;
+pub mod screens;
 pub(crate) mod shell;
-
 pub(crate) use app::{AppModel, AppRuntime};
 
 /// The addresses the app is willing to open, by the name the UI uses for them.
-pub mod links {
-    /// The address behind a name the UI uses, or the address itself, or nothing.
-    pub fn resolve(kind: &str) -> Option<String> {
-        crate::plumbing::links::resolve(kind)
-    }
-}
+pub use plumbing::links;
+/// The theme reader, so a theme file's meaning can be checked without a window.
+pub use plumbing::theme as themes;
+/// What the app says when a sign-in fails, and the guard that owns an attempt.
+pub use screens::auth;
 
 /// Starts the app and runs it until the window closes.
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
