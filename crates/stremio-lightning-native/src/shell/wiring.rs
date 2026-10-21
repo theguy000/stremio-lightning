@@ -239,9 +239,12 @@ impl Wiring {
         );
     }
 
+    /// Leaving the sign-in screen: drop the attempt in flight, and drop its spinner with it, or
+    /// the overlay would reopen with its buttons still waiting for a sign-in that is gone.
     fn dismiss_sign_in(&self) {
         self.auth.cancel();
         let _ = self.window.upgrade_in_event_loop(|window| {
+            auth::clear_progress(&window);
             window.set_auth_open(false);
             window.set_auth_error("".into());
         });

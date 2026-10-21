@@ -45,7 +45,7 @@ impl Generation {
 
 /// Drops the sign-in screen's live markers: the spinner and either provider's
 /// "waiting for the browser" state. The caller sets the message to leave behind.
-pub(crate) fn clear_progress(window: &MainWindow) {
+pub fn clear_progress(window: &MainWindow) {
     window.set_auth_loading(false);
     window.set_auth_facebook_loading(false);
     window.set_auth_apple_loading(false);
@@ -172,6 +172,31 @@ mod tests {
     use stremio_core::models::ctx::OtherError;
     use stremio_core::runtime::EnvError;
     use stremio_core::types::api::APIError;
+
+    #[test]
+    fn leaving_the_sign_in_screen_stops_every_spinner_it_started() {
+        // Dismissing the overlay, or signing in as a guest, must drop the spinner and both
+        // providers' waiting states. Leaving any of them set reopens the overlay with dead
+        // buttons, because `intro.slint` hides Log in while `is-loading` and shows "Please wait...".
+        i_slint_backend_testing::init_no_event_loop();
+        let window = MainWindow::new().expect("a window on the testing backend");
+
+        for (loading, facebook, apple) in [
+            (true, false, false),
+            (true, true, false),
+            (true, false, true),
+        ] {
+            window.set_auth_loading(loading);
+            window.set_auth_facebook_loading(facebook);
+            window.set_auth_apple_loading(apple);
+
+            clear_progress(&window);
+
+            assert!(!window.get_auth_loading(), "the spinner must stop");
+            assert!(!window.get_auth_facebook_loading(), "Facebook must stop");
+            assert!(!window.get_auth_apple_loading(), "Apple must stop");
+        }
+    }
 
     #[test]
     fn auth_failures_read_as_instructions() {

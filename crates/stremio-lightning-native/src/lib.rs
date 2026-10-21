@@ -32,7 +32,8 @@ pub(crate) use app::{AppModel, AppRuntime};
 pub use plumbing::links;
 /// The theme reader, so a theme file's meaning can be checked without a window.
 pub use plumbing::theme as themes;
-/// What the app says when a sign-in fails, and the guard that owns an attempt.
+/// What the app says when a sign-in fails, the guard that owns an attempt, and the one place
+/// that stops the spinners when a sign-in screen is left.
 pub use screens::auth;
 
 /// Starts the app and runs it until the window closes.
