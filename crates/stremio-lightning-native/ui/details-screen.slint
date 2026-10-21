@@ -25,12 +25,14 @@ export component DetailsScreen inherits Rectangle {
     in property <int> season-index: 0;
     in property <string> season-title;
     in property <bool> show-picker: false;
+    in property <string> picked-label;
     in property <[StreamData]> streams;
     in property <string> status;
     in property <string> play-message;
     in property <length> rem-size: 14px;
     callback select-season(int);
     callback pick-video(string);
+    callback back-to-episodes();
     callback play-stream(int);
 
     HorizontalLayout {
@@ -74,6 +76,42 @@ export component DetailsScreen inherits Rectangle {
             if root.show-picker == false: VerticalLayout {
                 padding: 1 * root.rem-size;
                 spacing: 0.5 * root.rem-size;
+
+                // Web: .select-choices-wrapper — the way back beside the Episode's name.
+                HorizontalLayout {
+                    alignment: start;
+                    spacing: 0.5 * root.rem-size;
+                    Rectangle {
+                        width: 3 * root.rem-size;
+                        height: 3 * root.rem-size;
+                        border-radius: 0.5 * root.rem-size;
+                        background: back-touch.has-hover ? Theme.overlay : transparent;
+                        HorizontalLayout {
+                            alignment: center;
+                            Image {
+                                width: 1.5 * root.rem-size;
+                                height: 1.5 * root.rem-size;
+                                source: @image-url("icons/chevron-back.svg");
+                                colorize: Theme.text;
+                                opacity: 0.6;
+                            }
+                        }
+                        back-touch := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {
+                                root.back-to-episodes();
+                            }
+                        }
+                    }
+                    Text {
+                        text: root.picked-label;
+                        color: Theme.text;
+                        font-size: root.rem-size;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                }
+
                 Text {
                     text: root.status;
                     color: Theme.text;

@@ -114,13 +114,29 @@ pub(crate) fn episodes(videos: &[Video], season: u32) -> Vec<Episode> {
 }
 
 /// Whether the Details Screen shows the picker instead of the Streams: the title has Seasons to
-/// choose from.
+/// choose from and nothing has been picked yet.
 ///
 /// Deliberately not "no Streams are loaded": the core guesses a stream path of its own for a
 /// series carrying a `default_video_id`, so a stream path says nothing about the user having
-/// chosen anything. What hides the picker is a pick, and picks arrive with the next ticket.
-pub(crate) fn shows_picker(seasons: &[Season]) -> bool {
-    !seasons.is_empty()
+/// chosen anything. Only a pick hides the picker.
+pub(crate) fn shows_picker(picked: Option<&str>, seasons: &[Season]) -> bool {
+    picked.is_none() && !seasons.is_empty()
+}
+
+/// Web: the Streams list names the chosen Episode as `S1E2 Title` and offers a way back.
+pub(crate) fn picked_label(videos: &[Video], picked: &str) -> Option<String> {
+    let video = videos.iter().find(|video| video.id == picked)?;
+    let info = video.series_info.as_ref();
+    let label = match info {
+        Some(info) if info.season == 0 => format!("SPECIAL {}", info.episode),
+        Some(info) => format!("S{}E{}", info.season, info.episode),
+        None => String::new(),
+    };
+    Some(match (label.is_empty(), video.title.trim().is_empty()) {
+        (true, _) => video.title.clone(),
+        (false, true) => label,
+        (false, false) => format!("{label} {}", video.title),
+    })
 }
 
 /// `title` is `None` until the addons have answered the meta request, so the window keeps
@@ -139,6 +155,10 @@ pub struct Data {
     pub season: usize,
     /// The Episodes of that Season.
     pub episodes: Vec<Episode>,
+    /// The Video id the user picked, while its Streams are on screen.
+    pub picked: Option<String>,
+    /// How the Streams list names that Video: `S1E2 The Title`.
+    pub picked_label: Option<String>,
 }
 
 /// What the browsed-Season slot holds before the picker has been touched.
@@ -152,7 +172,7 @@ pub fn chosen_season(stored: usize) -> Option<u32> {
     u32::try_from(stored).ok()
 }
 
-pub fn data(model: &AppModel, chosen: Option<u32>) -> Data {
+pub fn data(model: &AppModel, chosen: Option<u32>, picked: Option<&str>) -> Data {
     let details = &model.meta_details;
     let item = details
         .meta_items
@@ -211,7 +231,9 @@ pub fn data(model: &AppModel, chosen: Option<u32>) -> Data {
             "{found} streams from {ready} sources, {empty} had nothing, {failed} failed, {loading} loading"
         ),
         streams,
-        show_picker: shows_picker(&listed),
+        show_picker: shows_picker(picked, &listed),
+        picked_label: picked.and_then(|picked| picked_label(videos, picked)),
+        picked: picked.map(str::to_owned),
         seasons: listed,
         season,
         episodes: season_episodes,
@@ -260,6 +282,51 @@ pub(crate) fn open(runtime: &AppRuntime, id: &str, kind: &str) {
             meta_path: ResourcePath::without_extra(META_RESOURCE_NAME, kind, id),
             stream_path,
             guess_stream,
+        })),
+    });
+}
+
+/// Web: picking an Episode asks for its Streams. The Video id is the core's own, so a list that
+/// changed between render and click still resolves to the Episode the user pointed at.
+pub(crate) fn pick(runtime: &AppRuntime, video_id: &str) {
+    let Ok(model) = runtime.model() else {
+        return;
+    };
+    let Some(selected) = model.meta_details.selected.clone() else {
+        return;
+    };
+    let kind = selected.meta_path.r#type.clone();
+    drop(model);
+    runtime.dispatch(RuntimeAction {
+        field: None,
+        action: Action::Load(ActionLoad::MetaDetails(DetailsSelected {
+            meta_path: selected.meta_path,
+            stream_path: Some(ResourcePath::without_extra(
+                STREAM_RESOURCE_NAME,
+                &kind,
+                video_id,
+            )),
+            guess_stream: true,
+        })),
+    });
+}
+
+/// Web: the chevron beside the Episode's name, back to the Episode Picker. Sending no stream path
+/// is what clears the Streams the core holds.
+pub(crate) fn back_to_episodes(runtime: &AppRuntime) {
+    let Ok(model) = runtime.model() else {
+        return;
+    };
+    let Some(selected) = model.meta_details.selected.clone() else {
+        return;
+    };
+    drop(model);
+    runtime.dispatch(RuntimeAction {
+        field: None,
+        action: Action::Load(ActionLoad::MetaDetails(DetailsSelected {
+            meta_path: selected.meta_path,
+            stream_path: None,
+            guess_stream: false,
         })),
     });
 }
@@ -381,13 +448,36 @@ mod tests {
         let seasons = seasons(&videos);
 
         assert!(seasons.is_empty());
-        assert!(!shows_picker(&seasons));
+        assert!(!shows_picker(None, &seasons));
     }
 
     #[test]
-    fn a_series_offers_the_picker_as_long_as_it_has_seasons() {
+    fn a_series_offers_the_picker_until_something_is_picked() {
         let videos = [video("a", 1, 1, "Pilot"), video("b", 2, 1, "Next year")];
-        assert!(shows_picker(&seasons(&videos)));
+        let seasons = seasons(&videos);
+
+        assert!(shows_picker(None, &seasons), "nothing picked yet");
+        assert!(
+            !shows_picker(Some("b"), &seasons),
+            "b is picked, so its Streams show"
+        );
+    }
+
+    #[test]
+    fn the_streams_list_names_the_picked_episode_and_never_a_stand_in() {
+        let videos = [
+            video("a", 1, 2, "Second"),
+            video("s", 0, 3, "Bonus"),
+            film("m", "A film"),
+        ];
+
+        assert_eq!(picked_label(&videos, "a"), Some("S1E2 Second".to_owned()));
+        assert_eq!(
+            picked_label(&videos, "s"),
+            Some("SPECIAL 3 Bonus".to_owned())
+        );
+        assert_eq!(picked_label(&videos, "m"), Some("A film".to_owned()));
+        assert_eq!(picked_label(&videos, "gone"), None);
     }
 
     #[test]

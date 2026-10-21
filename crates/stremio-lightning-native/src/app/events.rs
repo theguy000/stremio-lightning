@@ -28,6 +28,8 @@ pub(crate) struct Context {
     pub(crate) selected: Arc<AtomicUsize>,
     /// The Season the details screen's episode picker is showing, if it has been touched.
     pub(crate) season: Arc<AtomicUsize>,
+    /// The Video id whose Streams the details screen is showing, if one was picked.
+    pub(crate) picked: Arc<Mutex<Option<String>>>,
     pub(crate) local_extras: Arc<Mutex<settings::LocalExtras>>,
     pub(crate) auth: auth::Generation,
     /// Repaint now, with whatever the cache holds. Used when an image arrives.
@@ -104,6 +106,7 @@ fn snapshot(model: &AppModel, context: &Context) -> Snapshot {
         details: crate::screens::details::data(
             model,
             crate::screens::details::chosen_season(context.season.load(Ordering::Relaxed)),
+            context.picked.lock().unwrap().as_deref(),
         ),
         settings: settings::data(model, &context.extras()),
     }

@@ -33,6 +33,8 @@ pub(crate) struct Wiring {
     pub(crate) selected: Arc<AtomicUsize>,
     /// The Season the details screen's episode picker is showing, if it has been touched.
     pub(crate) season: Arc<AtomicUsize>,
+    /// The Video id whose Streams the details screen is showing, if one was picked.
+    pub(crate) picked: Arc<Mutex<Option<String>>>,
     pub(crate) local_extras: Arc<Mutex<settings::LocalExtras>>,
     pub(crate) data_dir: std::path::PathBuf,
     pub(crate) server: Arc<Supervisor>,
@@ -56,8 +58,10 @@ impl Wiring {
     fn open_item(&self, id: String, kind: String, _title: String) {
         // Drop what the previous item left behind so it can't flash up before the new data.
         self.latest.lock().unwrap().details = details::Data::default();
-        // A new title opens on the Season the core suggests, not the one last browsed.
+        // A new title opens on the Season the core suggests, not the one last browsed, and with
+        // no Episode picked.
         self.season.store(details::NO_SEASON, Ordering::Relaxed);
+        *self.picked.lock().unwrap() = None;
         if let Some(window) = self.window.upgrade() {
             window.set_details_has_preview(false);
             window.set_details_status("Loading...".into());
@@ -88,9 +92,22 @@ impl Wiring {
         let Ok(model) = self.runtime.model() else {
             return;
         };
+        let picked = self.picked.lock().unwrap().clone();
         let mut snapshot = self.latest.lock().unwrap().clone();
-        snapshot.details = details::data(&model, Some(season));
+        snapshot.details = details::data(&model, Some(season), picked.as_deref());
         self.repaint_with(snapshot);
+    }
+
+    /// Picking an Episode: remember it, then ask the core for that Video's Streams.
+    fn pick_video(&self, video_id: String) {
+        *self.picked.lock().unwrap() = Some(video_id.clone());
+        details::pick(&self.runtime, &video_id);
+    }
+
+    /// Back to the Episode Picker: the pick is gone, and the core drops the Streams with it.
+    fn back_to_episodes(&self) {
+        *self.picked.lock().unwrap() = None;
+        details::back_to_episodes(&self.runtime);
     }
 
     fn play_stream(&self, index: i32) {
@@ -308,6 +325,14 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
     {
         let wiring = wiring.clone();
         window.on_select_season(move |index| wiring.select_season(index));
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_pick_video(move |video_id| wiring.pick_video(video_id.to_string()));
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_back_to_episodes(move || wiring.back_to_episodes());
     }
     {
         let wiring = wiring.clone();

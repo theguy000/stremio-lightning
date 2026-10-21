@@ -99,6 +99,7 @@ fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
 
     window.set_details_show_picker(details.show_picker);
     window.set_details_season_index(i32::try_from(details.season).unwrap_or_default());
+    window.set_details_picked_label(details.picked_label.clone().unwrap_or_default().into());
     window.set_details_season_title(
         details
             .seasons
@@ -130,8 +131,7 @@ fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
                     released: episode.released.clone().into(),
                     has_thumbnail: thumbnail.is_some(),
                     thumbnail: thumbnail.unwrap_or_default(),
-                    // Picking is the next slice: nothing is picked yet.
-                    selected: false,
+                    selected: details.picked.as_deref() == Some(episode.id.as_str()),
                 }
             })
             .collect::<Vec<_>>(),
