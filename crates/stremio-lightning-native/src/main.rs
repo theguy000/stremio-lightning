@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use futures::StreamExt;
@@ -40,6 +40,7 @@ mod addons;
 mod class_styles;
 mod player;
 mod settings;
+mod social_auth;
 
 slint::include_modules!();
 
@@ -831,6 +832,91 @@ fn ctx_error_message(error: &stremio_core::models::ctx::CtxError) -> String {
     }
 }
 
+/// Every browser sign-in owns a generation; bumping it stops that attempt's poll task
+/// without letting it touch the window or the runtime again.
+fn cancel_social_login(generation: &AtomicU64) {
+    generation.fetch_add(1, Ordering::SeqCst);
+}
+
+/// Drops the sign-in screen's live markers: the spinner and either provider's
+/// "waiting for the browser" state. The caller sets the message to leave behind.
+fn clear_auth_progress(window: &MainWindow) {
+    window.set_auth_loading(false);
+    window.set_auth_facebook_loading(false);
+    window.set_auth_apple_loading(false);
+}
+
+/// Hands a Facebook or Apple sign-in to the system browser and picks the account back up
+/// once `strem.io` has it.
+///
+/// The browser cannot report back to us, and the providers only consent to `strem.io`, so
+/// the shell opens the same URL Stremio's web client opens and then asks `strem.io` for the
+/// account behind that state until it answers.
+fn start_social_login(
+    provider: social_auth::Provider,
+    window: &Weak<MainWindow>,
+    runtime: &Arc<AppRuntime>,
+    generation: &Arc<AtomicU64>,
+    handle: &tokio::runtime::Handle,
+) {
+    let attempt = match social_auth::Attempt::start(provider) {
+        Ok(attempt) => attempt,
+        Err(error) => {
+            let message = error.message(provider);
+            let _ = window.upgrade_in_event_loop(move |w| {
+                clear_auth_progress(&w);
+                w.set_auth_error(message.into());
+            });
+            return;
+        }
+    };
+    let attempt_id = generation.fetch_add(1, Ordering::SeqCst) + 1;
+    let login_url = attempt.login_url();
+    let waiting = provider.waiting_message(&login_url);
+    let _ = window.upgrade_in_event_loop(move |w| {
+        w.set_auth_loading(true);
+        w.set_auth_error(waiting.into());
+        w.set_auth_facebook_loading(provider == social_auth::Provider::Facebook);
+        w.set_auth_apple_loading(provider == social_auth::Provider::Apple);
+    });
+    settings::open_external_url(&login_url);
+
+    let (window, runtime, generation) = (window.clone(), runtime.clone(), generation.clone());
+    handle.spawn(async move {
+        let client = reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(20))
+            .build();
+        let result = match client {
+            Ok(client) => {
+                social_auth::wait_for_account(&client, &attempt, || {
+                    generation.load(Ordering::SeqCst) != attempt_id
+                })
+                .await
+            }
+            Err(error) => Err(social_auth::PollError::Unreachable(error.to_string())),
+        };
+        // A dismissed overlay or a newer attempt owns the sign-in screen now.
+        if generation.load(Ordering::SeqCst) != attempt_id {
+            return;
+        }
+        match result {
+            Ok(credentials) => runtime.dispatch(RuntimeAction {
+                field: None,
+                action: Action::Ctx(ActionCtx::Authenticate(credentials.into_auth_request())),
+            }),
+            Err(social_auth::PollError::Cancelled) => {}
+            Err(error) => {
+                let message = error.message(provider);
+                let _ = window.upgrade_in_event_loop(move |w| {
+                    clear_auth_progress(&w);
+                    w.set_auth_error(message.into());
+                });
+            }
+        }
+    });
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tokio_runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -903,6 +989,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let client = reqwest::Client::new();
     let selected = Arc::new(AtomicUsize::new(0));
+    // Bumped whenever a browser sign-in is superseded, cancelled or finished, so the poll
+    // task it started stops before it can touch the window or the runtime.
+    let auth_generation = Arc::new(AtomicU64::new(0));
 
     {
         let weak = window.as_weak();
@@ -1197,33 +1286,50 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     {
-        let weak = window.as_weak();
+        let (weak, generation) = (window.as_weak(), auth_generation.clone());
         window.on_auth_guest_login(move || {
+            cancel_social_login(&generation);
             let _ = weak.upgrade_in_event_loop(|w| {
                 w.set_auth_open(false);
                 w.set_auth_error("".into());
-                w.set_auth_loading(false);
+                clear_auth_progress(&w);
             });
         });
     }
 
     {
-        let weak = window.as_weak();
+        let (weak, runtime, generation, handle) = (
+            window.as_weak(),
+            runtime.clone(),
+            auth_generation.clone(),
+            tokio_runtime.handle().clone(),
+        );
         window.on_auth_facebook_login(move || {
-            settings::open_external_url("web-intro");
-            let _ = weak.upgrade_in_event_loop(|w| {
-                w.set_auth_error("Please authenticate via the browser window.".into());
-            });
+            start_social_login(
+                social_auth::Provider::Facebook,
+                &weak,
+                &runtime,
+                &generation,
+                &handle,
+            );
         });
     }
 
     {
-        let weak = window.as_weak();
+        let (weak, runtime, generation, handle) = (
+            window.as_weak(),
+            runtime.clone(),
+            auth_generation.clone(),
+            tokio_runtime.handle().clone(),
+        );
         window.on_auth_apple_login(move || {
-            settings::open_external_url("web-intro");
-            let _ = weak.upgrade_in_event_loop(|w| {
-                w.set_auth_error("Please authenticate via the browser window.".into());
-            });
+            start_social_login(
+                social_auth::Provider::Apple,
+                &weak,
+                &runtime,
+                &generation,
+                &handle,
+            );
         });
     }
 
@@ -1243,12 +1349,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     {
-        let weak = window.as_weak();
+        let (weak, generation) = (window.as_weak(), auth_generation.clone());
         window.on_auth_dismissed(move || {
+            cancel_social_login(&generation);
             let _ = weak.upgrade_in_event_loop(|w| {
                 w.set_auth_open(false);
                 w.set_auth_error("".into());
-                w.set_auth_loading(false);
+                clear_auth_progress(&w);
             });
         });
     }
@@ -1266,6 +1373,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         move |event| {
             let weak = weak.clone();
             let reader = reader.clone();
+            let auth_generation = auth_generation.clone();
             let posters = posters.clone();
             let requested = requested.clone();
             let latest = latest.clone();
@@ -1280,7 +1388,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let msg = matches!(**source, Event::UserAuthenticated { .. })
                             .then(|| ctx_error_message(error));
                         let _ = weak.upgrade_in_event_loop(move |w| {
-                            w.set_auth_loading(false);
+                            clear_auth_progress(&w);
                             if let Some(msg) = msg {
                                 w.set_auth_error(msg.into());
                             }
@@ -1288,8 +1396,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         return;
                     }
                     RuntimeEvent::CoreEvent(Event::UserAuthenticated { .. }) => {
+                        // Whatever signed in, no other browser handshake is still wanted.
+                        cancel_social_login(&auth_generation);
                         let _ = weak.upgrade_in_event_loop(|w| {
-                            w.set_auth_loading(false);
+                            clear_auth_progress(&w);
                             w.set_auth_error("".into());
                             w.set_auth_open(false);
                         });
@@ -1300,8 +1410,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 let Ok(model) = reader.model() else { return };
                 if model.ctx.profile.auth.is_some() {
+                    cancel_social_login(&auth_generation);
                     let _ = weak.upgrade_in_event_loop(|w| {
-                        w.set_auth_loading(false);
+                        clear_auth_progress(&w);
                         w.set_auth_error("".into());
                         w.set_auth_open(false);
                     });

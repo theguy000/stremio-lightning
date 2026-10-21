@@ -143,12 +143,40 @@ impl IntroState {
     }
 }
 
+/// The social buttons a user can wait on while the system browser runs the provider's
+/// consent screen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SocialProvider {
+    Facebook,
+    Apple,
+}
+
+impl SocialProvider {
+    /// The endpoint `strem.io` starts the provider's consent screen on.
+    pub fn login_url_prefix(self) -> &'static str {
+        match self {
+            Self::Facebook => "https://www.strem.io/login-fb/",
+            Self::Apple => "https://www.strem.io/login-apple/",
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Facebook => "Facebook",
+            Self::Apple => "Apple",
+        }
+    }
+}
+
 /// In-memory representation of `MainWindow` overlay routing & shell navigation state.
 #[derive(Debug, Clone)]
 pub struct MainWindowOverlayState {
     pub auth_open: bool,
     pub auth_error: String,
     pub auth_loading: bool,
+    /// Set while a browser sign-in is in flight, mirroring `auth-facebook-loading` and
+    /// `auth-apple-loading` on `MainWindow`.
+    pub social_waiting: Option<SocialProvider>,
     pub auth_is_signup: bool,
     pub section: AppSection,
     pub previous_section: AppSection,
@@ -163,6 +191,7 @@ impl Default for MainWindowOverlayState {
             auth_open: false,
             auth_error: String::new(),
             auth_loading: false,
+            social_waiting: None,
             auth_is_signup: false,
             section: AppSection::Board,
             previous_section: AppSection::Board,
@@ -184,13 +213,36 @@ impl MainWindowOverlayState {
         self.auth_is_signup = is_signup;
         self.auth_error.clear();
         self.auth_loading = false;
+        self.social_waiting = None;
     }
 
     pub fn dismiss_auth(&mut self) {
         self.auth_open = false;
         self.auth_error.clear();
         self.auth_loading = false;
+        self.social_waiting = None;
         self.section = self.previous_section;
+    }
+
+    /// What the shell does when Facebook or Apple is clicked: it hands the sign-in to the
+    /// system browser, locks the form, and waits for the account to come back.
+    pub fn start_social_sign_in(&mut self, provider: SocialProvider) {
+        let state = "0123456789abcdef0123456789abcdef";
+        self.auth_loading = true;
+        self.social_waiting = Some(provider);
+        self.auth_error = format!(
+            "Log in with {} in your browser; this screen finishes on its own. \
+             If no browser opened, visit {}{state}",
+            provider.name(),
+            provider.login_url_prefix()
+        );
+    }
+
+    /// The handshake ended without credentials: timeout, refusal, or cancel.
+    pub fn abandon_social_sign_in(&mut self, message: String) {
+        self.auth_loading = false;
+        self.social_waiting = None;
+        self.auth_error = message;
     }
 
     pub fn handle_auth_success(&mut self, user: &User) {
@@ -199,6 +251,7 @@ impl MainWindowOverlayState {
         self.user_avatar = user.avatar.clone();
         self.auth_open = false;
         self.auth_loading = false;
+        self.social_waiting = None;
         self.auth_error.clear();
     }
 

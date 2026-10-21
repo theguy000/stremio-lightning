@@ -206,6 +206,10 @@ export component IntroContent inherits Rectangle {
     in-out property <bool> is-signup: false;
     in property <string> error-message: "";
     in property <bool> is-loading: false;
+    // Which social button is waiting on the browser. It disables that button and turns its
+    // label into the "Please wait..." progress state.
+    in property <bool> facebook-loading: false;
+    in property <bool> apple-loading: false;
     in property <length> rem-size: 14px;
 
     // Contract Callbacks
@@ -625,6 +629,7 @@ export component IntroContent inherits Rectangle {
                             normal-color: ClassStyles.color-or(ClassStyles.facebook-button, #ffffff);
                             hover-color: #ffffff;
                             has-border: false;
+                            is-loading: root.facebook-loading;
                             opacity: ClassStyles.opacity-or(ClassStyles.facebook-button, 1.0);
                             visible: !ClassStyles.facebook-button.hidden;
                             clicked => {
@@ -645,6 +650,7 @@ export component IntroContent inherits Rectangle {
                             normal-color: ClassStyles.color-or(ClassStyles.apple-button, #0c0b11);
                             hover-color: #0c0b11;
                             has-border: false;
+                            is-loading: root.apple-loading;
                             opacity: ClassStyles.opacity-or(ClassStyles.apple-button, 1.0);
                             visible: !ClassStyles.apple-button.hidden;
                             clicked => {

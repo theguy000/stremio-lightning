@@ -1022,35 +1022,126 @@ fn test_f21_guest_login_keeps_library_and_calendar_locked() {
 // Feature 22: Social Login Handling (§R2, Feature 22)
 // ============================================================================
 
+// Facebook and Apple only consent to strem.io, so the buttons hand the sign-in to the
+// system browser and pick the account up from strem.io's handshake endpoint afterwards.
+
 #[test]
-fn test_f22_facebook_auth_url_target() {
-    let target = "https://web.stremio.com/#/intro";
-    assert_eq!(target, "https://web.stremio.com/#/intro");
+fn test_f22_facebook_sign_in_hands_off_to_the_browser() {
+    let mut window = MainWindowOverlayState::new();
+    window.open_auth(false);
+
+    window.start_social_sign_in(SocialProvider::Facebook);
+
+    assert_eq!(window.social_waiting, Some(SocialProvider::Facebook));
+    assert!(
+        window.auth_loading,
+        "the form waits while the browser is open"
+    );
+    assert!(window.auth_error.contains("in your browser"));
+    assert!(
+        window.auth_error.contains("https://www.strem.io/login-fb/"),
+        "the user is told where to go when no browser opened"
+    );
+    assert!(
+        window.auth_open,
+        "the overlay stays until the account lands"
+    );
 }
 
 #[test]
-fn test_f22_apple_auth_url_target() {
-    let target = "https://web.stremio.com/#/intro";
-    assert_eq!(target, "https://web.stremio.com/#/intro");
+fn test_f22_apple_sign_in_hands_off_to_the_browser() {
+    let mut window = MainWindowOverlayState::new();
+    window.open_auth(false);
+
+    window.start_social_sign_in(SocialProvider::Apple);
+
+    assert_eq!(window.social_waiting, Some(SocialProvider::Apple));
+    assert!(window.auth_loading);
+    assert!(window
+        .auth_error
+        .contains("https://www.strem.io/login-apple/"));
+    assert!(window.auth_open);
 }
 
 #[test]
-fn test_f22_social_auth_displays_info_notification() {
-    let mut state = IntroState::new();
-    state.error_message = "Opening web browser for authentication...".to_string();
-    assert!(state.error_message.contains("Opening web browser"));
+fn test_f22_a_finished_handshake_clears_the_waiting_marker() {
+    let mut window = MainWindowOverlayState::new();
+    let user = create_test_user("someone@stremio.com");
+    window.open_auth(false);
+    window.start_social_sign_in(SocialProvider::Facebook);
+
+    window.handle_auth_success(&user);
+
+    assert!(!window.auth_open);
+    assert!(!window.auth_loading);
+    assert_eq!(window.social_waiting, None);
 }
 
 #[test]
-fn test_f22_social_auth_keeps_form_responsive() {
-    let state = IntroState::new();
-    assert!(!state.is_loading);
+fn test_f22_a_failed_handshake_keeps_the_form_usable() {
+    let mut window = MainWindowOverlayState::new();
+    window.open_auth(false);
+    window.start_social_sign_in(SocialProvider::Facebook);
+
+    window.abandon_social_sign_in(
+        "Facebook sign-in didn't finish. Try again, or log in with your email and password."
+            .to_string(),
+    );
+
+    assert!(window.auth_open, "the user can try again or use the form");
+    assert!(!window.auth_loading);
+    assert_eq!(window.social_waiting, None);
+    assert!(window.auth_error.contains("Try again"));
 }
 
 #[test]
-fn test_f22_social_auth_does_not_block_runtime() {
+fn test_f22_dismissing_the_overlay_cancels_the_browser_sign_in() {
+    let mut window = MainWindowOverlayState::new();
+    window.open_auth(false);
+    window.start_social_sign_in(SocialProvider::Apple);
+
+    window.dismiss_auth();
+
+    assert!(!window.auth_open);
+    assert!(!window.auth_loading);
+    assert_eq!(window.social_waiting, None);
+}
+
+#[test]
+fn test_f22_nothing_is_dispatched_until_the_account_lands() {
     let runtime = MockAuthRuntime::new();
-    assert!(runtime.dispatched_actions.lock().unwrap().is_empty());
+    let mut window = MainWindowOverlayState::new();
+    window.open_auth(false);
+    window.start_social_sign_in(SocialProvider::Facebook);
+    assert!(
+        runtime.dispatched_actions.lock().unwrap().is_empty(),
+        "opening the browser is not an Authenticate of its own"
+    );
+
+    runtime.dispatch(Action::Ctx(ActionCtx::Authenticate(AuthRequest::Login {
+        email: "someone@stremio.com".to_string(),
+        password: "fb-login-token".to_string(),
+        facebook: true,
+    })));
+
+    assert!(matches!(
+        runtime.last_dispatched_action(),
+        Some(Action::Ctx(ActionCtx::Authenticate(AuthRequest::Login {
+            facebook: true,
+            ..
+        })))
+    ));
+}
+
+#[test]
+fn test_f22_the_web_intro_stub_is_retired() {
+    let shell = std::fs::read_to_string("src/main.rs").expect("the shell entry point");
+    assert!(
+        !shell.contains("\"web-intro\""),
+        "the social buttons no longer send the user to the web intro, which never signed anyone in"
+    );
+    let urls = std::fs::read_to_string("src/settings.rs").expect("the external URL table");
+    assert!(!urls.contains("web.stremio.com"));
 }
 
 // ============================================================================

@@ -4,6 +4,7 @@
 
 use super::common::*;
 use stremio_core::runtime::msg::{Action, ActionCtx, Event};
+use stremio_core::types::api::AuthRequest;
 
 /// Flow 1: Complete New User Registration Journey
 /// Settings trigger -> Mode toggle -> Field entry & GDPR -> Action dispatch ->
@@ -219,21 +220,41 @@ fn test_flow5_forgot_password_external_workflow() {
     );
 }
 
-/// Flow 6: Social Login Fallback Workflow
-/// Click Facebook login -> Notification message -> Form remains interactive.
+/// Flow 6: Browser Sign-in Handshake
+/// Click Facebook -> the system browser runs the consent screen -> strem.io hands the
+/// account back -> the shell authenticates with it and the overlay closes.
 #[test]
-fn test_flow6_social_login_fallback_workflow() {
+fn test_flow6_social_login_handshake() {
     let mut window = MainWindowOverlayState::new();
-    let mut intro = IntroState::new();
     window.open_auth(false);
 
-    // Click Facebook button
-    intro.error_message = "Opening web browser for authentication. Please log in there, or use email and password above.".to_string();
-    window.auth_error = intro.error_message.clone();
-
-    assert!(window.auth_error.contains("Opening web browser"));
-    assert!(!window.auth_loading, "UI remains fully interactive");
+    // 1. The handshake starts and the form waits.
+    window.start_social_sign_in(SocialProvider::Facebook);
     assert!(window.auth_open);
+    assert!(window.auth_loading);
+    assert_eq!(window.social_waiting, Some(SocialProvider::Facebook));
+
+    // 2. The browser finished: strem.io returns the email and a one-shot token.
+    let runtime = MockAuthRuntime::new();
+    runtime.dispatch(Action::Ctx(ActionCtx::Authenticate(AuthRequest::Login {
+        email: "someone@stremio.com".to_string(),
+        password: "fb-login-token".to_string(),
+        facebook: true,
+    })));
+    let user = create_test_user("someone@stremio.com");
+    window.handle_auth_success(&user);
+
+    // 3. The session is live and the overlay is gone.
+    assert!(window.logged_in);
+    assert!(!window.auth_open);
+    assert_eq!(window.social_waiting, None);
+    assert!(matches!(
+        runtime.last_dispatched_action(),
+        Some(Action::Ctx(ActionCtx::Authenticate(AuthRequest::Login {
+            facebook: true,
+            ..
+        })))
+    ));
 }
 
 /// Flow 7: Logout & Re-login Flow

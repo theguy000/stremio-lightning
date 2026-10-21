@@ -156,13 +156,16 @@ fn test_c1_forgot_password_from_dirty_email_state() {
 }
 
 #[test]
-fn test_c1_social_auth_click_resets_stale_login_error() {
-    let mut state = IntroState::new();
-    state.error_message = "Stale login error".to_string();
+fn test_c1_social_auth_click_replaces_a_stale_login_error() {
+    let mut window = MainWindowOverlayState::new();
+    window.open_auth(false);
+    window.handle_auth_error("Wrong password. Please try again.".to_string());
 
-    // Clicking Facebook resets error
-    state.error_message.clear();
-    assert!(state.error_message.is_empty());
+    // Clicking Facebook drops the stale error and explains the browser handshake instead.
+    window.start_social_sign_in(SocialProvider::Facebook);
+
+    assert!(!window.auth_error.contains("Wrong password"));
+    assert!(window.auth_error.contains("in your browser"));
 }
 
 #[test]

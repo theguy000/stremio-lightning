@@ -53,6 +53,8 @@ export component MainWindow inherits Window {
     in-out property <bool> auth-open: false;
     in-out property <string> auth-error: "";
     in-out property <bool> auth-loading: false;
+    in-out property <bool> auth-facebook-loading: false;
+    in-out property <bool> auth-apple-loading: false;
     in-out property <bool> auth-is-signup: false;
     property <length> rem-size: Theme.rem-size(root.width);
     property <length> nav-width: root.playing ? 0px : 6 * root.rem-size;
@@ -370,6 +372,8 @@ export component MainWindow inherits Window {
         is-signup <=> root.auth-is-signup;
         error-message: root.auth-error;
         is-loading: root.auth-loading;
+        facebook-loading: root.auth-facebook-loading;
+        apple-loading: root.auth-apple-loading;
         submit-login(email, password) => {
             root.submit-auth-login(email, password);
         }
