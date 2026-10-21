@@ -302,6 +302,8 @@ export component MetaPreview inherits Rectangle {
 
             if root.preview.has-trailer: action-button-container := ActionButton {
                 icon: @image-url("icons/trailer.svg");
+                // Web labels this one; the rest of the row is icon-only.
+                label: "Trailer";
                 rem-size: root.rem-size;
             }
             group-container := Rectangle {
@@ -329,6 +331,49 @@ export component MetaPreview inherits Rectangle {
                     height: 1.75 * root.rem-size;
                 }
             }
+            // Web: a like/heart pill, then the share disc.
+            rate-container := Rectangle {
+                width: 8 * root.rem-size;
+                height: 4 * root.rem-size;
+                border-radius: 4 * root.rem-size;
+                background: Theme.overlay;
+
+                Image {
+                    source: @image-url("icons/heart-outline.svg");
+                    colorize: Theme.text;
+                    opacity: 0.9;
+                    x: (4 * root.rem-size - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    width: 1.75 * root.rem-size;
+                    height: 1.75 * root.rem-size;
+                }
+                Image {
+                    source: @image-url("icons/heart.svg");
+                    colorize: Theme.text;
+                    opacity: 0.9;
+                    x: 4 * root.rem-size + (4 * root.rem-size - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    width: 1.75 * root.rem-size;
+                    height: 1.75 * root.rem-size;
+                }
+            }
+            share-button := Rectangle {
+                width: 4 * root.rem-size;
+                height: 4 * root.rem-size;
+                border-radius: 2 * root.rem-size;
+                background: Theme.overlay;
+
+                Image {
+                    source: @image-url("icons/share.svg");
+                    colorize: Theme.text;
+                    opacity: 0.9;
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    width: 1.75 * root.rem-size;
+                    height: 1.75 * root.rem-size;
+                }
+            }
+
             // The Show button belongs to the hover panel. On the details route web has no such
             // button: the rows below are what you pick from.
             if !root.on-page: show-button := ActionButton {
