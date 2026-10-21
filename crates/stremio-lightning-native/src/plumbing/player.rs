@@ -1,5 +1,8 @@
-//! Video playback. libmpv draws every frame into Slint's own OpenGL context just before Slint
+﻿//! Video playback. libmpv draws every frame into Slint's own OpenGL context just before Slint
 //! draws the window's items on top, so the player screen only has to leave the video area empty.
+//!
+//! Everything that talks to mpv lives here, so a screen with real controls can ask for play,
+//! stop and settings without learning mpv's properties.
 
 use std::cell::RefCell;
 use std::ffi::{c_void, CStr, CString};
@@ -91,14 +94,14 @@ impl Player {
 }
 
 #[derive(Clone)]
-pub struct VideoPlayer {
+pub(crate) struct VideoPlayer {
     player: Rc<RefCell<Option<Player>>>,
     _events: Rc<Timer>,
 }
 
 impl VideoPlayer {
     /// Hooks mpv into the window's rendering. If the renderer has no OpenGL, playing says so.
-    pub fn install(window: &MainWindow) -> Self {
+    pub(crate) fn install(window: &MainWindow) -> Self {
         let player: Rc<RefCell<Option<Player>>> = Rc::default();
 
         let installed = window.window().set_rendering_notifier({
@@ -164,7 +167,7 @@ impl VideoPlayer {
         }
     }
 
-    pub fn play(&self, url: &str) -> Result<(), String> {
+    pub(crate) fn play(&self, url: &str) -> Result<(), String> {
         let guard = self.player.borrow();
         let player = guard
             .as_ref()
@@ -175,13 +178,13 @@ impl VideoPlayer {
             .map_err(|error| error.to_string())
     }
 
-    pub fn stop(&self) {
+    pub(crate) fn stop(&self) {
         if let Some(player) = self.player.borrow().as_ref() {
             let _ = player.mpv.command("stop", &[]);
         }
     }
 
-    pub fn apply_settings(&self, settings: &crate::settings::PlayerConfig) {
+    pub(crate) fn apply_settings(&self, settings: &crate::screens::settings::PlayerConfig) {
         if let Some(player) = self.player.borrow().as_ref() {
             let hwdec = if settings.hardware_decoding {
                 "auto-safe"

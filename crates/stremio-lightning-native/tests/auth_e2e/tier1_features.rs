@@ -1135,13 +1135,21 @@ fn test_f22_nothing_is_dispatched_until_the_account_lands() {
 
 #[test]
 fn test_f22_the_web_intro_stub_is_retired() {
-    let shell = std::fs::read_to_string("src/main.rs").expect("the shell entry point");
-    assert!(
-        !shell.contains("\"web-intro\""),
+    // The addresses the app will open come from one table, so assert on the table itself rather
+    // than on a source file's text: nothing may send anyone to the web intro, which never signed
+    // anyone in.
+    assert_eq!(
+        stremio_lightning_native::links::resolve("web-intro"),
+        None,
         "the social buttons no longer send the user to the web intro, which never signed anyone in"
     );
-    let urls = std::fs::read_to_string("src/settings.rs").expect("the external URL table");
-    assert!(!urls.contains("web.stremio.com"));
+    for kind in ["support", "source", "tos", "privacy", "reset-password"] {
+        let url = stremio_lightning_native::links::resolve(kind).expect("a known link");
+        assert!(
+            !url.contains("web.stremio.com"),
+            "{kind} points at the retired web client"
+        );
+    }
 }
 
 // ============================================================================

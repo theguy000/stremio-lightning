@@ -1,28 +1,28 @@
-// What the Addons screen shows: the installed addons from stremio-core's `InstalledAddonsWithFilters`.
+﻿// What the Addons screen shows: the installed addons from stremio-core's `InstalledAddonsWithFilters`.
 // Based on stremio-web src/routes/Addons (Addons.js, Addon/Addon.js, useSelectableInputs.js).
-// Licence basis: ../THIRD_PARTY_NOTICES.md.
+// Licence basis: ../../THIRD_PARTY_NOTICES.md.
 use stremio_core::models::installed_addons_with_filters::{InstalledAddonsRequest, SelectableType};
 use stremio_core::types::addon::Descriptor;
 
 use super::{capitalise, AppModel, Input};
 
 #[derive(Clone, Debug, Default, PartialEq)]
-pub(super) struct AddonCard {
-    pub(super) name: String,
-    pub(super) version: String,
-    pub(super) types: String,
-    pub(super) description: String,
-    pub(super) logo: Option<String>,
+pub(crate) struct AddonCard {
+    pub(crate) name: String,
+    pub(crate) version: String,
+    pub(crate) types: String,
+    pub(crate) description: String,
+    pub(crate) logo: Option<String>,
 }
 
 #[derive(Clone, Default)]
-pub(super) struct AddonsData {
+pub(crate) struct Data {
     /// The catalog menu ("Installed") and the type menu ("All", "Movie", ...).
-    pub(super) inputs: Vec<Input>,
+    pub(crate) inputs: Vec<Input>,
     /// What each option of the type menu loads, in the menu's order.
-    pub(super) type_requests: Vec<InstalledAddonsRequest>,
-    pub(super) cards: Vec<AddonCard>,
-    pub(super) message: String,
+    pub(crate) type_requests: Vec<InstalledAddonsRequest>,
+    pub(crate) cards: Vec<AddonCard>,
+    pub(crate) message: String,
 }
 
 /// "Movie", "Movie & Series", "Movie, Series & Channel", like `Addon.js`.
@@ -58,7 +58,7 @@ fn type_label(item: &SelectableType) -> String {
         .map_or_else(|| "All".to_owned(), capitalise)
 }
 
-pub(super) fn addons_data(model: &AppModel) -> AddonsData {
+pub(crate) fn data(model: &AppModel) -> Data {
     let installed = &model.installed_addons;
     let types = &installed.selectable.types;
     let selected = types.iter().position(|item| item.selected).unwrap_or(0);
@@ -86,7 +86,7 @@ pub(super) fn addons_data(model: &AppModel) -> AddonsData {
     } else {
         String::new()
     };
-    AddonsData {
+    Data {
         inputs: vec![catalog, kinds],
         type_requests: types.iter().map(|item| item.request.clone()).collect(),
         cards: installed.catalog.iter().map(card_of).collect(),
@@ -95,7 +95,7 @@ pub(super) fn addons_data(model: &AppModel) -> AddonsData {
 }
 
 /// The cards whose name or description contains `query`, ignoring case, like `Addons.js`.
-pub(super) fn visible<'a>(cards: &'a [AddonCard], query: &str) -> Vec<&'a AddonCard> {
+pub(crate) fn visible<'a>(cards: &'a [AddonCard], query: &str) -> Vec<&'a AddonCard> {
     let query = query.to_lowercase();
     cards
         .iter()
