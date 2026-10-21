@@ -498,13 +498,47 @@ pub(super) fn open_external_url(kind: &str) {
         return;
     };
     #[cfg(target_os = "windows")]
-    let _ = std::process::Command::new("cmd")
-        .args(["/C", "start", "", &url])
-        .spawn();
+    open_with_default_browser(&url);
     #[cfg(target_os = "macos")]
     let _ = std::process::Command::new("open").arg(&url).spawn();
     #[cfg(all(unix, not(target_os = "macos")))]
     let _ = std::process::Command::new("xdg-open").arg(&url).spawn();
+}
+
+/// Hands the URL to whatever Windows has registered for it, with no `cmd.exe` in between: the caller
+/// becomes the shell itself, so the browser is started by the process that actually asked for it
+/// instead of by a console host, and the result is a status code we can report. It runs off the
+/// calling thread because `ShellExecuteW` blocks until the registered handler is launched, which
+/// would otherwise stall the UI while the browser starts.
+#[cfg(target_os = "windows")]
+fn open_with_default_browser(url: &str) {
+    let url = url.to_string();
+    std::thread::spawn(move || {
+        use windows::core::{HSTRING, PCWSTR};
+        use windows::Win32::UI::Shell::ShellExecuteW;
+        use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+
+        let operation = HSTRING::from("open");
+        let target = HSTRING::from(url.as_str());
+        // SAFETY: both strings outlive the call and are valid, null-terminated wide strings.
+        let result = unsafe {
+            ShellExecuteW(
+                None,
+                PCWSTR(operation.as_ptr()),
+                PCWSTR(target.as_ptr()),
+                PCWSTR::null(),
+                PCWSTR::null(),
+                SW_SHOWNORMAL,
+            )
+        };
+        // ShellExecuteW reports failure as a value <= 32, not through GetLastError.
+        if result.0 as usize <= 32 {
+            eprintln!(
+                "could not open {url} in the default browser: ShellExecuteW returned {}",
+                result.0 as usize
+            );
+        }
+    });
 }
 
 #[cfg(test)]

@@ -6019,6 +6019,7 @@ dependencies = [
  "stremio-lightning-native-env",
  "tokio",
  "url",
+ "windows",
 ]
 
 [[package]]
