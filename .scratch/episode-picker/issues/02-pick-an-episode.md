@@ -10,11 +10,22 @@ Vocabulary is in `GLOSSARY.md`: Episode, Season, Streams List, Details Screen.
 
 **Blocked by:** 01 — Show the Seasons and Episodes
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Clicking an Episode swaps the body to that Episode's Streams List.
-- [ ] The Streams List names the Episode as `S1E2 Title`.
-- [ ] `‹` returns to the Episode Picker showing the same Season that was open.
-- [ ] Picking a second Episode replaces the Streams List; nothing from the first Episode remains.
-- [ ] The pick is carried by Video id, and a list that changed since render cannot resolve to the wrong Episode.
-- [ ] A window-level test drives a real click and asserts the pick reaches the core with the right Video id.
+- [x] Clicking an Episode swaps the body to that Episode's Streams List.
+- [x] The Streams List names the Episode as `S1E2 Title`.
+- [x] `‹` returns to the Episode Picker showing the same Season that was open.
+- [x] Picking a second Episode replaces the Streams List; nothing from the first Episode remains.
+- [x] The pick is carried by Video id, and a list that changed since render cannot resolve to the wrong Episode.
+- [ ] A window-level test drives a real click and asserts the pick reaches the core with the right Video id. **Not written.**
+
+## Delivered
+
+The pick rides as a Video id held beside the browsed Season, and that is what hides the picker —
+not the presence of a stream path, because the core writes one of its own for a title with a
+`behavior_hints.default_video_id`. Returning sends no stream path, which is what makes the core
+drop the Streams it holds.
+
+**Still outstanding:** the window-level test that drives a real click through the Slint callback.
+Every layer below it is covered by `picked_label` and `shows_picker`, but nothing yet proves the
+click itself reaches the core.

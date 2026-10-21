@@ -8,11 +8,20 @@ Vocabulary is in `GLOSSARY.md`: Next Video, Next Episode, Special, Season, Strea
 
 **Blocked by:** 01 — Show the Seasons and Episodes, 02 — Pick an Episode and see its Streams
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] The control appears on the Streams List when the picked Episode has a Next Video.
-- [ ] Choosing it loads the Next Video's Streams List, with its own name and sources.
-- [ ] The last Episode of a Season leads into the next Season's first Episode.
-- [ ] The control is absent at the last Episode of the final Season, for live titles, and when the next Episode is unreleased.
-- [ ] A regular Episode never resolves to a Special as its Next Video.
-- [ ] Unit tests cover each of those resolutions, including the season rollover and the absent cases.
+- [x] The control appears on the Streams List when the picked Episode has a Next Video.
+- [x] Choosing it loads the Next Video's Streams List, with its own name and sources.
+- [x] The last Episode of a Season leads into the next Season's first Episode.
+- [x] The control is absent at the last Episode of the final Season, for live titles, and when the next Episode is unreleased.
+- [x] A regular Episode never resolves to a Special as its Next Video.
+- [x] Unit tests cover each of those resolutions, including the season rollover and the absent cases.
+
+## Delivered
+
+The control asks the core what follows rather than re-deriving it, so all four cases come from one
+implementation: season rollover, the final episode, the Specials, and unaired Episodes. Tests build
+a real `MetaItem` and assert against `next_video` itself.
+
+The web has no such control — its equivalent is the player's countdown — so this is the one piece
+of the screen that is this client's own, drawn in the web's pill shape and accent.
