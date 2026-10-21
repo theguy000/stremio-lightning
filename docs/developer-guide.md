@@ -4,6 +4,10 @@ This guide covers initial setup and the commands used for day-to-day Stremio
 Lightning development. Platform setup, packaging, plugin APIs, and runtime
 internals are documented separately.
 
+The client being developed is the native one, in `crates/stremio-lightning-native`.
+Its shape — screens, wiring, plumbing, and where a new screen goes — is described
+in the [runtime architecture](runtime-architecture.md).
+
 ## Prerequisites
 
 Install:
@@ -98,6 +102,7 @@ Vitest frontend tests, and a production UI build.
 Run narrower checks while iterating when appropriate:
 
 ```bash
+cargo test -p stremio-lightning-native
 cargo test -p stremio-lightning-core
 cargo test -p stremio-lightning-linux
 cargo test -p stremio-lightning-macos
