@@ -187,7 +187,10 @@ export component VideosList inherits Rectangle {
                 }
             }
             MultiselectMenu {
-                horizontal-stretch: 1;
+                // Web sizes this menu to its own content (flex: 0 1 auto). It needs an explicit
+                // width here: the component's label is `parent.width - 5rem`, so a stretched
+                // menu in a bar this narrow leaves the label no room at all.
+                width: 10 * root.rem-size;
                 title: root.season-title;
                 options: root.seasons;
                 selected-index: root.season-index;
