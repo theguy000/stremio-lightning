@@ -45,12 +45,12 @@ fn a_new_install_shows_every_screen_without_waiting_for_anything() {
 
     // Details has no item, so it has no panel to show and offers no episode picker, because
     // nothing has answered with a title that could have Seasons.
-    let details = screens::details::data(&model, None, None, "");
+    let details = screens::details::data(&model, None, None, None, "");
     assert!(details.preview.is_none());
     assert!(details.streams.is_empty());
     assert!(details.seasons.is_empty());
     assert!(!details.show_picker);
-    assert!(details.status.contains("0 streams"), "{}", details.status);
+    assert!(details.steps.is_none(), "nothing picked, so no steppers");
 
     // Addons knows its two menus before it has loaded anything into them.
     let addons = screens::addons::data(&model);

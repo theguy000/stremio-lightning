@@ -13,7 +13,7 @@ use stremio_core::runtime::msg::{Action, ActionCatalogWithFilters, ActionLoad};
 use stremio_core::runtime::RuntimeAction;
 use stremio_core::types::profile::GDPRConsent;
 
-use crate::app::{AppRuntime, Snapshot};
+use crate::app::{AppModel, AppRuntime, Snapshot};
 use crate::plumbing::images::Images;
 use crate::plumbing::links;
 use crate::plumbing::player::VideoPlayer;
@@ -37,6 +37,9 @@ pub(crate) struct Wiring {
     pub(crate) picked: Arc<Mutex<Option<String>>>,
     /// What the details screen's search box holds.
     pub(crate) video_query: Arc<Mutex<String>>,
+    /// The Season and Episode the no-Streams message's steppers were moved to, while they name a
+    /// Video other than the picked one.
+    pub(crate) moved: Arc<Mutex<Option<(u32, u32)>>>,
     pub(crate) local_extras: Arc<Mutex<settings::LocalExtras>>,
     pub(crate) data_dir: std::path::PathBuf,
     pub(crate) server: Arc<Supervisor>,
@@ -64,10 +67,10 @@ impl Wiring {
         // no Episode picked.
         self.season.store(details::NO_SEASON, Ordering::Relaxed);
         *self.picked.lock().unwrap() = None;
+        *self.moved.lock().unwrap() = None;
         *self.video_query.lock().unwrap() = String::new();
         if let Some(window) = self.window.upgrade() {
             window.set_details_has_preview(false);
-            window.set_details_status("Loading...".into());
             window.set_play_message("".into());
             window.set_streams(ModelRc::default());
             window.set_streams_loading(0);
@@ -76,6 +79,18 @@ impl Wiring {
             window.set_details_show_picker(false);
         }
         details::open(&self.runtime, &id, &kind);
+    }
+
+    /// Recomputes the details screen from the model and everything the user has touched there:
+    /// the Season being browsed, the Video picked, the steppers' position, the search box.
+    fn refresh_details(&self, model: &AppModel) {
+        let picked = self.picked.lock().unwrap().clone();
+        let moved = *self.moved.lock().unwrap();
+        let chosen = details::chosen_season(self.season.load(Ordering::Relaxed));
+        let query = self.video_query.lock().unwrap().clone();
+        let mut snapshot = self.latest.lock().unwrap().clone();
+        snapshot.details = details::data(model, chosen, picked.as_deref(), moved, &query);
+        self.repaint_with(snapshot);
     }
 
     /// Browsing the episode picker: nothing is loaded, so this only remembers the Season and
@@ -96,11 +111,7 @@ impl Wiring {
         let Ok(model) = self.runtime.model() else {
             return;
         };
-        let picked = self.picked.lock().unwrap().clone();
-        let query = self.video_query.lock().unwrap().clone();
-        let mut snapshot = self.latest.lock().unwrap().clone();
-        snapshot.details = details::data(&model, Some(season), picked.as_deref(), &query);
-        self.repaint_with(snapshot);
+        self.refresh_details(&model);
     }
 
     /// The search box changed: refilter the rows, nothing to load.
@@ -109,18 +120,57 @@ impl Wiring {
         let Ok(model) = self.runtime.model() else {
             return;
         };
-        let picked = self.picked.lock().unwrap().clone();
-        let chosen = details::chosen_season(self.season.load(Ordering::Relaxed));
-        let query = self.video_query.lock().unwrap().clone();
-        let mut snapshot = self.latest.lock().unwrap().clone();
-        snapshot.details = details::data(&model, chosen, picked.as_deref(), &query);
-        self.repaint_with(snapshot);
+        self.refresh_details(&model);
     }
 
     /// Picking an Episode: remember it, then ask the core for that Video's Streams.
     fn pick_video(&self, video_id: String) {
         *self.picked.lock().unwrap() = Some(video_id.clone());
+        // The steppers start over from the Video that is now on screen.
+        *self.moved.lock().unwrap() = None;
         details::pick(&self.runtime, &video_id);
+    }
+
+    /// One press of a stepper in the no-Streams message. It only moves the pair on screen;
+    /// "Show Streams" is what asks the addons.
+    fn step(&self, seasons: i32, episodes: i32) {
+        let Ok(model) = self.runtime.model() else {
+            return;
+        };
+        let Some(item) = details::meta_item(&model.meta_details) else {
+            return;
+        };
+        let Some(picked) = self.picked.lock().unwrap().clone() else {
+            return;
+        };
+        let moved = *self.moved.lock().unwrap();
+        let Some(at) = details::shown_pair(&item.videos, &picked, moved) else {
+            return;
+        };
+        *self.moved.lock().unwrap() = Some(details::step(&item.videos, at, seasons, episodes));
+        self.refresh_details(&model);
+    }
+
+    /// Web: "Show Streams" — the Video the steppers name, loaded the way a row is.
+    fn show_streams(&self) {
+        let Ok(model) = self.runtime.model() else {
+            return;
+        };
+        let Some(item) = details::meta_item(&model.meta_details) else {
+            return;
+        };
+        let Some(picked) = self.picked.lock().unwrap().clone() else {
+            return;
+        };
+        let moved = *self.moved.lock().unwrap();
+        let Some(at) = details::shown_pair(&item.videos, &picked, moved) else {
+            return;
+        };
+        let Some(video) = details::stepped_video(&item.videos, at).map(str::to_owned) else {
+            return;
+        };
+        drop(model);
+        self.pick_video(video);
     }
 
     /// Next Episode: whatever the core says follows the pick, selected the same way a row is.
@@ -134,6 +184,7 @@ impl Wiring {
     /// Back to the Episode Picker: the pick is gone, and the core drops the Streams with it.
     fn back_to_episodes(&self) {
         *self.picked.lock().unwrap() = None;
+        *self.moved.lock().unwrap() = None;
         details::back_to_episodes(&self.runtime);
     }
 
@@ -364,6 +415,18 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
     {
         let wiring = wiring.clone();
         window.on_back_to_episodes(move || wiring.back_to_episodes());
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_step_season(move |step| wiring.step(step, 0));
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_step_episode(move |step| wiring.step(0, step));
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_show_streams(move || wiring.show_streams());
     }
     {
         let wiring = wiring.clone();

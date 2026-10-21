@@ -32,6 +32,8 @@ pub(crate) struct Context {
     pub(crate) picked: Arc<Mutex<Option<String>>>,
     /// What the details screen's search box holds.
     pub(crate) video_query: Arc<Mutex<String>>,
+    /// The Season and Episode the no-Streams message's steppers were moved to.
+    pub(crate) moved: Arc<Mutex<Option<(u32, u32)>>>,
     pub(crate) local_extras: Arc<Mutex<settings::LocalExtras>>,
     pub(crate) auth: auth::Generation,
     /// Repaint now, with whatever the cache holds. Used when an image arrives.
@@ -109,6 +111,7 @@ fn snapshot(model: &AppModel, context: &Context) -> Snapshot {
             model,
             crate::screens::details::chosen_season(context.season.load(Ordering::Relaxed)),
             context.picked.lock().unwrap().as_deref(),
+            *context.moved.lock().unwrap(),
             &context.video_query.lock().unwrap(),
         ),
         settings: settings::data(model, &context.extras()),

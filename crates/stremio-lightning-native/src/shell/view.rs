@@ -85,7 +85,6 @@ fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
     if let Some(preview) = &details.preview {
         window.set_details_preview(preview_data(preview, images));
     }
-    window.set_details_status(details.status.clone().into());
     window.set_streams(ModelRc::new(VecModel::from(
         details
             .streams
@@ -100,6 +99,21 @@ fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
     window.set_streams_loading(i32::try_from(details.sources_loading).unwrap_or_default());
 
     window.set_details_show_picker(details.show_picker);
+    window.set_details_has_steps(details.steps.is_some());
+    window.set_details_season_number(
+        details
+            .steps
+            .map(|steps| i32::try_from(steps.season).unwrap_or_default())
+            .unwrap_or_default(),
+    );
+    window.set_details_episode_number(
+        details
+            .steps
+            .map(|steps| i32::try_from(steps.episode).unwrap_or_default())
+            .unwrap_or_default(),
+    );
+    window
+        .set_details_can_show_streams(details.steps.map(|steps| steps.ask_again).unwrap_or(false));
     window.set_details_season_index(i32::try_from(details.season).unwrap_or_default());
     window.set_details_picked_label(details.picked_label.clone().unwrap_or_default().into());
     window.set_details_has_next_episode(details.next_episode.is_some());

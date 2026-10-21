@@ -2,7 +2,7 @@
 //! action that opens an item and the one that plays a row.
 
 use stremio_core::constants::{META_RESOURCE_NAME, STREAM_RESOURCE_NAME};
-use stremio_core::models::common::{Loadable, ResourceError};
+use stremio_core::models::common::Loadable;
 use stremio_core::models::meta_details::{MetaDetails, Selected as DetailsSelected};
 use stremio_core::runtime::msg::{Action, ActionLoad};
 use stremio_core::runtime::RuntimeAction;
@@ -126,6 +126,98 @@ pub(crate) fn episodes(videos: &[Video], season: u32) -> Vec<Episode> {
         .collect()
 }
 
+/// Web: `NumberInput` — the Season and Episode steppers above "Show Streams", in the message that
+/// stands where an empty Streams list would be. `ask_again` is false while they still name the
+/// Video on screen, which is why the button is disabled there.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Steps {
+    pub season: u32,
+    pub episode: u32,
+    pub ask_again: bool,
+}
+
+/// The Episode numbers one Season lists, in the order the title supplied them.
+fn episode_numbers(videos: &[Video], season: u32) -> Vec<u32> {
+    videos
+        .iter()
+        .filter_map(|video| video.series_info.as_ref())
+        .filter(|info| info.season == season)
+        .map(|info| info.episode)
+        .collect()
+}
+
+/// The pair the steppers name: the picked Video's own Season and Episode, or wherever the user
+/// moved them to — as long as the title still offers that Episode.
+pub fn shown_pair(videos: &[Video], picked: &str, moved: Option<(u32, u32)>) -> Option<(u32, u32)> {
+    let info = videos
+        .iter()
+        .find(|video| video.id == picked)?
+        .series_info
+        .as_ref()?;
+    Some(
+        moved
+            .filter(|(season, episode)| episode_numbers(videos, *season).contains(episode))
+            .unwrap_or((info.season, info.episode)),
+    )
+}
+
+/// One press of a stepper. Moving the Season keeps the Episode number when the new Season lists
+/// it, and pulls it into range when it does not; moving the Episode walks the numbers the Season
+/// lists, so a gap in them is a single press rather than a press per missing number.
+pub fn step(videos: &[Video], at: (u32, u32), seasons_step: i32, episodes_step: i32) -> (u32, u32) {
+    let numbers: Vec<u32> = seasons(videos)
+        .into_iter()
+        .map(|season| season.number)
+        .collect();
+    let Some(position) = numbers.iter().position(|number| *number == at.0) else {
+        return at;
+    };
+    let moved = (position as i64 + i64::from(seasons_step)).clamp(0, numbers.len() as i64 - 1);
+    let season = numbers[moved as usize];
+    let listed = episode_numbers(videos, season);
+    let (Some(&first), Some(&last)) = (listed.first(), listed.last()) else {
+        return (season, at.1);
+    };
+    let episode = match listed.iter().position(|number| *number == at.1) {
+        Some(position) => {
+            let moved =
+                (position as i64 + i64::from(episodes_step)).clamp(0, listed.len() as i64 - 1);
+            listed[moved as usize]
+        }
+        None => at.1.clamp(first, last),
+    };
+    (season, episode)
+}
+
+/// The Video the steppers name, for the request behind "Show Streams".
+pub fn stepped_video(videos: &[Video], at: (u32, u32)) -> Option<&str> {
+    videos
+        .iter()
+        .find(|video| {
+            video
+                .series_info
+                .as_ref()
+                .map(|info| (info.season, info.episode) == at)
+                .unwrap_or(false)
+        })
+        .map(|video| video.id.as_str())
+}
+
+/// The steppers of the no-Streams message, or nothing for a title without Seasons.
+pub fn steps(videos: &[Video], picked: &str, moved: Option<(u32, u32)>) -> Option<Steps> {
+    let shown = shown_pair(videos, picked, moved)?;
+    let own = videos
+        .iter()
+        .find(|video| video.id == picked)?
+        .series_info
+        .as_ref()?;
+    Some(Steps {
+        season: shown.0,
+        episode: shown.1,
+        ask_again: shown != (own.season, own.episode),
+    })
+}
+
 /// Whether the Details Screen shows the picker instead of the Streams: the title has Seasons to
 /// choose from and nothing has been picked yet.
 ///
@@ -158,7 +250,6 @@ pub(crate) fn picked_label(videos: &[Video], picked: &str) -> Option<String> {
 pub struct Data {
     /// The title's own panel: logo, runtime, links, description. `None` until the addons answer.
     pub preview: Option<Preview>,
-    pub status: String,
     /// The sources on offer, ready to list.
     pub streams: Vec<Source>,
     /// Addons that have not answered yet — the footer counts them while there is something to read.
@@ -177,6 +268,8 @@ pub struct Data {
     pub picked_label: Option<String>,
     /// The Video the core says follows the picked one, if there is one.
     pub next_episode: Option<String>,
+    /// The Season and Episode steppers the no-Streams message shows, for a Series.
+    pub steps: Option<Steps>,
 }
 
 /// What the browsed-Season slot holds before the picker has been touched.
@@ -190,15 +283,26 @@ pub fn chosen_season(stored: usize) -> Option<u32> {
     u32::try_from(stored).ok()
 }
 
-pub fn data(model: &AppModel, chosen: Option<u32>, picked: Option<&str>, query: &str) -> Data {
-    let details = &model.meta_details;
-    let item = details
+/// The title the addons answered with, if they have answered: the page holding the meta itself.
+pub(crate) fn meta_item(details: &MetaDetails) -> Option<&MetaItem> {
+    details
         .meta_items
         .iter()
         .find_map(|page| match &page.content {
             Some(Loadable::Ready(item)) => Some(item),
             _ => None,
-        });
+        })
+}
+
+pub fn data(
+    model: &AppModel,
+    chosen: Option<u32>,
+    picked: Option<&str>,
+    moved: Option<(u32, u32)>,
+    query: &str,
+) -> Data {
+    let details = &model.meta_details;
+    let item = meta_item(details);
 
     let videos: &[Video] = item.map(|item| item.videos.as_slice()).unwrap_or_default();
     let listed = seasons(videos);
@@ -220,16 +324,17 @@ pub fn data(model: &AppModel, chosen: Option<u32>, picked: Option<&str>, query: 
         season_episodes.retain(|episode| episode.title.to_lowercase().contains(&needle));
     }
 
-    let (mut ready, mut loading, mut empty, mut failed) = (0, 0, 0, 0);
-    for page in &details.streams {
-        match &page.content {
-            Some(Loadable::Ready(_)) => ready += 1,
-            Some(Loadable::Err(ResourceError::EmptyContent)) => empty += 1,
-            Some(Loadable::Err(_)) => failed += 1,
-            _ => loading += 1,
-        }
-    }
-    let found = streams_of(details).count();
+    // The footer counts the addons that have not answered yet.
+    let loading = details
+        .streams
+        .iter()
+        .filter(|page| {
+            !matches!(
+                &page.content,
+                Some(Loadable::Ready(_)) | Some(Loadable::Err(_))
+            )
+        })
+        .count();
     let streams = source_rows(model, details)
         .into_iter()
         .take(MAX_STREAMS)
@@ -240,14 +345,14 @@ pub fn data(model: &AppModel, chosen: Option<u32>, picked: Option<&str>, query: 
         // image, not the tiny one `preview_of` swaps in for the Discover panel's 10px blur.
         preview: item.map(|item| {
             let mut preview = crate::screens::preview_of(&item.preview);
-            preview.background = item.preview.background.as_ref().map(|url| {
-                format!("{url}{}", crate::plumbing::images::PAGE_SUFFIX)
-            });
+            preview.background = item
+                .preview
+                .background
+                .as_ref()
+                .map(|url| format!("{url}{}", crate::plumbing::images::PAGE_SUFFIX));
             preview
         }),
-        status: format!(
-            "{found} streams from {ready} sources, {empty} had nothing, {failed} failed, {loading} loading"
-        ),
+        steps: picked.and_then(|picked| steps(videos, picked, moved)),
         streams,
         sources_loading: loading,
         show_picker: shows_picker(picked, &listed),
@@ -548,6 +653,77 @@ mod tests {
         );
         assert_eq!(picked_label(&videos, "m"), Some("A film".to_owned()));
         assert_eq!(picked_label(&videos, "gone"), None);
+    }
+
+    /// Three Episodes over two Seasons, for the steppers.
+    fn three() -> Vec<Video> {
+        vec![
+            video("a", 1, 1, "Pilot"),
+            video("b", 1, 2, "Second"),
+            video("c", 2, 1, "Next year"),
+        ]
+    }
+
+    #[test]
+    fn the_steppers_start_on_the_picked_episode_and_ask_for_nothing() {
+        let shown = steps(&three(), "b", None).unwrap();
+
+        assert_eq!((shown.season, shown.episode), (1, 2));
+        assert!(!shown.ask_again, "it names the Video already on screen");
+    }
+
+    #[test]
+    fn a_stepper_moved_to_another_video_asks_for_its_streams() {
+        let videos = three();
+
+        let shown = steps(&videos, "b", Some((2, 1))).unwrap();
+
+        assert_eq!((shown.season, shown.episode, shown.ask_again), (2, 1, true));
+        assert_eq!(stepped_video(&videos, (2, 1)), Some("c"));
+    }
+
+    #[test]
+    fn a_move_the_title_does_not_offer_falls_back_to_the_picked_episode() {
+        let shown = steps(&three(), "b", Some((9, 9))).unwrap();
+
+        assert_eq!((shown.season, shown.episode), (1, 2));
+        assert!(!shown.ask_again);
+    }
+
+    #[test]
+    fn the_season_stepper_keeps_the_episode_number_where_the_season_lists_it() {
+        let videos = [
+            video("a", 1, 2, "Second"),
+            video("c", 2, 1, "First"),
+            video("d", 2, 2, "Second of two"),
+        ];
+
+        assert_eq!(step(&videos, (1, 2), 1, 0), (2, 2));
+    }
+
+    #[test]
+    fn the_season_stepper_pulls_the_episode_number_into_the_season_it_lands_in() {
+        let videos = [video("a", 1, 5, "Fifth"), video("c", 2, 1, "Only one")];
+
+        assert_eq!(step(&videos, (1, 5), 1, 0), (2, 1));
+        assert_eq!(step(&videos, (2, 1), -1, 0), (1, 5), "all the way back");
+    }
+
+    #[test]
+    fn the_episode_stepper_stops_at_the_ends_of_the_season() {
+        let videos = three();
+
+        assert_eq!(step(&videos, (1, 1), 0, 1), (1, 2));
+        assert_eq!(step(&videos, (1, 2), 0, 1), (1, 2), "last Episode");
+        assert_eq!(step(&videos, (1, 1), 0, -1), (1, 1), "first Episode");
+    }
+
+    #[test]
+    fn a_film_has_no_steppers() {
+        let videos = [film("m", "A film")];
+
+        assert_eq!(steps(&videos, "m", None), None);
+        assert_eq!(shown_pair(&videos, "m", None), None);
     }
 
     /// A title carrying `videos`, so the core's own rules can be asked rather than re-implemented.

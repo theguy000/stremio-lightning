@@ -41,7 +41,11 @@ export component MainWindow inherits Window {
     in-out property <bool> details-open: false;
     in property <PreviewData> details-preview;
     in property <bool> details-has-preview: false;
-    in property <string> details-status;
+    // The no-Streams message's Season and Episode steppers.
+    in property <bool> details-has-steps: false;
+    in property <int> details-season-number: 0;
+    in property <int> details-episode-number: 0;
+    in property <bool> details-can-show-streams: false;
     in property <[StreamData]> streams: [];
     in property <int> streams-loading: 0;
     // The episode picker: shown instead of the Streams while no Episode has been picked.
@@ -87,6 +91,9 @@ export component MainWindow inherits Window {
     callback pick-video(string);
     callback search-videos(string);
     callback back-to-episodes();
+    callback step-season(int);
+    callback step-episode(int);
+    callback show-streams();
     callback next-episode();
     callback stop-playback();
     callback submit-auth-login(string, string);
@@ -156,8 +163,11 @@ export component MainWindow inherits Window {
         show-picker: root.details-show-picker;
         streams: root.streams;
         streams-loading: root.streams-loading;
-        status: root.details-status;
         play-message: root.play-message;
+        has-steps: root.details-has-steps;
+        season-number: root.details-season-number;
+        episode-number: root.details-episode-number;
+        can-show-streams: root.details-can-show-streams;
         select-season(index) => {
             root.select-season(index);
         }
@@ -172,6 +182,15 @@ export component MainWindow inherits Window {
         }
         play-stream(index) => {
             root.play-stream(index);
+        }
+        step-season(delta) => {
+            root.step-season(delta);
+        }
+        step-episode(delta) => {
+            root.step-episode(delta);
+        }
+        show-streams => {
+            root.show-streams();
         }
     }
 

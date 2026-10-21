@@ -65,3 +65,15 @@ SOFTWARE.
   `src/App/styles.less` (poster ratios, font-size steps, breakpoints), and the row title format of
   `catalogTitle` in `src/common/useTranslate.js` (without translations). It is hand-written Slint.
   No upstream file is copied verbatim.
+- `ui/images/empty.png` is copied byte for byte from the deployed site,
+  `https://web.stremio.com/images/empty.png`, on 2026-10-22. It is the one asset taken verbatim, and
+  the licence position above covers it.
+
+## Material Icons (`ui/icons/install-addons.svg`)
+
+- Source: Material Icons 4 (`extension`, filled), https://github.com/google/material-design-icons
+- Copyright Google LLC. Licence: Apache License 2.0, http://www.apache.org/licenses/LICENSE-2.0
+- Taken because stremio-web's own jigsaw icon is drawn on a 512 grid and fills in at the 2rem the
+  Addons button draws it at, reading as a blob. This one is drawn on a 24 grid for that size. It is
+  the only icon here that does not come from `@stremio/stremio-icons`.
+

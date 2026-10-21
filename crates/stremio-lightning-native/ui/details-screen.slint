@@ -136,6 +136,375 @@ component StreamPlaceholder inherits Rectangle {
     }
 }
 
+// Web: StreamsList's `NumberInput` — a 3.5rem pill of the overlay colour holding a minus, the
+// label over its value, and a plus. The buttons overlay the pill, so they read a shade lighter.
+component NumberStepper inherits Rectangle {
+    in property <string> label;
+    in property <int> value;
+    in property <length> rem-size;
+    callback stepped(int);
+
+    width: 14 * root.rem-size;
+    height: 3.5 * root.rem-size;
+    border-radius: 3.5 * root.rem-size;
+    background: Theme.overlay;
+
+    for side in [{ plus: false, left: true }, { plus: true, left: false }] : Rectangle {
+        x: side.left ? 0px : root.width - 3.5 * root.rem-size;
+        width: 3.5 * root.rem-size;
+        height: 3.5 * root.rem-size;
+        border-radius: 1.75 * root.rem-size;
+        background: Theme.overlay;
+        Image {
+            // Web: 1rem of padding inside the 3.5rem button.
+            x: 1 * root.rem-size;
+            y: 1 * root.rem-size;
+            width: 1.5 * root.rem-size;
+            height: 1.5 * root.rem-size;
+            source: side.plus ? @image-url("icons/add.svg") : @image-url("icons/remove.svg");
+            colorize: Theme.text;
+        }
+        TouchArea {
+            mouse-cursor: pointer;
+            clicked => {
+                root.stepped(side.plus ? 1 : -1);
+            }
+        }
+    }
+
+    VerticalLayout {
+        // Web: `.number-display` — flex 1 between the two 3.5rem buttons, centred, 1rem of padding.
+        x: 3.5 * root.rem-size;
+        width: parent.width - 7 * root.rem-size;
+        alignment: center;
+        spacing: 0;
+        Text {
+            text: root.label;
+            font-size: 0.8 * root.rem-size;
+            color: Theme.text;
+            opacity: 0.7;
+            horizontal-alignment: center;
+        }
+        Text {
+            text: "\{root.value}";
+            font-size: 1.2 * root.rem-size;
+            color: Theme.text;
+            horizontal-alignment: center;
+        }
+    }
+}
+
+// Web: `.message-container` — what stands where an empty Streams list would be: the Season and
+// Episode steppers over a disabled "Show Streams", the empty illustration, the label, and the way
+// to the Addons screen.
+component StreamsMessage inherits Rectangle {
+    in property <length> rem-size;
+    in property <bool> show-steps: false;
+    in property <int> season: 0;
+    in property <int> episode: 0;
+    in property <bool> can-show-streams: false;
+    callback step-season(int);
+    callback step-episode(int);
+    callback show-streams;
+
+    VerticalLayout {
+        alignment: start;
+        // Web: the message container pads itself by 1rem.
+        padding: 1 * root.rem-size;
+
+        if root.show-steps: VerticalLayout {
+            alignment: start;
+            spacing: 1 * root.rem-size;
+            // Web: `.search` is 14rem wide — the steppers' own max-width — and the button stretches
+            // across it. Its own 1rem bottom margin is the gap before the illustration.
+            padding-bottom: 1 * root.rem-size;
+
+            HorizontalLayout {
+                alignment: center;
+                NumberStepper {
+                    label: "Season";
+                    value: root.season;
+                    rem-size: root.rem-size;
+                    stepped(delta) => {
+                        root.step-season(delta);
+                    }
+                }
+            }
+            HorizontalLayout {
+                alignment: center;
+                NumberStepper {
+                    label: "Episode";
+                    value: root.episode;
+                    rem-size: root.rem-size;
+                    stepped(delta) => {
+                        root.step-episode(delta);
+                    }
+                }
+            }
+            HorizontalLayout {
+                alignment: center;
+                Rectangle {
+                    // Web: `.button-container` — a 2rem pill in the accent colour, 0.5 opacity and
+                    // no pointer events while it names the Video already on screen.
+                    width: 14 * root.rem-size;
+                    height: 4 * root.rem-size;
+                    border-radius: 2 * root.rem-size;
+                    background: Theme.accent;
+                    opacity: root.can-show-streams ? 1 : 0.5;
+                    Text {
+                        text: "Show Streams";
+                        font-size: 1 * root.rem-size;
+                        font-weight: 700;
+                        color: Theme.text;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    touch := TouchArea {
+                        enabled: root.can-show-streams;
+                        mouse-cursor: pointer;
+                        clicked => {
+                            root.show-streams();
+                        }
+                    }
+                }
+            }
+        }
+
+        HorizontalLayout {
+            alignment: center;
+            Image {
+                // Web: a 10rem square, 0.9 opaque, over a 1rem gap.
+                width: 10 * root.rem-size;
+                height: 10 * root.rem-size;
+                source: @image-url("images/empty.png");
+                opacity: 0.9;
+            }
+        }
+        VerticalLayout {
+            padding-top: 1 * root.rem-size;
+            padding-bottom: 2 * root.rem-size;
+            Text {
+                text: "No streams were found";
+                font-size: 1.4 * root.rem-size;
+                color: Theme.text;
+                horizontal-alignment: center;
+            }
+        }
+        HorizontalLayout {
+            alignment: center;
+            Rectangle {
+                // Web: `.install-button-container` — the secondary accent, 2rem radius, 4rem tall.
+                height: 4 * root.rem-size;
+                border-radius: 2 * root.rem-size;
+                background: Theme.accent-green;
+                HorizontalLayout {
+                    alignment: center;
+                    padding-left: 2 * root.rem-size;
+                    padding-right: 2 * root.rem-size;
+                    spacing: 1 * root.rem-size;
+                    // A layout stretches its children across its axis, so the icon needs a column
+                    // of its own to sit in the middle of, level with the label beside it.
+                    VerticalLayout {
+                        alignment: center;
+                        Image {
+                            width: 2 * root.rem-size;
+                            height: 2 * root.rem-size;
+                            // Web's jigsaw glyph is drawn on a 512 grid, and at 2rem its notches
+                            // fill in and it reads as a blob. This one is drawn on a 24 grid for
+                            // this size.
+                            source: @image-url("icons/install-addons.svg");
+                            colorize: Theme.text;
+                        }
+                    }
+                    Text {
+                        text: "Install addons";
+                        font-size: 1 * root.rem-size;
+                        font-weight: 700;
+                        color: Theme.text;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Web: `.videos-list` / `.streams-list` — the 30rem column: the Episode picker, or the Episode's
+// name over the Streams the addons answered with. Rounded on its left in a row, along its top
+// when the screen is one column.
+component DetailsPanel inherits Rectangle {
+    in property <length> rem-size;
+    in property <[SelectOption]> seasons;
+    in property <int> season-index: 0;
+    in property <string> season-title;
+    in property <[VideoRow]> episodes;
+    in property <string> query;
+    in property <bool> show-picker: false;
+    in property <string> picked-label;
+    in property <[StreamData]> streams;
+    in property <int> streams-loading: 0;
+    in property <string> play-message;
+    in property <bool> has-steps: false;
+    in property <int> season-number: 0;
+    in property <int> episode-number: 0;
+    in property <bool> can-show-streams: false;
+    callback select-season(int);
+    callback pick-video(string);
+    callback search-videos(string);
+    callback back-to-episodes();
+    callback play-stream(int);
+    callback stepped-season(int);
+    callback stepped-episode(int);
+    callback show-streams;
+
+    background: #00000066;
+    // Web: rounded along its left, square against the window's edge.
+    border-top-left-radius: 0.75 * root.rem-size;
+    border-bottom-left-radius: 0.75 * root.rem-size;
+
+    if root.show-picker: VideosList {
+        seasons: root.seasons;
+        season-index: root.season-index;
+        season-title: root.season-title;
+        videos: root.episodes;
+        rem-size: root.rem-size;
+        query: root.query;
+        select-season(index) => {
+            root.select-season(index);
+        }
+        pick-video(id) => {
+            root.pick-video(id);
+        }
+        search-videos(text) => {
+            root.search-videos(text);
+        }
+    }
+
+    if root.show-picker == false: VerticalLayout {
+        spacing: 0;
+
+        // Web: .select-choices-wrapper — the way back beside the Episode's name.
+        HorizontalLayout {
+            // Web: .select-choices-wrapper carries a 1em top margin above the 3rem button.
+            height: 4 * root.rem-size;
+            padding-top: 1 * root.rem-size;
+            padding-left: 1 * root.rem-size;
+            padding-right: 1 * root.rem-size;
+            spacing: 0.5 * root.rem-size;
+            alignment: start;
+            Rectangle {
+                width: 3 * root.rem-size;
+                height: 3 * root.rem-size;
+                border-radius: 0.5 * root.rem-size;
+                background: back-touch.has-hover ? Theme.overlay : transparent;
+                // Centred by hand: a HorizontalLayout stretches its children instead.
+                Image {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    width: 1.5 * root.rem-size;
+                    height: 1.5 * root.rem-size;
+                    source: @image-url("icons/chevron-back.svg");
+                    colorize: Theme.text;
+                    opacity: 0.6;
+                }
+                back-touch := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.back-to-episodes();
+                    }
+                }
+            }
+            Text {
+                // Button height, so its centred text lines up with the chevron beside it.
+                height: 3 * root.rem-size;
+                text: root.picked-label;
+                color: Theme.text;
+                font-size: root.rem-size;
+                vertical-alignment: center;
+                overflow: elide;
+                horizontal-stretch: 1;
+            }
+        }
+
+        // Web: .streams-container — flex 1, padding 0 1rem, overflows.
+        VerticalLayout {
+            padding-left: 1 * root.rem-size;
+            padding-right: 1 * root.rem-size;
+            padding-top: 1 * root.rem-size;
+            spacing: 0;
+
+            Text {
+                text: root.play-message;
+                color: Theme.accent-red;
+                font-size: 0.9 * root.rem-size;
+                wrap: word-wrap;
+            }
+
+            // Web: nothing Ready yet means two placeholders — and nothing of the last
+            // Episode's list survives the swap.
+            if root.streams.length == 0 && root.streams-loading > 0: VerticalLayout {
+                alignment: start;
+                StreamPlaceholder { rem-size: root.rem-size; }
+                StreamPlaceholder { rem-size: root.rem-size; }
+            }
+
+            // Web: `.message-container` stands where the list would be once the addons have all
+            // answered and none of them offered a stream.
+            if root.streams.length == 0 && root.streams-loading == 0: ScrollView {
+                StreamsMessage {
+                    rem-size: root.rem-size;
+                    show-steps: root.has-steps;
+                    season: root.season-number;
+                    episode: root.episode-number;
+                    can-show-streams: root.can-show-streams;
+                    step-season(delta) => {
+                        root.stepped-season(delta);
+                    }
+                    step-episode(delta) => {
+                        root.stepped-episode(delta);
+                    }
+                    show-streams => {
+                        root.show-streams();
+                    }
+                }
+            }
+
+            if root.streams.length > 0: ScrollView {
+                VerticalLayout {
+                    alignment: start;
+                    for stream[index] in root.streams: StreamRow {
+                        source: stream;
+                        rem-size: root.rem-size;
+                        clicked => {
+                            root.play-stream(index);
+                        }
+                    }
+                }
+            }
+
+            // Web: .addons-loading-container — the count of addons still out, over an
+            // accent bar. It only appears once there is something to read.
+            if root.streams.length > 0 && root.streams-loading > 0: VerticalLayout {
+                alignment: center;
+                padding: 2 * root.rem-size;
+                spacing: 1 * root.rem-size;
+                Text {
+                    text: root.streams-loading + " addons loading";
+                    color: Theme.text;
+                    font-size: 1 * root.rem-size;
+                    horizontal-alignment: center;
+                }
+                Rectangle {
+                    width: 90%;
+                    height: 0.3 * root.rem-size;
+                    border-radius: 0.75 * root.rem-size;
+                    background: Theme.accent;
+                }
+            }
+        }
+    }
+}
+
 export component DetailsScreen inherits Rectangle {
     in property <PreviewData> preview;
     in property <bool> has-preview: false;
@@ -148,8 +517,11 @@ export component DetailsScreen inherits Rectangle {
     in property <string> picked-label;
     in property <[StreamData]> streams;
     in property <int> streams-loading: 0;
-    in property <string> status;
     in property <string> play-message;
+    in property <bool> has-steps: false;
+    in property <int> season-number: 0;
+    in property <int> episode-number: 0;
+    in property <bool> can-show-streams: false;
     in property <length> rem-size: 14px;
     /// The top bar's height: the artwork runs under it, the content does not.
     in property <length> bar-height: 0px;
@@ -158,6 +530,9 @@ export component DetailsScreen inherits Rectangle {
     callback search-videos(string);
     callback back-to-episodes();
     callback play-stream(int);
+    callback step-season(int);
+    callback step-episode(int);
+    callback show-streams;
 
     background: Theme.modal-background;
 
@@ -192,137 +567,46 @@ export component DetailsScreen inherits Rectangle {
             }
         }
 
-        // Web: .videos-list / .streams-list — flex 0 0 30rem, rounded, 0.4 black.
-        Rectangle {
+        DetailsPanel {
             width: 30 * root.rem-size;
-            background: #00000066;
-            border-radius: 0.75 * root.rem-size;
-
-            if root.show-picker: VideosList {
-                seasons: root.seasons;
-                season-index: root.season-index;
-                season-title: root.season-title;
-                videos: root.episodes;
-                rem-size: root.rem-size;
-                query: root.video-query;
-                select-season(index) => {
-                    root.select-season(index);
-                }
-                pick-video(id) => {
-                    root.pick-video(id);
-                }
-                search-videos(text) => {
-                    root.search-videos(text);
-                }
+            rem-size: root.rem-size;
+            seasons: root.seasons;
+            season-index: root.season-index;
+            season-title: root.season-title;
+            episodes: root.episodes;
+            query: root.video-query;
+            show-picker: root.show-picker;
+            picked-label: root.picked-label;
+            streams: root.streams;
+            streams-loading: root.streams-loading;
+            play-message: root.play-message;
+            has-steps: root.has-steps;
+            season-number: root.season-number;
+            episode-number: root.episode-number;
+            can-show-streams: root.can-show-streams;
+            select-season(index) => {
+                root.select-season(index);
             }
-
-            if root.show-picker == false: VerticalLayout {
-                spacing: 0;
-
-                // Web: .select-choices-wrapper — the way back beside the Episode's name.
-                HorizontalLayout {
-                    // Web: .select-choices-wrapper carries a 1em top margin above the 3rem button.
-                    height: 4 * root.rem-size;
-                    padding-top: 1 * root.rem-size;
-                    padding-left: 1 * root.rem-size;
-                    padding-right: 1 * root.rem-size;
-                    spacing: 0.5 * root.rem-size;
-                    alignment: start;
-                    Rectangle {
-                        width: 3 * root.rem-size;
-                        height: 3 * root.rem-size;
-                        border-radius: 0.5 * root.rem-size;
-                        background: back-touch.has-hover ? Theme.overlay : transparent;
-                        // Centred by hand: a HorizontalLayout stretches its children instead.
-                        Image {
-                            x: (parent.width - self.width) / 2;
-                            y: (parent.height - self.height) / 2;
-                            width: 1.5 * root.rem-size;
-                            height: 1.5 * root.rem-size;
-                            source: @image-url("icons/chevron-back.svg");
-                            colorize: Theme.text;
-                            opacity: 0.6;
-                        }
-                        back-touch := TouchArea {
-                            mouse-cursor: pointer;
-                            clicked => {
-                                root.back-to-episodes();
-                            }
-                        }
-                    }
-                    Text {
-                        // Button height, so its centred text lines up with the chevron beside it.
-                        height: 3 * root.rem-size;
-                        text: root.picked-label;
-                        color: Theme.text;
-                        font-size: root.rem-size;
-                        vertical-alignment: center;
-                        overflow: elide;
-                        horizontal-stretch: 1;
-                    }
-                }
-
-                // Web: .streams-container — flex 1, padding 0 1rem, overflows.
-                VerticalLayout {
-                    padding-left: 1 * root.rem-size;
-                    padding-right: 1 * root.rem-size;
-                    padding-top: 1 * root.rem-size;
-                    spacing: 0;
-
-                    Text {
-                        text: root.status;
-                        color: Theme.text;
-                        opacity: 0.6;
-                        font-size: 0.8 * root.rem-size;
-                    }
-                    Text {
-                        text: root.play-message;
-                        color: Theme.accent-red;
-                        font-size: 0.9 * root.rem-size;
-                        wrap: word-wrap;
-                    }
-
-                    // Web: nothing Ready yet means two placeholders — and nothing of the last
-                    // Episode's list survives the swap.
-                    if root.streams.length == 0 && root.streams-loading > 0: VerticalLayout {
-                        alignment: start;
-                        StreamPlaceholder { rem-size: root.rem-size; }
-                        StreamPlaceholder { rem-size: root.rem-size; }
-                    }
-
-                    ScrollView {
-                        VerticalLayout {
-                            alignment: start;
-                            for stream[index] in root.streams: StreamRow {
-                                source: stream;
-                                rem-size: root.rem-size;
-                                clicked => {
-                                    root.play-stream(index);
-                                }
-                            }
-                        }
-                    }
-
-                    // Web: .addons-loading-container — the count of addons still out, over an
-                    // accent bar. It only appears once there is something to read.
-                    if root.streams.length > 0 && root.streams-loading > 0: VerticalLayout {
-                        alignment: center;
-                        padding: 2 * root.rem-size;
-                        spacing: 1 * root.rem-size;
-                        Text {
-                            text: root.streams-loading + " addons loading";
-                            color: Theme.text;
-                            font-size: 1 * root.rem-size;
-                            horizontal-alignment: center;
-                        }
-                        Rectangle {
-                            width: 90%;
-                            height: 0.3 * root.rem-size;
-                            border-radius: 0.75 * root.rem-size;
-                            background: Theme.accent;
-                        }
-                    }
-                }
+            pick-video(id) => {
+                root.pick-video(id);
+            }
+            search-videos(text) => {
+                root.search-videos(text);
+            }
+            back-to-episodes => {
+                root.back-to-episodes();
+            }
+            play-stream(index) => {
+                root.play-stream(index);
+            }
+            stepped-season(delta) => {
+                root.step-season(delta);
+            }
+            stepped-episode(delta) => {
+                root.step-episode(delta);
+            }
+            show-streams => {
+                root.show-streams();
             }
         }
     }
