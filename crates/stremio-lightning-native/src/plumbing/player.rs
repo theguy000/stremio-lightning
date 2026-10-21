@@ -1,4 +1,4 @@
-﻿//! Video playback. libmpv draws every frame into Slint's own OpenGL context just before Slint
+//! Video playback. libmpv draws every frame into Slint's own OpenGL context just before Slint
 //! draws the window's items on top, so the player screen only has to leave the video area empty.
 //!
 //! Everything that talks to mpv lives here, so a screen with real controls can ask for play,

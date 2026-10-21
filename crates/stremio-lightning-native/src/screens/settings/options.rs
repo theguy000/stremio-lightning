@@ -47,19 +47,19 @@ const fn entry(
 
 const INTERFACE_LANGUAGES: &[(&str, &str)] = &[
     ("eng", "English"),
-    ("spa", "EspaÃ±ol"),
-    ("fra", "FranÃ§ais"),
+    ("spa", "Español"),
+    ("fra", "Français"),
     ("deu", "Deutsch"),
-    ("por", "PortuguÃªs"),
+    ("por", "Português"),
     ("ita", "Italiano"),
-    ("rus", "Ð ÑƒÑÑÐºÐ¸Ð¹"),
+    ("rus", "Русский"),
     ("pol", "Polski"),
     ("nld", "Nederlands"),
-    ("tur", "TÃ¼rkÃ§e"),
-    ("ara", "Ø§Ù„Ø¹Ø±Ø¨ÙŠØ©"),
-    ("hin", "à¤¹à¤¿à¤¨à¥à¤¦à¥€"),
-    ("ben", "à¦¬à¦¾à¦‚à¦²à¦¾"),
-    ("jpn", "æ—¥æœ¬èªž"),
+    ("tur", "Türkçe"),
+    ("ara", "العربية"),
+    ("hin", "हिन्दी"),
+    ("ben", "বাংলা"),
+    ("jpn", "日本語"),
     ("kor", "한국어"),
     ("zho", "中文"),
 ];
@@ -80,8 +80,8 @@ const SUBTITLES_LANGUAGES: &[(&str, &str)] = &[
     ("hin", "Hindi"),
     ("ben", "Bengali"),
     ("jpn", "Japanese"),
-    ("kor", "한국어"),
-    ("zho", "中文"),
+    ("kor", "Korean"),
+    ("zho", "Chinese"),
 ];
 
 const AUDIO_LANGUAGES: &[(&str, &str)] = &[
@@ -99,8 +99,8 @@ const AUDIO_LANGUAGES: &[(&str, &str)] = &[
     ("hin", "Hindi"),
     ("ben", "Bengali"),
     ("jpn", "Japanese"),
-    ("kor", "한국어"),
-    ("zho", "中文"),
+    ("kor", "Korean"),
+    ("zho", "Chinese"),
 ];
 
 const SUBTITLES_SIZES: &[(u32, &str)] = &[
@@ -393,7 +393,7 @@ mod tests {
     fn the_table_shows_the_profile_value_it_is_given() {
         let settings = json!({ "interfaceLanguage": "ben", "subtitlesSize": 150 });
         let language = input("interfaceLanguage", &settings);
-        assert_eq!(language.title, "à¦¬à¦¾à¦‚à¦²à¦¾");
+        assert_eq!(language.title, "বাংলা");
         assert_eq!(language.selected, 12);
 
         let size = input("subtitlesSize", &settings);
@@ -409,6 +409,33 @@ mod tests {
         // A key the profile does not carry at all uses the setting's own default.
         assert_eq!(input("audioLanguage", &json!({})).title, "English");
         assert_eq!(input("seekTimeDuration", &json!({})).title, "10 seconds");
+    }
+
+    #[test]
+    fn the_language_menus_are_written_in_their_own_scripts() {
+        // These labels are the only non-ASCII text in the app outside a Slint file, so they are
+        // the only place an encoding mistake would reach a person. Pin several by name: a
+        // double-encoded label ("EspaÃ±ol") or a lost one passes every other test.
+        let interface: Vec<String> = input("interfaceLanguage", &json!({}))
+            .options
+            .into_iter()
+            .map(|(label, _)| label)
+            .collect();
+        for expected in [
+            "Español",
+            "Русский",
+            "العربية",
+            "বাংলা",
+            "हिन्दी",
+            "日本語",
+            "한국어",
+            "中文",
+        ] {
+            assert!(
+                interface.iter().any(|label| label == expected),
+                "{expected} is missing from the interface languages"
+            );
+        }
     }
 
     #[test]
