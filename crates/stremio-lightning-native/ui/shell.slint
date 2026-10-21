@@ -248,13 +248,16 @@ export component HorizontalNavBar inherits Rectangle {
     in property <bool> show-search: true;
     // Web: the details route turns the bar's first slot into a back button, hiding the logo.
     in property <bool> show-back: false;
+    /// Nothing behind the bar at all: no fill, no theme override. The details route paints its
+    /// own artwork underneath and wants the bar to disappear into it.
+    in property <bool> bare: false;
     callback back-clicked();
     height: (77 * root.rem-size / 14);
 
     horizontal-nav-bar-container := Rectangle {
         width: parent.width;
         height: parent.height;
-        background: ClassStyles.background-or(ClassStyles.horizontal-nav-bar-container, transparent);
+        background: root.bare ? transparent : ClassStyles.background-or(ClassStyles.horizontal-nav-bar-container, transparent);
         opacity: ClassStyles.opacity-or(ClassStyles.horizontal-nav-bar-container, 1.0);
         visible: !(ClassStyles.horizontal-nav-bar-container).hidden;
 

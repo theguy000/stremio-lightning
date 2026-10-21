@@ -79,7 +79,7 @@ export component MultiselectMenu inherits Rectangle {
     opacity: ClassStyles.opacity-or(ClassStyles.select-input, 1.0);
     visible: !(ClassStyles.select-input).hidden;
 
-    label-container := Text {
+    label_box := Text {
         x: 1.5 * root.rem-size;
         width: parent.width - 3.5 * root.rem-size - 1.5 * root.rem-size;
         height: parent.height;

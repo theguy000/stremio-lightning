@@ -171,9 +171,10 @@ export component DetailsScreen inherits Rectangle {
         opacity: 0.3;
     }
 
+    // Web: .metadetails-content pads past the top overlay rather than starting flush under it.
     HorizontalLayout {
-        y: root.bar-height;
-        height: parent.height - root.bar-height;
+        y: root.bar-height + 1.5 * root.rem-size;
+        height: parent.height - root.bar-height - 1.5 * root.rem-size;
 
         // Web: .meta-preview — flex 0 1 auto with `padding: 0 4rem 2rem 4rem`.
         Rectangle {
