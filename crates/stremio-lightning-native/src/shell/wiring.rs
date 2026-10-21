@@ -67,6 +67,7 @@ impl Wiring {
             window.set_details_status("Loading...".into());
             window.set_play_message("".into());
             window.set_streams(ModelRc::default());
+            window.set_streams_loading(0);
             window.set_details_seasons(ModelRc::default());
             window.set_details_episodes(ModelRc::default());
             window.set_details_show_picker(false);
@@ -102,6 +103,14 @@ impl Wiring {
     fn pick_video(&self, video_id: String) {
         *self.picked.lock().unwrap() = Some(video_id.clone());
         details::pick(&self.runtime, &video_id);
+    }
+
+    /// Next Episode: whatever the core says follows the pick, selected the same way a row is.
+    fn next_episode(&self) {
+        let next = self.latest.lock().unwrap().details.next_episode.clone();
+        if let Some(next) = next {
+            self.pick_video(next);
+        }
     }
 
     /// Back to the Episode Picker: the pick is gone, and the core drops the Streams with it.
@@ -333,6 +342,10 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
     {
         let wiring = wiring.clone();
         window.on_back_to_episodes(move || wiring.back_to_episodes());
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_next_episode(move || wiring.next_episode());
     }
     {
         let wiring = wiring.clone();

@@ -90,16 +90,19 @@ fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
         details
             .streams
             .iter()
-            .map(|(name, description)| StreamData {
-                name: name.clone().into(),
-                description: description.clone().into(),
+            .map(|source| StreamData {
+                name: source.name.clone().into(),
+                description: source.description.clone().into(),
+                addon: source.addon.clone().into(),
             })
             .collect::<Vec<_>>(),
     )));
+    window.set_streams_loading(i32::try_from(details.sources_loading).unwrap_or_default());
 
     window.set_details_show_picker(details.show_picker);
     window.set_details_season_index(i32::try_from(details.season).unwrap_or_default());
     window.set_details_picked_label(details.picked_label.clone().unwrap_or_default().into());
+    window.set_details_has_next_episode(details.next_episode.is_some());
     window.set_details_season_title(
         details
             .seasons

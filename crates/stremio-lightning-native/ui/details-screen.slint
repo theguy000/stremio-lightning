@@ -1,6 +1,8 @@
 // Based on stremio-web (https://github.com/Stremio/stremio-web), Copyright (C) 2017-2024 Smart code 203358507.
-// Numbers translated by hand from src/routes/MetaDetails/styles.less and src/App/styles.less.
-// Licence basis: ../THIRD_PARTY_NOTICES.md. Element ids reuse the web class names where one exists.
+// Numbers translated by hand from src/routes/MetaDetails/styles.less,
+// src/routes/MetaDetails/StreamsList/styles.less, src/routes/MetaDetails/StreamsList/Stream/styles.less
+// and src/App/styles.less. Licence basis: ../THIRD_PARTY_NOTICES.md. Element ids reuse the web
+// class names where one exists.
 //
 // Web: `.metadetails-content` — a row holding the MetaPreview panel, a flexible spacer, and a
 // 30rem column for the Episodes or the Streams. The column's `backdrop-filter: blur(15px)` has no
@@ -11,10 +13,127 @@ import { MetaPreview, PreviewData } from "meta-preview.slint";
 import { Theme } from "theme.slint";
 import { VideoRow, VideosList } from "videos-list.slint";
 
-// One source offered for the chosen Video. Kept here so the details screen owns both bodies.
+// One source offered for the chosen Video. Web: the addon's name, then the stream's own name
+// above its description.
 export struct StreamData {
     name: string,
     description: string,
+    addon: string,
+}
+
+// Web: `.stream-container` — the addon's name, the stream's name and description, and a play
+// circle that fades in with the row's hover.
+component StreamRow inherits Rectangle {
+    in property <StreamData> source;
+    in property <length> rem-size;
+    callback clicked;
+
+    height: 6 * root.rem-size;
+    border-radius: 0.75 * root.rem-size;
+    background: touch.has-hover ? Theme.overlay : transparent;
+
+    HorizontalLayout {
+        padding-top: 0.5 * root.rem-size;
+        padding-bottom: 0.5 * root.rem-size;
+        padding-left: 1 * root.rem-size;
+        padding-right: 1 * root.rem-size;
+        spacing: 1 * root.rem-size;
+
+        Text {
+            width: 7 * root.rem-size;
+            text: root.source.addon;
+            font-size: 1.1 * root.rem-size;
+            color: Theme.text;
+            wrap: word-wrap;
+            overflow: elide;
+            vertical-alignment: center;
+        }
+
+        VerticalLayout {
+            alignment: center;
+            spacing: 0.35 * root.rem-size;
+            Text {
+                text: root.source.name;
+                font-size: root.rem-size;
+                font-weight: 600;
+                color: Theme.text;
+                overflow: elide;
+            }
+            Text {
+                text: root.source.description;
+                font-size: 0.9 * root.rem-size;
+                color: Theme.text;
+                opacity: 0.9;
+                wrap: word-wrap;
+                overflow: elide;
+                max-height: 3.5 * root.rem-size;
+            }
+        }
+
+        // Web: `.icon` — a 3rem circle of secondary accent, invisible until the row is hovered.
+        Rectangle {
+            width: 3 * root.rem-size;
+            height: 3 * root.rem-size;
+            border-radius: 1.5 * root.rem-size;
+            background: Theme.accent-green;
+            opacity: touch.has-hover ? 1 : 0;
+            HorizontalLayout {
+                alignment: center;
+                Image {
+                    width: 1.6 * root.rem-size;
+                    height: 1.6 * root.rem-size;
+                    source: @image-url("icons/play.svg");
+                    colorize: Theme.modal-background;
+                }
+            }
+        }
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// Web: <Stream.Placeholder> — the bars that stand in until an addon answers: a 5x2rem addon bar
+// over description bars at 80% and 40%.
+component StreamPlaceholder inherits Rectangle {
+    in property <length> rem-size;
+
+    height: 6 * root.rem-size;
+
+    HorizontalLayout {
+        padding-top: 0.5 * root.rem-size;
+        padding-bottom: 0.5 * root.rem-size;
+        padding-left: 1 * root.rem-size;
+        padding-right: 1 * root.rem-size;
+        spacing: 1 * root.rem-size;
+
+        Rectangle {
+            width: 5 * root.rem-size;
+            height: 2 * root.rem-size;
+            border-radius: 0.75 * root.rem-size;
+            background: Theme.overlay;
+        }
+        VerticalLayout {
+            alignment: center;
+            spacing: 0.5 * root.rem-size;
+            Rectangle {
+                height: 1.2 * root.rem-size;
+                width: 80%;
+                border-radius: 0.75 * root.rem-size;
+                background: Theme.overlay;
+            }
+            Rectangle {
+                height: 1.2 * root.rem-size;
+                width: 40%;
+                border-radius: 0.75 * root.rem-size;
+                background: Theme.overlay;
+            }
+        }
+    }
 }
 
 export component DetailsScreen inherits Rectangle {
@@ -26,13 +145,16 @@ export component DetailsScreen inherits Rectangle {
     in property <string> season-title;
     in property <bool> show-picker: false;
     in property <string> picked-label;
+    in property <bool> has-next-episode: false;
     in property <[StreamData]> streams;
+    in property <int> streams-loading: 0;
     in property <string> status;
     in property <string> play-message;
     in property <length> rem-size: 14px;
     callback select-season(int);
     callback pick-video(string);
     callback back-to-episodes();
+    callback next-episode();
     callback play-stream(int);
 
     HorizontalLayout {
@@ -51,7 +173,7 @@ export component DetailsScreen inherits Rectangle {
             }
         }
 
-        // Web: .videos-list / .streams-list — flex 0 0 30rem, rounded on the left, 0.4 black.
+        // Web: .videos-list / .streams-list — flex 0 0 30rem, rounded, 0.4 black.
         Rectangle {
             width: 30 * root.rem-size;
             background: #00000066;
@@ -71,16 +193,16 @@ export component DetailsScreen inherits Rectangle {
                 }
             }
 
-            // Until the Streams list is ported, it keeps this shell's own row: name over
-            // description, with the count line above it.
             if root.show-picker == false: VerticalLayout {
-                padding: 1 * root.rem-size;
-                spacing: 0.5 * root.rem-size;
+                spacing: 0;
 
                 // Web: .select-choices-wrapper — the way back beside the Episode's name.
                 HorizontalLayout {
-                    alignment: start;
+                    padding-top: 1 * root.rem-size;
+                    padding-left: 1 * root.rem-size;
+                    padding-right: 1 * root.rem-size;
                     spacing: 0.5 * root.rem-size;
+                    alignment: start;
                     Rectangle {
                         width: 3 * root.rem-size;
                         height: 3 * root.rem-size;
@@ -109,54 +231,94 @@ export component DetailsScreen inherits Rectangle {
                         font-size: root.rem-size;
                         vertical-alignment: center;
                         overflow: elide;
+                        horizontal-stretch: 1;
+                    }
+                    // The Next Episode control. The web has no such button — its next-episode
+                    // affordance is the player's countdown — so this is this client's own, in the
+                    // web's pill shape and accent.
+                    if root.has-next-episode: Rectangle {
+                        height: 2.6 * root.rem-size;
+                        border-radius: 1.3 * root.rem-size;
+                        background: next-touch.has-hover ? Theme.accent : Theme.overlay;
+                        HorizontalLayout {
+                            padding-left: 1.2 * root.rem-size;
+                            padding-right: 1.2 * root.rem-size;
+                            alignment: center;
+                            Text {
+                                text: "Next Episode";
+                                color: Theme.text;
+                                font-size: 0.9 * root.rem-size;
+                                font-weight: 600;
+                                vertical-alignment: center;
+                            }
+                        }
+                        next-touch := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {
+                                root.next-episode();
+                            }
+                        }
                     }
                 }
 
-                Text {
-                    text: root.status;
-                    color: Theme.text;
-                    opacity: 0.6;
-                    font-size: 0.8 * root.rem-size;
-                }
-                Text {
-                    text: root.play-message;
-                    color: Theme.accent-red;
-                    font-size: 0.9 * root.rem-size;
-                    wrap: word-wrap;
-                }
-                ScrollView {
-                    VerticalLayout {
+                // Web: .streams-container — flex 1, padding 0 1rem, overflows.
+                VerticalLayout {
+                    padding-left: 1 * root.rem-size;
+                    padding-right: 1 * root.rem-size;
+                    padding-top: 1 * root.rem-size;
+                    spacing: 0;
+
+                    Text {
+                        text: root.status;
+                        color: Theme.text;
+                        opacity: 0.6;
+                        font-size: 0.8 * root.rem-size;
+                    }
+                    Text {
+                        text: root.play-message;
+                        color: Theme.accent-red;
+                        font-size: 0.9 * root.rem-size;
+                        wrap: word-wrap;
+                    }
+
+                    // Web: nothing Ready yet means two placeholders — and nothing of the last
+                    // Episode's list survives the swap.
+                    if root.streams.length == 0 && root.streams-loading > 0: VerticalLayout {
                         alignment: start;
-                        spacing: 0.5 * root.rem-size;
-                        for stream[index] in root.streams: Rectangle {
-                            height: 4.5 * root.rem-size;
-                            background: Theme.overlay;
-                            border-radius: 0.75 * root.rem-size;
-                            TouchArea {
-                                mouse-cursor: pointer;
+                        StreamPlaceholder { rem-size: root.rem-size; }
+                        StreamPlaceholder { rem-size: root.rem-size; }
+                    }
+
+                    ScrollView {
+                        VerticalLayout {
+                            alignment: start;
+                            for stream[index] in root.streams: StreamRow {
+                                source: stream;
+                                rem-size: root.rem-size;
                                 clicked => {
                                     root.play-stream(index);
                                 }
                             }
-                            VerticalLayout {
-                                alignment: center;
-                                padding: 0.75 * root.rem-size;
-                                spacing: 0.15 * root.rem-size;
-                                Text {
-                                    text: stream.name;
-                                    color: Theme.text;
-                                    font-size: root.rem-size;
-                                    font-weight: 600;
-                                    overflow: elide;
-                                }
-                                Text {
-                                    text: stream.description;
-                                    color: Theme.text;
-                                    opacity: 0.5;
-                                    font-size: 0.8 * root.rem-size;
-                                    overflow: elide;
-                                }
-                            }
+                        }
+                    }
+
+                    // Web: .addons-loading-container — the count of addons still out, over an
+                    // accent bar. It only appears once there is something to read.
+                    if root.streams.length > 0 && root.streams-loading > 0: VerticalLayout {
+                        alignment: center;
+                        padding: 2 * root.rem-size;
+                        spacing: 1 * root.rem-size;
+                        Text {
+                            text: root.streams-loading + " addons loading";
+                            color: Theme.text;
+                            font-size: 1 * root.rem-size;
+                            horizontal-alignment: center;
+                        }
+                        Rectangle {
+                            width: 90%;
+                            height: 0.3 * root.rem-size;
+                            border-radius: 0.75 * root.rem-size;
+                            background: Theme.accent;
                         }
                     }
                 }

@@ -7,7 +7,7 @@ use stremio_core::models::meta_details::{MetaDetails, Selected as DetailsSelecte
 use stremio_core::runtime::msg::{Action, ActionLoad};
 use stremio_core::runtime::RuntimeAction;
 use stremio_core::types::addon::ResourcePath;
-use stremio_core::types::resource::{Stream, StreamUrls, Video};
+use stremio_core::types::resource::{MetaItem, Stream, StreamUrls, Video};
 use url::Url;
 
 use crate::screens::Preview;
@@ -21,6 +21,14 @@ const MAX_STREAMS: usize = 100;
 pub struct Season {
     pub number: u32,
     pub label: String,
+}
+
+/// One source in the Streams List: what the addon called it, what it says it is, and the addon.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Source {
+    pub name: String,
+    pub description: String,
+    pub addon: String,
 }
 
 /// One Episode row in the picker. `label` is `S2E5`, or `SPECIAL 5` for a Video in season 0.
@@ -146,7 +154,10 @@ pub struct Data {
     /// The title's own panel: logo, runtime, links, description. `None` until the addons answer.
     pub preview: Option<Preview>,
     pub status: String,
-    pub streams: Vec<(String, String)>,
+    /// The sources on offer, ready to list.
+    pub streams: Vec<Source>,
+    /// Addons that have not answered yet — the footer counts them while there is something to read.
+    pub sources_loading: usize,
     /// True while the screen offers the Episode Picker instead of the Streams.
     pub show_picker: bool,
     /// Every Season the title offers, in the title's own order.
@@ -159,6 +170,8 @@ pub struct Data {
     pub picked: Option<String>,
     /// How the Streams list names that Video: `S1E2 The Title`.
     pub picked_label: Option<String>,
+    /// The Video the core says follows the picked one, if there is one.
+    pub next_episode: Option<String>,
 }
 
 /// What the browsed-Season slot holds before the picker has been touched.
@@ -207,22 +220,9 @@ pub fn data(model: &AppModel, chosen: Option<u32>, picked: Option<&str>) -> Data
         }
     }
     let found = streams_of(details).count();
-    let streams = streams_of(details)
+    let streams = source_rows(model, details)
+        .into_iter()
         .take(MAX_STREAMS)
-        .map(|stream| {
-            (
-                stream
-                    .name
-                    .clone()
-                    .unwrap_or_else(|| "Stream".to_owned())
-                    .replace('\n', " "),
-                stream
-                    .description
-                    .clone()
-                    .unwrap_or_default()
-                    .replace('\n', " | "),
-            )
-        })
         .collect();
 
     Data {
@@ -231,13 +231,53 @@ pub fn data(model: &AppModel, chosen: Option<u32>, picked: Option<&str>) -> Data
             "{found} streams from {ready} sources, {empty} had nothing, {failed} failed, {loading} loading"
         ),
         streams,
+        sources_loading: loading,
         show_picker: shows_picker(picked, &listed),
         picked_label: picked.and_then(|picked| picked_label(videos, picked)),
+        next_episode: picked.and_then(|picked| {
+            item.and_then(|meta| next_episode(meta, picked, chrono::Utc::now()))
+        }),
         picked: picked.map(str::to_owned),
         seasons: listed,
         season,
         episodes: season_episodes,
     }
+}
+
+/// The sources the addons have answered with, each with the addon's own name — web shows that in
+/// the row's left column instead of a thumbnail.
+fn source_rows(model: &AppModel, details: &MetaDetails) -> Vec<Source> {
+    details
+        .streams
+        .iter()
+        .filter_map(|page| match &page.content {
+            Some(Loadable::Ready(list)) => Some((&page.request.base, list)),
+            _ => None,
+        })
+        .flat_map(|(base, list)| {
+            let addon = model
+                .ctx
+                .profile
+                .addons
+                .iter()
+                .find(|addon| &addon.transport_url == base)
+                .map(|addon| addon.manifest.name.clone())
+                .unwrap_or_else(|| base.to_string());
+            list.iter().map(move |stream| Source {
+                name: stream
+                    .name
+                    .clone()
+                    .unwrap_or_else(|| "Stream".to_owned())
+                    .replace('\n', " "),
+                description: stream
+                    .description
+                    .clone()
+                    .unwrap_or_default()
+                    .replace('\n', " | "),
+                addon: addon.clone(),
+            })
+        })
+        .collect()
 }
 
 /// Every stream the addons have answered with, in the order the details screen lists them, so
@@ -284,6 +324,17 @@ pub(crate) fn open(runtime: &AppRuntime, id: &str, kind: &str) {
             guess_stream,
         })),
     });
+}
+
+/// What follows the picked Video, as the core decides it: a season's last Episode leads into the
+/// next season, the last of the final season has none, an unreleased Episode is skipped, and a
+/// regular Episode never leads into the Specials.
+pub(crate) fn next_episode(
+    meta: &MetaItem,
+    picked: &str,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Option<String> {
+    meta.next_video(picked, &now).map(|video| video.id.clone())
 }
 
 /// Web: picking an Episode asks for its Streams. The Video id is the core's own, so a list that
@@ -478,6 +529,72 @@ mod tests {
         );
         assert_eq!(picked_label(&videos, "m"), Some("A film".to_owned()));
         assert_eq!(picked_label(&videos, "gone"), None);
+    }
+
+    /// A title carrying `videos`, so the core's own rules can be asked rather than re-implemented.
+    fn meta_of(videos: Vec<Video>) -> MetaItem {
+        use stremio_core::types::resource::{MetaItemPreview, PosterShape};
+        MetaItem {
+            preview: MetaItemPreview {
+                id: "tt1".to_owned(),
+                r#type: "series".to_owned(),
+                name: "A series".to_owned(),
+                poster: None,
+                background: None,
+                logo: None,
+                description: None,
+                release_info: None,
+                runtime: None,
+                released: None,
+                poster_shape: PosterShape::Poster,
+                links: vec![],
+                trailer_streams: vec![],
+                behavior_hints: Default::default(),
+            },
+            videos,
+        }
+    }
+
+    /// A Video that came out long enough ago to count as released.
+    fn aired(id: &str, season: u32, episode: u32) -> Video {
+        Video {
+            released: Some(chrono::Utc::now() - chrono::Duration::days(400)),
+            ..video(id, season, episode, "An episode")
+        }
+    }
+
+    #[test]
+    fn the_last_episode_of_a_season_leads_into_the_next_season() {
+        let meta = meta_of(vec![
+            aired("s1e1", 1, 1),
+            aired("s1e2", 1, 2),
+            aired("s2e1", 2, 1),
+        ]);
+        assert_eq!(
+            next_episode(&meta, "s1e2", chrono::Utc::now()),
+            Some("s2e1".to_owned())
+        );
+    }
+
+    #[test]
+    fn the_last_episode_of_the_final_season_has_nothing_after_it() {
+        let meta = meta_of(vec![aired("s1e1", 1, 1), aired("s2e1", 2, 1)]);
+        assert_eq!(next_episode(&meta, "s2e1", chrono::Utc::now()), None);
+    }
+
+    #[test]
+    fn a_regular_episode_never_leads_into_the_specials() {
+        // The core sorts the Specials last, so the last regular Episode's neighbour is one.
+        let meta = meta_of(vec![aired("s1e1", 1, 1), aired("special", 0, 1)]);
+        assert_eq!(next_episode(&meta, "s1e1", chrono::Utc::now()), None);
+    }
+
+    #[test]
+    fn an_episode_that_has_not_aired_yet_is_not_next() {
+        let mut later = aired("s1e2", 1, 2);
+        later.released = Some(chrono::Utc::now() + chrono::Duration::days(30));
+        let meta = meta_of(vec![aired("s1e1", 1, 1), later]);
+        assert_eq!(next_episode(&meta, "s1e1", chrono::Utc::now()), None);
     }
 
     #[test]

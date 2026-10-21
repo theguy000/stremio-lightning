@@ -43,6 +43,7 @@ export component MainWindow inherits Window {
     in property <bool> details-has-preview: false;
     in property <string> details-status;
     in property <[StreamData]> streams: [];
+    in property <int> streams-loading: 0;
     // The episode picker: shown instead of the Streams while no Episode has been picked.
     in property <bool> details-show-picker: false;
     in property <[SelectOption]> details-seasons: [];
@@ -50,6 +51,7 @@ export component MainWindow inherits Window {
     in property <string> details-season-title;
     in property <[VideoRow]> details-episodes: [];
     in property <string> details-picked-label;
+    in property <bool> details-has-next-episode: false;
     in-out property <bool> playing: false;
     in-out property <Section> section: Section.board;
     in-out property <bool> auth-open: false;
@@ -82,6 +84,7 @@ export component MainWindow inherits Window {
     callback select-season(int);
     callback pick-video(string);
     callback back-to-episodes();
+    callback next-episode();
     callback stop-playback();
     callback submit-auth-login(string, string);
     callback submit-auth-register(string, string, bool, bool, bool);
@@ -143,8 +146,10 @@ export component MainWindow inherits Window {
         season-index: root.details-season-index;
         season-title: root.details-season-title;
         picked-label: root.details-picked-label;
+        has-next-episode: root.details-has-next-episode;
         show-picker: root.details-show-picker;
         streams: root.streams;
+        streams-loading: root.streams-loading;
         status: root.details-status;
         play-message: root.play-message;
         select-season(index) => {
@@ -155,6 +160,9 @@ export component MainWindow inherits Window {
         }
         back-to-episodes => {
             root.back-to-episodes();
+        }
+        next-episode => {
+            root.next-episode();
         }
         play-stream(index) => {
             root.play-stream(index);
