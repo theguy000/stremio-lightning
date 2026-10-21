@@ -1,50 +1,61 @@
 # Runtime Architecture
 
-Stremio Lightning uses Rust-native platform shells around Stremio Web. Shared
-host behavior lives in `stremio-lightning-core`, each operating system has a
-shell crate, and a Svelte/Vite bundle provides the injected Mods UI.
+Stremio Lightning is a native desktop client: a Rust shell drawn with Slint, holding
+Stremio's state with `stremio-core`. The older web shells (a Svelte Mods UI injected into a
+Svelte/WebKit or WebView2 window) are being retired and stay in the tree untouched.
 
 ## Repository Layout
 
 | Path | Purpose |
 | --- | --- |
-| `crates/stremio-lightning-core` | Shared host API, mod and settings validation, and common shell contracts. |
-| `crates/stremio-lightning-linux` | Linux GTK/WebKit shell and AppImage runtime. |
-| `crates/stremio-lightning-macos` | macOS WKWebView shell and app-bundle inputs. |
-| `crates/stremio-lightning-windows` | Windows WebView2/MPV shell and portable runtime. |
+| `crates/stremio-lightning-native` | The native client: the app, its screens, and its UI written in Slint. |
+| `crates/stremio-lightning-native-env` | The environment `stremio-core` stores and fetches through. |
+| `crates/stremio-lightning-core` | Behavior still shared with the web shells: the streaming-server supervisor, the player contract, startup flags, mods and themes. |
 | `crates/xtask` | Development, validation, setup, and packaging orchestration. |
-| `web/bridge/bridge.js` | Shared bridge injected by each native shell. |
-| `src/` | Svelte/TypeScript Mods UI source and tests. |
-| `src/dist/mod-ui-svelte.iife.js` | Built Mods UI bundle injected into the WebView. |
-| `scripts/` | Low-level dependency download scripts and compatibility wrappers. |
-| `assets/` | Shared packaging assets. |
+| `crates/stremio-lightning-{windows,linux,macos}` | The retiring web shells. |
+| `web/`, `src/` | The retiring Mods UI and the bridge the web shells inject. |
 
-## Injection Flow
+## The native client
 
-Each native shell injects its platform adapter before `web/bridge/bridge.js`.
-The adapter must provide `window.StremioLightningHost`. The shared bridge then
-exposes the higher-level `window.StremioEnhancedAPI` consumed by plugins and the
-Mods UI.
+One crate, built as a library with a thin launcher: `main.rs` starts the app and does nothing
+else. That is what lets the tests call the app's own code instead of a copy of it.
 
-The production UI build writes a single IIFE bundle to:
+Three kinds of code, kept apart. A file belongs to exactly one of them.
 
-```text
-src/dist/mod-ui-svelte.iife.js
-```
+**Screen data** (`screens/`) is one module per screen, holding plain structs and the functions
+that build them from the model. No window, no Slint types, no async. This is the app's test
+doorway: a test hands a screen a model and asks what it would show.
 
-See the [plugin API guide](plugin-api.md) for exposed capability groups.
+**Wiring** (`shell/`) is the window's own state, the mapping from a snapshot to window
+properties, and one function per callback, each naming the action it performs. It decides
+nothing.
 
-## Platform Runtimes
+**Plumbing** (`plumbing/`) is the outside world: mpv, the streaming server, image downloads,
+browser links, and theme files. Each hides its details behind a couple of functions and reports
+plain values, never Slint types and never window properties.
 
-- Linux uses GTK/WebKit and loads Stremio Web through the local
-  streaming-server proxy by default. It launches the headless `stream-server`
-  engine; macOS still uses the Node `server.js` runtime.
-- macOS uses WKWebView and packages an app-specific runtime in the `.app`
-  bundle.
-- Windows uses WebView2 and assembles its runtime resources beside the shell
-  executable, then launches the open-source `stream-server` engine exclusively.
-  The legacy bundled `server.js` + Node runtime are not shipped on Windows.
+`app/` sits between them. It holds the state (`AppModel`, which is stremio-core's models), builds
+it from the stored profile, turns core's events into a `Snapshot` of what the window shows, and
+hands that snapshot to the shell.
+
+### Adding a screen
+
+Add a module under `screens/` with a `data(model) -> Data` function, add a field for it to
+`Snapshot`, fill it in `app::events`, and teach `shell/view` which properties it fills. A screen
+that needs callbacks gets them in `shell/wiring`, one line each.
+
+Slint components live in `ui/`; a screen's Rust module and its Slint file share a name.
+
+## Retiring shells
+
+Each web shell injects its platform adapter before `web/bridge/bridge.js`, which exposes
+`window.StremioEnhancedAPI` to plugins and the Mods UI. Shared host behavior lives in
+`stremio-lightning-core`; see
+[ADR 0001](adr/0001-shared-behavior-lives-in-core.md).
 
 Platform implementation and setup details are documented in the
 [Linux](platforms/linux.md), [macOS](platforms/macos.md), and
 [Windows](platforms/windows.md) guides.
+
+The native client's shape is recorded in
+[ADR 0002](adr/0002-native-client-is-a-library.md).

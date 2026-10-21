@@ -1,9 +1,9 @@
 //! Themes: `*.theme.css` files restyle the native UI by stremio-web class name.
 //!
 //! stremio-web styles its components with CSS classes, and Stremio Lightning themes target
-//! them. Slint has no CSS, so a theme is read here and its rules are copied into the
+//! them. Slint has no CSS, so a theme is read (`parse`) and its rules are copied into the
 //! `ClassStyles` global (`ui/class-styles.slint`), which every component that reuses a web
-//! class name reads.
+//! class name reads. This file holds the element table and the copying; `parse` holds the CSS.
 //!
 //! Understood:
 //! - Selectors `.name`, `[class*="name"]`, `[class^="name"]` and `[class="name"]`, comma
@@ -21,12 +21,14 @@
 //! toggle carries five), and the file order decides between them, not the class list. Themes
 //! live in the same folder the other shells use, `<data_local_dir>/stremio-lightning/themes`.
 
-use std::fmt;
-
 use slint::{Color, ComponentHandle};
 use stremio_lightning_core::mods::{list_mods, read_mod_content, ModType};
 
 use crate::{ClassStyle, ClassStyles, MainWindow};
+
+pub mod parse;
+
+pub use parse::{Rgba, Style};
 
 type Setter = fn(&ClassStyles<'_>, ClassStyle);
 
@@ -39,6 +41,7 @@ macro_rules! elements {
         const ELEMENTS: &[(&[&str], Setter)] = &[
             $((&[$($class),+], |globals: &ClassStyles<'_>, style| globals.$setter(style))),+
         ];
+        const CLASSES: &[&[&str]] = &[$(&[$($class),+]),+];
     };
 }
 
@@ -124,293 +127,35 @@ elements! {
     set_guest_login_button => ["guest-login-button", "form-button", "button-container"],
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-struct Rgba(u8, u8, u8, u8);
-
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
-struct Style {
-    color: Option<Rgba>,
-    background: Option<Rgba>,
-    opacity: Option<f32>,
-    hidden: Option<bool>,
-}
-
-impl Style {
-    fn merge(&mut self, later: Self) {
-        self.color = later.color.or(self.color);
-        self.background = later.background.or(self.background);
-        self.opacity = later.opacity.or(self.opacity);
-        self.hidden = later.hidden.or(self.hidden);
+/// Reads a theme file's text and answers what it does to this app's components, so a theme can
+/// be checked without a window.
+pub fn inspect(css: &str) -> InspectedTheme {
+    let theme = parse::parse_theme(css);
+    let (styles, unmatched) = parse::resolve(&theme.rules, CLASSES);
+    let mut warnings = theme.warnings;
+    warnings.extend(unmatched);
+    InspectedTheme {
+        ids: ELEMENTS.iter().map(|(classes, _)| classes[0]).collect(),
+        styles,
+        warnings,
     }
 }
 
-#[derive(Debug, PartialEq)]
-enum Selector {
-    Exact(String),
-    Contains(String),
-    Prefix(String),
+/// What one theme file does, as plain data.
+pub struct InspectedTheme {
+    ids: Vec<&'static str>,
+    styles: Vec<parse::Style>,
+    /// Everything the file said that this app does not understand, or that reaches no component.
+    pub warnings: Vec<String>,
 }
 
-impl Selector {
-    fn matches(&self, class: &str) -> bool {
-        match self {
-            Self::Exact(name) => class == name,
-            Self::Contains(part) => class.contains(part.as_str()),
-            Self::Prefix(prefix) => class.starts_with(prefix.as_str()),
-        }
+impl InspectedTheme {
+    /// The style the file gives the component with this id, or `None` if this app has no such
+    /// component.
+    pub fn style_of(&self, id: &str) -> Option<parse::Style> {
+        let index = self.ids.iter().position(|known| *known == id)?;
+        Some(self.styles[index])
     }
-}
-
-impl fmt::Display for Selector {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Exact(name) => write!(f, ".{name}"),
-            Self::Contains(part) => write!(f, "[class*=\"{part}\"]"),
-            Self::Prefix(prefix) => write!(f, "[class^=\"{prefix}\"]"),
-        }
-    }
-}
-
-#[derive(Debug)]
-struct Rule {
-    selectors: Vec<Selector>,
-    style: Style,
-}
-
-#[derive(Debug, Default)]
-struct ParsedTheme {
-    rules: Vec<Rule>,
-    warnings: Vec<String>,
-}
-
-fn is_class_name(text: &str) -> bool {
-    !text.is_empty()
-        && text
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
-}
-
-fn parse_selector(text: &str) -> Option<Selector> {
-    let text = text.trim();
-    if let Some(name) = text.strip_prefix('.') {
-        return is_class_name(name).then(|| Selector::Exact(name.to_string()));
-    }
-    let inner = text.strip_prefix("[class")?.strip_suffix(']')?;
-    let (value, make): (&str, fn(String) -> Selector) = if let Some(v) = inner.strip_prefix("*=") {
-        (v, Selector::Contains)
-    } else if let Some(v) = inner.strip_prefix("^=") {
-        (v, Selector::Prefix)
-    } else {
-        (inner.strip_prefix('=')?, Selector::Exact)
-    };
-    let value = value.trim().trim_matches(['"', '\'']);
-    is_class_name(value).then(|| make(value.to_string()))
-}
-
-fn strip_comments(css: &str) -> String {
-    let mut out = String::with_capacity(css.len());
-    let mut rest = css;
-    while let Some(start) = rest.find("/*") {
-        out.push_str(&rest[..start]);
-        match rest[start + 2..].find("*/") {
-            Some(end) => rest = &rest[start + 2 + end + 2..],
-            None => return out,
-        }
-    }
-    out.push_str(rest);
-    out
-}
-
-/// Length of the block body that starts at `after_open`, up to its matching `}`.
-fn block_len(after_open: &str) -> Option<usize> {
-    let mut depth = 1;
-    for (index, c) in after_open.char_indices() {
-        match c {
-            '{' => depth += 1,
-            '}' => {
-                depth -= 1;
-                if depth == 0 {
-                    return Some(index);
-                }
-            }
-            _ => {}
-        }
-    }
-    None
-}
-
-fn parse_hex(hex: &str) -> Option<Rgba> {
-    if !hex.chars().all(|c| c.is_ascii_hexdigit()) {
-        return None;
-    }
-    let digit = |i: usize| u8::from_str_radix(&hex[i..=i], 16).ok().map(|d| d * 17);
-    let pair = |i: usize| u8::from_str_radix(&hex[i..i + 2], 16).ok();
-    match hex.len() {
-        3 => Some(Rgba(digit(0)?, digit(1)?, digit(2)?, 255)),
-        4 => Some(Rgba(digit(0)?, digit(1)?, digit(2)?, digit(3)?)),
-        6 => Some(Rgba(pair(0)?, pair(2)?, pair(4)?, 255)),
-        8 => Some(Rgba(pair(0)?, pair(2)?, pair(4)?, pair(6)?)),
-        _ => None,
-    }
-}
-
-fn fraction(text: &str) -> Option<f32> {
-    let value = match text.strip_suffix('%') {
-        Some(percent) => percent.parse::<f32>().ok()? / 100.0,
-        None => text.parse::<f32>().ok()?,
-    };
-    (0.0..=1.0).contains(&value).then_some(value)
-}
-
-fn parse_color(value: &str) -> Option<Rgba> {
-    if value == "transparent" {
-        return Some(Rgba(0, 0, 0, 0));
-    }
-    if let Some(hex) = value.strip_prefix('#') {
-        return parse_hex(hex);
-    }
-    let args = value
-        .strip_prefix("rgba(")
-        .or_else(|| value.strip_prefix("rgb("))?
-        .strip_suffix(')')?;
-    let parts: Vec<&str> = args
-        .split([',', ' ', '/'])
-        .filter(|part| !part.is_empty())
-        .collect();
-    let alpha = match parts.as_slice() {
-        [_, _, _] => 255,
-        [_, _, _, alpha] => (fraction(alpha)? * 255.0).round() as u8,
-        _ => return None,
-    };
-    let channel = |part: &str| {
-        part.parse::<f32>()
-            .ok()
-            .filter(|v| (0.0..=255.0).contains(v))
-            .map(|v| v.round() as u8)
-    };
-    Some(Rgba(
-        channel(parts[0])?,
-        channel(parts[1])?,
-        channel(parts[2])?,
-        alpha,
-    ))
-}
-
-fn set<T>(slot: &mut Option<T>, value: Option<T>) -> bool {
-    let understood = value.is_some();
-    if understood {
-        *slot = value;
-    }
-    understood
-}
-
-fn parse_declarations(body: &str, rule: &str, warnings: &mut Vec<String>) -> Style {
-    let mut style = Style::default();
-    for declaration in body.split(';').map(str::trim).filter(|d| !d.is_empty()) {
-        let Some((property, value)) = declaration.split_once(':') else {
-            warnings.push(format!("{rule}: cannot read `{declaration}`"));
-            continue;
-        };
-        let property = property.trim().to_ascii_lowercase();
-        let value = value.trim().to_ascii_lowercase();
-        let value = value.trim_end_matches("!important").trim();
-        let understood = match property.as_str() {
-            "color" => set(&mut style.color, parse_color(value)),
-            "background" | "background-color" => set(&mut style.background, parse_color(value)),
-            "opacity" => set(
-                &mut style.opacity,
-                value
-                    .parse::<f32>()
-                    .ok()
-                    .filter(|o| (0.0..=1.0).contains(o)),
-            ),
-            "visibility" => set(
-                &mut style.hidden,
-                match value {
-                    "hidden" => Some(true),
-                    "visible" => Some(false),
-                    _ => None,
-                },
-            ),
-            "display" => set(&mut style.hidden, (value == "none").then_some(true)),
-            _ => false,
-        };
-        if !understood {
-            warnings.push(format!("{rule}: `{declaration}` is not supported"));
-        }
-    }
-    style
-}
-
-fn parse_theme(css: &str) -> ParsedTheme {
-    let css = strip_comments(css);
-    let mut theme = ParsedTheme::default();
-    let mut rest = css.as_str();
-    while let Some(open) = rest.find('{') {
-        let Some(len) = block_len(&rest[open + 1..]) else {
-            theme
-                .warnings
-                .push("a `{` is never closed, so the rest of the file is ignored".to_string());
-            return theme;
-        };
-        let body = &rest[open + 1..open + 1 + len];
-        let prelude = &rest[..open];
-        rest = &rest[open + len + 2..];
-
-        // Statements such as `@import ...;` can sit in front of the next rule.
-        let (statements, prelude) = prelude.rsplit_once(';').unwrap_or(("", prelude));
-        if !statements.trim().is_empty() {
-            theme
-                .warnings
-                .push(format!("skipped `{}`", statements.trim()));
-        }
-        let prelude = prelude.trim();
-        if prelude.starts_with('@') {
-            theme
-                .warnings
-                .push(format!("`{prelude}` blocks are not supported"));
-            continue;
-        }
-
-        let mut selectors = Vec::new();
-        for text in prelude.split(',') {
-            match parse_selector(text) {
-                Some(selector) => selectors.push(selector),
-                None => theme
-                    .warnings
-                    .push(format!("selector `{}` is not supported", text.trim())),
-            }
-        }
-        if selectors.is_empty() {
-            continue;
-        }
-        let style = parse_declarations(body, prelude, &mut theme.warnings);
-        theme.rules.push(Rule { selectors, style });
-    }
-    theme
-}
-
-/// One merged style per entry of `ELEMENTS`, plus a warning for each selector that reaches none.
-/// Rules apply in file order. All supported selectors weigh the same, so the last rule that
-/// reaches an element wins, whichever of the element's classes it names.
-fn resolve(rules: &[Rule]) -> (Vec<Style>, Vec<String>) {
-    let mut styles = vec![Style::default(); ELEMENTS.len()];
-    let mut warnings = Vec::new();
-    for rule in rules {
-        for selector in &rule.selectors {
-            let mut matched = false;
-            for ((classes, _), style) in ELEMENTS.iter().zip(&mut styles) {
-                if classes.iter().any(|class| selector.matches(class)) {
-                    style.merge(rule.style);
-                    matched = true;
-                }
-            }
-            if !matched {
-                warnings.push(format!("{selector} matches no component in the native UI"));
-            }
-        }
-    }
-    (styles, warnings)
 }
 
 fn to_slint(style: Style) -> ClassStyle {
@@ -427,7 +172,7 @@ fn to_slint(style: Style) -> ClassStyle {
 }
 
 /// Reads every installed theme and writes the result into the window's `ClassStyles`.
-pub fn apply(window: &MainWindow) {
+pub(crate) fn apply(window: &MainWindow) {
     let Some(root) = dirs::data_local_dir() else {
         return;
     };
@@ -444,7 +189,7 @@ pub fn apply(window: &MainWindow) {
     for file in files {
         match read_mod_content(&root, &file.filename, ModType::Theme) {
             Ok(css) => {
-                let theme = parse_theme(&css);
+                let theme = parse::parse_theme(&css);
                 for warning in &theme.warnings {
                     eprintln!("theme {}: {warning}", file.filename);
                 }
@@ -457,7 +202,7 @@ pub fn apply(window: &MainWindow) {
         return;
     }
 
-    let (styles, unmatched) = resolve(&rules);
+    let (styles, unmatched) = parse::resolve(&rules, CLASSES);
     for warning in unmatched {
         eprintln!("themes: {warning}");
     }
@@ -470,6 +215,7 @@ pub fn apply(window: &MainWindow) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use parse::parse_theme;
 
     fn style_of(styles: &[Style], element: &str) -> Style {
         let index = ELEMENTS
@@ -481,7 +227,7 @@ mod tests {
 
     fn resolved(css: &str) -> (Vec<Style>, Vec<String>) {
         let theme = parse_theme(css);
-        let (styles, unmatched) = resolve(&theme.rules);
+        let (styles, unmatched) = parse::resolve(&theme.rules, CLASSES);
         (
             styles,
             theme.warnings.into_iter().chain(unmatched).collect(),
@@ -506,36 +252,12 @@ mod tests {
     }
 
     #[test]
-    fn a_later_declaration_wins() {
-        let (styles, _) = resolved(
-            ".poster-image { visibility: hidden; opacity: 0.2 } .poster-image { visibility: visible }",
-        );
-        let poster = style_of(&styles, "poster-image");
-        assert_eq!(poster.hidden, Some(false));
-        assert_eq!(poster.opacity, Some(0.2));
-    }
-
-    #[test]
     fn substring_selectors_reach_every_class_containing_the_name() {
         let (styles, _) = resolved("[class*=\"title\"] { color: #f00 }");
         for class in ["title-container", "title-bar-container", "title-label"] {
             assert!(style_of(&styles, class).color.is_some(), "{class}");
         }
         assert!(style_of(&styles, "poster-image").color.is_none());
-    }
-
-    #[test]
-    fn unsupported_input_is_reported_and_skipped() {
-        let (styles, warnings) = resolved(
-            "@media (max-width: 600px) { .title-label { color: #fff } }\n\
-             .poster-image > img { opacity: 0 }\n\
-             .nothing-like-this { color: #fff }\n\
-             .title-label { opacity: 0.2; width: 10px }",
-        );
-        assert_eq!(warnings.len(), 4, "{warnings:?}");
-        let title = style_of(&styles, "title-label");
-        assert_eq!(title.color, None);
-        assert_eq!(title.opacity, Some(0.2));
     }
 
     #[test]
@@ -573,20 +295,6 @@ mod tests {
             style_of(&styles, "vertical-nav-bar-container"),
             Style::default()
         );
-    }
-
-    #[test]
-    fn colour_forms() {
-        assert_eq!(parse_color("#abc"), Some(Rgba(0xaa, 0xbb, 0xcc, 255)));
-        assert_eq!(parse_color("#11223344"), Some(Rgba(0x11, 0x22, 0x33, 0x44)));
-        assert_eq!(parse_color("rgb(1, 2, 3)"), Some(Rgba(1, 2, 3, 255)));
-        assert_eq!(
-            parse_color("rgb(255 0 0 / 50%)"),
-            Some(Rgba(255, 0, 0, 128))
-        );
-        assert_eq!(parse_color("transparent"), Some(Rgba(0, 0, 0, 0)));
-        assert_eq!(parse_color("rgb(300, 0, 0)"), None);
-        assert_eq!(parse_color("red"), None);
     }
 
     #[test]

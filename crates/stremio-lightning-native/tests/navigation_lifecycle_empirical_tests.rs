@@ -110,12 +110,17 @@ fn test_empirical_navigation_and_lifecycle_suite() {
         window.set_auth_loading(true);
         assert!(window.get_auth_open());
 
-        // C. Trigger dismiss callback (as happens in intro.slint dismiss touch area)
+        // C. Trigger dismiss. This harness has no shell wiring, so all it can check is that the
+        // dismissal reaches the callback and leaves the section alone. What the app clears when
+        // it dismisses -- the overlay, the message and the spinner -- belongs to
+        // `shell::wiring::dismiss_sign_in` and is not observable from here.
+        let before = dismissed_count.load(Ordering::SeqCst);
         window.invoke_auth_dismissed();
-        // Mimic main.rs on_auth_dismissed event loop state clearing:
-        window.set_auth_open(false);
-        window.set_auth_error("".into());
-        window.set_auth_loading(false);
+        assert_eq!(
+            dismissed_count.load(Ordering::SeqCst),
+            before + 1,
+            "the dismissal reached the callback"
+        );
 
         // D. Verify section is strictly preserved!
         assert_eq!(
@@ -123,14 +128,8 @@ fn test_empirical_navigation_and_lifecycle_suite() {
             section,
             "Active section must be strictly preserved upon overlay dismissal!"
         );
-        assert!(!window.get_auth_open(), "Overlay must be closed");
-        assert_eq!(window.get_auth_error(), "", "Error must be cleared");
-        assert!(
-            !window.get_auth_loading(),
-            "Loading spinner must be cleared"
-        );
     }
-    assert_eq!(dismissed_count.load(Ordering::SeqCst), all_sections.len());
+    assert_eq!(dismissed_count.load(Ordering::SeqCst), 6);
 
     // ------------------------------------------------------------------------
     // Part 3: Logged-out Placeholders Visibility on Library and Calendar
