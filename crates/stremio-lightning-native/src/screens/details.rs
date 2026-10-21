@@ -254,6 +254,8 @@ pub struct Data {
     pub streams: Vec<Source>,
     /// Addons that have not answered yet — the footer counts them while there is something to read.
     pub sources_loading: usize,
+    /// Whether the Streams placeholder rows are worth showing while the answers are out.
+    pub waits_for_streams: bool,
     /// True while the screen offers the Episode Picker instead of the Streams.
     pub show_picker: bool,
     /// Every Season the title offers, in the title's own order.
@@ -292,6 +294,36 @@ pub(crate) fn meta_item(details: &MetaDetails) -> Option<&MetaItem> {
             Some(Loadable::Ready(item)) => Some(item),
             _ => None,
         })
+}
+
+/// Whether the placeholder rows are worth showing while the Streams load: there is an account, and
+/// one of its addons claims the Stream resource for this title or Video.
+///
+/// Without an account the addons are the stock ones, which answer Streams for almost nothing: the
+/// rows would be a promise the app cannot keep, so the message is shown from the first frame. With
+/// no addon claiming Streams there is nothing to wait for either way.
+pub(crate) fn waits_for_streams(
+    model: &AppModel,
+    selected: Option<&DetailsSelected>,
+    picked: Option<&str>,
+) -> bool {
+    let Some(selected) = selected else {
+        return false;
+    };
+    if model.ctx.profile.auth.is_none() {
+        return false;
+    }
+    let path = ResourcePath::without_extra(
+        STREAM_RESOURCE_NAME,
+        &selected.meta_path.r#type,
+        picked.unwrap_or(&selected.meta_path.id),
+    );
+    model
+        .ctx
+        .profile
+        .addons
+        .iter()
+        .any(|addon| addon.manifest.is_resource_supported(&path))
 }
 
 pub fn data(
@@ -355,6 +387,7 @@ pub fn data(
         steps: picked.and_then(|picked| steps(videos, picked, moved)),
         streams,
         sources_loading: loading,
+        waits_for_streams: waits_for_streams(model, details.selected.as_ref(), picked),
         show_picker: shows_picker(picked, &listed),
         picked_label: picked.and_then(|picked| picked_label(videos, picked)),
         next_episode: picked.and_then(|picked| {

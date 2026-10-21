@@ -97,8 +97,9 @@ component StreamRow inherits Rectangle {
     }
 }
 
-// Web: <Stream.Placeholder> — the bars that stand in until an addon answers: a 5x2rem addon bar
-// over description bars at 80% and 40%.
+// Web: `.stream-placeholder-container` — the bars that stand in until an addon answers: a 5x2rem
+// addon bar, description bars at 80% and 40%, and a play glyph pinned to the right. All of them in
+// the placeholder grey rather than the white overlay the rest of the panel uses.
 component StreamPlaceholder inherits Rectangle {
     in property <length> rem-size;
 
@@ -111,11 +112,16 @@ component StreamPlaceholder inherits Rectangle {
         padding-right: 1 * root.rem-size;
         spacing: 1 * root.rem-size;
 
-        Rectangle {
-            width: 5 * root.rem-size;
-            height: 2 * root.rem-size;
-            border-radius: 0.75 * root.rem-size;
-            background: Theme.overlay;
+        // Web: `.addon-container` — a layout stretches its children across its axis, so the bar
+        // needs a column of its own to be centred in, level with the bars beside it.
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 5 * root.rem-size;
+                height: 2 * root.rem-size;
+                border-radius: 0.75 * root.rem-size;
+                background: Theme.placeholder-background;
+            }
         }
         VerticalLayout {
             alignment: center;
@@ -124,13 +130,28 @@ component StreamPlaceholder inherits Rectangle {
                 height: 1.2 * root.rem-size;
                 width: 80%;
                 border-radius: 0.75 * root.rem-size;
-                background: Theme.overlay;
+                background: Theme.placeholder-background;
             }
             Rectangle {
                 height: 1.2 * root.rem-size;
                 width: 40%;
                 border-radius: 0.75 * root.rem-size;
-                background: Theme.overlay;
+                background: Theme.placeholder-background;
+            }
+        }
+
+        // Web: `.play-icon` — a 3.5x5rem box holding only the glyph, so the row reads as a Stream
+        // that has not arrived rather than a row that is missing something.
+        Rectangle {
+            width: 3.5 * root.rem-size;
+            height: 5 * root.rem-size;
+            Image {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                width: 2.4 * root.rem-size;
+                height: 2.4 * root.rem-size;
+                source: @image-url("icons/play.svg");
+                colorize: Theme.placeholder-background;
             }
         }
     }
@@ -343,6 +364,7 @@ component DetailsPanel inherits Rectangle {
     in property <string> picked-label;
     in property <[StreamData]> streams;
     in property <int> streams-loading: 0;
+    in property <bool> waits-for-streams: false;
     in property <string> play-message;
     in property <bool> has-steps: false;
     in property <int> season-number: 0;
@@ -441,16 +463,18 @@ component DetailsPanel inherits Rectangle {
             }
 
             // Web: nothing Ready yet means two placeholders — and nothing of the last
-            // Episode's list survives the swap.
-            if root.streams.length == 0 && root.streams-loading > 0: VerticalLayout {
+            // Episode's list survives the swap. Only while an addon that offers Streams is
+            // still out: with none installed the rows would be a wait for nothing.
+            if root.streams.length == 0 && root.streams-loading > 0 && root.waits-for-streams: VerticalLayout {
                 alignment: start;
                 StreamPlaceholder { rem-size: root.rem-size; }
                 StreamPlaceholder { rem-size: root.rem-size; }
             }
 
             // Web: `.message-container` stands where the list would be once the addons have all
-            // answered and none of them offered a stream.
-            if root.streams.length == 0 && root.streams-loading == 0: ScrollView {
+            // answered and none of them offered a stream. It stands there from the first frame
+            // when nothing is going to answer, rather than leaving the panel blank to wait.
+            if root.streams.length == 0 && !(root.streams-loading > 0 && root.waits-for-streams): ScrollView {
                 StreamsMessage {
                     rem-size: root.rem-size;
                     show-steps: root.has-steps;
@@ -517,6 +541,7 @@ export component DetailsScreen inherits Rectangle {
     in property <string> picked-label;
     in property <[StreamData]> streams;
     in property <int> streams-loading: 0;
+    in property <bool> waits-for-streams: false;
     in property <string> play-message;
     in property <bool> has-steps: false;
     in property <int> season-number: 0;
@@ -579,6 +604,7 @@ export component DetailsScreen inherits Rectangle {
             picked-label: root.picked-label;
             streams: root.streams;
             streams-loading: root.streams-loading;
+            waits-for-streams: root.waits-for-streams;
             play-message: root.play-message;
             has-steps: root.has-steps;
             season-number: root.season-number;

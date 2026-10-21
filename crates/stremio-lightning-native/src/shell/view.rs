@@ -97,6 +97,7 @@ fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
             .collect::<Vec<_>>(),
     )));
     window.set_streams_loading(i32::try_from(details.sources_loading).unwrap_or_default());
+    window.set_details_waits_for_streams(details.waits_for_streams);
 
     window.set_details_show_picker(details.show_picker);
     window.set_details_has_steps(details.steps.is_some());

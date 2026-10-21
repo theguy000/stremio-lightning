@@ -48,6 +48,9 @@ export component MainWindow inherits Window {
     in property <bool> details-can-show-streams: false;
     in property <[StreamData]> streams: [];
     in property <int> streams-loading: 0;
+    // False when nothing is going to answer with Streams: no account, or no addon that serves
+    // them. The placeholder rows would be a wait for nothing.
+    in property <bool> details-waits-for-streams: false;
     // The episode picker: shown instead of the Streams while no Episode has been picked.
     in property <bool> details-show-picker: false;
     in property <[SelectOption]> details-seasons: [];
@@ -163,6 +166,7 @@ export component MainWindow inherits Window {
         show-picker: root.details-show-picker;
         streams: root.streams;
         streams-loading: root.streams-loading;
+        waits-for-streams: root.details-waits-for-streams;
         play-message: root.play-message;
         has-steps: root.details-has-steps;
         season-number: root.details-season-number;
