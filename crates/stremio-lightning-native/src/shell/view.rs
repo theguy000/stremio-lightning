@@ -8,10 +8,11 @@ use slint::{ModelRc, SharedString, VecModel, Weak};
 use crate::app::Snapshot;
 use crate::plumbing::images::Images;
 use crate::screens::settings::Data as SettingsData;
+use crate::screens::Preview;
 use crate::screens::{Card, Input};
 use crate::{
-    AddonData, CatalogRow, EpisodeData, LinkGroup, MainWindow, PosterData, PreviewData,
-    SelectInputData, SelectOption, SettingsViewData, StreamData,
+    AddonData, CatalogRow, LinkGroup, MainWindow, PosterData, PreviewData, SelectInputData,
+    SelectOption, SettingsViewData, StreamData, VideoRow,
 };
 
 /// Copies everything a snapshot describes onto the window. Runs on the window's thread.
@@ -54,37 +55,7 @@ fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
             .discover
             .previews
             .iter()
-            .map(|preview| {
-                let logo = images.get(&preview.logo);
-                let background = images.get(&preview.background);
-                PreviewData {
-                    title: preview.title.clone().into(),
-                    runtime: preview.runtime.clone().into(),
-                    release_info: preview.release.clone().into(),
-                    rating: preview.rating.clone().into(),
-                    description: preview.description.clone().into(),
-                    groups: ModelRc::new(VecModel::from(
-                        preview
-                            .groups
-                            .iter()
-                            .map(|(label, links)| LinkGroup {
-                                label: label.clone().into(),
-                                links: ModelRc::new(VecModel::from(
-                                    links
-                                        .iter()
-                                        .map(|link| SharedString::from(link.clone()))
-                                        .collect::<Vec<_>>(),
-                                )),
-                            })
-                            .collect::<Vec<_>>(),
-                    )),
-                    has_trailer: preview.has_trailer,
-                    has_logo: logo.is_some(),
-                    logo: logo.unwrap_or_default(),
-                    has_background: background.is_some(),
-                    background: background.unwrap_or_default(),
-                }
-            })
+            .map(|preview| preview_data(preview, images))
             .collect::<Vec<_>>(),
     )));
 
@@ -110,12 +81,9 @@ fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
     window.set_settings(settings_view(&snapshot.settings));
 
     let details = &snapshot.details;
-    if let Some(title) = details.title.clone() {
-        let poster = images.get(&details.poster);
-        window.set_details_title(title.into());
-        window.set_details_description(details.description.clone().into());
-        window.set_details_has_poster(poster.is_some());
-        window.set_details_poster(poster.unwrap_or_default());
+    window.set_details_has_preview(details.preview.is_some());
+    if let Some(preview) = &details.preview {
+        window.set_details_preview(preview_data(preview, images));
     }
     window.set_details_status(details.status.clone().into());
     window.set_streams(ModelRc::new(VecModel::from(
@@ -156,15 +124,52 @@ fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
             .iter()
             .map(|episode| {
                 let thumbnail = images.get(&episode.thumbnail);
-                EpisodeData {
-                    label: episode.label.clone().into(),
+                VideoRow {
+                    id: episode.id.clone().into(),
                     title: episode.title.clone().into(),
+                    released: episode.released.clone().into(),
                     has_thumbnail: thumbnail.is_some(),
                     thumbnail: thumbnail.unwrap_or_default(),
+                    // Picking is the next slice: nothing is picked yet.
+                    selected: false,
                 }
             })
             .collect::<Vec<_>>(),
     )));
+}
+
+/// The preview panel's content — the same panel Discover opens on hover and the details screen
+/// shows beside its list.
+fn preview_data(preview: &Preview, images: &Images) -> PreviewData {
+    let logo = images.get(&preview.logo);
+    let background = images.get(&preview.background);
+    PreviewData {
+        title: preview.title.clone().into(),
+        runtime: preview.runtime.clone().into(),
+        release_info: preview.release.clone().into(),
+        rating: preview.rating.clone().into(),
+        description: preview.description.clone().into(),
+        groups: ModelRc::new(VecModel::from(
+            preview
+                .groups
+                .iter()
+                .map(|(label, links)| LinkGroup {
+                    label: label.clone().into(),
+                    links: ModelRc::new(VecModel::from(
+                        links
+                            .iter()
+                            .map(|link| SharedString::from(link.clone()))
+                            .collect::<Vec<_>>(),
+                    )),
+                })
+                .collect::<Vec<_>>(),
+        )),
+        has_trailer: preview.has_trailer,
+        has_logo: logo.is_some(),
+        logo: logo.unwrap_or_default(),
+        has_background: background.is_some(),
+        background: background.unwrap_or_default(),
+    }
 }
 
 fn poster_data(card: &Card, images: &Images) -> PosterData {

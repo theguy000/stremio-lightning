@@ -1,0 +1,224 @@
+// Based on stremio-web (https://github.com/Stremio/stremio-web), Copyright (C) 2017-2023 Smart code 203358507.
+// Numbers translated by hand from src/routes/MetaDetails/VideosList/styles.less,
+// src/routes/MetaDetails/VideosList/SeasonsBar/styles.less, src/components/Video/styles.less
+// and src/App/styles.less (--border-radius 0.75rem, --overlay-color rgba(255,255,255,0.05)).
+// Licence basis: ../THIRD_PARTY_NOTICES.md. Element ids reuse the web class names where one exists.
+//
+// Two differences from the web, both because Slint has no equivalent: the list column's
+// `backdrop-filter: blur(15px)` is dropped (meta-details.slint), and a selected row
+// (`animation: border 3s`) keeps its accent border instead of fading it out.
+import { ScrollView } from "std-widgets.slint";
+import { ClassStyles } from "class-styles.slint";
+import { MultiselectMenu, SelectOption } from "multiselect-menu.slint";
+import { Theme } from "theme.slint";
+
+// One Episode of the chosen Season. `id` is the Video id the pick carries back to the core.
+export struct VideoRow {
+    id: string,
+    title: string,
+    released: string,
+    has-thumbnail: bool,
+    thumbnail: image,
+    selected: bool,
+}
+
+// Web: SeasonsBar's prev/next `Button` — a 6.5rem pill holding a chevron and a label.
+component SeasonButton inherits Rectangle {
+    in property <string> label;
+    in property <image> glyph;
+    in property <bool> disabled;
+    in property <length> rem-size;
+    callback clicked;
+
+    width: 6.5 * root.rem-size;
+    height: 3 * root.rem-size;
+    border-radius: 3 * root.rem-size;
+    background: touch.has-hover && !root.disabled ? Theme.overlay : transparent;
+
+    HorizontalLayout {
+        padding: 0.5 * root.rem-size;
+        spacing: 0.5 * root.rem-size;
+        alignment: center;
+        Image {
+            width: 1.5 * root.rem-size;
+            height: 1.5 * root.rem-size;
+            source: root.glyph;
+            colorize: Theme.text;
+            opacity: root.disabled ? 0.3 : 1;
+        }
+        Text {
+            max-height: 1.2 * root.rem-size;
+            text: root.label;
+            color: Theme.text;
+            font-size: root.rem-size;
+            font-weight: 500;
+            opacity: root.disabled ? 0.3 : 1;
+            vertical-alignment: center;
+            horizontal-alignment: center;
+            overflow: elide;
+        }
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            if (!root.disabled) {
+                root.clicked();
+            }
+        }
+    }
+}
+
+// Web: `.video-container` — a 5rem thumbnail, the title over its release line, and a play
+// button, inside a 0.15rem border that carries the accent colour on the picked Episode.
+component VideoListItem inherits Rectangle {
+    in property <VideoRow> episode;
+    in property <length> rem-size;
+    callback clicked;
+
+    height: 6.3 * root.rem-size;
+    border-width: 0.15 * root.rem-size;
+    border-color: root.episode.selected ? Theme.accent : transparent;
+    border-radius: 0.75 * root.rem-size;
+    background: ClassStyles.background-or(ClassStyles.video_container, touch.has-hover ? Theme.overlay : transparent);
+
+    HorizontalLayout {
+        padding: 0.5 * root.rem-size;
+        spacing: 0;
+
+        Rectangle {
+            width: 8 * root.rem-size;
+            height: 5 * root.rem-size;
+            border-radius: 0.3 * root.rem-size;
+            background: Theme.overlay;
+            clip: true;
+            if root.episode.has-thumbnail: Image {
+                width: 100%;
+                height: 100%;
+                source: root.episode.thumbnail;
+                image-fit: cover;
+                opacity: 0.9;
+            }
+        }
+
+        VerticalLayout {
+            padding-left: 1.5 * root.rem-size;
+            padding-right: 0.5 * root.rem-size;
+            alignment: center;
+            spacing: 1 * root.rem-size;
+            Text {
+                text: root.episode.title;
+                color: Theme.text;
+                font-size: root.rem-size;
+                wrap: word-wrap;
+                overflow: elide;
+            }
+            Text {
+                text: root.episode.released;
+                color: Theme.text;
+                opacity: 0.44;
+                font-size: 0.8 * root.rem-size;
+                font-weight: 500;
+                overflow: elide;
+            }
+        }
+
+        Rectangle {
+            width: 3 * root.rem-size;
+            height: 3 * root.rem-size;
+            border-radius: 1.5 * root.rem-size;
+            background: play.has-hover ? Theme.accent-green : Theme.overlay;
+            HorizontalLayout {
+                alignment: center;
+                Image {
+                    width: 1.5 * root.rem-size;
+                    height: 1.5 * root.rem-size;
+                    source: @image-url("icons/play.svg");
+                    colorize: Theme.text;
+                }
+            }
+            play := TouchArea {
+                mouse-cursor: pointer;
+                clicked => {
+                    root.clicked();
+                }
+            }
+        }
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// Web: VideosList — the Seasons bar over the Episodes of the chosen Season.
+export component VideosList inherits Rectangle {
+    in property <[SelectOption]> seasons;
+    in property <int> season-index: 0;
+    in property <string> season-title;
+    in property <[VideoRow]> videos;
+    in property <length> rem-size;
+    callback select-season(int);
+    callback pick-video(string);
+
+    background: ClassStyles.background-or(ClassStyles.videos_list_container, transparent);
+    visible: !(ClassStyles.videos_list_container).hidden;
+
+    // Web: .seasons-bar carries 0.5rem 1rem 1rem margins around a bar that pads by 1rem itself.
+    VerticalLayout {
+        padding-left: 1 * root.rem-size;
+        padding-right: 1 * root.rem-size;
+        padding-top: 1.5 * root.rem-size;
+        spacing: 0.5 * root.rem-size;
+
+        HorizontalLayout {
+            padding: 1 * root.rem-size;
+            spacing: 0.5 * root.rem-size;
+            alignment: space-between;
+
+            SeasonButton {
+                label: "Previous";
+                glyph: @image-url("icons/chevron-back.svg");
+                disabled: root.season-index <= 0;
+                rem-size: root.rem-size;
+                clicked => {
+                    root.select-season(Math.max(root.season-index - 1, 0));
+                }
+            }
+            MultiselectMenu {
+                horizontal-stretch: 1;
+                title: root.season-title;
+                options: root.seasons;
+                selected-index: root.season-index;
+                rem-size: root.rem-size;
+                select(index) => {
+                    root.select-season(index);
+                }
+            }
+            SeasonButton {
+                label: "Next";
+                glyph: @image-url("icons/chevron-forward.svg");
+                disabled: root.season-index >= root.seasons.length - 1;
+                rem-size: root.rem-size;
+                clicked => {
+                    root.select-season(Math.min(root.season-index + 1, root.seasons.length - 1));
+                }
+            }
+        }
+
+        // Web: .videos-container — flex 1, 0 1rem padding, overflows.
+        ScrollView {
+            VerticalLayout {
+                alignment: start;
+                for video[index] in root.videos: VideoListItem {
+                    episode: video;
+                    rem-size: root.rem-size;
+                    clicked => {
+                        root.pick-video(video.id);
+                    }
+                }
+            }
+        }
+    }
+}

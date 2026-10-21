@@ -123,7 +123,20 @@ fn request_images(snapshot: &Snapshot, context: &Context) {
                 .iter()
                 .filter_map(|card| card.poster.clone()),
         )
-        .chain(snapshot.details.poster.clone())
+        .chain(
+            snapshot
+                .details
+                .preview
+                .as_ref()
+                .and_then(|preview| preview.logo.clone()),
+        )
+        .chain(
+            snapshot
+                .details
+                .preview
+                .as_ref()
+                .and_then(|preview| preview.background.clone()),
+        )
         .chain(
             snapshot
                 .details

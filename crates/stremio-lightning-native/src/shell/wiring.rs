@@ -53,18 +53,19 @@ impl Wiring {
         shell::show(&self.window, snapshot, &self.images);
     }
 
-    fn open_item(&self, id: String, kind: String, title: String) {
+    fn open_item(&self, id: String, kind: String, _title: String) {
         // Drop what the previous item left behind so it can't flash up before the new data.
         self.latest.lock().unwrap().details = details::Data::default();
         // A new title opens on the Season the core suggests, not the one last browsed.
         self.season.store(details::NO_SEASON, Ordering::Relaxed);
         if let Some(window) = self.window.upgrade() {
-            window.set_details_title(title.into());
-            window.set_details_description("".into());
-            window.set_details_has_poster(false);
+            window.set_details_has_preview(false);
             window.set_details_status("Loading...".into());
             window.set_play_message("".into());
             window.set_streams(ModelRc::default());
+            window.set_details_seasons(ModelRc::default());
+            window.set_details_episodes(ModelRc::default());
+            window.set_details_show_picker(false);
         }
         details::open(&self.runtime, &id, &kind);
     }

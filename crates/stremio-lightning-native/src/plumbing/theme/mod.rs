@@ -104,6 +104,8 @@ elements! {
     set_avatar_container => ["avatar-container"],
     set_email_label => ["email-label"],
     set_link => ["link", "button-container"],
+    set_videos_list_container => ["videos-list-container"],
+    set_video_container => ["video-container"],
     // Intro & authentication overlay
     set_intro_container => ["intro-container"],
     set_background_container => ["background-container"],

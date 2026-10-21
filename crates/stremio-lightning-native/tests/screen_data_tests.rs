@@ -43,10 +43,10 @@ fn a_new_install_shows_every_screen_without_waiting_for_anything() {
     assert!(discover.cards.is_empty());
     assert!(screens::discover::preview_images(&discover, 0).is_empty());
 
-    // Details has no item, so it keeps whatever title the window already shows, and offers no
-    // episode picker because nothing has answered with a title that could have Seasons.
+    // Details has no item, so it has no panel to show and offers no episode picker, because
+    // nothing has answered with a title that could have Seasons.
     let details = screens::details::data(&model, None);
-    assert_eq!(details.title, None);
+    assert!(details.preview.is_none());
     assert!(details.streams.is_empty());
     assert!(details.seasons.is_empty());
     assert!(!details.show_picker);

@@ -1,0 +1,128 @@
+// Based on stremio-web (https://github.com/Stremio/stremio-web), Copyright (C) 2017-2024 Smart code 203358507.
+// Numbers translated by hand from src/routes/MetaDetails/styles.less and src/App/styles.less.
+// Licence basis: ../THIRD_PARTY_NOTICES.md. Element ids reuse the web class names where one exists.
+//
+// Web: `.metadetails-content` — a row holding the MetaPreview panel, a flexible spacer, and a
+// 30rem column for the Episodes or the Streams. The column's `backdrop-filter: blur(15px)` has no
+// Slint equivalent, so only its 0.4 black shows through.
+import { ScrollView } from "std-widgets.slint";
+import { SelectOption } from "multiselect-menu.slint";
+import { MetaPreview, PreviewData } from "meta-preview.slint";
+import { Theme } from "theme.slint";
+import { VideoRow, VideosList } from "videos-list.slint";
+
+// One source offered for the chosen Video. Kept here so the details screen owns both bodies.
+export struct StreamData {
+    name: string,
+    description: string,
+}
+
+export component DetailsScreen inherits Rectangle {
+    in property <PreviewData> preview;
+    in property <bool> has-preview: false;
+    in property <[VideoRow]> episodes;
+    in property <[SelectOption]> seasons;
+    in property <int> season-index: 0;
+    in property <string> season-title;
+    in property <bool> show-picker: false;
+    in property <[StreamData]> streams;
+    in property <string> status;
+    in property <string> play-message;
+    in property <length> rem-size: 14px;
+    callback select-season(int);
+    callback pick-video(string);
+    callback play-stream(int);
+
+    HorizontalLayout {
+        // Web: .meta-preview — flex 0 1 auto with `padding: 0 4rem 2rem 4rem`.
+        Rectangle {
+            horizontal-stretch: 1;
+            VerticalLayout {
+                padding-left: 4 * root.rem-size;
+                padding-right: 4 * root.rem-size;
+                padding-bottom: 2 * root.rem-size;
+                MetaPreview {
+                    preview: root.preview;
+                    has-preview: root.has-preview;
+                    rem-size: root.rem-size;
+                }
+            }
+        }
+
+        // Web: .videos-list / .streams-list — flex 0 0 30rem, rounded on the left, 0.4 black.
+        Rectangle {
+            width: 30 * root.rem-size;
+            background: #00000066;
+            border-radius: 0.75 * root.rem-size;
+
+            if root.show-picker: VideosList {
+                seasons: root.seasons;
+                season-index: root.season-index;
+                season-title: root.season-title;
+                videos: root.episodes;
+                rem-size: root.rem-size;
+                select-season(index) => {
+                    root.select-season(index);
+                }
+                pick-video(id) => {
+                    root.pick-video(id);
+                }
+            }
+
+            // Until the Streams list is ported, it keeps this shell's own row: name over
+            // description, with the count line above it.
+            if root.show-picker == false: VerticalLayout {
+                padding: 1 * root.rem-size;
+                spacing: 0.5 * root.rem-size;
+                Text {
+                    text: root.status;
+                    color: Theme.text;
+                    opacity: 0.6;
+                    font-size: 0.8 * root.rem-size;
+                }
+                Text {
+                    text: root.play-message;
+                    color: Theme.accent-red;
+                    font-size: 0.9 * root.rem-size;
+                    wrap: word-wrap;
+                }
+                ScrollView {
+                    VerticalLayout {
+                        alignment: start;
+                        spacing: 0.5 * root.rem-size;
+                        for stream[index] in root.streams: Rectangle {
+                            height: 4.5 * root.rem-size;
+                            background: Theme.overlay;
+                            border-radius: 0.75 * root.rem-size;
+                            TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => {
+                                    root.play-stream(index);
+                                }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                padding: 0.75 * root.rem-size;
+                                spacing: 0.15 * root.rem-size;
+                                Text {
+                                    text: stream.name;
+                                    color: Theme.text;
+                                    font-size: root.rem-size;
+                                    font-weight: 600;
+                                    overflow: elide;
+                                }
+                                Text {
+                                    text: stream.description;
+                                    color: Theme.text;
+                                    opacity: 0.5;
+                                    font-size: 0.8 * root.rem-size;
+                                    overflow: elide;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

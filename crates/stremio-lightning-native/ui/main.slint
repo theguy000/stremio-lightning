@@ -1,4 +1,4 @@
-import { Button, ScrollView } from "std-widgets.slint";
+import { Button } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 import { HorizontalNavBar, Section, VerticalNavBar } from "shell.slint";
 import { BoardContent, CatalogRow, PosterData } from "board.slint";
@@ -6,26 +6,15 @@ import { AddonData, AddonsContent } from "addons.slint";
 import { DiscoverContent, SelectInputData } from "discover.slint";
 import { LoggedOutPlaceholder } from "logged-out-placeholder.slint";
 import { SettingsContent, SettingsViewData } from "settings.slint";
-import { MultiselectMenu, SelectOption } from "multiselect-menu.slint";
+import { SelectOption } from "multiselect-menu.slint";
 import { LinkGroup, PreviewData } from "meta-preview.slint";
-export { AddonData, LinkGroup, PreviewData, SelectInputData, SelectOption, SettingsViewData }
+import { DetailsScreen, StreamData } from "details-screen.slint";
+import { VideoRow } from "videos-list.slint";
+export { AddonData, LinkGroup, PreviewData, SelectInputData, SelectOption, SettingsViewData, StreamData, VideoRow }
 import { ClassStyle, ClassStyles } from "class-styles.slint";
 import { IntroContent } from "intro.slint";
 
 export { CatalogRow, ClassStyle, ClassStyles, PosterData }
-
-export struct StreamData {
-    name: string,
-    description: string,
-}
-
-// One row of the episode picker: `S2E5` or `SPECIAL 5`, the Episode's title, and its thumbnail.
-export struct EpisodeData {
-    label: string,
-    title: string,
-    has-thumbnail: bool,
-    thumbnail: image,
-}
 
 export component MainWindow inherits Window {
     title: "Stremio Lightning";
@@ -50,10 +39,8 @@ export component MainWindow inherits Window {
     in property <SettingsViewData> settings;
 
     in-out property <bool> details-open: false;
-    in property <string> details-title;
-    in property <string> details-description;
-    in property <image> details-poster;
-    in property <bool> details-has-poster: false;
+    in property <PreviewData> details-preview;
+    in property <bool> details-has-preview: false;
     in property <string> details-status;
     in property <[StreamData]> streams: [];
     // The episode picker: shown instead of the Streams while no Episode has been picked.
@@ -61,7 +48,7 @@ export component MainWindow inherits Window {
     in property <[SelectOption]> details-seasons: [];
     in property <int> details-season-index: 0;
     in property <string> details-season-title;
-    in property <[EpisodeData]> details-episodes: [];
+    in property <[VideoRow]> details-episodes: [];
     in-out property <bool> playing: false;
     in-out property <Section> section: Section.board;
     in-out property <bool> auth-open: false;
@@ -139,177 +126,28 @@ export component MainWindow inherits Window {
         }
     }
 
-    if root.details-open && !root.playing: VerticalLayout {
+    // Web: the details route — MetaPreview beside a 30rem column of Episodes or Streams.
+    if root.details-open && !root.playing: DetailsScreen {
         x: root.nav-width;
         y: root.bar-height;
         width: parent.width - root.nav-width;
         height: parent.height - root.bar-height;
-        padding: 24px;
-        spacing: 14px;
-
-        HorizontalLayout {
-            alignment: start;
-            Button {
-                text: "< Back";
-                clicked => {
-                    root.details-open = false;
-                }
-            }
+        rem-size: root.rem-size;
+        preview: root.details-preview;
+        has-preview: root.details-has-preview;
+        episodes: root.details-episodes;
+        seasons: root.details-seasons;
+        season-index: root.details-season-index;
+        season-title: root.details-season-title;
+        show-picker: root.details-show-picker;
+        streams: root.streams;
+        status: root.details-status;
+        play-message: root.play-message;
+        select-season(index) => {
+            root.select-season(index);
         }
-        HorizontalLayout {
-            spacing: 20px;
-            Rectangle {
-                width: 200px;
-                height: 300px;
-                background: #1b1a24;
-                border-radius: 8px;
-                clip: true;
-                if root.details-has-poster: Image {
-                    source: root.details-poster;
-                    width: 100%;
-                    height: 100%;
-                    image-fit: cover;
-                }
-            }
-            VerticalLayout {
-                spacing: 8px;
-                alignment: start;
-                Text {
-                    text: root.details-title;
-                    color: white;
-                    font-size: 28px;
-                    font-weight: 700;
-                    wrap: word-wrap;
-                }
-                Text {
-                    text: root.details-description;
-                    color: #c9c7d8;
-                    font-size: 14px;
-                    wrap: word-wrap;
-                }
-            }
-        }
-        if root.details-show-picker: HorizontalLayout {
-            spacing: 8px;
-            alignment: start;
-            Button {
-                text: "‹";
-                enabled: root.details-season-index > 0;
-                clicked => {
-                    root.select-season(root.details-season-index - 1);
-                }
-            }
-            MultiselectMenu {
-                width: 16 * root.rem-size;
-                title: root.details-season-title;
-                options: root.details-seasons;
-                selected-index: root.details-season-index;
-                rem-size: root.rem-size;
-                select(index) => {
-                    root.select-season(index);
-                }
-            }
-            Button {
-                text: "›";
-                enabled: root.details-season-index < root.details-seasons.length - 1;
-                clicked => {
-                    root.select-season(root.details-season-index + 1);
-                }
-            }
-        }
-        Text {
-            text: root.details-show-picker ? "Episodes" : "Streams";
-            color: white;
-            font-size: 18px;
-            font-weight: 600;
-        }
-        if root.details-show-picker == false: Text {
-            text: root.details-status;
-            color: #9d9bb0;
-            font-size: 13px;
-        }
-        Text {
-            text: root.play-message;
-            color: #ff8a8a;
-            font-size: 13px;
-            wrap: word-wrap;
-        }
-        if root.details-show-picker: ScrollView {
-            VerticalLayout {
-                alignment: start;
-                spacing: 8px;
-                for episode[index] in root.details-episodes: Rectangle {
-                    height: 64px;
-                    background: #1b1a24;
-                    border-radius: 6px;
-                    HorizontalLayout {
-                        padding: 8px;
-                        spacing: 12px;
-                        Rectangle {
-                            width: 80px;
-                            height: 48px;
-                            background: #2a2843;
-                            border-radius: 4px;
-                            clip: true;
-                            if episode.has-thumbnail: Image {
-                                source: episode.thumbnail;
-                                width: 100%;
-                                height: 100%;
-                                image-fit: cover;
-                            }
-                        }
-                        VerticalLayout {
-                            alignment: center;
-                            spacing: 2px;
-                            Text {
-                                text: episode.label;
-                                color: #9d9bb0;
-                                font-size: 12px;
-                            }
-                            Text {
-                                text: episode.title;
-                                color: white;
-                                font-size: 14px;
-                                font-weight: 600;
-                                overflow: elide;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        if root.details-show-picker == false: ScrollView {
-            VerticalLayout {
-                alignment: start;
-                spacing: 8px;
-                for stream[index] in root.streams: Rectangle {
-                    background: #1b1a24;
-                    border-radius: 6px;
-                    TouchArea {
-                        clicked => {
-                            root.play-stream(index);
-                        }
-                    }
-                    VerticalLayout {
-                        alignment: start;
-                        padding: 10px;
-                        spacing: 2px;
-                        Text {
-                            text: stream.name;
-                            color: white;
-                            font-size: 14px;
-                            font-weight: 600;
-                            wrap: word-wrap;
-                        }
-                        Text {
-                            text: stream.description;
-                            color: #9d9bb0;
-                            font-size: 12px;
-                            wrap: word-wrap;
-                        }
-                    }
-                }
-            }
+        play-stream(index) => {
+            root.play-stream(index);
         }
     }
 
@@ -331,6 +169,11 @@ export component MainWindow inherits Window {
         y: 0px;
         width: parent.width;
         show-search: root.section != Section.addons;
+        // Web: the details route turns the bar's first slot into the way back.
+        show-back: root.details-open;
+        back-clicked => {
+            root.details-open = false;
+        }
         toggle-fullscreen => {
             root.full-screen = !root.full-screen;
         }

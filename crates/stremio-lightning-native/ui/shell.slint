@@ -246,6 +246,9 @@ export component HorizontalNavBar inherits Rectangle {
     callback user-avatar-clicked();
     // Web: the top bar hides its search box on the Addons route.
     in property <bool> show-search: true;
+    // Web: the details route turns the bar's first slot into a back button, hiding the logo.
+    in property <bool> show-back: false;
+    callback back-clicked();
     height: (77 * root.rem-size / 14);
 
     horizontal-nav-bar-container := Rectangle {
@@ -262,7 +265,7 @@ export component HorizontalNavBar inherits Rectangle {
             height: (77 * root.rem-size / 14);
             background: ClassStyles.background-or(ClassStyles.logo-container, transparent);
             opacity: ClassStyles.opacity-or(ClassStyles.logo-container, 1.0);
-            visible: !(ClassStyles.logo-container).hidden;
+            visible: !(ClassStyles.logo-container).hidden && !root.show-back;
 
             // Stremio Lightning's own logo (assets/icons/128x128.png) in the web's logo slot: 35x35 in the 84x77 container.
             logo := Image {
@@ -274,6 +277,30 @@ export component HorizontalNavBar inherits Rectangle {
                 // Web: .logo { opacity: 0.9 }
                 opacity: ClassStyles.opacity-or(ClassStyles.logo, 0.9);
                 visible: !ClassStyles.logo.hidden;
+            }
+        }
+
+        // Web: .back-button-container — the chevron that leaves the details route, in the slot the
+        // logo would otherwise fill. The slot's 84x77 comes from the logo container above.
+        if root.show-back: back-button-container := Rectangle {
+            x: 0px;
+            y: 0px;
+            width: (84 * root.rem-size / 14);
+            height: (77 * root.rem-size / 14);
+
+            back-icon := Image {
+                source: @image-url("icons/chevron-back.svg");
+                x: (29 * root.rem-size / 14);
+                y: (26 * root.rem-size / 14);
+                width: (25 * root.rem-size / 14);
+                height: (25 * root.rem-size / 14);
+                colorize: Theme.text;
+            }
+            back-touch := TouchArea {
+                mouse-cursor: pointer;
+                clicked => {
+                    root.back-clicked();
+                }
             }
         }
 

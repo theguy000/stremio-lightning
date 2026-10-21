@@ -10,6 +10,7 @@ use stremio_core::types::addon::ResourcePath;
 use stremio_core::types::resource::{Stream, StreamUrls, Video};
 use url::Url;
 
+use crate::screens::Preview;
 use crate::{AppModel, AppRuntime};
 
 const MAX_STREAMS: usize = 100;
@@ -28,6 +29,8 @@ pub struct Episode {
     pub id: String,
     pub label: String,
     pub title: String,
+    /// The release date as the row shows it: `Sep 1, 23`, empty when the title gives none.
+    pub released: String,
     pub thumbnail: Option<String>,
 }
 
@@ -71,6 +74,21 @@ pub(crate) fn default_season(videos: &[Video], default_video_id: Option<&str>) -
         .or_else(|| listed.first().map(|season| season.number))
 }
 
+/// Web: `released.toLocaleString(..., { year: '2-digit', month: 'short', day: 'numeric' })`.
+/// Slint has no locale formatting, so this is the same shape spelled out in English.
+fn released_label(date: Option<&chrono::DateTime<chrono::Utc>>) -> String {
+    use chrono::Datelike;
+    match date {
+        Some(date) => format!(
+            "{} {}, {}",
+            date.format("%b"),
+            date.day(),
+            date.format("%y")
+        ),
+        None => String::new(),
+    }
+}
+
 /// The Episodes of one Season, in the order the title supplied them.
 pub(crate) fn episodes(videos: &[Video], season: u32) -> Vec<Episode> {
     videos
@@ -88,6 +106,7 @@ pub(crate) fn episodes(videos: &[Video], season: u32) -> Vec<Episode> {
                     format!("S{}E{}", info.season, info.episode)
                 },
                 title: video.title.clone(),
+                released: released_label(video.released.as_ref()),
                 thumbnail: video.thumbnail.clone(),
             })
         })
@@ -108,9 +127,8 @@ pub(crate) fn shows_picker(seasons: &[Season]) -> bool {
 /// showing the title of the card that was clicked.
 #[derive(Clone, Default)]
 pub struct Data {
-    pub title: Option<String>,
-    pub description: String,
-    pub poster: Option<String>,
+    /// The title's own panel: logo, runtime, links, description. `None` until the addons answer.
+    pub preview: Option<Preview>,
     pub status: String,
     pub streams: Vec<(String, String)>,
     /// True while the screen offers the Episode Picker instead of the Streams.
@@ -188,11 +206,7 @@ pub fn data(model: &AppModel, chosen: Option<u32>) -> Data {
         .collect();
 
     Data {
-        title: item.map(|item| item.preview.name.clone()),
-        description: item
-            .and_then(|item| item.preview.description.clone())
-            .unwrap_or_default(),
-        poster: item.and_then(|item| item.preview.poster.as_ref().map(|url| url.to_string())),
+        preview: item.map(|item| crate::screens::preview_of(&item.preview)),
         status: format!(
             "{found} streams from {ready} sources, {empty} had nothing, {failed} failed, {loading} loading"
         ),
