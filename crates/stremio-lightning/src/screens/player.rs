@@ -1,0 +1,662 @@
+//! The player screen: what it shows, and the actions it can ask the core for.
+//!
+//! The screen is driven by stremio-core's `Player` model, exactly as stremio-web's `/player`
+//! route is. The core resolves the stream into an address (through the streaming server for
+//! torrents), finds the title around it, offers the subtitles, and remembers where the Video was
+//! left. This module turns that into plain data; `plumbing::player` plays it; `shell` joins the
+//! two.
+
+use stremio_core::constants::SUBTITLES_RESOURCE_NAME;
+use stremio_core::models::common::Loadable;
+use stremio_core::models::player::{Player, Selected as PlayerSelected};
+use stremio_core::runtime::msg::{Action, ActionLoad, ActionPlayer};
+use stremio_core::runtime::RuntimeAction;
+use stremio_core::types::addon::{ResourcePath, ResourceRequest};
+use stremio_core::types::player::VideoScale;
+use stremio_core::types::resource::{MetaItem, Subtitles};
+
+use crate::app::{AppModel, AppRuntime};
+use crate::screens::{details, Preview};
+
+/// One Video in the player's side drawer.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Episode {
+    pub id: String,
+    pub label: String,
+    pub title: String,
+    pub picked: bool,
+    pub watched: bool,
+}
+
+/// One subtitle the stream or an addon offers. `id` is what the screen sends back when it is
+/// chosen; `url` is the file mpv is given.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Subtitle {
+    pub id: String,
+    pub title: String,
+    pub language: String,
+    pub url: String,
+}
+
+/// One row of the player's options menu.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct MenuOption {
+    pub label: String,
+    /// "copy-stream", "copy-magnet", "download" or "download-subtitles".
+    pub action: &'static str,
+}
+
+/// Everything the player screen draws that comes from the core's model.
+#[derive(Clone, Default)]
+pub struct Data {
+    /// Whether a Stream is selected: the player is the screen on show.
+    pub open: bool,
+    pub title: String,
+    pub logo: Option<String>,
+    pub background: Option<String>,
+    /// The address mpv opens. `key` says whether it already has it.
+    pub url: Option<String>,
+    pub key: String,
+    /// Where a half-watched Video left off, in seconds.
+    pub resume_at: f64,
+    /// Why there is nothing to play, when there is nothing to play.
+    pub error: String,
+    pub next_label: String,
+    pub has_next: bool,
+    /// How close to the end the next Video is offered, in seconds: the profile's own setting.
+    pub next_notice: f64,
+    /// The Season the drawer is showing, as an index into `seasons`.
+    pub season: usize,
+    pub seasons: Vec<(String, u32)>,
+    pub episodes: Vec<Episode>,
+    pub preview: Option<Preview>,
+    pub options: Vec<MenuOption>,
+    pub subtitles: Vec<Subtitle>,
+    /// The video scale the core remembers for this stream: "contain", "cover" or "fill".
+    pub scale: &'static str,
+}
+
+impl Data {
+    /// The stream's own subtitles first, then every addon's, as one list the menu can show.
+    fn subtitles_of(player: &Player) -> Vec<Subtitle> {
+        let mut rows: Vec<Subtitle> = Vec::new();
+        let mut push = |source: &str, subtitles: &[Subtitles]| {
+            for subtitle in subtitles {
+                rows.push(Subtitle {
+                    id: format!("{source}:{}", subtitle.id),
+                    title: subtitle.lang.clone(),
+                    language: source.to_owned(),
+                    url: subtitle.url.to_string(),
+                });
+            }
+        };
+        if let Some(selected) = player.selected.as_ref() {
+            push("Stream", &selected.stream.subtitles);
+        }
+        for page in &player.subtitles {
+            let Some(Loadable::Ready(list)) = page.content.as_ref() else {
+                continue;
+            };
+            push(&addon_name(&page.request), list);
+        }
+        rows
+    }
+}
+
+/// The addon a request goes to, by the name its manifest gives: the subtitles menu labels a
+/// language by where it came from.
+fn addon_name(request: &ResourceRequest) -> String {
+    request
+        .base
+        .host_str()
+        .map(str::to_owned)
+        .unwrap_or_else(|| "Add-on".to_owned())
+}
+
+/// The address mpv should open for the stream the core resolved.
+fn address(urls: &stremio_core::types::resource::StreamUrls) -> Option<String> {
+    urls.streaming_url
+        .as_ref()
+        .or(urls.download_url.as_ref())
+        .map(ToString::to_string)
+}
+
+/// Web: the player's nav bar title -- the title's name, the Video's own name, and its Season and
+/// Episode, so "Carrie - FIRST PERIOD (1x1)".
+fn title_of(meta: &MetaItem, video_id: Option<&str>) -> String {
+    let name = meta.preview.name.clone();
+    let Some(video) = video_id.and_then(|id| meta.videos.iter().find(|video| video.id == id))
+    else {
+        return name;
+    };
+    let series = video
+        .series_info
+        .as_ref()
+        .map(|info| format!("({}x{})", info.season, info.episode));
+    match (series, video.title.trim()) {
+        (Some(series), "") => format!("{name} {series}"),
+        (Some(series), title) => format!("{name} - {title} {series}"),
+        (None, "") => name,
+        (None, title) => format!("{name} - {title}"),
+    }
+}
+
+/// The stream the details screen lists at `index`, with the requests the player needs to find the
+/// title and the subtitles around it again.
+fn picked(model: &AppModel, index: usize) -> Option<PlayerSelected> {
+    let pages = model.meta_details.streams.iter();
+    let (stream, request) = pages
+        .filter_map(|page| match page.content.as_ref() {
+            Some(Loadable::Ready(list)) => {
+                Some(list.iter().map(move |stream| (stream, &page.request)))
+            }
+            _ => None,
+        })
+        .flatten()
+        .nth(index)?;
+    // The title's own request: the addon that answered with the MetaItem.
+    let meta_request = model
+        .meta_details
+        .meta_items
+        .iter()
+        .find(|item| matches!(item.content, Some(Loadable::Ready(_))))
+        .map(|item| item.request.clone());
+    Some(PlayerSelected {
+        stream: stream.clone(),
+        stream_request: Some(request.clone()),
+        meta_request,
+        subtitles_path: Some(ResourcePath::without_extra(
+            SUBTITLES_RESOURCE_NAME,
+            &request.path.r#type,
+            &request.path.id,
+        )),
+    })
+}
+
+/// Loads the Stream the details screen lists at `index`.
+pub(crate) fn open(runtime: &AppRuntime, index: usize) -> Result<(), String> {
+    let model = runtime
+        .model()
+        .map_err(|_| "the app state is not available".to_owned())?;
+    let selected = picked(&model, index).ok_or("the list changed, pick it again")?;
+    drop(model);
+    runtime.dispatch(RuntimeAction {
+        field: Some(crate::app::AppModelField::Player),
+        action: Action::Load(ActionLoad::Player(Box::new(selected))),
+    });
+    Ok(())
+}
+
+/// The request that names the same title as `request`, for another Video of it.
+fn request_for(request: &ResourceRequest, video_id: &str) -> ResourceRequest {
+    ResourceRequest {
+        base: request.base.clone(),
+        path: ResourcePath::without_extra(
+            request.path.resource.as_str(),
+            &request.path.r#type,
+            video_id,
+        ),
+    }
+}
+
+/// Next Video: the core is told the Video ended, then the same stream source is asked for the
+/// Video that follows. The core's own `next_stream` is used when it found a binge-matched source
+/// for it, as the web's deep link does.
+pub(crate) fn next(runtime: &AppRuntime) -> Result<(), String> {
+    let model = runtime
+        .model()
+        .map_err(|_| "the app state is not available".to_owned())?;
+    let next_video = model
+        .player
+        .next_video
+        .clone()
+        .ok_or("there is no next Video")?;
+    let current = model.player.selected.clone().ok_or("nothing is playing")?;
+    // The core looks for a binge-matched source for the next Video; when it found none, the same
+    // source carries on and the addon is asked for the next Video as it was for this one.
+    let stream = model
+        .player
+        .next_stream
+        .clone()
+        .unwrap_or_else(|| current.stream.clone());
+    let stream_request = current
+        .stream_request
+        .as_ref()
+        .map(|request| request_for(request, &next_video.id));
+    drop(model);
+
+    runtime.dispatch(RuntimeAction {
+        field: Some(crate::app::AppModelField::Player),
+        action: Action::Player(ActionPlayer::NextVideo),
+    });
+    // Picking a Video means loading the player for it, as the details screen's rows do, so the
+    // request names the Video rather than being carried over from the last one.
+    if let Some(request) = stream_request.clone() {
+        runtime.dispatch(RuntimeAction {
+            field: Some(crate::app::AppModelField::Player),
+            action: Action::Load(ActionLoad::Player(Box::new(PlayerSelected {
+                stream,
+                subtitles_path: Some(ResourcePath::without_extra(
+                    SUBTITLES_RESOURCE_NAME,
+                    &request.path.r#type,
+                    &next_video.id,
+                )),
+                stream_request: Some(request),
+                meta_request: current.meta_request,
+            }))),
+        });
+    }
+    Ok(())
+}
+
+/// An Episode picked in the player's side drawer: the same title, the same stream source, another
+/// Video. The core's own `next_stream` is used when it happens to be the one picked.
+pub(crate) fn load_video(runtime: &AppRuntime, video_id: &str) -> Result<(), String> {
+    let model = runtime
+        .model()
+        .map_err(|_| "the app state is not available".to_owned())?;
+    let current = model.player.selected.clone().ok_or("nothing is playing")?;
+    let for_this_video = model
+        .player
+        .next_video
+        .as_ref()
+        .is_some_and(|video| video.id == video_id);
+    let stream = model
+        .player
+        .next_stream
+        .clone()
+        .filter(|_| for_this_video)
+        .unwrap_or_else(|| current.stream.clone());
+    let stream_request = current
+        .stream_request
+        .as_ref()
+        .map(|request| request_for(request, video_id));
+    let subtitles_path = stream_request.as_ref().map(|request| {
+        ResourcePath::without_extra(SUBTITLES_RESOURCE_NAME, &request.path.r#type, video_id)
+    });
+    drop(model);
+    if let Some(request) = stream_request {
+        runtime.dispatch(RuntimeAction {
+            field: Some(crate::app::AppModelField::Player),
+            action: Action::Load(ActionLoad::Player(Box::new(PlayerSelected {
+                stream,
+                stream_request: Some(request),
+                meta_request: current.meta_request,
+                subtitles_path,
+            }))),
+        });
+    }
+    Ok(())
+}
+
+/// The Video reached its end. The core records it; whether another Video follows is the caller's
+/// business, because that is a decision about the screen, not about the model.
+pub(crate) fn ended(runtime: &AppRuntime) {
+    runtime.dispatch(RuntimeAction {
+        field: Some(crate::app::AppModelField::Player),
+        action: Action::Player(ActionPlayer::Ended),
+    });
+}
+
+/// The play head moved. The core turns these into the library's resume point, so it only hears
+/// about them while the picture is actually playing.
+pub(crate) fn time_changed(runtime: &AppRuntime, time: f64, duration: f64, device: String) {
+    runtime.dispatch(RuntimeAction {
+        field: Some(crate::app::AppModelField::Player),
+        action: Action::Player(ActionPlayer::TimeChanged {
+            time: time.max(0.0).round() as u64,
+            duration: duration.max(0.0).round() as u64,
+            device,
+        }),
+    });
+}
+
+/// The user moved the play head themselves.
+pub(crate) fn seek(runtime: &AppRuntime, time: f64, duration: f64, device: String) {
+    runtime.dispatch(RuntimeAction {
+        field: Some(crate::app::AppModelField::Player),
+        action: Action::Player(ActionPlayer::Seek {
+            time: time.max(0.0).round() as u64,
+            duration: duration.max(0.0).round() as u64,
+            device,
+        }),
+    });
+}
+
+pub(crate) fn paused_changed(runtime: &AppRuntime, paused: bool) {
+    runtime.dispatch(RuntimeAction {
+        field: Some(crate::app::AppModelField::Player),
+        action: Action::Player(ActionPlayer::PausedChanged { paused }),
+    });
+}
+
+pub(crate) fn video_params_changed(
+    runtime: &AppRuntime,
+    size: Option<u64>,
+    filename: Option<String>,
+) {
+    use stremio_core::models::player::VideoParams;
+    runtime.dispatch(RuntimeAction {
+        field: Some(crate::app::AppModelField::Player),
+        action: Action::Player(ActionPlayer::VideoParamsChanged {
+            video_params: Some(VideoParams {
+                hash: None,
+                size,
+                filename,
+            }),
+        }),
+    });
+}
+
+/// The video scale the user chose, kept on the stream so the next Video opens the same way. The
+/// stream's own state is carried over: only the scale changes here, not the chosen tracks.
+pub(crate) fn scale_changed(runtime: &AppRuntime, scale: VideoScale) {
+    let Ok(model) = runtime.model() else {
+        return;
+    };
+    let mut state = model.player.stream_state.clone().unwrap_or_default();
+    state.video_scale = Some(scale);
+    drop(model);
+    runtime.dispatch(RuntimeAction {
+        field: Some(crate::app::AppModelField::Player),
+        action: Action::Player(ActionPlayer::StreamStateChanged { state }),
+    });
+    runtime.dispatch(RuntimeAction {
+        field: Some(crate::app::AppModelField::Player),
+        action: Action::Player(ActionPlayer::VideoScaleChanged { video_scale: scale }),
+    });
+}
+
+/// Leaving the player: the core drops the selected Stream, and with it everything the screen was
+/// showing.
+pub(crate) fn unload(runtime: &AppRuntime) {
+    runtime.dispatch(RuntimeAction {
+        field: Some(crate::app::AppModelField::Player),
+        action: Action::Unload,
+    });
+}
+
+/// One press of a season in the drawer: the index of the season in `seasons`, kept by the shell.
+pub(crate) fn season_index(seasons: &[details::Season], wanted: Option<u32>, video: u32) -> usize {
+    let number = wanted.unwrap_or(video);
+    seasons
+        .iter()
+        .position(|season| season.number == number)
+        .unwrap_or(0)
+}
+
+/// The Season the drawer should show, as the shell remembers it. `NO_SEASON` follows the Video
+/// that is playing, which is what the drawer does until a Season is picked.
+pub const NO_SEASON: usize = usize::MAX;
+
+pub(crate) fn chosen_season(stored: usize) -> Option<u32> {
+    (stored != NO_SEASON)
+        .then(|| u32::try_from(stored).ok())
+        .flatten()
+}
+
+/// The whole screen, from the model and the Season the drawer is showing.
+pub fn data(model: &AppModel, wanted_season: Option<u32>) -> Data {
+    let player = &model.player;
+    let Some(selected) = player.selected.as_ref() else {
+        return Data::default();
+    };
+    let meta = player
+        .meta_item
+        .as_ref()
+        .and_then(|item| item.content.as_ref())
+        .and_then(|content| match content {
+            Loadable::Ready(meta) => Some(meta),
+            _ => None,
+        });
+    let video_id = selected.stream_request.as_ref().map(|r| r.path.id.clone());
+    let (urls, error) = match player.stream.as_ref() {
+        Some(Loadable::Ready((urls, _))) => (Some(urls), String::new()),
+        Some(Loadable::Err(error)) => (None, error.message()),
+        Some(Loadable::Loading) | None => (None, String::new()),
+    };
+    let url = urls.and_then(address);
+    let resume_at = player
+        .library_item
+        .as_ref()
+        .filter(|item| {
+            video_id
+                .as_ref()
+                .is_some_and(|id| item.state.video_id.as_deref() == Some(id.as_str()))
+        })
+        .map(|item| item.state.time_offset as f64)
+        .unwrap_or_default();
+    let series_info = player.series_info.as_ref();
+    let playing_season = series_info.map(|info| info.season).unwrap_or_default();
+    let seasons = meta
+        .map(|meta| details::seasons(&meta.videos))
+        .unwrap_or_default();
+    let season = season_index(&seasons, wanted_season, playing_season);
+    let number = seasons
+        .get(season)
+        .map(|season| season.number)
+        .unwrap_or(playing_season);
+    let episodes = meta
+        .map(|meta| {
+            details::episodes(&meta.videos, number)
+                .into_iter()
+                .map(|episode| Episode {
+                    picked: video_id.as_deref() == Some(episode.id.as_str()),
+                    watched: player
+                        .watched
+                        .as_ref()
+                        .is_some_and(|watched| watched.get_video(&episode.id)),
+                    id: episode.id,
+                    label: episode.label,
+                    title: episode.title,
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let next_label = player
+        .next_video
+        .as_ref()
+        .and_then(|video| {
+            meta.map(|meta| {
+                details::picked_label(&meta.videos, &video.id)
+                    .unwrap_or_else(|| title_of(meta, Some(&video.id)))
+            })
+        })
+        .unwrap_or_default();
+    let options = options_of(player);
+    let scale = player
+        .stream_state
+        .as_ref()
+        .and_then(|state| state.video_scale)
+        .or(player.video_scale)
+        .unwrap_or(VideoScale::Contain);
+
+    Data {
+        open: true,
+        title: meta
+            .map(|meta| title_of(meta, video_id.as_deref()))
+            .unwrap_or_default(),
+        logo: meta.and_then(|meta| {
+            meta.preview
+                .logo
+                .as_ref()
+                .map(|url| format!("{url}{}", crate::plumbing::images::LOGO_SUFFIX))
+        }),
+        background: meta.and_then(|meta| {
+            meta.preview
+                .background
+                .as_ref()
+                .or(meta.preview.poster.as_ref())
+                .map(|url| format!("{url}{}", crate::plumbing::images::BLUR_SUFFIX))
+        }),
+        key: format!(
+            "{}|{}",
+            url.clone().unwrap_or_default(),
+            video_id.clone().unwrap_or_default()
+        ),
+        url,
+        resume_at,
+        error,
+        next_label,
+        has_next: player.next_video.is_some(),
+        next_notice: f64::from(model.ctx.profile.settings.next_video_notification_duration)
+            / 1000.0,
+        season,
+        seasons: seasons
+            .iter()
+            .map(|season| (season.label.clone(), season.number))
+            .collect(),
+        episodes,
+        preview: meta.map(|meta| crate::screens::preview_of(&meta.preview)),
+        options,
+        subtitles: Data::subtitles_of(player),
+        scale: match scale {
+            VideoScale::Contain => "contain",
+            VideoScale::Cover => "cover",
+            VideoScale::Fill => "fill",
+        },
+    }
+}
+
+/// Web: OptionsMenu -- the links the stream itself offers, in the order the web lists them.
+fn options_of(player: &Player) -> Vec<MenuOption> {
+    let Some(Loadable::Ready((urls, _))) = player.stream.as_ref() else {
+        return Vec::new();
+    };
+    let mut options = Vec::new();
+    if urls.streaming_url.is_some() || urls.download_url.is_some() {
+        options.push(MenuOption {
+            label: "Copy stream link".to_owned(),
+            action: "copy-stream",
+        });
+    }
+    if urls.magnet_url.is_some() {
+        options.push(MenuOption {
+            label: "Copy magnet link".to_owned(),
+            action: "copy-magnet",
+        });
+    }
+    if urls.download_url.is_some() {
+        options.push(MenuOption {
+            label: "Download video".to_owned(),
+            action: "download",
+        });
+    }
+    if player
+        .selected
+        .as_ref()
+        .is_some_and(|selected| !selected.stream.subtitles.is_empty())
+        || player
+            .subtitles
+            .iter()
+            .any(|page| matches!(page.content, Some(Loadable::Ready(_))))
+    {
+        options.push(MenuOption {
+            label: "Download subtitles".to_owned(),
+            action: "download-subtitles",
+        });
+    }
+    options
+}
+
+/// The stream's own address for the options menu: streaming, else download.
+pub(crate) fn stream_link(player: &Player) -> Option<String> {
+    match player.stream.as_ref() {
+        Some(Loadable::Ready((urls, _))) => address(urls),
+        _ => None,
+    }
+}
+
+pub(crate) fn magnet_link(player: &Player) -> Option<String> {
+    match player.stream.as_ref() {
+        Some(Loadable::Ready((urls, _))) => urls.magnet_url.as_ref().map(ToString::to_string),
+        _ => None,
+    }
+}
+
+pub(crate) fn download_link(player: &Player) -> Option<String> {
+    match player.stream.as_ref() {
+        Some(Loadable::Ready((urls, _))) => urls.download_url.as_ref().map(ToString::to_string),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use stremio_core::types::resource::Stream;
+
+    #[test]
+    fn a_request_for_another_video_keeps_the_addon_and_the_type() {
+        let request = ResourceRequest {
+            base: url::Url::parse("https://example.com/manifest.json").unwrap(),
+            path: ResourcePath::without_extra("stream", "series", "tt1:1:1"),
+        };
+        let next = request_for(&request, "tt1:1:2");
+        assert_eq!(next.base, request.base);
+        assert_eq!(next.path.r#type, "series");
+        assert_eq!(next.path.id, "tt1:1:2");
+        assert_eq!(next.path.resource, "stream");
+    }
+
+    #[test]
+    fn torrents_play_through_the_stream_server_and_plain_urls_as_they_are() {
+        // The player hands mpv whatever the core resolved, so this is the address the picture
+        // comes from: a torrent becomes the stream server's own URL, a plain one is left alone.
+        let server = url::Url::parse("http://127.0.0.1:11470/").unwrap();
+        let torrent = Stream {
+            source: stremio_core::types::resource::StreamSource::Torrent {
+                info_hash: [0xab; 20],
+                file_idx: None,
+                announce: vec![],
+                file_must_include: vec![],
+            },
+            name: None,
+            description: None,
+            thumbnail: None,
+            subtitles: vec![],
+            behavior_hints: Default::default(),
+        };
+        let converted = torrent.convert(Some(&server)).unwrap();
+        let urls = stremio_core::types::resource::StreamUrls::new(converted, Some(&server));
+        let resolved = address(&urls).unwrap();
+        let url = url::Url::parse(&resolved).unwrap();
+        assert_eq!(url.host_str(), Some("127.0.0.1"));
+        assert_eq!(url.port(), Some(11470));
+        assert_eq!(url.path(), format!("/{}/-1", "ab".repeat(20)));
+
+        let plain = Stream {
+            source: stremio_core::types::resource::StreamSource::Url {
+                url: url::Url::parse("https://example.com/movie.mp4").unwrap(),
+            },
+            name: None,
+            description: None,
+            thumbnail: None,
+            subtitles: vec![],
+            behavior_hints: Default::default(),
+        };
+        let converted = plain.convert(Some(&server)).unwrap();
+        let urls = stremio_core::types::resource::StreamUrls::new(converted, Some(&server));
+        assert_eq!(
+            address(&urls).unwrap(),
+            "https://example.com/movie.mp4".to_owned()
+        );
+    }
+
+    #[test]
+    fn the_season_index_follows_the_seasons_list() {
+        let seasons = vec![
+            details::Season {
+                number: 0,
+                label: "Specials".to_owned(),
+            },
+            details::Season {
+                number: 1,
+                label: "Season 1".to_owned(),
+            },
+        ];
+        assert_eq!(season_index(&seasons, None, 1), 1);
+        assert_eq!(season_index(&seasons, Some(0), 1), 0);
+        assert_eq!(season_index(&seasons, Some(9), 1), 0);
+    }
+}

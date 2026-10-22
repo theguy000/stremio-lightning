@@ -86,6 +86,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let video_query: Arc<Mutex<String>> = Default::default();
     let moved: Arc<Mutex<Option<(u32, u32)>>> = Default::default();
     let said: Arc<AtomicU64> = Default::default();
+    let player_season = Arc::new(AtomicUsize::new(screens::player::NO_SEASON));
+    let playback_error: Arc<Mutex<String>> = Default::default();
 
     let wiring = shell::wiring::Wiring {
         window: window.as_weak(),
@@ -104,8 +106,20 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         server: server.clone(),
         auth: Default::default(),
         handle: tokio.handle().clone(),
+        player_season: player_season.clone(),
+        player_loaded: Default::default(),
+        playback_error: playback_error.clone(),
+        playback: Default::default(),
+        player_sync: Default::default(),
     };
     shell::wire(&window, wiring.clone());
+    // Playback news goes to the wiring, which is the only thing that knows both mpv and the
+    // core: it moves the window, tells the core where the play head is, and moves on to the
+    // next Video when a stream ends.
+    {
+        let wiring = wiring.clone();
+        video.listen(move |status| wiring.playback_changed(status));
+    }
 
     // The settings screen and the player start from whatever the profile already holds.
     if let Ok(model) = runtime.model() {
@@ -134,10 +148,12 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             latest,
             selected,
             season,
+            player_season,
             picked,
             video_query,
             moved,
             local_extras,
+            playback_error,
             auth: wiring.auth.clone(),
             repaint,
         },

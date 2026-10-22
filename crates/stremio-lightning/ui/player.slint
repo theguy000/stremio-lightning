@@ -1,0 +1,1666 @@
+// Based on stremio-web (https://github.com/Stremio/stremio-web), Copyright (C) 2017-2025 Smart code 203358507.
+// Numbers translated by hand from src/routes/Player (styles.less, ControlBar, SeekBar, OptionsMenu,
+// SpeedMenu, SubtitlesMenu, AudioMenu, SideDrawer, NextVideoPopup, Buffering, Error, Indicator) and
+// from the deployed web.stremio.com player's own CSS, measured over the DevTools protocol at
+// 1100x720 where `rem` is 14px. Licence basis: ../THIRD_PARTY_NOTICES.md.
+//
+// The player is one screen over a full-window video: mpv draws the picture underneath this whole
+// tree (see plumbing/player.rs), so nothing here may paint an opaque full-window rectangle. Every
+// layer is either the picture's furniture -- a nav bar, a control bar -- or transparent.
+//
+// Web: `.player-container` with its layers. `.overlayHidden` fades the four furniture layers to 0
+// after three seconds without the pointer; the same idle clock drives `controls-visible` here.
+import { ScrollView } from "std-widgets.slint";
+import { SelectOption } from "multiselect-menu.slint";
+import { PreviewData } from "meta-preview.slint";
+import { Theme } from "theme.slint";
+
+/// One audio or subtitle track mpv offers, as the screen draws it.
+export struct PlayerTrack {
+    id: string,
+    title: string,
+    language: string,
+    selected: bool,
+}
+
+/// One Video of the title, as the player's side drawer lists it.
+export struct PlayerEpisode {
+    id: string,
+    label: string,
+    title: string,
+    selected: bool,
+    watched: bool,
+}
+
+/// One row of the options menu: what it says and the action it asks for.
+export struct PlayerOption {
+    label: string,
+    action: string,
+}
+
+// Web: SeekBar/formatTime.js -- always hours, minutes, seconds, never a shortened form. Slint
+// has no functions outside a component or a global, so the two the whole screen shares live here.
+export global PlayerText {
+    pure public function two(value: int) -> string {
+        return value < 10 ? "0" + value : "" + value;
+    }
+
+    // Slint has no `%` for numbers, so the leftover minutes and seconds come from Math.mod.
+    pure public function clock(seconds: float) -> string {
+        return seconds > 0 ? self.two(Math.floor(seconds / 3600)) + ":" + self.two(Math.floor(Math.mod(seconds, 3600) / 60)) + ":" + self.two(Math.floor(Math.mod(seconds, 60))) : "00:00:00";
+    }
+}
+
+// Web: `.control-bar-button` -- a 4rem square that lights up under the pointer, its glyph 2.2rem,
+// and 0.4 opacity for one that can do nothing.
+component PlayerButton inherits Rectangle {
+    in property <length> rem-size;
+    in property <image> glyph;
+    in property <bool> enabled: true;
+    in property <bool> lit: false;
+    callback clicked;
+
+    width: 4 * root.rem-size;
+    height: 4 * root.rem-size;
+    border-radius: 0.75 * root.rem-size;
+    background: touch.has-hover && root.enabled ? Theme.overlay : transparent;
+    animate background { duration: 150ms; }
+
+    VerticalLayout {
+        alignment: center;
+        Image {
+            width: 2.2 * root.rem-size;
+            height: 2.2 * root.rem-size;
+            source: root.glyph;
+            colorize: root.lit ? Theme.accent : Theme.text;
+            opacity: root.enabled ? 1 : 0.4;
+        }
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// Web: `stremio/components/Slider` with the seek bar's own overrides -- the unplayed track is the
+// accent at 20%, the buffered stretch is the overlay colour, and the played part and the thumb are
+// the accent. Dragging reports every move; letting go commits once.
+component PlayerSlider inherits Rectangle {
+    in property <length> rem-size;
+    in property <float> value: 0;
+    in property <float> minimum: 0;
+    in property <float> maximum: 100;
+    in property <float> buffered: 0;
+    in property <bool> enabled: true;
+    in property <length> track-size: 0.4 * root.rem-size;
+    in property <length> thumb-size: 1.2 * root.rem-size;
+    /// Whether the played part runs to 200% over the boost gradient: the volume slider's own look.
+    in property <bool> boost: false;
+    /// Whether the pointer's position is announced above the track, as the seek bar's is.
+    in property <bool> tooltip: false;
+    callback slid(float);
+    callback done(float);
+    callback hovered(float);
+    callback left;
+
+    property <bool> dragging: false;
+    property <float> span: Math.max(0.001, root.maximum - root.minimum);
+    property <float> at: Math.max(0, Math.min(1, (root.value - root.minimum) / root.span));
+    property <float> buffered-at: Math.max(0, Math.min(1, (root.buffered - root.minimum) / root.span));
+    property <bool> pointer-on: false;
+    property <length> pointer-at: 0px;
+    property <float> pointer-value: root.minimum;
+    opacity: root.enabled ? 1 : 0.5;
+
+    // The four layers are drawn in the web's order -- unplayed, buffered, played, thumb -- and each
+    // one is placed by hand, so a track at 0 still draws as a track.
+    Rectangle {
+        x: 0;
+        y: (parent.height - root.track-size) / 2;
+        width: parent.width;
+        height: root.track-size;
+        border-radius: root.track-size;
+        background: root.boost ? @linear-gradient(90deg, Theme.text 0%, Theme.text 50%, Theme.accent-yellow 75%, Theme.accent-red 100%) : Theme.accent;
+        opacity: root.boost ? 0.3 : 0.2;
+    }
+    Rectangle {
+        x: 0;
+        y: (parent.height - root.track-size) / 2;
+        width: parent.width * root.buffered-at;
+        height: root.track-size;
+        border-radius: root.track-size;
+        background: Theme.overlay;
+    }
+    Rectangle {
+        x: 0;
+        y: (parent.height - root.track-size) / 2;
+        width: parent.width * root.at;
+        height: root.track-size;
+        border-radius: root.track-size;
+        background: root.boost ? @linear-gradient(90deg, Theme.text 0%, Theme.text 50%, Theme.accent-yellow 75%, Theme.accent-red 100%) : Theme.accent;
+    }
+    // Web: `:hover .thumb { transform: scale(1.2) }`, a circle growing about its own middle.
+    Rectangle {
+        width: (touch.has-hover || root.dragging) ? root.thumb-size * 1.2 : root.thumb-size;
+        height: self.width;
+        x: parent.width * root.at - self.width / 2;
+        y: (parent.height - self.height) / 2;
+        border-radius: self.width;
+        background: root.boost ? Theme.text : Theme.accent;
+        animate width { duration: 150ms; }
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down) {
+                root.dragging = true;
+                root.slid(root.value-at(self.mouse-x));
+            }
+            if (event.kind == PointerEventKind.move) {
+                root.pointer-on = true;
+                root.pointer-at = self.mouse-x;
+                root.pointer-value = root.value-at(self.mouse-x);
+                if (root.tooltip) {
+                    root.hovered(root.pointer-value);
+                }
+                if (root.dragging) {
+                    root.slid(root.pointer-value);
+                }
+            }
+            if (event.kind == PointerEventKind.up) {
+                if (root.dragging) {
+                    root.dragging = false;
+                    root.done(root.value-at(self.mouse-x));
+                }
+            }
+            if (event.kind == PointerEventKind.cancel) {
+                root.dragging = false;
+            }
+        }
+        changed has-hover => {
+            root.pointer-on = self.has-hover;
+            if (!self.has-hover) {
+                root.left();
+            }
+        }
+    }
+
+    pure function value-at(x: length) -> float {
+        return root.minimum + Math.max(0, Math.min(1, x / Math.max(1px, root.width))) * root.span;
+    }
+
+    // Web: `.seek-tooltip` -- a small panel over the pointer, hidden while dragging.
+    if root.tooltip && root.pointer-on && !root.dragging: Rectangle {
+        width: tooltip-label.width + 1.6 * root.rem-size;
+        height: 2.4 * root.rem-size;
+        x: Math.max(0, Math.min(root.width - self.width, root.pointer-at - self.width / 2));
+        y: -2.4 * root.rem-size;
+        border-radius: 0.75 * root.rem-size;
+        background: Theme.modal-background;
+
+        tooltip-label := Text {
+            x: 0.8 * root.rem-size;
+            y: 0;
+            height: parent.height;
+            text: PlayerText.clock(root.pointer-value);
+            font-size: 1.1 * root.rem-size;
+            color: Theme.text;
+            vertical-alignment: center;
+        }
+    }
+}
+
+// Web: `.menu-layer` -- one panel at the bottom right over the control bar, in the modal colour,
+// with the web's 0.75rem corner and two-part shadow.
+component PlayerMenu inherits Rectangle {
+    in property <length> rem-size;
+
+    border-radius: 0.75 * root.rem-size;
+    background: Theme.modal-background;
+    drop-shadow-blur: 2.7 * root.rem-size;
+    drop-shadow-offset-y: 1.35 * root.rem-size;
+    drop-shadow-color: #00000066;
+}
+
+// Web: SubtitlesMenu rows -- a language over the track's own label, with a tick for the one playing.
+component TrackRow inherits Rectangle {
+    in property <length> rem-size;
+    in property <string> heading;
+    in property <string> label;
+    in property <bool> selected;
+    callback clicked;
+
+    height: 3.5 * root.rem-size;
+    border-radius: 0.75 * root.rem-size;
+    background: touch.has-hover ? Theme.overlay : (root.selected ? Theme.overlay : transparent);
+
+    HorizontalLayout {
+        padding-left: 1 * root.rem-size;
+        padding-right: 1 * root.rem-size;
+        spacing: 0.5 * root.rem-size;
+        alignment: start;
+        VerticalLayout {
+            alignment: center;
+            horizontal-stretch: 1;
+            Text {
+                text: root.heading;
+                font-size: 1.1 * root.rem-size;
+                font-weight: 600;
+                color: Theme.text;
+                overflow: elide;
+            }
+            Text {
+                text: root.label;
+                font-size: 0.9 * root.rem-size;
+                color: Theme.text;
+                opacity: 0.6;
+                overflow: elide;
+                visible: root.label != "";
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            Text {
+                text: "✓";
+                font-size: 1.1 * root.rem-size;
+                color: Theme.accent;
+                visible: root.selected;
+                vertical-alignment: center;
+            }
+        }
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// Web: OptionsMenu/Option -- a 3.5rem row with a small glyph on the left.
+component OptionRow inherits Rectangle {
+    in property <length> rem-size;
+    in property <PlayerOption> option;
+    callback clicked;
+
+    // The glyph follows the action: a magnet, a download arrow, or a link.
+    property <image> glyph: root.option.action == "copy-magnet" ? @image-url("icons/magnet-link.svg") : (root.option.action == "copy-stream" ? @image-url("icons/link.svg") : @image-url("icons/download.svg"));
+    height: 3.5 * root.rem-size;
+    border-radius: 0.75 * root.rem-size;
+    background: touch.has-hover ? Theme.overlay : transparent;
+
+    HorizontalLayout {
+        padding-left: 1 * root.rem-size;
+        padding-right: 1 * root.rem-size;
+        spacing: 1 * root.rem-size;
+        alignment: start;
+        VerticalLayout {
+            alignment: center;
+            Image {
+                width: 1.4 * root.rem-size;
+                height: 1.4 * root.rem-size;
+                source: root.glyph;
+                colorize: Theme.text;
+            }
+        }
+        Text {
+            text: root.option.label;
+            font-size: 1 * root.rem-size;
+            color: Theme.text;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+            overflow: elide;
+        }
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// Web: SubtitlesMenu/Stepper -- a label, a value between two buttons, and the unit it moves in.
+component PlayerStepper inherits Rectangle {
+    in property <length> rem-size;
+    in property <string> heading;
+    in property <string> value;
+    in property <bool> enabled;
+    callback stepped(int);
+
+    height: 3.5 * root.rem-size;
+    opacity: root.enabled ? 1 : 0.4;
+
+    HorizontalLayout {
+        padding-left: 1 * root.rem-size;
+        padding-right: 1 * root.rem-size;
+        spacing: 0.5 * root.rem-size;
+        alignment: start;
+        Text {
+            text: root.heading;
+            font-size: 1 * root.rem-size;
+            color: Theme.text;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+            overflow: elide;
+        }
+        Rectangle {
+            width: 2.5 * root.rem-size;
+            height: 2.5 * root.rem-size;
+            border-radius: 0.5 * root.rem-size;
+            background: minus-touch.has-hover ? Theme.overlay : transparent;
+            Text {
+                text: "-";
+                font-size: 1.2 * root.rem-size;
+                color: Theme.text;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+            minus-touch := TouchArea {
+                enabled: root.enabled;
+                mouse-cursor: pointer;
+                clicked => {
+                    root.stepped(-1);
+                }
+            }
+        }
+        Text {
+            text: root.value;
+            width: 4.5 * root.rem-size;
+            font-size: 1 * root.rem-size;
+            color: Theme.text;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        Rectangle {
+            width: 2.5 * root.rem-size;
+            height: 2.5 * root.rem-size;
+            border-radius: 0.5 * root.rem-size;
+            background: plus-touch.has-hover ? Theme.overlay : transparent;
+            Text {
+                text: "+";
+                font-size: 1.2 * root.rem-size;
+                color: Theme.text;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+            plus-touch := TouchArea {
+                enabled: root.enabled;
+                mouse-cursor: pointer;
+                clicked => {
+                    root.stepped(1);
+                }
+            }
+        }
+    }
+}
+
+export component PlayerScreen inherits Rectangle {
+    in property <length> rem-size: Theme.rem-size(root.width);
+
+    // --- the title, and the art shown until the picture is up ---
+    in property <string> title;
+    in property <image> backdrop;
+    in property <bool> has-backdrop;
+    in property <image> logo;
+    in property <bool> has-logo;
+
+    // --- playback, as mpv reports it ---
+    in property <bool> loaded;
+    in property <bool> buffering;
+    in property <float> time;
+    in property <float> duration;
+    in property <float> buffered;
+    in property <bool> paused;
+    in property <bool> seekable;
+    in property <float> volume: 100;
+    in property <bool> muted;
+    in property <float> speed: 1;
+    /// "contain", "cover" or "fill".
+    in property <string> scale: "contain";
+    in property <[PlayerTrack]> audio-tracks;
+    in property <[PlayerTrack]> subtitle-tracks;
+    in property <bool> subtitles-enabled;
+    in property <string> error;
+    in property <float> subtitles-size: 100;
+    in property <float> subtitles-offset: 0;
+    in property <bool> fullscreen;
+
+    // --- the title behind the player ---
+    in property <[PlayerOption]> options;
+    in property <[PlayerEpisode]> episodes;
+    in property <[SelectOption]> seasons;
+    in property <int> season-index;
+    in property <string> season-title;
+    in property <PreviewData> preview;
+    in property <bool> has-preview;
+    in property <bool> has-episodes;
+    in property <string> next-label;
+    in property <bool> has-next;
+    /// How close to the end the next Video is offered, in seconds.
+    in property <float> next-notice: 35;
+
+    // `""`, "speed", "audio", "subtitles" or "options".
+    in-out property <string> menu;
+    in-out property <bool> drawer-open;
+    in-out property <bool> next-dismissed;
+    property <bool> volume-shown: false;
+    property <float> volume-shown-value: 100;
+    property <string> indicator;
+    property <int> idle: 0;
+    property <bool> pulse: false;
+    property <bool> remaining-mode: false;
+    property <float> drag-time: -1;
+    property <float> shown-time: root.drag-time >= 0 ? root.drag-time : root.time;
+    /// The volume glyph the web's thresholds pick.
+    property <image> volume-glyph: root.muted || root.volume <= 0 ? @image-url("icons/volume-mute.svg") : (root.volume < 30 ? @image-url("icons/volume-low.svg") : (root.volume < 70 ? @image-url("icons/volume-medium.svg") : @image-url("icons/volume-high.svg")));
+    property <image> scale-glyph: root.scale == "cover" ? @image-url("icons/video-scale-crop.svg") : (root.scale == "fill" ? @image-url("icons/video-scale-stretch.svg") : @image-url("icons/video-scale-fit.svg"));
+    property <float> remaining: root.duration - root.shown-time;
+    property <bool> can-seek: root.seekable && root.duration > 0 && root.loaded;
+    property <bool> next-open: root.has-next && !root.next-dismissed && root.remaining > 0 && root.remaining <= root.next-notice;
+    property <bool> controls-visible: root.idle < 6 || root.menu != "" || root.drawer-open || !root.loaded || root.error != "";
+    // The panel's own height: a title row, then a row per choice, then the steppers.
+    property <length> menu-height: root.menu == "speed" ? 14 * root.rem-size : root.menu == "audio" ? (4 * root.rem-size + root.audio-tracks.length * 3.5 * root.rem-size) : root.menu == "subtitles" ? (4 * root.rem-size + (root.subtitle-tracks.length + 1) * 3.5 * root.rem-size + 7 * root.rem-size) : root.menu == "options" ? (2 * root.rem-size + root.options.length * 3.5 * root.rem-size) : 0px;
+
+    callback back();
+    callback toggle-fullscreen();
+    callback play-pause();
+    callback play-next();
+    callback seek(float);
+    callback seek-by(float);
+    callback set-volume(float);
+    callback toggle-muted();
+    callback set-speed(float);
+    callback cycle-scale();
+    callback select-audio(string);
+    callback choose-subtitles(string);
+    callback toggle-subtitles();
+    callback step-subtitles-offset(int);
+    callback step-subtitles-size(int);
+    callback select-episode(string);
+    callback select-season(int);
+    callback choose-option(string);
+    callback close-menus();
+
+    background: transparent;
+
+    idle-clock := Timer {
+        interval: 500ms;
+        running: true;
+        triggered => {
+            if (root.idle < 1000) {
+                root.idle = root.idle + 1;
+            }
+        }
+    }
+    pulse-clock := Timer {
+        interval: 1s;
+        running: true;
+        triggered => {
+            root.pulse = !root.pulse;
+        }
+    }
+    volume-clock := Timer {
+        interval: 1500ms;
+        running: false;
+        triggered => {
+            root.volume-shown = false;
+        }
+    }
+    indicator-clock := Timer {
+        interval: 1s;
+        running: false;
+        triggered => {
+            root.indicator = "";
+        }
+    }
+    drag-clock := Timer {
+        interval: 1s;
+        running: false;
+        triggered => {
+            root.drag-time = -1;
+        }
+    }
+
+    // Web: the volume indicator appears on every change of the volume and fades 1.5s later.
+    changed volume => {
+        root.wake();
+        root.volume-shown = true;
+        root.volume-shown-value = root.volume;
+        volume-clock.running = false;
+        volume-clock.running = true;
+    }
+    changed muted => {
+        root.wake();
+        root.volume-shown = true;
+        volume-clock.running = false;
+        volume-clock.running = true;
+    }
+    // Web: Indicator -- speed, scale, subtitle size and subtitle delay each say their new value.
+    changed speed => {
+        root.show-indicator("Playback speed " + (Math.round(root.speed * 100) / 100) + "x");
+    }
+    changed scale => {
+        root.show-indicator("Video scale " + root.scale);
+    }
+    changed subtitles-size => {
+        root.show-indicator("Subtitles size " + Math.round(root.subtitles-size) + "%");
+    }
+    changed subtitles-offset => {
+        root.show-indicator("Subtitles delay " + (Math.round(root.subtitles-offset) / 1000).to-fixed(2) + "s");
+    }
+    /// Whether the press being handled started on this screen rather than on the one before it.
+    property <bool> pressed-here: false;
+
+    // A new stream starts with the pointer's furniture up and the next-video offer back.
+    changed loaded => {
+        root.next-dismissed = false;
+        root.drag-time = -1;
+        root.idle = 0;
+    }
+
+    function wake() {
+        root.idle = 0;
+    }
+
+    function show-indicator(text: string) {
+        root.indicator = text;
+        indicator-clock.running = false;
+        indicator-clock.running = true;
+    }
+
+    public function focus-player() {
+        keys.focus();
+    }
+
+    // --- the pointer's own layer: click to pause, double-click for fullscreen, wheel for volume ---
+
+    screen := TouchArea {
+        // Web: the pointer goes away with the furniture, so nothing floats over the picture.
+        mouse-cursor: root.controls-visible ? default : none;
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.move || event.kind == PointerEventKind.down) {
+                root.idle = 0;
+            }
+            // Only a press this screen saw can become a pause: the release of the press that
+            // picked the Stream arrives here too, and it must not pause the picture it opened.
+            if (event.kind == PointerEventKind.down) {
+                root.pressed-here = true;
+            }
+            if (event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel) {
+                root.pressed-here = false;
+            }
+        }
+        double-clicked => {
+            root.toggle-fullscreen();
+        }
+        clicked => {
+            if (root.menu != "" || root.drawer-open || root.next-open) {
+                root.close-menus();
+            } else {
+                if (root.loaded && root.pressed-here) {
+                    root.play-pause();
+                }
+            }
+            root.pressed-here = false;
+        }
+        scroll-event(event) => {
+            if (event.delta-y > 0) {
+                root.set-volume(Math.max(root.volume - 5, 0));
+            } else {
+                if (event.delta-y < 0) {
+                    root.set-volume(Math.min(root.volume + 5, 200));
+                }
+            }
+            EventResult.accept
+        }
+    }
+
+    // --- the picture's furniture ---
+
+    // Web: `.background-layer` -- the title's artwork at 0.6 behind the buffering logo.
+    if root.has-backdrop && !root.loaded && root.error == "": Image {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        source: root.backdrop;
+        image-fit: cover;
+        opacity: 0.6;
+    }
+
+    // Web: Buffering -- the logo pulsing while the file is on its way.
+    if !root.loaded && root.error == "": Rectangle {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+
+        if root.has-logo: Image {
+            width: Math.min(root.width, 15 * root.rem-size);
+            height: self.width;
+            x: (root.width - self.width) / 2;
+            y: (root.height - self.height) / 2;
+            source: root.logo;
+            image-fit: contain;
+            opacity: root.pulse ? 1 : 0.4;
+            animate opacity { duration: 1s; easing: ease-in-out; }
+        }
+        if !root.has-logo: Text {
+            width: root.width - 16 * root.rem-size;
+            x: 8 * root.rem-size;
+            y: (root.height - self.height) / 2;
+            text: root.title;
+            font-size: 2 * root.rem-size;
+            font-weight: 700;
+            color: Theme.text;
+            horizontal-alignment: center;
+            wrap: word-wrap;
+            opacity: root.pulse ? 1 : 0.4;
+            animate opacity { duration: 1s; easing: ease-in-out; }
+        }
+        if root.buffering: Text {
+            x: 0;
+            width: root.width;
+            y: root.height / 2 + 8 * root.rem-size;
+            text: "Buffering";
+            font-size: 1 * root.rem-size;
+            color: Theme.text;
+            opacity: 0.7;
+            horizontal-alignment: center;
+        }
+    }
+
+    // Web: Error -- the message over the black the player leaves behind.
+    if root.error != "": Rectangle {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        background: #000000;
+
+        Text {
+            width: Math.min(root.width - 16 * root.rem-size, 40 * root.rem-size);
+            x: (root.width - self.width) / 2;
+            y: (root.height - self.height) / 2;
+            text: root.error;
+            font-size: 2 * root.rem-size;
+            color: Theme.text;
+            horizontal-alignment: center;
+            wrap: word-wrap;
+        }
+    }
+
+    // Web: VolumeChangeIndicator -- the speaker and its own slider, mid-window, for 1.5s.
+    if root.volume-shown && root.controls-visible: Rectangle {
+        width: 9 * root.rem-size;
+        height: 13 * root.rem-size;
+        x: (root.width - self.width) / 2;
+        y: (root.height - self.height) / 2;
+        border-radius: 0.75 * root.rem-size;
+        background: Theme.overlay;
+
+        VerticalLayout {
+            padding: 2 * root.rem-size;
+            spacing: 1 * root.rem-size;
+            alignment: space-between;
+            VerticalLayout {
+                alignment: center;
+                Image {
+                    width: 6.5 * root.rem-size;
+                    height: 6.5 * root.rem-size;
+                    source: root.volume-glyph;
+                    colorize: Theme.text;
+                }
+            }
+            PlayerSlider {
+                rem-size: root.rem-size;
+                height: 1 * root.rem-size;
+                value: root.volume-shown-value;
+                minimum: 0;
+                maximum: 200;
+                boost: true;
+                enabled: false;
+                track-size: 0.35 * root.rem-size;
+                thumb-size: 1 * root.rem-size;
+            }
+        }
+    }
+
+    // Web: Indicator -- a pill over the control bar for a second.
+    if root.indicator != "" && root.controls-visible: Rectangle {
+        width: indicator-label.width + 4 * root.rem-size;
+        height: 4 * root.rem-size;
+        x: (root.width - self.width) / 2;
+        y: root.height - 14 * root.rem-size;
+        border-radius: 4 * root.rem-size;
+        background: Theme.modal-background;
+
+        indicator-label := Text {
+            x: 2 * root.rem-size;
+            y: 0;
+            height: parent.height;
+            text: root.indicator;
+            font-size: 1.1 * root.rem-size;
+            font-weight: 700;
+            color: Theme.text;
+            vertical-alignment: center;
+        }
+    }
+
+    // Web: `.nav-bar-layer` -- the back chevron, the title, and the fullscreen button over an 8rem
+    // gradient. The row is 5rem tall: 1rem of top padding over the 4rem button.
+    if root.controls-visible: Rectangle {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: 5 * root.rem-size;
+        opacity: 1;
+        animate opacity { duration: 200ms; }
+
+        Rectangle {
+            x: 0;
+            y: 0;
+            width: root.width;
+            height: 8 * root.rem-size;
+            background: @linear-gradient(180deg, #00000059 0%, transparent 100%);
+        }
+
+        // Web: `.player-nav` -- 1.5rem of side padding, then a 4rem back button, the title, and
+        // the fullscreen button with `margin-left: auto`. Placed by hand: a Slint layout measured
+        // the title's stretch as nothing, which put the fullscreen button beside the chevron.
+        Rectangle {
+            x: 0;
+            y: 1 * root.rem-size;
+            width: root.width;
+            height: 4 * root.rem-size;
+
+            Rectangle {
+                x: 1.5 * root.rem-size;
+                y: 0;
+                width: 4 * root.rem-size;
+                height: 4 * root.rem-size;
+                border-radius: 0.75 * root.rem-size;
+                background: back-touch.has-hover ? Theme.overlay : transparent;
+                opacity: back-touch.has-hover ? 1 : 0.7;
+
+                Image {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    width: 2.2 * root.rem-size;
+                    height: 2.2 * root.rem-size;
+                    source: @image-url("icons/chevron-back.svg");
+                    colorize: Theme.text;
+                }
+                back-touch := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.back();
+                    }
+                }
+            }
+
+            Text {
+                x: 1.5 * root.rem-size + 4 * root.rem-size + 0.5 * root.rem-size;
+                y: 0;
+                width: root.width - 1.5 * root.rem-size - 4 * root.rem-size - 0.5 * root.rem-size - 4 * root.rem-size - 1.5 * root.rem-size - 0.5 * root.rem-size;
+                height: 4 * root.rem-size;
+                text: root.title;
+                font-size: 1.1 * root.rem-size;
+                font-weight: 500;
+                color: Theme.text;
+                opacity: 0.9;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+
+            Rectangle {
+                x: parent.width - 1.5 * root.rem-size - 4 * root.rem-size;
+                y: 0;
+                width: 4 * root.rem-size;
+                height: 4 * root.rem-size;
+                border-radius: 0.75 * root.rem-size;
+                background: full-touch.has-hover ? Theme.overlay : transparent;
+                opacity: full-touch.has-hover ? 1 : 0.7;
+
+                Image {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    width: 2.2 * root.rem-size;
+                    height: 2.2 * root.rem-size;
+                    source: root.fullscreen ? @image-url("icons/minimize.svg") : @image-url("icons/maximize.svg");
+                    colorize: Theme.text;
+                }
+                full-touch := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.toggle-fullscreen();
+                    }
+                }
+            }
+        }
+    }
+
+    // Web: `.side-drawer-button-layer` -- a half-pill of the modal colour on the right edge with a
+    // chevron pointing into the drawer.
+    if root.has-episodes && root.controls-visible && !root.drawer-open: Rectangle {
+        width: 7.5 * root.rem-size;
+        height: 12.5 * root.rem-size;
+        x: root.width - 3.5 * root.rem-size;
+        y: (root.height - self.height) / 2;
+        border-radius: 6.25 * root.rem-size;
+        background: Theme.modal-background;
+
+        Image {
+            x: 0.5 * root.rem-size;
+            y: (parent.height - self.height) / 2;
+            width: 2.5 * root.rem-size;
+            height: 2.5 * root.rem-size;
+            source: @image-url("icons/chevron-back.svg");
+            colorize: Theme.text;
+            opacity: drawer-touch.has-hover ? 1 : 0.6;
+        }
+        drawer-touch := TouchArea {
+            mouse-cursor: pointer;
+            clicked => {
+                root.drawer-open = true;
+                root.menu = "";
+            }
+        }
+    }
+
+    // Web: `.control-bar-layer` -- the seek bar over the buttons, over a 10rem gradient. Seven rem
+    // tall: 0.5rem of bottom padding, 2.5rem of seek bar, 4rem of buttons.
+    if root.controls-visible: Rectangle {
+        x: 0;
+        y: root.height - self.height;
+        width: root.width;
+        height: 7 * root.rem-size;
+
+        Rectangle {
+            x: 0;
+            y: parent.height - 10 * root.rem-size;
+            width: root.width;
+            height: 10 * root.rem-size;
+            background: @linear-gradient(0deg, #00000059 0%, transparent 100%);
+        }
+
+        // Web: `.seek-bar-container` -- the position, the track, then the length. Placed by
+        // hand rather than by a layout: the middle item is `1fr` on the web, and a Slint layout
+        // measured it as nothing here, which collapsed the track to the width of its thumb.
+        Rectangle {
+            x: 2 * root.rem-size;
+            y: 0;
+            width: root.width - 4 * root.rem-size;
+            height: 2.5 * root.rem-size;
+
+            Text {
+                x: 0;
+                y: 0;
+                width: 5.5 * root.rem-size;
+                height: parent.height;
+                text: PlayerText.clock(root.shown-time);
+                font-size: 1.1 * root.rem-size;
+                color: Theme.text;
+                opacity: 0.9;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+
+            PlayerSlider {
+                x: 5.5 * root.rem-size + 1.2 * root.rem-size;
+                y: 0;
+                width: parent.width - 2 * 5.5 * root.rem-size - 2 * 1.2 * root.rem-size;
+                height: parent.height;
+                rem-size: root.rem-size;
+                value: root.shown-time;
+                minimum: 0;
+                maximum: Math.max(root.duration, 1);
+                buffered: root.buffered;
+                enabled: root.can-seek;
+                tooltip: true;
+                slid(value) => {
+                    root.drag-time = value;
+                }
+                done(value) => {
+                    root.drag-time = value;
+                    root.seek(value);
+                    drag-clock.running = false;
+                    drag-clock.running = true;
+                }
+            }
+
+            Text {
+                x: parent.width - 5.5 * root.rem-size;
+                y: 0;
+                width: 5.5 * root.rem-size;
+                height: parent.height;
+                text: root.remaining-mode ? PlayerText.clock(root.remaining / Math.max(0.1, root.speed)) : PlayerText.clock(root.duration);
+                font-size: 1.1 * root.rem-size;
+                color: Theme.text;
+                opacity: 0.9;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+            remaining-touch := TouchArea {
+                x: parent.width - 5.5 * root.rem-size;
+                y: 0;
+                width: 5.5 * root.rem-size;
+                height: parent.height;
+                mouse-cursor: pointer;
+                clicked => {
+                    root.remaining-mode = !root.remaining-mode;
+                }
+            }
+        }
+
+        // Web: `.control-bar-buttons-container` -- 0.25rem between 4rem squares.
+        HorizontalLayout {
+            x: 2 * root.rem-size;
+            y: 2.5 * root.rem-size;
+            width: root.width - 4 * root.rem-size;
+            height: 4 * root.rem-size;
+            spacing: 0.25 * root.rem-size;
+            alignment: start;
+
+            PlayerButton {
+                rem-size: root.rem-size;
+                glyph: root.paused || !root.loaded ? @image-url("icons/play.svg") : @image-url("icons/pause.svg");
+                clicked => {
+                    root.play-pause();
+                }
+            }
+            if root.has-next: PlayerButton {
+                rem-size: root.rem-size;
+                glyph: @image-url("icons/next.svg");
+                clicked => {
+                    root.play-next();
+                }
+            }
+            PlayerButton {
+                rem-size: root.rem-size;
+                glyph: root.volume-glyph;
+                clicked => {
+                    root.toggle-muted();
+                }
+            }
+            // Web: `.volume-slider` -- the shell's own volume runs to 200%, so the track may too.
+            PlayerSlider {
+                width: 10 * root.rem-size;
+                height: 4 * root.rem-size;
+                rem-size: root.rem-size;
+                value: root.muted ? 0 : root.volume;
+                minimum: 0;
+                maximum: 200;
+                boost: true;
+                track-size: 0.35 * root.rem-size;
+                thumb-size: 1 * root.rem-size;
+                slid(value) => {
+                    root.set-volume(value);
+                }
+                done(value) => {
+                    root.set-volume(value);
+                }
+            }
+
+            Rectangle {
+                width: 0.5 * root.rem-size;
+                horizontal-stretch: 1;
+            }
+
+            // Web: the menu cluster, right-aligned: speed, subtitles, audio, episodes, scale, and
+            // the options menu.
+            PlayerButton {
+                rem-size: root.rem-size;
+                glyph: @image-url("icons/speed.svg");
+                lit: root.menu == "speed";
+                clicked => {
+                    root.menu = root.menu == "speed" ? "" : "speed";
+                    root.drawer-open = false;
+                }
+            }
+            PlayerButton {
+                rem-size: root.rem-size;
+                glyph: @image-url("icons/subtitles.svg");
+                enabled: root.subtitle-tracks.length > 0;
+                lit: root.menu == "subtitles";
+                clicked => {
+                    root.menu = root.menu == "subtitles" ? "" : "subtitles";
+                    root.drawer-open = false;
+                }
+            }
+            PlayerButton {
+                rem-size: root.rem-size;
+                glyph: @image-url("icons/audio-tracks.svg");
+                enabled: root.audio-tracks.length > 0;
+                lit: root.menu == "audio";
+                clicked => {
+                    root.menu = root.menu == "audio" ? "" : "audio";
+                    root.drawer-open = false;
+                }
+            }
+            if root.has-episodes: PlayerButton {
+                rem-size: root.rem-size;
+                glyph: @image-url("icons/episodes.svg");
+                lit: root.drawer-open;
+                clicked => {
+                    root.drawer-open = !root.drawer-open;
+                    root.menu = "";
+                }
+            }
+            PlayerButton {
+                rem-size: root.rem-size;
+                glyph: root.scale-glyph;
+                clicked => {
+                    root.cycle-scale();
+                }
+            }
+            PlayerButton {
+                rem-size: root.rem-size;
+                glyph: @image-url("icons/more-horizontal.svg");
+                enabled: root.options.length > 0;
+                lit: root.menu == "options";
+                clicked => {
+                    root.menu = root.menu == "options" ? "" : "options";
+                    root.drawer-open = false;
+                }
+            }
+        }
+    }
+
+    // --- the menus, all in the one panel the web puts them in ---
+
+    if root.menu != "" && root.controls-visible: Rectangle {
+        width: root.menu == "speed" ? 30 * root.rem-size : (root.menu == "options" ? 22 * root.rem-size : 28 * root.rem-size);
+        height: root.menu-height;
+        x: root.width - self.width - 4 * root.rem-size;
+        y: root.height - self.height - 7.5 * root.rem-size;
+
+        PlayerMenu {
+            width: parent.width;
+            height: parent.height;
+            rem-size: root.rem-size;
+
+            VerticalLayout {
+                padding: 1 * root.rem-size;
+                spacing: 0.25 * root.rem-size;
+                alignment: start;
+
+                // Web: SpeedMenu -- the rate, over a slider, over the presets.
+                if root.menu == "speed": VerticalLayout {
+                    spacing: 0.5 * root.rem-size;
+                    alignment: start;
+                    Text {
+                        height: 3 * root.rem-size;
+                        text: "Playback speed";
+                        font-size: 1 * root.rem-size;
+                        font-weight: 700;
+                        color: Theme.text;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    Text {
+                        height: 2 * root.rem-size;
+                        text: (Math.round(root.speed * 100) / 100) + "x";
+                        font-size: 1.1 * root.rem-size;
+                        font-weight: 700;
+                        color: Theme.text;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    PlayerSlider {
+                        height: 2 * root.rem-size;
+                        rem-size: root.rem-size;
+                        value: root.speed;
+                        minimum: 0.1;
+                        maximum: 4;
+                        track-size: 0.35 * root.rem-size;
+                        thumb-size: 1 * root.rem-size;
+                        slid(value) => {
+                            root.set-speed(Math.round(value * 20) / 20);
+                        }
+                        done(value) => {
+                            root.set-speed(Math.round(value * 20) / 20);
+                        }
+                    }
+                    HorizontalLayout {
+                        height: 2.5 * root.rem-size;
+                        spacing: 0.25 * root.rem-size;
+                        for rate in [0.5, 1, 1.25, 1.5, 1.75, 2, 4]: Rectangle {
+                            horizontal-stretch: 1;
+                            height: 2.5 * root.rem-size;
+                            border-radius: 0.75 * root.rem-size;
+                            background: Math.abs(rate - root.speed) < 0.01 ? Theme.overlay : (rate-touch.has-hover ? Theme.overlay : transparent);
+                            Text {
+                                text: rate + "x";
+                                font-size: 0.9 * root.rem-size;
+                                color: Theme.text;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                            rate-touch := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => {
+                                    root.set-speed(rate);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Web: AudioMenu -- one row per track the file carries.
+                if root.menu == "audio": VerticalLayout {
+                    spacing: 0.25 * root.rem-size;
+                    alignment: start;
+                    Text {
+                        height: 3 * root.rem-size;
+                        text: "Audio tracks";
+                        font-size: 1.1 * root.rem-size;
+                        font-weight: 700;
+                        color: Theme.text;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    for track in root.audio-tracks: TrackRow {
+                        rem-size: root.rem-size;
+                        heading: track.title;
+                        label: track.language;
+                        selected: track.selected;
+                        clicked => {
+                            root.select-audio(track.id);
+                        }
+                    }
+                }
+
+                // Web: SubtitlesMenu -- off, then a row per track, then the two steppers.
+                if root.menu == "subtitles": VerticalLayout {
+                    spacing: 0.25 * root.rem-size;
+                    alignment: start;
+                    Text {
+                        height: 3 * root.rem-size;
+                        text: "Subtitles";
+                        font-size: 1.1 * root.rem-size;
+                        font-weight: 700;
+                        color: Theme.text;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    TrackRow {
+                        rem-size: root.rem-size;
+                        heading: "Off";
+                        label: "No subtitles";
+                        selected: !root.subtitles-enabled;
+                        clicked => {
+                            root.toggle-subtitles();
+                        }
+                    }
+                    for track in root.subtitle-tracks: TrackRow {
+                        rem-size: root.rem-size;
+                        heading: track.title;
+                        label: track.language;
+                        selected: track.selected;
+                        clicked => {
+                            root.choose-subtitles(track.id);
+                        }
+                    }
+                    PlayerStepper {
+                        rem-size: root.rem-size;
+                        heading: "Subtitles size";
+                        value: Math.round(root.subtitles-size) + "%";
+                        enabled: root.subtitles-enabled;
+                        stepped(delta) => {
+                            root.step-subtitles-size(delta);
+                        }
+                    }
+                    PlayerStepper {
+                        rem-size: root.rem-size;
+                        heading: "Subtitles delay";
+                        value: (Math.round(root.subtitles-offset) / 1000).to-fixed(2) + "s";
+                        enabled: root.subtitles-enabled;
+                        stepped(delta) => {
+                            root.step-subtitles-offset(delta);
+                        }
+                    }
+                }
+
+                // Web: OptionsMenu -- the stream's own links, one row each.
+                if root.menu == "options": VerticalLayout {
+                    spacing: 0.25 * root.rem-size;
+                    alignment: start;
+                    for option in root.options: OptionRow {
+                        rem-size: root.rem-size;
+                        option: option;
+                        clicked => {
+                            root.choose-option(option.action);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // A press anywhere above the control bar closes the panel instead of pausing the picture.
+    if root.menu != "": Rectangle {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height - 7 * root.rem-size;
+        background: transparent;
+        close-touch := TouchArea {
+            clicked => {
+                root.menu = "";
+            }
+        }
+    }
+
+    // Web: SideDrawer -- the title's own panel, from the right edge.
+    if root.drawer-open: Rectangle {
+        x: root.width - self.width;
+        y: 0;
+        width: 35 * root.rem-size;
+        height: root.height;
+
+        VerticalLayout {
+            alignment: start;
+            spacing: 0;
+
+            HorizontalLayout {
+                height: 4.5 * root.rem-size;
+                padding-left: 2 * root.rem-size;
+                padding-top: 1.5 * root.rem-size;
+                spacing: 0.5 * root.rem-size;
+                alignment: start;
+                Text {
+                    text: root.title;
+                    font-size: 1.3 * root.rem-size;
+                    font-weight: 700;
+                    color: Theme.text;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                    overflow: elide;
+                }
+                Rectangle {
+                    width: 3.5 * root.rem-size;
+                    height: 3.5 * root.rem-size;
+                    border-radius: 0.75 * root.rem-size;
+                    background: drawer-close-touch.has-hover ? Theme.overlay : transparent;
+                    Text {
+                        text: ">";
+                        font-size: 1.6 * root.rem-size;
+                        color: Theme.text;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                        opacity: 0.7;
+                    }
+                    drawer-close-touch := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            root.drawer-open = false;
+                        }
+                    }
+                }
+            }
+
+            // Web: SeasonsBar -- the season the drawer is showing, with a way to the others.
+            if root.seasons.length > 1: Rectangle {
+                height: 3 * root.rem-size;
+                border-radius: 0.75 * root.rem-size;
+                background: Theme.overlay;
+                HorizontalLayout {
+                    padding-left: 1 * root.rem-size;
+                    padding-right: 1 * root.rem-size;
+                    alignment: space-between;
+                    Text {
+                        text: "<";
+                        font-size: 1.2 * root.rem-size;
+                        color: Theme.text;
+                        vertical-alignment: center;
+                        opacity: root.season-index > 0 ? 1 : 0.3;
+                    }
+                    Text {
+                        text: root.season-title;
+                        font-size: 1 * root.rem-size;
+                        font-weight: 600;
+                        color: Theme.text;
+                        vertical-alignment: center;
+                    }
+                    Text {
+                        text: ">";
+                        font-size: 1.2 * root.rem-size;
+                        color: Theme.text;
+                        vertical-alignment: center;
+                        opacity: root.season-index + 1 < root.seasons.length ? 1 : 0.3;
+                    }
+                }
+                season-touch := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.select-season(self.mouse-x < self.width / 2 ? root.season-index - 1 : root.season-index + 1);
+                    }
+                }
+            }
+
+            ScrollView {
+                height: root.height - 7.5 * root.rem-size;
+
+                VerticalLayout {
+                    padding-left: 2 * root.rem-size;
+                    padding-right: 2 * root.rem-size;
+                    spacing: 0.25 * root.rem-size;
+                    alignment: start;
+
+                    // Web: MetaPreview, compact -- the name over the three info lines and the
+                    // description cut to four lines.
+                    if root.has-preview: VerticalLayout {
+                        spacing: 0.75 * root.rem-size;
+                        alignment: start;
+                        HorizontalLayout {
+                            spacing: 1 * root.rem-size;
+                            Text {
+                                text: root.preview.runtime;
+                                font-size: 1 * root.rem-size;
+                                color: Theme.text;
+                                opacity: 0.7;
+                                visible: root.preview.runtime != "";
+                            }
+                            Text {
+                                text: root.preview.release-info;
+                                font-size: 1 * root.rem-size;
+                                color: Theme.text;
+                                opacity: 0.7;
+                                visible: root.preview.release-info != "";
+                            }
+                            Text {
+                                text: root.preview.rating;
+                                font-size: 1 * root.rem-size;
+                                font-weight: 700;
+                                color: Theme.accent-yellow;
+                                visible: root.preview.rating != "";
+                            }
+                        }
+                        Text {
+                            text: root.preview.description;
+                            font-size: 1 * root.rem-size;
+                            color: Theme.text;
+                            opacity: 0.8;
+                            wrap: word-wrap;
+                            max-height: 6 * root.rem-size;
+                            overflow: clip;
+                        }
+                    }
+
+                    for episode in root.episodes: Rectangle {
+                        height: 4.5 * root.rem-size;
+                        border-radius: 0.75 * root.rem-size;
+                        background: episode-touch.has-hover ? Theme.overlay : (episode.selected ? Theme.overlay : transparent);
+                        HorizontalLayout {
+                            padding-left: 1 * root.rem-size;
+                            padding-right: 1 * root.rem-size;
+                            spacing: 0.5 * root.rem-size;
+                            alignment: start;
+                            Text {
+                                text: episode.label;
+                                width: 5 * root.rem-size;
+                                font-size: 1 * root.rem-size;
+                                font-weight: 700;
+                                color: Theme.text;
+                                vertical-alignment: center;
+                                opacity: episode.watched ? 0.5 : 1;
+                            }
+                            Text {
+                                text: episode.title;
+                                font-size: 1 * root.rem-size;
+                                color: Theme.text;
+                                vertical-alignment: center;
+                                horizontal-stretch: 1;
+                                overflow: elide;
+                                opacity: episode.watched ? 0.5 : 1;
+                            }
+                        }
+                        episode-touch := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {
+                                root.drawer-open = false;
+                                root.select-episode(episode.id);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // The panel's own edge: the modal colour, with the corner the web gives its left side.
+        background: Theme.modal-background;
+        drop-shadow-blur: 2.7 * root.rem-size;
+        drop-shadow-color: #00000066;
+    }
+
+    // Web: NextVideoPopup -- offered once the end is inside the notification window.
+    if root.next-open: Rectangle {
+        width: 30 * root.rem-size;
+        height: 12 * root.rem-size;
+        x: root.width - self.width - 4 * root.rem-size;
+        y: root.height - self.height - 7.5 * root.rem-size;
+
+        PlayerMenu {
+            width: parent.width;
+            height: parent.height;
+            rem-size: root.rem-size;
+
+            VerticalLayout {
+                padding: 1.5 * root.rem-size;
+                spacing: 1 * root.rem-size;
+                alignment: start;
+                HorizontalLayout {
+                    spacing: 0.5 * root.rem-size;
+                    Text {
+                        text: "Next up";
+                        font-size: 1 * root.rem-size;
+                        color: Theme.text;
+                        opacity: 0.7;
+                        horizontal-stretch: 1;
+                        vertical-alignment: center;
+                    }
+                    Text {
+                        text: PlayerText.clock(root.remaining);
+                        font-size: 1 * root.rem-size;
+                        color: Theme.text;
+                        opacity: 0.7;
+                        vertical-alignment: center;
+                    }
+                }
+                Text {
+                    text: root.next-label;
+                    font-size: 1.2 * root.rem-size;
+                    font-weight: 600;
+                    color: Theme.text;
+                    wrap: word-wrap;
+                    max-height: 3.5 * root.rem-size;
+                    overflow: clip;
+                }
+                HorizontalLayout {
+                    spacing: 0.5 * root.rem-size;
+                    alignment: end;
+                    Rectangle {
+                        width: 6 * root.rem-size;
+                        height: 3 * root.rem-size;
+                        border-radius: 3 * root.rem-size;
+                        background: dismiss-touch.has-hover ? Theme.overlay : transparent;
+                        Text {
+                            text: "Dismiss";
+                            font-size: 0.9 * root.rem-size;
+                            color: Theme.text;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                        dismiss-touch := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {
+                                root.next-dismissed = true;
+                            }
+                        }
+                    }
+                    Rectangle {
+                        width: 7.5 * root.rem-size;
+                        height: 3 * root.rem-size;
+                        border-radius: 3 * root.rem-size;
+                        background: next-touch.has-hover ? Theme.text : Theme.accent;
+                        Text {
+                            text: "Play next";
+                            font-size: 0.9 * root.rem-size;
+                            font-weight: 600;
+                            color: next-touch.has-hover ? Theme.accent : Theme.text;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                        next-touch := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {
+                                root.play-next();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Web: the player route's own keyboard. Held in a focus scope so no other screen sees these
+    // keys, and focused when the player opens (see `focus-player`).
+    keys := FocusScope {
+        width: 0;
+        height: 0;
+
+        KeyBinding {
+            keys: @keys(Space);
+            activated => {
+                root.play-pause();
+            }
+        }
+        KeyBinding {
+            keys: @keys(RightArrow);
+            activated => {
+                root.seek-by(10);
+            }
+        }
+        KeyBinding {
+            keys: @keys(Shift + RightArrow);
+            activated => {
+                root.seek-by(3);
+            }
+        }
+        KeyBinding {
+            keys: @keys(LeftArrow);
+            activated => {
+                root.seek-by(-10);
+            }
+        }
+        KeyBinding {
+            keys: @keys(Shift + LeftArrow);
+            activated => {
+                root.seek-by(-3);
+            }
+        }
+        KeyBinding {
+            keys: @keys(UpArrow);
+            activated => {
+                root.set-volume(Math.min(root.volume + 5, 200));
+            }
+        }
+        KeyBinding {
+            keys: @keys(DownArrow);
+            activated => {
+                root.set-volume(Math.max(root.volume - 5, 0));
+            }
+        }
+        KeyBinding {
+            keys: @keys("m");
+            activated => {
+                root.toggle-muted();
+            }
+        }
+        KeyBinding {
+            keys: @keys("c");
+            activated => {
+                root.toggle-subtitles();
+            }
+        }
+        KeyBinding {
+            keys: @keys("v");
+            activated => {
+                root.cycle-scale();
+            }
+        }
+        KeyBinding {
+            keys: @keys("s");
+            activated => {
+                root.menu = root.menu == "subtitles" ? "" : "subtitles";
+                root.drawer-open = false;
+            }
+        }
+        KeyBinding {
+            keys: @keys("a");
+            activated => {
+                root.menu = root.menu == "audio" ? "" : "audio";
+                root.drawer-open = false;
+            }
+        }
+        KeyBinding {
+            keys: @keys("r");
+            activated => {
+                root.menu = root.menu == "speed" ? "" : "speed";
+                root.drawer-open = false;
+            }
+        }
+        KeyBinding {
+            keys: @keys("i");
+            activated => {
+                if (root.has-episodes) {
+                    root.drawer-open = !root.drawer-open;
+                    root.menu = "";
+                }
+            }
+        }
+        KeyBinding {
+            keys: @keys(Shift + "n");
+            activated => {
+                root.play-next();
+            }
+        }
+        KeyBinding {
+            keys: @keys("f");
+            activated => {
+                root.toggle-fullscreen();
+            }
+        }
+        KeyBinding {
+            keys: @keys("]");
+            activated => {
+                root.set-speed(Math.min(root.speed + 0.25, 4));
+            }
+        }
+        KeyBinding {
+            keys: @keys("[");
+            activated => {
+                root.set-speed(Math.max(root.speed - 0.25, 0.1));
+            }
+        }
+        KeyBinding {
+            keys: @keys(Escape);
+            activated => {
+                if (root.menu != "" || root.drawer-open) {
+                    root.close-menus();
+                } else {
+                    root.back();
+                }
+            }
+        }
+    }
+}

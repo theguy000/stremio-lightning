@@ -43,6 +43,7 @@ pub fn runtime(profile: Profile) -> (AppRuntime, Receiver<RuntimeEvent<AppEnv, A
         discover,
         installed_addons,
         meta_details: Default::default(),
+        player: Default::default(),
     };
 
     AppRuntime::new(

@@ -6,12 +6,13 @@ use stremio_core::models::catalogs_with_extra::CatalogsWithExtra;
 use stremio_core::models::ctx::Ctx;
 use stremio_core::models::installed_addons_with_filters::InstalledAddonsWithFilters;
 use stremio_core::models::meta_details::MetaDetails;
+use stremio_core::models::player::Player;
 use stremio_core::runtime::Runtime;
 use stremio_core::types::resource::MetaItemPreview;
 use stremio_core::Model;
 use stremio_lightning_env::AppEnv;
 
-use crate::screens::{addons, board, details, discover, settings};
+use crate::screens::{addons, board, details, discover, player, settings};
 
 /// Everything stremio-core holds for this app. One value of this type is the whole app state.
 #[derive(Model, Clone)]
@@ -22,6 +23,7 @@ pub struct AppModel {
     pub discover: CatalogWithFilters<MetaItemPreview>,
     pub installed_addons: InstalledAddonsWithFilters,
     pub meta_details: MetaDetails,
+    pub player: Player,
 }
 
 pub type AppRuntime = Runtime<AppEnv, AppModel>;
@@ -34,6 +36,7 @@ pub(crate) struct Snapshot {
     pub(crate) rows: Vec<board::Row>,
     pub discover: discover::Data,
     pub(crate) details: details::Data,
+    pub(crate) player: player::Data,
     pub(crate) addons: addons::Data,
     pub(crate) settings: settings::Data,
 }

@@ -12,7 +12,7 @@ use stremio_lightning_env::AppEnv;
 
 use super::{AppModel, AppRuntime, Snapshot};
 use crate::plumbing::images::Images;
-use crate::screens::{auth, discover, settings};
+use crate::screens::{auth, discover, player, settings};
 use crate::shell;
 use crate::MainWindow;
 
@@ -28,12 +28,17 @@ pub(crate) struct Context {
     pub(crate) selected: Arc<AtomicUsize>,
     /// The Season the details screen's episode picker is showing, if it has been touched.
     pub(crate) season: Arc<AtomicUsize>,
+    /// The Season the player's side drawer is showing, if it has been touched.
+    pub(crate) player_season: Arc<AtomicUsize>,
     /// The Video id whose Streams the details screen is showing, if one was picked.
     pub(crate) picked: Arc<Mutex<Option<String>>>,
     /// What the details screen's search box holds.
     pub(crate) video_query: Arc<Mutex<String>>,
     /// The Season and Episode the no-Streams message's steppers were moved to.
     pub(crate) moved: Arc<Mutex<Option<(u32, u32)>>>,
+    /// What mpv said when it could not play the stream it was given. It belongs to the picture,
+    /// not to the model, but the snapshot is what the window shows, so it is folded in here.
+    pub(crate) playback_error: Arc<Mutex<String>>,
     pub(crate) local_extras: Arc<Mutex<settings::LocalExtras>>,
     pub(crate) auth: auth::Generation,
     /// Repaint now, with whatever the cache holds. Used when an image arrives.
@@ -102,6 +107,15 @@ fn handle(event: RuntimeEvent<AppEnv, AppModel>, context: &Context) {
 /// Rebuilds everything the window shows from the model.
 fn snapshot(model: &AppModel, context: &Context) -> Snapshot {
     let (status, rows) = crate::screens::board::data(model);
+    let mut player = player::data(
+        model,
+        player::chosen_season(context.player_season.load(Ordering::Relaxed)),
+    );
+    // A title whose address could not be resolved says so first; when the model has nothing to
+    // say, mpv's own verdict on the address it was given stands.
+    if player.error.is_empty() {
+        player.error = context.playback_error.lock().unwrap().clone();
+    }
     Snapshot {
         status,
         rows,
@@ -115,6 +129,7 @@ fn snapshot(model: &AppModel, context: &Context) -> Snapshot {
             &context.video_query.lock().unwrap(),
         ),
         settings: settings::data(model, &context.extras()),
+        player,
     }
 }
 
@@ -160,6 +175,8 @@ fn request_images(snapshot: &Snapshot, context: &Context) {
                 .iter()
                 .filter_map(|card| card.logo.clone()),
         )
+        .chain(snapshot.player.logo.clone())
+        .chain(snapshot.player.background.clone())
         .chain(discover::preview_images(
             &snapshot.discover,
             context.selected.load(Ordering::Relaxed),

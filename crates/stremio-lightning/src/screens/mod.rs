@@ -12,6 +12,7 @@ pub mod auth;
 pub mod board;
 pub mod details;
 pub mod discover;
+pub mod player;
 pub mod settings;
 
 use stremio_core::constants::IMDB_LINK_CATEGORY;

@@ -7,12 +7,13 @@ use slint::{ModelRc, SharedString, VecModel, Weak};
 
 use crate::app::Snapshot;
 use crate::plumbing::images::Images;
+use crate::screens::player::Data as PlayerData;
 use crate::screens::settings::Data as SettingsData;
 use crate::screens::Preview;
 use crate::screens::{Card, Input};
 use crate::{
-    AddonData, CatalogRow, LinkGroup, MainWindow, PosterData, PreviewData, SelectInputData,
-    SelectOption, SettingsViewData, StreamData, VideoRow,
+    AddonData, CatalogRow, LinkGroup, MainWindow, PlayerEpisode, PlayerOption, PlayerTrack,
+    PosterData, PreviewData, SelectInputData, SelectOption, SettingsViewData, StreamData, VideoRow,
 };
 
 /// Copies everything a snapshot describes onto the window. Runs on the window's thread.
@@ -79,6 +80,7 @@ fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
     window.set_addons_message(snapshot.addons.message.clone().into());
 
     window.set_settings(settings_view(&snapshot.settings));
+    player_view(window, &snapshot.player, images);
 
     let details = &snapshot.details;
     window.set_details_has_preview(details.preview.is_some());
@@ -249,4 +251,82 @@ pub(crate) fn settings_view(data: &SettingsData) -> SettingsViewData {
         torrent_profile: select(data.torrent_profile.clone()),
         transcoding_profile: select(data.transcoding_profile.clone()),
     }
+}
+
+/// Everything the player screen draws that the core decided. The values mpv decides -- where the
+/// play head is, the tracks, the volume -- are set by the wiring as they change, so they are left
+/// alone here and do not flicker back to their defaults on every core event.
+fn player_view(window: &MainWindow, data: &PlayerData, images: &Images) {
+    window.set_playing(data.open);
+    window.set_player_title(data.title.clone().into());
+    window.set_player_error(data.error.clone().into());
+    let logo = images.get(&data.logo);
+    window.set_player_has_logo(logo.is_some());
+    window.set_player_logo(logo.unwrap_or_default());
+    let backdrop = images.get(&data.background);
+    window.set_player_has_backdrop(backdrop.is_some());
+    window.set_player_backdrop(backdrop.unwrap_or_default());
+    window.set_player_options(ModelRc::new(VecModel::from(
+        data.options
+            .iter()
+            .map(|option| PlayerOption {
+                label: option.label.clone().into(),
+                action: option.action.into(),
+            })
+            .collect::<Vec<_>>(),
+    )));
+    window.set_player_episodes(ModelRc::new(VecModel::from(
+        data.episodes
+            .iter()
+            .map(|episode| PlayerEpisode {
+                id: episode.id.clone().into(),
+                label: episode.label.clone().into(),
+                title: episode.title.clone().into(),
+                selected: episode.picked,
+                watched: episode.watched,
+            })
+            .collect::<Vec<_>>(),
+    )));
+    window.set_player_seasons(ModelRc::new(VecModel::from(
+        data.seasons
+            .iter()
+            .enumerate()
+            .map(|(index, (label, _))| SelectOption {
+                label: label.clone().into(),
+                selected: index == data.season,
+            })
+            .collect::<Vec<_>>(),
+    )));
+    window.set_player_season_index(i32::try_from(data.season).unwrap_or_default());
+    window.set_player_season_title(
+        data.seasons
+            .get(data.season)
+            .map(|(label, _)| label.clone())
+            .unwrap_or_default()
+            .into(),
+    );
+    window.set_player_has_episodes(data.seasons.len() > 1 || !data.episodes.is_empty());
+    window.set_player_has_preview(data.preview.is_some());
+    if let Some(preview) = &data.preview {
+        window.set_player_preview(preview_data(preview, images));
+    }
+    window.set_player_next_label(data.next_label.clone().into());
+    window.set_player_has_next(data.has_next);
+    window.set_player_next_notice(data.next_notice as f32);
+    window.set_player_scale(data.scale.into());
+}
+
+/// The tracks mpv offers, as the menus draw them.
+pub(crate) fn tracks(tracks: &[crate::plumbing::player::Track]) -> ModelRc<PlayerTrack> {
+    ModelRc::new(VecModel::from(
+        tracks
+            .iter()
+            .map(|track| PlayerTrack {
+                id: track.id.clone().into(),
+                title: track.title.clone().into(),
+                language: track.language.clone().into(),
+                selected: track.selected,
+            })
+            .collect::<Vec<_>>(),
+    ))
 }

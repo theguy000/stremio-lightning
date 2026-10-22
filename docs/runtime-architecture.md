@@ -46,6 +46,19 @@ that needs callbacks gets them in `shell/wiring`, one line each.
 
 Slint components live in `ui/`; a screen's Rust module and its Slint file share a name.
 
+### The player
+
+`ui/player.slint` is the one screen that is not only Slint: mpv draws its frames into the
+window's own OpenGL framebuffer before Slint paints, so the player's controls are transparent
+layers over the picture. That is also why `MainWindow`'s background turns transparent while the
+player is open — anything opaque there would cover the video.
+
+`plumbing/player.rs` owns mpv: it loads an address, polls what mpv is doing twice a second, and
+reports a plain `Status` to whoever listens. `screens/player.rs` builds everything the screen
+shows from the core's `Player` model, and `shell/wiring.rs` turns presses into core actions
+(play, seek, tracks, scale, volume) and the address the core resolves into an mpv load. The core
+is told the play head at most once a second, in whole seconds, which is what the web client does.
+
 ## Retiring shells
 
 Each web shell injects its platform adapter before `web/bridge/bridge.js`, which exposes

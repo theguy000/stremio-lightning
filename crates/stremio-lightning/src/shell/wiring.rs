@@ -6,7 +6,7 @@
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use slint::{ModelRc, Weak};
+use slint::{ComponentHandle, ModelRc, Timer, Weak};
 use stremio_core::models::catalog_with_filters::Selected as CatalogSelected;
 use stremio_core::models::installed_addons_with_filters::Selected as InstalledSelected;
 use stremio_core::runtime::msg::{Action, ActionCatalogWithFilters, ActionLoad};
@@ -19,7 +19,7 @@ use crate::plumbing::images::Images;
 use crate::plumbing::links;
 use crate::plumbing::player::VideoPlayer;
 use crate::plumbing::stream_server::{self, Supervisor};
-use crate::screens::{auth, details, discover, settings};
+use crate::screens::{auth, details, discover, player, settings};
 use crate::shell;
 use crate::MainWindow;
 
@@ -49,6 +49,36 @@ pub(crate) struct Wiring {
     pub(crate) server: Arc<Supervisor>,
     pub(crate) auth: auth::Generation,
     pub(crate) handle: tokio::runtime::Handle,
+    /// The Session's own player state: the Season the drawer shows, the stream mpv already has,
+    /// and how far through it is.
+    pub(crate) player_season: Arc<AtomicUsize>,
+    pub(crate) player_loaded: Arc<Mutex<String>>,
+    pub(crate) playback_error: Arc<Mutex<String>>,
+    pub(crate) playback: Arc<Mutex<Playback>>,
+    pub(crate) player_sync: Arc<Timer>,
+}
+
+/// Where the picture is, as the player last heard it. The core is told about the play head once
+/// a second, not on every tick, so a long film is not a stream of actions.
+#[derive(Clone)]
+pub(crate) struct Playback {
+    pub(crate) time: f64,
+    pub(crate) duration: f64,
+    pub(crate) sent_time: f64,
+    pub(crate) paused: Option<bool>,
+    pub(crate) scale: stremio_core::types::player::VideoScale,
+}
+
+impl Default for Playback {
+    fn default() -> Self {
+        Self {
+            time: 0.0,
+            duration: 0.0,
+            sent_time: 0.0,
+            paused: None,
+            scale: stremio_core::types::player::VideoScale::Contain,
+        }
+    }
 }
 
 impl Wiring {
@@ -292,28 +322,282 @@ impl Wiring {
         self.repaint_with(snapshot);
     }
 
+    /// A Stream was clicked: the player screen opens on it, and the core loads the rest.
     fn play_stream(&self, index: i32) {
+        let index = usize::try_from(index).unwrap_or(usize::MAX);
+        let opened = player::open(&self.runtime, index);
+        let message = match opened {
+            Ok(()) => String::new(),
+            Err(error) => format!("Can't play this stream: {error}"),
+        };
+        if let Some(window) = self.window.upgrade() {
+            window.set_play_message(message.into());
+        }
+    }
+
+    // ---- the player screen ----
+
+    /// The picture's state, as mpv reports it. One push per change, so a paused player costs
+    /// nothing: the window, then the core, and then whatever the end of a stream means.
+    pub(crate) fn playback_changed(&self, status: crate::plumbing::player::Status) {
         let Some(window) = self.window.upgrade() else {
             return;
         };
-        let index = usize::try_from(index).unwrap_or(usize::MAX);
-        let played =
-            details::stream_address(&self.runtime, index).and_then(|url| self.video.play(&url));
-        match played {
-            Ok(()) => {
-                window.set_play_message("".into());
-                window.set_playing(true);
+        window.set_player_loaded(status.loaded);
+        window.set_player_buffering(status.buffering);
+        window.set_player_time(status.time.unwrap_or_default() as f32);
+        window.set_player_duration(status.duration.unwrap_or_default() as f32);
+        window.set_player_buffered(status.buffered.unwrap_or_default() as f32);
+        window.set_player_paused(status.paused.unwrap_or(true));
+        window.set_player_seekable(
+            status.duration.is_some_and(|duration| duration > 0.0)
+                && status.time.is_some()
+                && status.paused.is_some(),
+        );
+        window.set_player_volume(status.volume.unwrap_or_default() as f32);
+        window.set_player_muted(status.muted.unwrap_or(false));
+        window.set_player_speed(status.speed.unwrap_or(1.0) as f32);
+        window.set_player_audio_tracks(shell::view::tracks(&status.audio));
+        window.set_player_subtitle_tracks(shell::view::tracks(&status.subtitles));
+        window.set_player_subtitles_enabled(status.subtitles.iter().any(|track| track.selected));
+        window.set_player_subtitles_size((status.subtitles_scale * 100.0) as f32);
+        window.set_player_subtitles_offset((status.subtitles_delay * 1000.0) as f32);
+
+        if !status.error.is_empty() && *self.playback_error.lock().unwrap() != status.error {
+            *self.playback_error.lock().unwrap() = status.error.clone();
+            window.set_player_error(status.error.into());
+        }
+
+        let (time, duration, sent, was_paused) = {
+            let mut playback = self.playback.lock().unwrap();
+            let was_paused = playback.paused;
+            playback.time = status.time.unwrap_or_default();
+            playback.duration = status.duration.unwrap_or_default();
+            playback.paused = status.paused;
+            (
+                playback.time,
+                playback.duration,
+                playback.sent_time,
+                was_paused,
+            )
+        };
+        // The core keeps the resume point: once a second is enough for a library item whose
+        // updates are pushed to the server every three minutes anyway.
+        if status.loaded && (time - sent).abs() >= 1.0 {
+            self.playback.lock().unwrap().sent_time = time;
+            player::time_changed(&self.runtime, time, duration, "mpv".to_owned());
+        }
+        if status.paused.is_some() && status.paused != was_paused {
+            player::paused_changed(&self.runtime, status.paused.unwrap_or(false));
+        }
+        if status.ended {
+            self.ended();
+        }
+    }
+
+    /// The stream reached its end. Binge watching carries on to the next Video; anything else
+    /// goes back to where the player was opened from, as the web's back navigation does.
+    fn ended(&self) {
+        player::ended(&self.runtime);
+        let binge = self
+            .runtime
+            .model()
+            .map(|model| {
+                model.ctx.profile.settings.binge_watching && model.player.next_video.is_some()
+            })
+            .unwrap_or(false);
+        if binge && player::next(&self.runtime).is_ok() {
+            return;
+        }
+        self.player_back();
+    }
+
+    fn player_back(&self) {
+        self.video.stop();
+        self.video.show(false);
+        *self.player_loaded.lock().unwrap() = String::new();
+        *self.playback_error.lock().unwrap() = String::new();
+        *self.playback.lock().unwrap() = Playback::default();
+        self.player_season
+            .store(player::NO_SEASON, Ordering::Relaxed);
+        player::unload(&self.runtime);
+    }
+
+    fn player_play_pause(&self) {
+        let paused = self.video.status().paused.unwrap_or(false);
+        let _ = self.video.set_paused(!paused);
+    }
+
+    fn player_play_next(&self) {
+        let _ = player::next(&self.runtime);
+    }
+
+    fn player_seek(&self, time: f32) {
+        let time = f64::from(time);
+        let _ = self.video.seek(time);
+        let duration = self.playback.lock().unwrap().duration;
+        self.playback.lock().unwrap().sent_time = time;
+        player::seek(&self.runtime, time, duration, "mpv".to_owned());
+    }
+
+    /// The arrow keys: ten seconds, or three with Shift, as the profile's own settings say.
+    fn player_seek_by(&self, offset: f32) {
+        let status = self.video.status();
+        let Some(time) = status.time else { return };
+        let duration = status.duration.unwrap_or_default();
+        let target = (time + f64::from(offset)).clamp(0.0, duration.max(0.0));
+        self.player_seek(target as f32);
+    }
+
+    fn player_set_volume(&self, volume: f32) {
+        let _ = self.video.set_volume(f64::from(volume).clamp(0.0, 200.0));
+    }
+
+    fn player_toggle_muted(&self) {
+        let muted = self.video.status().muted.unwrap_or(false);
+        let _ = self.video.set_muted(!muted);
+    }
+
+    fn player_set_speed(&self, speed: f32) {
+        let _ = self.video.set_speed(f64::from(speed).clamp(0.1, 4.0));
+    }
+
+    /// The scale button and the V key: Fit, then Crop, then Stretch, and round again.
+    fn player_cycle_scale(&self) {
+        use stremio_core::types::player::VideoScale;
+        let next = match self.playback.lock().unwrap().scale {
+            VideoScale::Contain => VideoScale::Cover,
+            VideoScale::Cover => VideoScale::Fill,
+            VideoScale::Fill => VideoScale::Contain,
+        };
+        self.playback.lock().unwrap().scale = next;
+        let _ = self.video.set_scale(next);
+        player::scale_changed(&self.runtime, next);
+        if let Some(window) = self.window.upgrade() {
+            window.set_player_scale(
+                match next {
+                    VideoScale::Contain => "contain",
+                    VideoScale::Cover => "cover",
+                    VideoScale::Fill => "fill",
+                }
+                .into(),
+            );
+        }
+    }
+
+    fn player_select_audio(&self, id: String) {
+        let _ = self.video.select_audio(&id);
+    }
+
+    /// One of the subtitle rows. An id from the list is either an mpv track already inside the
+    /// file or a subtitle file the stream or an addon offered, which has to be added first.
+    fn player_choose_subtitles(&self, id: String) {
+        let found = self
+            .latest
+            .lock()
+            .unwrap()
+            .player
+            .subtitles
+            .iter()
+            .find(|subtitle| subtitle.id == id)
+            .map(|subtitle| (subtitle.url.clone(), subtitle.title.clone()));
+        match found {
+            Some((url, language)) => {
+                let _ = self.video.add_subtitles(&url, &language);
             }
-            Err(error) => {
-                window.set_play_message(format!("Can't play this stream: {error}").into());
+            None => {
+                let _ = self.video.select_subtitles(Some(&id));
             }
         }
     }
 
-    fn stop_playback(&self) {
-        self.video.stop();
-        if let Some(window) = self.window.upgrade() {
-            window.set_playing(false);
+    fn player_toggle_subtitles(&self) {
+        let showing = self
+            .video
+            .status()
+            .subtitles
+            .iter()
+            .any(|track| track.selected);
+        let _ = self
+            .video
+            .select_subtitles(if showing { None } else { Some("auto") });
+    }
+
+    /// The subtitles steppers: size in tenths, timing in hundredths of a second, as the web's
+    /// own steppers move them.
+    fn player_step_subtitles_size(&self, step: i32) {
+        let current = self.video.status().subtitles_scale;
+        let next = (current + f64::from(step) * 0.1).clamp(0.2, 3.0);
+        let _ = self.video.set_subtitles_scale(next);
+    }
+
+    fn player_step_subtitles_offset(&self, step: i32) {
+        let current = self.video.status().subtitles_delay;
+        let next = (current + f64::from(step) * 0.1).clamp(-60.0, 60.0);
+        let _ = self.video.set_subtitles_delay(next);
+    }
+
+    /// An Episode in the drawer: the player reloads on it, as picking a row does.
+    fn player_select_episode(&self, video_id: String) {
+        let _ = player::load_video(&self.runtime, &video_id);
+        self.player_season
+            .store(player::NO_SEASON, Ordering::Relaxed);
+    }
+
+    /// A season in the drawer. Nothing is loaded: the list is rebuilt from the same title.
+    fn player_select_season(&self, index: i32) {
+        let Ok(index) = usize::try_from(index) else {
+            return;
+        };
+        self.player_season.store(index, Ordering::Relaxed);
+        if let Ok(model) = self.runtime.model() {
+            let mut snapshot = self.latest.lock().unwrap().clone();
+            snapshot.player = player::data(&model, player::chosen_season(index));
+            drop(model);
+            *self.latest.lock().unwrap() = snapshot.clone();
+            shell::show(&self.window, snapshot, &self.images);
+        }
+    }
+
+    /// One row of the player's options menu.
+    fn player_choose_option(&self, action: String) {
+        let Ok(model) = self.runtime.model() else {
+            return;
+        };
+        let target = match action.as_str() {
+            "copy-stream" => player::stream_link(&model.player),
+            "copy-magnet" => player::magnet_link(&model.player),
+            "download" => player::download_link(&model.player),
+            // The web offers whichever subtitle is showing; this shell offers the first the
+            // stream or its addons listed, which is the one the menu lists first.
+            "download-subtitles" => self
+                .latest
+                .lock()
+                .unwrap()
+                .player
+                .subtitles
+                .first()
+                .map(|subtitle| subtitle.url.clone()),
+            _ => None,
+        };
+        drop(model);
+        match action.as_str() {
+            "download" | "download-subtitles" => match target {
+                Some(url) => {
+                    crate::plumbing::links::open(&url);
+                }
+                None => self.say("Nothing to open"),
+            },
+            _ => match target {
+                Some(url) => {
+                    let said = match clipboard::copy(&url) {
+                        Ok(()) => "Copied".to_owned(),
+                        Err(error) => error,
+                    };
+                    self.say(&said);
+                }
+                None => self.say("Nothing to copy"),
+            },
         }
     }
 
@@ -491,9 +775,164 @@ impl Wiring {
     }
 }
 
+/// Watches for the address the core resolved and hands it to mpv once. A timer rather than a
+/// callback because the address arrives with a core event on another thread, and the player
+/// cannot leave this one; a fifth of a second is well under the time anyone notices.
+pub(crate) fn start_player_sync(wiring: &Wiring) {
+    let (window, latest, video) = (
+        wiring.window.clone(),
+        wiring.latest.clone(),
+        wiring.video.clone(),
+    );
+    let runtime = wiring.runtime.clone();
+    let loaded = wiring.player_loaded.clone();
+    let playback = wiring.playback.clone();
+    let error = wiring.playback_error.clone();
+    wiring.player_sync.start(
+        slint::TimerMode::Repeated,
+        std::time::Duration::from_millis(200),
+        move || {
+            let data = latest.lock().unwrap().player.clone();
+            if !data.open {
+                video.show(false);
+                return;
+            }
+            if data.key == *loaded.lock().unwrap() {
+                return;
+            }
+            let Some(url) = data.url.clone() else {
+                return;
+            };
+            match video.play(&url, data.resume_at) {
+                Ok(()) => {
+                    *loaded.lock().unwrap() = data.key.clone();
+                    *error.lock().unwrap() = String::new();
+                    if let Ok(mut playing) = playback.lock() {
+                        playing.sent_time = data.resume_at;
+                        playing.paused = None;
+                        playing.scale = match data.scale {
+                            "cover" => stremio_core::types::player::VideoScale::Cover,
+                            "fill" => stremio_core::types::player::VideoScale::Fill,
+                            _ => stremio_core::types::player::VideoScale::Contain,
+                        };
+                        let _ = video.set_scale(playing.scale);
+                    }
+                    // What the stream says the file is: the core looks for subtitles that match
+                    // this file by its size and name.
+                    if let Ok(model) = runtime.model() {
+                        let hints = model
+                            .player
+                            .selected
+                            .as_ref()
+                            .map(|selected| selected.stream.behavior_hints.clone())
+                            .unwrap_or_default();
+                        drop(model);
+                        player::video_params_changed(
+                            &runtime,
+                            hints.video_size,
+                            hints.filename.clone(),
+                        );
+                    }
+                    video.show(true);
+                    let _ = window.upgrade_in_event_loop(|window| {
+                        window.set_player_error("".into());
+                        window.set_player_loaded(false);
+                    });
+                }
+                Err(message) => {
+                    let _ = window.upgrade_in_event_loop(move |window| {
+                        window.set_player_error(format!("Can't play this stream: {message}").into())
+                    });
+                }
+            }
+        },
+    );
+}
+
 /// Registers every callback the window has. Each one is the same shape: work out what was
 /// clicked, do it, and let the window catch up.
 pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
+    start_player_sync(&wiring);
+    {
+        let wiring = wiring.clone();
+        window.on_player_back(move || wiring.player_back());
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_player_play_pause(move || wiring.player_play_pause());
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_player_play_next(move || wiring.player_play_next());
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_player_seek(move |time| wiring.player_seek(time));
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_player_seek_by(move |offset| wiring.player_seek_by(offset));
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_player_set_volume(move |volume| wiring.player_set_volume(volume));
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_player_toggle_muted(move || wiring.player_toggle_muted());
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_player_set_speed(move |speed| wiring.player_set_speed(speed));
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_player_cycle_scale(move || wiring.player_cycle_scale());
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_player_select_audio(move |id| wiring.player_select_audio(id.to_string()));
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_player_choose_subtitles(move |id| wiring.player_choose_subtitles(id.to_string()));
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_player_toggle_subtitles(move || wiring.player_toggle_subtitles());
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_player_step_subtitles_size(move |step| wiring.player_step_subtitles_size(step));
+    }
+    {
+        let wiring = wiring.clone();
+        window
+            .on_player_step_subtitles_offset(move |step| wiring.player_step_subtitles_offset(step));
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_player_select_episode(move |id| wiring.player_select_episode(id.to_string()));
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_player_select_season(move |index| wiring.player_select_season(index));
+    }
+    {
+        let wiring = wiring.clone();
+        window
+            .on_player_choose_option(move |action| wiring.player_choose_option(action.to_string()));
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_player_toggle_fullscreen(move || {
+            let _ = wiring.window.upgrade_in_event_loop(|window| {
+                let fullscreen = !window.window().is_fullscreen();
+                window.window().set_fullscreen(fullscreen);
+                window.set_player_fullscreen(fullscreen);
+            });
+        });
+    }
     {
         let wiring = wiring.clone();
         window.on_open_item(move |id, kind, title| {
@@ -563,10 +1002,6 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
     {
         let wiring = wiring.clone();
         window.on_next_episode(move || wiring.next_episode());
-    }
-    {
-        let wiring = wiring.clone();
-        window.on_stop_playback(move || wiring.stop_playback());
     }
     {
         let wiring = wiring.clone();
