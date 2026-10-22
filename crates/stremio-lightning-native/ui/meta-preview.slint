@@ -166,6 +166,14 @@ export component MetaPreview inherits Rectangle {
     // On the details route the preview is not a panel: web paints the title's background across
     // the whole screen (`.background-image-layer`) and lays this info straight onto it.
     in property <bool> on-page: false;
+    // Web: the rating buttons stay dim until the core has answered about this title.
+    in property <bool> rate-visible: false;
+    in property <bool> rate-enabled: false;
+    in property <bool> rated-liked: false;
+    in property <bool> rated-loved: false;
+    callback share;
+    callback rate-like;
+    callback rate-love;
 
     meta-preview-container := Rectangle {
         width: parent.width;
@@ -331,37 +339,65 @@ export component MetaPreview inherits Rectangle {
                     height: 1.75 * root.rem-size;
                 }
             }
-            // Web: a like/heart pill, then the share disc.
-            rate-container := Rectangle {
+            // Web: `Ratings` — a like and a love in one pill, each filled while it is set and dim
+            // until the core has said which (if either) the title carries.
+            if root.rate-visible: rate-container := Rectangle {
                 width: 8 * root.rem-size;
                 height: 4 * root.rem-size;
                 border-radius: 4 * root.rem-size;
                 background: Theme.overlay;
 
-                Image {
-                    source: @image-url("icons/heart-outline.svg");
-                    colorize: Theme.text;
-                    opacity: 0.9;
-                    x: (4 * root.rem-size - self.width) / 2;
-                    y: (parent.height - self.height) / 2;
-                    width: 1.75 * root.rem-size;
-                    height: 1.75 * root.rem-size;
+                Rectangle {
+                    width: 4 * root.rem-size;
+                    height: 100%;
+                    border-radius: 4 * root.rem-size;
+                    background: like-touch.has-hover && root.rate-enabled ? #ffffff1a : transparent;
+                    Image {
+                        source: root.rated-liked ? @image-url("icons/thumbs-up.svg") : @image-url("icons/thumbs-up-outline.svg");
+                        colorize: Theme.text;
+                        opacity: root.rate-enabled ? 0.9 : 0.4;
+                        x: (parent.width - self.width) / 2;
+                        y: (parent.height - self.height) / 2;
+                        width: 1.75 * root.rem-size;
+                        height: 1.75 * root.rem-size;
+                    }
+                    like-touch := TouchArea {
+                        enabled: root.rate-enabled;
+                        mouse-cursor: pointer;
+                        clicked => {
+                            root.rate-like();
+                        }
+                    }
                 }
-                Image {
-                    source: @image-url("icons/heart.svg");
-                    colorize: Theme.text;
-                    opacity: 0.9;
-                    x: 4 * root.rem-size + (4 * root.rem-size - self.width) / 2;
-                    y: (parent.height - self.height) / 2;
-                    width: 1.75 * root.rem-size;
-                    height: 1.75 * root.rem-size;
+                Rectangle {
+                    x: 4 * root.rem-size;
+                    width: 4 * root.rem-size;
+                    height: 100%;
+                    border-radius: 4 * root.rem-size;
+                    background: love-touch.has-hover && root.rate-enabled ? #ffffff1a : transparent;
+                    Image {
+                        source: root.rated-loved ? @image-url("icons/heart.svg") : @image-url("icons/heart-outline.svg");
+                        colorize: Theme.text;
+                        opacity: root.rate-enabled ? 0.9 : 0.4;
+                        x: (parent.width - self.width) / 2;
+                        y: (parent.height - self.height) / 2;
+                        width: 1.75 * root.rem-size;
+                        height: 1.75 * root.rem-size;
+                    }
+                    love-touch := TouchArea {
+                        enabled: root.rate-enabled;
+                        mouse-cursor: pointer;
+                        clicked => {
+                            root.rate-love();
+                        }
+                    }
                 }
             }
             share-button := Rectangle {
                 width: 4 * root.rem-size;
                 height: 4 * root.rem-size;
                 border-radius: 2 * root.rem-size;
-                background: Theme.overlay;
+                background: share-touch.has-hover ? #ffffff1a : Theme.overlay;
 
                 Image {
                     source: @image-url("icons/share.svg");
@@ -371,6 +407,12 @@ export component MetaPreview inherits Rectangle {
                     y: (parent.height - self.height) / 2;
                     width: 1.75 * root.rem-size;
                     height: 1.75 * root.rem-size;
+                }
+                share-touch := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.share();
+                    }
                 }
             }
 

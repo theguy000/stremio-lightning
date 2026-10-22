@@ -13,6 +13,7 @@ import { VideoRow } from "videos-list.slint";
 export { AddonData, LinkGroup, PreviewData, SelectInputData, SelectOption, SettingsViewData, StreamData, VideoRow }
 import { ClassStyle, ClassStyles } from "class-styles.slint";
 import { IntroContent } from "intro.slint";
+import { ShareModal } from "share-modal.slint";
 
 export { CatalogRow, ClassStyle, ClassStyles, PosterData }
 
@@ -46,6 +47,10 @@ export component MainWindow inherits Window {
     in property <int> details-season-number: 0;
     in property <int> details-episode-number: 0;
     in property <bool> details-can-show-streams: false;
+    in property <bool> details-rate-visible: false;
+    in property <bool> details-rate-enabled: false;
+    in property <bool> details-rated-liked: false;
+    in property <bool> details-rated-loved: false;
     in property <[StreamData]> streams: [];
     in property <int> streams-loading: 0;
     // False when nothing is going to answer with Streams: no account, or no addon that serves
@@ -77,6 +82,11 @@ export component MainWindow inherits Window {
         : root.section == Section.calendar ? "Calendar"
         : root.section == Section.addons ? "Addons" : "Settings";
     in property <string> play-message;
+    // One line at the bottom of the window, then gone: what the app says after a copy.
+    in property <string> toast;
+    // The share dialog, over everything else while it is open.
+    in-out property <bool> share-open: false;
+    in property <string> share-link;
 
     callback open-item(string, string, string);
     callback load-next-page();
@@ -97,6 +107,12 @@ export component MainWindow inherits Window {
     callback step-season(int);
     callback step-episode(int);
     callback show-streams();
+    callback share();
+    callback rate-like();
+    callback rate-love();
+    callback share-close();
+    callback share-copy();
+    callback share-to(string);
     callback next-episode();
     callback stop-playback();
     callback submit-auth-login(string, string);
@@ -172,6 +188,10 @@ export component MainWindow inherits Window {
         season-number: root.details-season-number;
         episode-number: root.details-episode-number;
         can-show-streams: root.details-can-show-streams;
+        rate-visible: root.details-rate-visible;
+        rate-enabled: root.details-rate-enabled;
+        rated-liked: root.details-rated-liked;
+        rated-loved: root.details-rated-loved;
         select-season(index) => {
             root.select-season(index);
         }
@@ -196,6 +216,15 @@ export component MainWindow inherits Window {
         show-streams => {
             root.show-streams();
         }
+        share => {
+            root.share();
+        }
+        rate-like => {
+            root.rate-like();
+        }
+        rate-love => {
+            root.rate-love();
+        }
     }
 
     if !root.playing && !root.details-open: VerticalNavBar {
@@ -207,6 +236,47 @@ export component MainWindow inherits Window {
         select(target) => {
             root.details-open = false;
             root.section = target;
+        }
+    }
+
+    // The share dialog sits over everything, including the bar and the toast.
+    if root.share-open: ShareModal {
+        width: 100%;
+        height: 100%;
+        link: root.share-link;
+        rem-size: root.rem-size;
+        closed => {
+            root.share-close();
+        }
+        copied => {
+            root.share-copy();
+        }
+        opened(network) => {
+            root.share-to(network);
+        }
+    }
+
+    // Web keeps its confirmations in a toast container over the bottom of the viewport. This app
+    // has one line to say, so it has one pill.
+    if root.toast != "": HorizontalLayout {
+        y: parent.height - 4 * root.rem-size;
+        height: 3 * root.rem-size;
+        alignment: center;
+        Rectangle {
+            height: 3 * root.rem-size;
+            border-radius: 0.75 * root.rem-size;
+            background: Theme.modal-background;
+            HorizontalLayout {
+                alignment: center;
+                padding-left: 1.5 * root.rem-size;
+                padding-right: 1.5 * root.rem-size;
+                Text {
+                    text: root.toast;
+                    color: Theme.text;
+                    font-size: 1 * root.rem-size;
+                    vertical-alignment: center;
+                }
+            }
         }
     }
 

@@ -99,6 +99,14 @@ fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
     window.set_streams_loading(i32::try_from(details.sources_loading).unwrap_or_default());
     window.set_details_waits_for_streams(details.waits_for_streams);
 
+    window.set_details_rate_visible(details.rating_known);
+    window.set_details_rate_enabled(details.rating_ready);
+    window.set_details_rated_liked(
+        details.rating == Some(stremio_core::types::rating::Rating::Liked),
+    );
+    window.set_details_rated_loved(
+        details.rating == Some(stremio_core::types::rating::Rating::Loved),
+    );
     window.set_details_show_picker(details.show_picker);
     window.set_details_has_steps(details.steps.is_some());
     window.set_details_season_number(

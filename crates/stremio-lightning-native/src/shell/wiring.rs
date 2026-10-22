@@ -3,7 +3,7 @@
 //! Nothing here decides anything. A callback works out what was clicked, hands it to a screen's
 //! action, and puts the result where the window can see it.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use slint::{ModelRc, Weak};
@@ -14,6 +14,7 @@ use stremio_core::runtime::RuntimeAction;
 use stremio_core::types::profile::GDPRConsent;
 
 use crate::app::{AppModel, AppRuntime, Snapshot};
+use crate::plumbing::clipboard;
 use crate::plumbing::images::Images;
 use crate::plumbing::links;
 use crate::plumbing::player::VideoPlayer;
@@ -40,6 +41,9 @@ pub(crate) struct Wiring {
     /// The Season and Episode the no-Streams message's steppers were moved to, while they name a
     /// Video other than the picked one.
     pub(crate) moved: Arc<Mutex<Option<(u32, u32)>>>,
+    /// Counts the messages shown at the bottom of the window, so an older one cannot clear a
+    /// newer one on its way out.
+    pub(crate) said: Arc<AtomicU64>,
     pub(crate) local_extras: Arc<Mutex<settings::LocalExtras>>,
     pub(crate) data_dir: std::path::PathBuf,
     pub(crate) server: Arc<Supervisor>,
@@ -179,6 +183,91 @@ impl Wiring {
         if let Some(next) = next {
             self.pick_video(next);
         }
+    }
+
+    /// A rating button: the like or the love, whichever was pressed, toggled against what the
+    /// core last said the title carries.
+    fn rate(&self, like: bool) {
+        let current = self.latest.lock().unwrap().details.rating.clone();
+        details::rate(&self.runtime, details::next_rating(current.as_ref(), like));
+    }
+
+    /// The share button: works out the link web would offer and opens the dialog that offers it.
+    fn share(&self) {
+        let Ok(model) = self.runtime.model() else {
+            return;
+        };
+        let Some(selected) = model.meta_details.selected.as_ref() else {
+            return;
+        };
+        let Some(item) = details::meta_item(&model.meta_details) else {
+            return;
+        };
+        let link = details::share_link(
+            &item.preview.name,
+            &selected.meta_path.r#type,
+            &selected.meta_path.id,
+        );
+        drop(model);
+        let Some(window) = self.window.upgrade() else {
+            return;
+        };
+        window.set_share_link(link.into());
+        window.set_share_open(true);
+    }
+
+    /// The dialog's way out, by its close button or a click on the cover.
+    fn close_share(&self) {
+        if let Some(window) = self.window.upgrade() {
+            window.set_share_open(false);
+        }
+    }
+
+    /// The dialog's Copy button. The dialog stays open, as it does on the site, and the window
+    /// says what happened at the bottom.
+    fn copy_share(&self) {
+        let Some(window) = self.window.upgrade() else {
+            return;
+        };
+        let link = window.get_share_link().to_string();
+        let said = match clipboard::copy(&link) {
+            Ok(()) => "Link copied".to_owned(),
+            Err(error) => error,
+        };
+        self.say(&said);
+    }
+
+    /// One of the dialog's networks: hand the link to the site that shares it.
+    fn open_share_target(&self, network: &str) {
+        let Some(window) = self.window.upgrade() else {
+            return;
+        };
+        let link = window.get_share_link().to_string();
+        let target = match network {
+            "facebook" => format!("https://www.facebook.com/sharer/sharer.php?u={link}"),
+            "x" => format!("https://twitter.com/intent/tweet?text={link}"),
+            "reddit" => format!("https://www.reddit.com/submit?url={link}"),
+            _ => return,
+        };
+        crate::plumbing::links::open(&target);
+    }
+
+    /// Puts one line at the bottom of the window for a moment. The count makes the last message
+    /// win: a copy made while an earlier one is still fading does not get cleared early.
+    fn say(&self, text: &str) {
+        let Some(window) = self.window.upgrade() else {
+            return;
+        };
+        window.set_toast(text.into());
+        let generation = self.said.fetch_add(1, Ordering::Relaxed) + 1;
+        let said = self.said.clone();
+        let window = self.window.clone();
+        self.handle.spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(2200)).await;
+            if said.load(Ordering::Relaxed) == generation {
+                let _ = window.upgrade_in_event_loop(|window| window.set_toast("".into()));
+            }
+        });
     }
 
     /// Back to the Episode Picker: the pick is gone, and the core drops the Streams with it.
@@ -427,6 +516,30 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
     {
         let wiring = wiring.clone();
         window.on_show_streams(move || wiring.show_streams());
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_share(move || wiring.share());
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_rate_like(move || wiring.rate(true));
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_rate_love(move || wiring.rate(false));
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_share_close(move || wiring.close_share());
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_share_copy(move || wiring.copy_share());
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_share_to(move |network| wiring.open_share_target(network.as_str()));
     }
     {
         let wiring = wiring.clone();

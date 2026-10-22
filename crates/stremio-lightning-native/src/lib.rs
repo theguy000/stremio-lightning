@@ -13,7 +13,7 @@
 //!
 //! The binary is `main.rs`, which does nothing but start this.
 
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicU64, AtomicUsize};
 use std::sync::{Arc, Mutex};
 
 use stremio_core::runtime::Env;
@@ -72,6 +72,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let picked: Arc<Mutex<Option<String>>> = Default::default();
     let video_query: Arc<Mutex<String>> = Default::default();
     let moved: Arc<Mutex<Option<(u32, u32)>>> = Default::default();
+    let said: Arc<AtomicU64> = Default::default();
 
     let wiring = shell::wiring::Wiring {
         window: window.as_weak(),
@@ -84,6 +85,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         picked: picked.clone(),
         video_query: video_query.clone(),
         moved: moved.clone(),
+        said: said.clone(),
         local_extras: local_extras.clone(),
         data_dir: data_dir.clone(),
         server: server.clone(),

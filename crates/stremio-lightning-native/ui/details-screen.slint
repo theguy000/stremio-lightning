@@ -365,6 +365,10 @@ component DetailsPanel inherits Rectangle {
     in property <[StreamData]> streams;
     in property <int> streams-loading: 0;
     in property <bool> waits-for-streams: false;
+    in property <bool> rate-visible: false;
+    in property <bool> rate-enabled: false;
+    in property <bool> rated-liked: false;
+    in property <bool> rated-loved: false;
     in property <string> play-message;
     in property <bool> has-steps: false;
     in property <int> season-number: 0;
@@ -542,6 +546,10 @@ export component DetailsScreen inherits Rectangle {
     in property <[StreamData]> streams;
     in property <int> streams-loading: 0;
     in property <bool> waits-for-streams: false;
+    in property <bool> rate-visible: false;
+    in property <bool> rate-enabled: false;
+    in property <bool> rated-liked: false;
+    in property <bool> rated-loved: false;
     in property <string> play-message;
     in property <bool> has-steps: false;
     in property <int> season-number: 0;
@@ -558,6 +566,9 @@ export component DetailsScreen inherits Rectangle {
     callback step-season(int);
     callback step-episode(int);
     callback show-streams;
+    callback share;
+    callback rate-like;
+    callback rate-love;
 
     background: Theme.modal-background;
 
@@ -588,6 +599,19 @@ export component DetailsScreen inherits Rectangle {
                     has-preview: root.has-preview;
                     rem-size: root.rem-size;
                     on-page: true;
+                    rate-visible: root.rate-visible;
+                    rate-enabled: root.rate-enabled;
+                    rated-liked: root.rated-liked;
+                    rated-loved: root.rated-loved;
+                    share => {
+                        root.share();
+                    }
+                    rate-like => {
+                        root.rate-like();
+                    }
+                    rate-love => {
+                        root.rate-love();
+                    }
                 }
             }
         }

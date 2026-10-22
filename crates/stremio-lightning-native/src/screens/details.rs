@@ -4,9 +4,10 @@
 use stremio_core::constants::{META_RESOURCE_NAME, STREAM_RESOURCE_NAME};
 use stremio_core::models::common::Loadable;
 use stremio_core::models::meta_details::{MetaDetails, Selected as DetailsSelected};
-use stremio_core::runtime::msg::{Action, ActionLoad};
+use stremio_core::runtime::msg::{Action, ActionLoad, ActionMetaDetails};
 use stremio_core::runtime::RuntimeAction;
 use stremio_core::types::addon::ResourcePath;
+use stremio_core::types::rating::Rating;
 use stremio_core::types::resource::{MetaItem, Stream, StreamUrls, Video};
 use url::Url;
 
@@ -256,6 +257,13 @@ pub struct Data {
     pub sources_loading: usize,
     /// Whether the Streams placeholder rows are worth showing while the answers are out.
     pub waits_for_streams: bool,
+    /// Web: the like or love the title carries, once the core has asked about it.
+    pub rating: Option<Rating>,
+    /// Whether the core has a rating to speak of for this title. Web only shows the two rating
+    /// buttons when it does, which takes an account: a guest never gets them.
+    pub rating_known: bool,
+    /// Whether that answer is in yet: the buttons stay dim until it is.
+    pub rating_ready: bool,
     /// True while the screen offers the Episode Picker instead of the Streams.
     pub show_picker: bool,
     /// Every Season the title offers, in the title's own order.
@@ -283,6 +291,48 @@ pub fn chosen_season(stored: usize) -> Option<u32> {
         return None;
     }
     u32::try_from(stored).ok()
+}
+
+/// Web: the address its share dialog offers — the short route, the title's name as a slug and
+/// the number from its id. `Carrie` with `tt11540908` becomes `.../s/series/carrie-11540908`,
+/// exactly as the site writes it, and whatever Episode is on screen: the link is to the title.
+pub fn share_link(name: &str, kind: &str, id: &str) -> String {
+    let slug = name
+        .to_lowercase()
+        .chars()
+        .map(|character| {
+            if character.is_alphanumeric() {
+                character
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>();
+    let slug = slug
+        .split('-')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+    let number = id.trim_start_matches(|character: char| !character.is_numeric());
+    format!("https://www.strem.io/s/{kind}/{slug}-{number}")
+}
+
+/// Web: pressing the like or love button — the one already set clears, and either one replaces
+/// the other, because a title is liked or loved and never both.
+pub fn next_rating(current: Option<&Rating>, like: bool) -> Option<Rating> {
+    match (current, like) {
+        (Some(Rating::Liked), true) | (Some(Rating::Loved), false) => None,
+        (_, true) => Some(Rating::Liked),
+        (_, false) => Some(Rating::Loved),
+    }
+}
+
+/// Web: `MetaDetails` / `Rate` — the core keeps the rating for the title it is showing.
+pub(crate) fn rate(runtime: &AppRuntime, status: Option<Rating>) {
+    runtime.dispatch(RuntimeAction {
+        field: None,
+        action: Action::MetaDetails(ActionMetaDetails::Rate(status)),
+    });
 }
 
 /// The title the addons answered with, if they have answered: the page holding the meta itself.
@@ -388,6 +438,12 @@ pub fn data(
         streams,
         sources_loading: loading,
         waits_for_streams: waits_for_streams(model, details.selected.as_ref(), picked),
+        rating: match &details.rating_info {
+            Some(Loadable::Ready(info)) => info.status.clone(),
+            _ => None,
+        },
+        rating_known: details.rating_info.is_some(),
+        rating_ready: matches!(&details.rating_info, Some(Loadable::Ready(_))),
         show_picker: shows_picker(picked, &listed),
         picked_label: picked.and_then(|picked| picked_label(videos, picked)),
         next_episode: picked.and_then(|picked| {
@@ -695,6 +751,34 @@ mod tests {
             video("b", 1, 2, "Second"),
             video("c", 2, 1, "Next year"),
         ]
+    }
+
+    #[test]
+    fn each_rating_button_sets_its_own_and_clears_when_pressed_again() {
+        assert_eq!(next_rating(None, true), Some(Rating::Liked));
+        assert_eq!(next_rating(None, false), Some(Rating::Loved));
+        assert_eq!(next_rating(Some(&Rating::Liked), true), None);
+        assert_eq!(next_rating(Some(&Rating::Loved), false), None);
+        // The two replace each other rather than stacking.
+        assert_eq!(
+            next_rating(Some(&Rating::Liked), false),
+            Some(Rating::Loved)
+        );
+        assert_eq!(next_rating(Some(&Rating::Loved), true), Some(Rating::Liked));
+    }
+
+    #[test]
+    fn the_share_link_is_the_short_route_web_offers() {
+        // Taken from the site's own share dialog for this title.
+        assert_eq!(
+            share_link("Carrie", "series", "tt11540908"),
+            "https://www.strem.io/s/series/carrie-11540908"
+        );
+        // Punctuation in a name becomes one hyphen rather than a run of them.
+        assert_eq!(
+            share_link("Mission: Impossible - Fallout", "movie", "tt4912910"),
+            "https://www.strem.io/s/movie/mission-impossible-fallout-4912910"
+        );
     }
 
     #[test]

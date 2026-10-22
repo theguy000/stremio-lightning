@@ -1,0 +1,187 @@
+// Based on stremio-web (https://github.com/Stremio/stremio-web),
+// Copyright (C) 2017-2025 Smart code 203358507.
+// Numbers translated by hand from src/components/Modal/styles.less and the SharePrompt styles in
+// src/components/Preview/.../styles.less. Licence basis: ../THIRD_PARTY_NOTICES.md. Element ids
+// reuse the web class names where one exists.
+//
+// Web: `.modal-container` — a 0.4 black cover over the whole viewport with a 34rem dialog in the
+// middle. The dialog's own `box-shadow` glow has no Slint equivalent and is left out.
+import { Theme } from "theme.slint";
+
+// Web: `.share-prompt .buttons-container .button-container` — one network, in its own colour.
+component ShareTarget inherits Rectangle {
+    in property <image> glyph;
+    in property <color> shade;
+    in property <length> rem-size;
+    callback clicked;
+
+    height: 3.5 * root.rem-size;
+    border-radius: 0.75 * root.rem-size;
+    background: root.shade;
+
+    Image {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: 1.5 * root.rem-size;
+        height: 1.5 * root.rem-size;
+        source: root.glyph;
+        colorize: Theme.text;
+        image-fit: contain;
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+export component ShareModal inherits Rectangle {
+    in property <string> link;
+    in property <length> rem-size: 14px;
+    callback closed;
+    callback copied;
+    callback opened(string);
+
+    // Web: `.modal-container` — the whole window, 0.4 black, whatever is under it stays put.
+    background: #00000066;
+
+    // Web: `.modal-dialog-container` — 0.75rem radius, the modal background, 2rem of side padding.
+    // Its height is the sum of what is inside it: the 4.5rem title, the body's 2rem padding top and
+    // bottom, the 3.5rem network row, the 1rem gap, the 3.4rem link row, and the 2rem the body
+    // keeps under its last child.
+    dialog := Rectangle {
+        width: 34 * root.rem-size;
+        height: 18.4 * root.rem-size;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        background: Theme.modal-background;
+        border-radius: 0.75 * root.rem-size;
+
+        // Web: `.title-container` — 4.5rem tall, 1.2rem, medium.
+        Text {
+            x: 2 * root.rem-size;
+            y: 0px;
+            width: parent.width - 7 * root.rem-size;
+            height: 4.5 * root.rem-size;
+            text: "Share";
+            color: Theme.text;
+            font-size: 1.2 * root.rem-size;
+            font-weight: 500;
+            vertical-alignment: center;
+        }
+
+        // Web: `.close-button-container` — 3rem square, half a rem in from the top right corner.
+        Rectangle {
+            x: parent.width - 3.5 * root.rem-size;
+            y: 0.5 * root.rem-size;
+            width: 3 * root.rem-size;
+            height: 3 * root.rem-size;
+            border-radius: 0.75 * root.rem-size;
+            background: close-touch.has-hover ? Theme.overlay : transparent;
+            Image {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                width: 2 * root.rem-size;
+                height: 2 * root.rem-size;
+                source: @image-url("icons/close.svg");
+                colorize: Theme.text;
+                opacity: close-touch.has-hover ? 1 : 0.4;
+            }
+            close-touch := TouchArea {
+                mouse-cursor: pointer;
+                clicked => {
+                    root.closed();
+                }
+            }
+        }
+
+        // Web: `.body-container` — 2rem above and below, and 2rem more under its last child.
+        HorizontalLayout {
+            x: 2 * root.rem-size;
+            y: 4.5 * root.rem-size + 2 * root.rem-size;
+            width: parent.width - 4 * root.rem-size;
+            spacing: 1 * root.rem-size;
+
+            ShareTarget {
+                glyph: @image-url("icons/facebook.svg");
+                shade: Theme.facebook;
+                rem-size: root.rem-size;
+                clicked => {
+                    root.opened("facebook");
+                }
+            }
+            ShareTarget {
+                glyph: @image-url("icons/x.svg");
+                shade: Theme.x;
+                rem-size: root.rem-size;
+                clicked => {
+                    root.opened("x");
+                }
+            }
+            ShareTarget {
+                glyph: @image-url("icons/reddit.svg");
+                shade: Theme.reddit;
+                rem-size: root.rem-size;
+                clicked => {
+                    root.opened("reddit");
+                }
+            }
+        }
+
+        // Web: `.url-container` — the link over an overlay pill, with the copy button filling its
+        // right end, rounded on that side only.
+        url-row := Rectangle {
+            x: 2 * root.rem-size;
+            y: 4.5 * root.rem-size + 2 * root.rem-size + 3.5 * root.rem-size + 1 * root.rem-size;
+            width: parent.width - 4 * root.rem-size;
+            height: 3.4 * root.rem-size;
+            border-radius: 0.75 * root.rem-size;
+            background: Theme.overlay;
+
+            Text {
+                x: 1 * root.rem-size;
+                width: parent.width - 9 * root.rem-size;
+                height: parent.height;
+                text: root.link;
+                color: Theme.text;
+                font-size: 1.1 * root.rem-size;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+
+            Rectangle {
+                x: parent.width - 8 * root.rem-size;
+                width: 8 * root.rem-size;
+                height: parent.height;
+                border-top-right-radius: 0.75 * root.rem-size;
+                border-bottom-right-radius: 0.75 * root.rem-size;
+                background: copy-touch.has-hover ? transparent : Theme.accent-green;
+
+                HorizontalLayout {
+                    alignment: center;
+                    spacing: 0.5 * root.rem-size;
+                    Image {
+                        width: 1.2 * root.rem-size;
+                        height: 1.2 * root.rem-size;
+                        source: @image-url("icons/link.svg");
+                        colorize: Theme.text;
+                    }
+                    Text {
+                        text: "Copy";
+                        color: Theme.text;
+                        font-size: 1.1 * root.rem-size;
+                        vertical-alignment: center;
+                    }
+                }
+                copy-touch := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.copied();
+                    }
+                }
+            }
+        }
+    }
+}
