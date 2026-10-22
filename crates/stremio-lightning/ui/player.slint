@@ -30,6 +30,8 @@ export struct PlayerEpisode {
     title: string,
     selected: bool,
     watched: bool,
+    released: string,
+    thumbnail: image,
 }
 
 /// One row of the options menu: what it says and the action it asks for.
@@ -58,6 +60,8 @@ component PlayerButton inherits Rectangle {
     in property <image> glyph;
     in property <bool> enabled: true;
     in property <bool> lit: false;
+    /// What the button says it does while the pointer is on it, as the web's own titles do.
+    in property <string> says: "";
     callback clicked;
 
     width: 4 * root.rem-size;
@@ -65,6 +69,27 @@ component PlayerButton inherits Rectangle {
     border-radius: 0.75 * root.rem-size;
     background: touch.has-hover && root.enabled ? Theme.overlay : transparent;
     animate background { duration: 150ms; }
+
+    // Web: a button's `title` -- a small panel just above the button, on the same modal colour
+    // the menus use, so the wording never has to fit inside a 4rem square.
+    if root.says != "" && touch.has-hover && root.enabled: Rectangle {
+        width: says-label.width + 1.6 * root.rem-size;
+        height: 2.4 * root.rem-size;
+        x: (root.width - self.width) / 2;
+        y: -2.9 * root.rem-size;
+        border-radius: 0.5 * root.rem-size;
+        background: Theme.modal-background;
+
+        says-label := Text {
+            x: 0.8 * root.rem-size;
+            y: 0;
+            height: parent.height;
+            text: root.says;
+            font-size: 1 * root.rem-size;
+            color: Theme.text;
+            vertical-alignment: center;
+        }
+    }
 
     Image {
         // Centred by hand: a layout centres across the axis it runs along only, and this glyph
@@ -103,6 +128,8 @@ component PlayerSlider inherits Rectangle {
     in property <bool> boost: false;
     /// Whether the pointer's position is announced above the track, as the seek bar's is.
     in property <bool> tooltip: false;
+    /// Whether the thumb is the speed menu's ringed one rather than a solid dot.
+    in property <bool> ring: false;
     callback slid(float);
     callback done(float);
     callback hovered(float);
@@ -142,7 +169,7 @@ component PlayerSlider inherits Rectangle {
         width: parent.width * root.at;
         height: root.track-size;
         border-radius: root.track-size;
-        background: root.boost ? @linear-gradient(90deg, Theme.text 0%, Theme.text 50%, Theme.accent-yellow 75%, Theme.accent-red 100%) : Theme.accent;
+        background: root.boost ? @linear-gradient(90deg, Theme.text 0%, Theme.text 50%, Theme.accent-yellow 75%, Theme.accent-red 100%) : Theme.text;
     }
     // Web: `:hover .thumb { transform: scale(1.2) }`, a circle growing about its own middle.
     Rectangle {
@@ -151,7 +178,18 @@ component PlayerSlider inherits Rectangle {
         x: parent.width * root.at - self.width / 2;
         y: (parent.height - self.height) / 2;
         border-radius: self.width;
-        background: root.boost ? Theme.text : Theme.accent;
+        background: Theme.text;
+
+        // Web: the speed menu's thumb carries `box-shadow: 0 0 0 0.25rem white inset`, which
+        // reads as a white ring around a violet centre at this size.
+        if root.ring: Rectangle {
+            width: parent.width * 0.45;
+            height: self.width;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            border-radius: self.width;
+            background: Theme.accent;
+        }
         animate width { duration: 150ms; }
     }
 
@@ -463,6 +501,8 @@ export component PlayerScreen inherits Rectangle {
     /// The volume glyph the web's thresholds pick.
     property <image> volume-glyph: root.muted || root.volume <= 0 ? @image-url("icons/volume-mute.svg") : (root.volume < 30 ? @image-url("icons/volume-low.svg") : (root.volume < 70 ? @image-url("icons/volume-medium.svg") : @image-url("icons/volume-high.svg")));
     property <image> scale-glyph: root.scale == "cover" ? @image-url("icons/video-scale-crop.svg") : (root.scale == "fill" ? @image-url("icons/video-scale-stretch.svg") : @image-url("icons/video-scale-fit.svg"));
+    /// The scale in the words the button uses, so the tooltip and the indicator agree.
+    property <string> scale-words: root.scale == "cover" ? "Crop to fill" : (root.scale == "fill" ? "Stretch to fill" : "Fit to screen");
     property <float> remaining: root.duration - root.shown-time;
     property <bool> can-seek: root.seekable && root.duration > 0 && root.loaded;
     property <bool> next-open: root.has-next && !root.next-dismissed && root.remaining > 0 && root.remaining <= root.next-notice;
@@ -549,7 +589,7 @@ export component PlayerScreen inherits Rectangle {
         root.show-indicator("Playback speed " + (Math.round(root.speed * 100) / 100) + "x");
     }
     changed scale => {
-        root.show-indicator("Video scale " + root.scale);
+        root.show-indicator("Video scale: " + root.scale-words);
     }
     changed subtitles-size => {
         root.show-indicator("Subtitles size " + Math.round(root.subtitles-size) + "%");
@@ -792,7 +832,6 @@ export component PlayerScreen inherits Rectangle {
                 height: 4 * root.rem-size;
                 border-radius: 0.75 * root.rem-size;
                 background: back-touch.has-hover ? Theme.overlay : transparent;
-                opacity: back-touch.has-hover ? 1 : 0.7;
 
                 Image {
                     x: (parent.width - self.width) / 2;
@@ -801,6 +840,7 @@ export component PlayerScreen inherits Rectangle {
                     height: 2.2 * root.rem-size;
                     source: @image-url("icons/chevron-back.svg");
                     colorize: Theme.text;
+                    opacity: 0.7;
                 }
                 back-touch := TouchArea {
                     mouse-cursor: pointer;
@@ -831,7 +871,6 @@ export component PlayerScreen inherits Rectangle {
                 height: 4 * root.rem-size;
                 border-radius: 0.75 * root.rem-size;
                 background: full-touch.has-hover ? Theme.overlay : transparent;
-                opacity: full-touch.has-hover ? 1 : 0.7;
 
                 Image {
                     x: (parent.width - self.width) / 2;
@@ -851,15 +890,22 @@ export component PlayerScreen inherits Rectangle {
         }
     }
 
-    // Web: `.side-drawer-button-layer` -- a half-pill of the modal colour on the right edge with a
-    // chevron pointing into the drawer.
+    // Web: `.side-drawer-button-layer` -- 7.5rem by 12.5rem with `border-radius: 50%`, sitting
+    // 4rem past the right edge, so what shows is the left half of an ellipse. A radius has to be
+    // a length in Slint, so the ellipse is drawn rather than rounded: same shape, same colour.
     if root.has-episodes && root.controls-visible && !root.drawer-open: Rectangle {
         width: 7.5 * root.rem-size;
         height: 12.5 * root.rem-size;
         x: root.width - 3.5 * root.rem-size;
         y: (root.height - self.height) / 2;
-        border-radius: 6.25 * root.rem-size;
-        background: Theme.modal-background;
+        background: transparent;
+
+        Image {
+            width: parent.width;
+            height: parent.height;
+            source: @image-url("icons/drawer-shape.svg");
+            colorize: Theme.modal-background;
+        }
 
         Image {
             x: 0.5 * root.rem-size;
@@ -868,7 +914,9 @@ export component PlayerScreen inherits Rectangle {
             height: 2.5 * root.rem-size;
             source: @image-url("icons/chevron-back.svg");
             colorize: Theme.text;
-            opacity: drawer-touch.has-hover ? 1 : 0.6;
+            // Constant, like the nav bar's buttons: an opacity that changed on hover would put
+            // the glyph through a layer of its own and shift it as the pointer arrived.
+            opacity: 0.6;
         }
         drawer-touch := TouchArea {
             mouse-cursor: pointer;
@@ -1079,6 +1127,7 @@ export component PlayerScreen inherits Rectangle {
                 x: bar.last - bar.step;
                 rem-size: root.rem-size;
                 glyph: root.scale-glyph;
+                says: "Video scale: " + root.scale-words;
                 clicked => {
                     root.cycle-scale();
                 }
@@ -1115,55 +1164,65 @@ export component PlayerScreen inherits Rectangle {
                 spacing: 0.25 * root.rem-size;
                 alignment: start;
 
-                // Web: SpeedMenu -- the rate, over a slider, over the presets.
+                // Web: SpeedMenu -- the title, the rate over a slider, then the presets. The
+                // menu's own rhythm: 1rem around the title, a 3rem block for the rate and the
+                // track, then a row of chips 0.25rem apart, each at least 3rem wide.
                 if root.menu == "speed": VerticalLayout {
-                    spacing: 0.5 * root.rem-size;
+                    spacing: 0;
                     alignment: start;
                     Text {
-                        height: 3 * root.rem-size;
-                        text: "Playback speed";
+                        height: 2 * root.rem-size + 1.4 * root.rem-size;
+                        text: "Playback Speed";
                         font-size: 1 * root.rem-size;
                         font-weight: 700;
                         color: Theme.text;
                         horizontal-alignment: center;
                         vertical-alignment: center;
                     }
-                    Text {
-                        height: 2 * root.rem-size;
-                        text: (Math.round(root.speed * 100) / 100) + "x";
-                        font-size: 1.1 * root.rem-size;
-                        font-weight: 700;
-                        color: Theme.text;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
-                    }
-                    PlayerSlider {
-                        height: 2 * root.rem-size;
-                        rem-size: root.rem-size;
-                        value: root.speed;
-                        minimum: 0.1;
-                        maximum: 4;
-                        track-size: 0.35 * root.rem-size;
-                        thumb-size: 1 * root.rem-size;
-                        slid(value) => {
-                            root.set-speed(Math.round(value * 20) / 20);
+                    VerticalLayout {
+                        padding-top: 0.5 * root.rem-size;
+                        padding-bottom: 0.5 * root.rem-size;
+                        spacing: 0.5 * root.rem-size;
+                        alignment: start;
+                        Text {
+                            height: 1.4 * root.rem-size;
+                            text: (Math.round(root.speed * 100) / 100) + "x";
+                            font-size: 1 * root.rem-size;
+                            font-weight: 700;
+                            color: Theme.text;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
                         }
-                        done(value) => {
-                            root.set-speed(Math.round(value * 20) / 20);
+                        PlayerSlider {
+                            height: 2 * root.rem-size;
+                            rem-size: root.rem-size;
+                            value: root.speed;
+                            minimum: 0.1;
+                            maximum: 4;
+                            ring: true;
+                            track-size: 0.35 * root.rem-size;
+                            thumb-size: 1 * root.rem-size;
+                            slid(value) => {
+                                root.set-speed(Math.round(value * 20) / 20);
+                            }
+                            done(value) => {
+                                root.set-speed(Math.round(value * 20) / 20);
+                            }
                         }
                     }
                     HorizontalLayout {
-                        height: 2.5 * root.rem-size;
+                        height: 1.8 * root.rem-size;
                         spacing: 0.25 * root.rem-size;
                         for rate in [0.5, 1, 1.25, 1.5, 1.75, 2, 4]: Rectangle {
                             horizontal-stretch: 1;
-                            height: 2.5 * root.rem-size;
+                            min-width: 3 * root.rem-size;
+                            height: 1.8 * root.rem-size;
                             border-radius: 0.75 * root.rem-size;
                             background: Math.abs(rate - root.speed) < 0.01 ? Theme.overlay : (rate-touch.has-hover ? Theme.overlay : transparent);
                             Text {
                                 text: rate + "x";
                                 font-size: 0.9 * root.rem-size;
-                                color: Theme.text;
+                                color: Math.abs(rate - root.speed) < 0.01 ? Theme.accent-soft : Theme.text;
                                 horizontal-alignment: center;
                                 vertical-alignment: center;
                             }
@@ -1369,10 +1428,16 @@ export component PlayerScreen inherits Rectangle {
                 }
             }
 
-            ScrollView {
+            // Web: the drawer's `.info` over `.series-content .videos` -- everything under the
+            // Seasons bar scrolls. A Flickable rather than a ScrollView: the list has to know
+            // how tall it is for the scroll bar to mean anything, and a ScrollView measured the
+            // content as nothing here, which is why the episodes went missing at some sizes.
+            drawer-flick := Flickable {
                 vertical-stretch: 1;
+                interactive: true;
 
-                VerticalLayout {
+                drawer-list := VerticalLayout {
+                    width: parent.width;
                     padding-left: 2 * root.rem-size;
                     padding-right: 2 * root.rem-size;
                     spacing: 0.25 * root.rem-size;
@@ -1418,34 +1483,75 @@ export component PlayerScreen inherits Rectangle {
                         }
                     }
 
+                    // Web: the Video row the drawer reuses from the details screen -- an 8x5
+                    // thumbnail with the played bar over it, then the title and the date.
                     for episode in root.episodes: Rectangle {
-                        height: 4.5 * root.rem-size;
+                        height: 6 * root.rem-size;
                         border-radius: 0.75 * root.rem-size;
                         background: episode-touch.has-hover ? Theme.overlay : (episode.selected ? Theme.overlay : transparent);
-                        HorizontalLayout {
-                            padding-left: 1 * root.rem-size;
-                            padding-right: 1 * root.rem-size;
-                            spacing: 0.5 * root.rem-size;
-                            alignment: start;
-                            Text {
-                                text: episode.label;
-                                width: 5 * root.rem-size;
-                                font-size: 1 * root.rem-size;
-                                font-weight: 700;
-                                color: Theme.text;
-                                vertical-alignment: center;
-                                opacity: episode.watched ? 0.5 : 1;
+
+                        Rectangle {
+                            x: 0.5 * root.rem-size;
+                            y: (parent.height - self.height) / 2;
+                            width: 8 * root.rem-size;
+                            height: 5 * root.rem-size;
+                            border-radius: 0.3 * root.rem-size;
+                            background: Theme.overlay;
+                            clip: true;
+
+                            if episode.thumbnail.width > 0: Image {
+                                width: parent.width;
+                                height: parent.height;
+                                source: episode.thumbnail;
+                                image-fit: cover;
+                                opacity: 0.9;
                             }
+                            // Web: `progress-bar` over `progress-bar-background` -- a watched
+                            // Video reads as a full bar in the accent colour.
+                            if episode.watched: Rectangle {
+                                x: 0.5 * root.rem-size;
+                                y: parent.height - self.height - 0.5 * root.rem-size;
+                                width: parent.width - 1 * root.rem-size;
+                                height: 0.4 * root.rem-size;
+                                border-radius: self.height;
+                                background: Theme.text;
+                                opacity: 0.2;
+
+                                Rectangle {
+                                    width: parent.width;
+                                    height: parent.height;
+                                    border-radius: parent.border-radius;
+                                    background: Theme.accent;
+                                }
+                            }
+                        }
+
+                        VerticalLayout {
+                            x: 0.5 * root.rem-size + 8 * root.rem-size + 1.5 * root.rem-size;
+                            y: 0.5 * root.rem-size;
+                            width: parent.width - self.x - 0.5 * root.rem-size;
+                            height: parent.height - 1 * root.rem-size;
+                            alignment: center;
+                            spacing: 0.5 * root.rem-size;
+
                             Text {
                                 text: episode.title;
                                 font-size: 1 * root.rem-size;
                                 color: Theme.text;
-                                vertical-alignment: center;
-                                horizontal-stretch: 1;
+                                wrap: word-wrap;
+                                max-height: 2.8 * root.rem-size;
                                 overflow: elide;
-                                opacity: episode.watched ? 0.5 : 1;
+                            }
+                            Text {
+                                text: episode.released;
+                                font-size: 0.8 * root.rem-size;
+                                font-weight: 500;
+                                color: Theme.text;
+                                opacity: 0.44;
+                                visible: episode.released != "";
                             }
                         }
+
                         episode-touch := TouchArea {
                             mouse-cursor: pointer;
                             clicked => {
@@ -1453,6 +1559,27 @@ export component PlayerScreen inherits Rectangle {
                                 root.select-episode(episode.id);
                             }
                         }
+                    }
+                }
+
+                // Web: the drawer's own scroll bar -- a thin thumb down the right edge, only
+                // there when the list is longer than the drawer. The box around it carries the
+                // arithmetic, so the thumb never has to measure itself.
+                Rectangle {
+                    width: 0.3 * root.rem-size;
+                    height: parent.height;
+                    x: parent.width - 1 * root.rem-size;
+
+                    property <length> thumb: Math.max(3 * root.rem-size, self.height * self.height / Math.max(1px, drawer-flick.content-height));
+                    property <length> room: drawer-flick.content-height - drawer-flick.height;
+
+                    if self.room > 1px: Rectangle {
+                        width: parent.width;
+                        height: parent.thumb;
+                        y: (parent.height - self.height) * Math.min(1, Math.max(0, -drawer-flick.content-y / Math.max(1px, parent.room)));
+                        border-radius: self.width;
+                        background: Theme.text;
+                        opacity: 0.3;
                     }
                 }
             }

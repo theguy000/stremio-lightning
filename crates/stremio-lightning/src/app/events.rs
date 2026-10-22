@@ -177,6 +177,13 @@ fn request_images(snapshot: &Snapshot, context: &Context) {
         )
         .chain(snapshot.player.logo.clone())
         .chain(snapshot.player.background.clone())
+        .chain(
+            snapshot
+                .player
+                .episodes
+                .iter()
+                .filter_map(|episode| episode.thumbnail.clone()),
+        )
         .chain(discover::preview_images(
             &snapshot.discover,
             context.selected.load(Ordering::Relaxed),

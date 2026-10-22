@@ -284,6 +284,8 @@ fn player_view(window: &MainWindow, data: &PlayerData, images: &Images) {
                 title: episode.title.clone().into(),
                 selected: episode.picked,
                 watched: episode.watched,
+                released: episode.released.clone().into(),
+                thumbnail: images.get(&episode.thumbnail).unwrap_or_default(),
             })
             .collect::<Vec<_>>(),
     )));

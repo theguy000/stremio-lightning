@@ -26,6 +26,10 @@ pub struct Episode {
     pub title: String,
     pub picked: bool,
     pub watched: bool,
+    /// The date the row shows, empty when the title gives none.
+    pub released: String,
+    /// The row's thumbnail, when the title supplies one.
+    pub thumbnail: Option<String>,
 }
 
 /// One subtitle the stream or an addon offers. `id` is what the screen sends back when it is
@@ -449,6 +453,8 @@ pub fn data(model: &AppModel, wanted_season: Option<u32>) -> Data {
                     id: episode.id,
                     label: episode.label,
                     title: episode.title,
+                    released: episode.released,
+                    thumbnail: episode.thumbnail,
                 })
                 .collect()
         })
