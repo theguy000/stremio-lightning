@@ -528,11 +528,12 @@ export component PlayerScreen inherits Rectangle {
     callback select-episode(string);
     callback select-season(int);
     callback choose-option(string);
-    /// Puts every panel away: the menus, the drawer and the next-Video offer. Anything that is
-    /// not a panel itself reaches for this -- a press on the picture, or Escape.
+    /// Puts every panel away: the menus, the drawer, the Season list and the next-Video offer.
+    /// Anything that is not a panel itself reaches for this -- a press on the picture, or Escape.
     function close-menus() {
         root.menu = "";
         root.drawer-open = false;
+        root.season-menu-open = false;
         root.next-dismissed = true;
     }
 
@@ -605,6 +606,8 @@ export component PlayerScreen inherits Rectangle {
     }
     /// Whether the press being handled started on this screen rather than on the one before it.
     property <bool> pressed-here: false;
+    /// Whether the Season pill in the drawer has its list open.
+    property <bool> season-menu-open: false;
 
     // A new stream starts with the pointer's furniture up and the next-video offer back.
     changed loaded => {
@@ -1471,22 +1474,90 @@ export component PlayerScreen inherits Rectangle {
                         }
                     }
 
+                    // Web: the MultiselectMenu Label -- a 3rem pill, 1.5rem of padding either
+                    // side, and a caret at the far end that turns over while its list is open.
                     Rectangle {
                         x: (parent.width - self.width) / 2;
                         y: 1 * root.rem-size;
-                        width: 8.5 * root.rem-size;
+                        width: 9.5 * root.rem-size;
                         height: 3 * root.rem-size;
-                        border-radius: 0.75 * root.rem-size;
+                        border-radius: 2.75 * root.rem-size;
+                        background: season-touch.has-hover || root.season-menu-open ? Theme.overlay : transparent;
 
                         Text {
-                            width: parent.width;
+                            x: 1.5 * root.rem-size;
+                            y: 0;
+                            width: parent.width - 1.5 * root.rem-size - 2.5 * root.rem-size;
                             height: parent.height;
                             text: root.season-title;
                             font-size: 1 * root.rem-size;
                             font-weight: 600;
                             color: Theme.text;
-                            horizontal-alignment: center;
                             vertical-alignment: center;
+                            overflow: elide;
+                        }
+                        Image {
+                            x: parent.width - self.width - 1.5 * root.rem-size;
+                            y: (parent.height - self.height) / 2;
+                            width: 1 * root.rem-size;
+                            height: 1 * root.rem-size;
+                            source: @image-url("icons/caret-down.svg");
+                            colorize: Theme.text;
+                            opacity: 0.6;
+                            rotation-angle: root.season-menu-open ? 180deg : 0deg;
+                        }
+                        season-touch := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {
+                                root.season-menu-open = !root.season-menu-open;
+                            }
+                        }
+                    }
+
+                    // Web: the Dropdown that pill opens -- the modal colour, 0.75rem corners, a
+                    // row per Season with the chosen one dotted.
+                    if root.season-menu-open: Rectangle {
+                        x: (parent.width - self.width) / 2;
+                        y: 4.25 * root.rem-size;
+                        width: 9.5 * root.rem-size;
+                        height: Math.min(root.seasons.length * 3, 21) * root.rem-size;
+                        border-radius: 0.75 * root.rem-size;
+                        background: Theme.modal-background;
+                        clip: true;
+                        drop-shadow-blur: 2.7 * root.rem-size;
+                        drop-shadow-offset-y: 1.35 * root.rem-size;
+                        drop-shadow-color: #00000066;
+
+                        for season[index] in root.seasons: Rectangle {
+                            height: 3 * root.rem-size;
+                            background: season-row-touch.has-hover ? #ffffff26 : transparent;
+
+                            Text {
+                                x: 1 * root.rem-size;
+                                y: 0;
+                                width: parent.width - 3 * root.rem-size;
+                                height: parent.height;
+                                text: season.label;
+                                font-size: 1 * root.rem-size;
+                                color: Theme.text;
+                                vertical-alignment: center;
+                                overflow: elide;
+                            }
+                            if season.selected: Rectangle {
+                                x: parent.width - 1.5 * root.rem-size;
+                                y: (parent.height - self.height) / 2;
+                                width: 0.5 * root.rem-size;
+                                height: 0.5 * root.rem-size;
+                                border-radius: self.width;
+                                background: Theme.accent-soft;
+                            }
+                            season-row-touch := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => {
+                                    root.season-menu-open = false;
+                                    root.select-season(index);
+                                }
+                            }
                         }
                     }
 
@@ -1784,7 +1855,7 @@ export component PlayerScreen inherits Rectangle {
         // A panel over the picture takes the keyboard with it: the web's shortcuts are dead while
         // a menu is open, so `f` cannot flip the window fullscreen from inside an open popup.
         // Escape and the menu keys below stay live, so a panel can always be put away.
-        property <bool> live: root.menu == "" && !root.drawer-open && !root.next-open;
+        property <bool> live: root.menu == "" && !root.drawer-open && !root.next-open && !root.season-menu-open;
 
         KeyBinding {
             keys: @keys(Space);
