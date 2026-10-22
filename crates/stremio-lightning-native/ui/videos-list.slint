@@ -35,27 +35,37 @@ component SeasonButton inherits Rectangle {
     border-radius: 3 * root.rem-size;
     background: touch.has-hover && !root.disabled ? Theme.overlay : transparent;
 
+    // The chevron and the label are centred as a pair, and each of them is centred against the
+    // pill's own middle line: nothing here may stretch, or the glyph and the letters drift apart
+    // the way a layout's cross-axis does. Web: a flex row of `display: flex; align-items: center`.
     HorizontalLayout {
-        padding: 0.5 * root.rem-size;
+        padding-left: 1 * root.rem-size;
+        padding-right: 1 * root.rem-size;
         spacing: 0.5 * root.rem-size;
         alignment: center;
-        Image {
-            width: 1.5 * root.rem-size;
-            height: 1.5 * root.rem-size;
-            source: root.glyph;
-            colorize: Theme.text;
-            opacity: root.disabled ? 0.3 : 1;
+
+        // A layout stretches its children across the axis, so each one gets a cell that centres
+        // what it holds rather than being sized by the layout itself.
+        VerticalLayout {
+            alignment: center;
+            Image {
+                width: 1.5 * root.rem-size;
+                height: 1.5 * root.rem-size;
+                source: root.glyph;
+                colorize: Theme.text;
+                opacity: root.disabled ? 0.3 : 1;
+            }
         }
-        Text {
-            max-height: 1.2 * root.rem-size;
-            text: root.label;
-            color: Theme.text;
-            font-size: root.rem-size;
-            font-weight: 500;
-            opacity: root.disabled ? 0.3 : 1;
-            vertical-alignment: center;
-            horizontal-alignment: center;
-            overflow: elide;
+        VerticalLayout {
+            alignment: center;
+            Text {
+                text: root.label;
+                color: Theme.text;
+                font-size: root.rem-size;
+                font-weight: 500;
+                opacity: root.disabled ? 0.3 : 1;
+                overflow: elide;
+            }
         }
     }
     touch := TouchArea {

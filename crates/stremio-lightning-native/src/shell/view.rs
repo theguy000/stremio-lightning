@@ -125,6 +125,7 @@ fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
         .set_details_can_show_streams(details.steps.map(|steps| steps.ask_again).unwrap_or(false));
     window.set_details_season_index(i32::try_from(details.season).unwrap_or_default());
     window.set_details_picked_label(details.picked_label.clone().unwrap_or_default().into());
+    window.set_details_wrap_streams(snapshot.settings.wrap_streams);
     window.set_details_has_next_episode(details.next_episode.is_some());
     window.set_details_season_title(
         details

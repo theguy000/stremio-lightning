@@ -277,6 +277,21 @@ impl Wiring {
         details::back_to_episodes(&self.runtime);
     }
 
+    /// The Streams list's cut/wrap toggle. The choice is this shell's own, so it goes to
+    /// `native_settings.json` beside the profile rather than through the core, and the screen
+    /// only has to redraw: no request is sent for it.
+    fn toggle_stream_wrap(&self) {
+        let wrap = {
+            let mut extras = self.local_extras.lock().unwrap();
+            extras.wrap_streams = !extras.wrap_streams;
+            extras.save(&self.data_dir);
+            extras.wrap_streams
+        };
+        let mut snapshot = self.latest.lock().unwrap().clone();
+        snapshot.settings.wrap_streams = wrap;
+        self.repaint_with(snapshot);
+    }
+
     fn play_stream(&self, index: i32) {
         let Some(window) = self.window.upgrade() else {
             return;
@@ -504,6 +519,10 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
     {
         let wiring = wiring.clone();
         window.on_back_to_episodes(move || wiring.back_to_episodes());
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_toggle_stream_wrap(move || wiring.toggle_stream_wrap());
     }
     {
         let wiring = wiring.clone();

@@ -47,6 +47,8 @@ export component MainWindow inherits Window {
     in property <int> details-season-number: 0;
     in property <int> details-episode-number: 0;
     in property <bool> details-can-show-streams: false;
+    // Whether the Streams list wraps its descriptions; kept in the shell's own settings file.
+    in property <bool> details-wrap-streams: false;
     in property <bool> details-rate-visible: false;
     in property <bool> details-rate-enabled: false;
     in property <bool> details-rated-liked: false;
@@ -107,6 +109,7 @@ export component MainWindow inherits Window {
     callback step-season(int);
     callback step-episode(int);
     callback show-streams();
+    callback toggle-stream-wrap();
     callback share();
     callback rate-like();
     callback rate-love();
@@ -188,6 +191,7 @@ export component MainWindow inherits Window {
         season-number: root.details-season-number;
         episode-number: root.details-episode-number;
         can-show-streams: root.details-can-show-streams;
+        wrap-streams: root.details-wrap-streams;
         rate-visible: root.details-rate-visible;
         rate-enabled: root.details-rate-enabled;
         rated-liked: root.details-rated-liked;
@@ -203,6 +207,9 @@ export component MainWindow inherits Window {
         }
         back-to-episodes => {
             root.back-to-episodes();
+        }
+        toggle-stream-wrap => {
+            root.toggle-stream-wrap();
         }
         play-stream(index) => {
             root.play-stream(index);

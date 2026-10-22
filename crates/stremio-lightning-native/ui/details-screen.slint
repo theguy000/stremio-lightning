@@ -4,7 +4,7 @@
 // and src/App/styles.less. Licence basis: ../THIRD_PARTY_NOTICES.md. Element ids reuse the web
 // class names where one exists.
 //
-// Web: `.metadetails-content` — a row holding the MetaPreview panel, a flexible spacer, and a
+// Web: `.metadetails-content` Ã¢â‚¬â€ a row holding the MetaPreview panel, a flexible spacer, and a
 // 30rem column for the Episodes or the Streams. The column's `backdrop-filter: blur(15px)` has no
 // Slint equivalent, so only its 0.4 black shows through.
 import { ScrollView } from "std-widgets.slint";
@@ -21,14 +21,31 @@ export struct StreamData {
     addon: string,
 }
 
-// Web: `.stream-container` — the addon's name, the stream's name and description, and a play
-// circle that fades in with the row's hover.
+// Web: `.stream-container` — the stream's name over its description, and a play circle that fades
+// in with the row's hover. The addon's name is not drawn: the stream's own name takes the row.
 component StreamRow inherits Rectangle {
     in property <StreamData> source;
     in property <length> rem-size;
+    /// Cut, the description shows three lines and the rest is stopped at the right edge. Wrapped,
+    /// it shows every line and the row grows to hold them.
+    in property <bool> wrap: false;
     callback clicked;
 
-    height: 6 * root.rem-size;
+    // Three lines of the 0.9rem description, which is what a cut row shows. An addon can return
+    // far more than that, so this is a cap and not a promise: the third line is where the text
+    // stops, mid-word, at the row's right edge.
+    property <length> description-cap: root.wrap ? 1000px : 3.5 * root.rem-size;
+    // What the description actually takes: its full height while wrapping, the cap while cut.
+    property <length> description-shown: Math.min(description-text.preferred-height, root.description-cap);
+
+    // The row is as tall as its text needs, and never shorter than a Stream row was before. The
+    // texts report the height they take at the width the layout gives them -- measured at 48px for
+    // a three-line description, not one line -- so a wrapped row grows to hold every line and
+    // nothing spills into the row below.
+    height: Math.max(
+        6 * root.rem-size,
+        Math.max(name-text.preferred-height, root.description-shown) + 1 * root.rem-size,
+    );
     border-radius: 0.75 * root.rem-size;
     background: touch.has-hover ? Theme.overlay : transparent;
 
@@ -39,51 +56,59 @@ component StreamRow inherits Rectangle {
         padding-right: 1 * root.rem-size;
         spacing: 1 * root.rem-size;
 
-        Text {
+        // The name takes the left slot the addon's name used to hold, and the description takes
+        // everything left over beside it. Stacking the two in one column instead put the name in
+        // a 7rem box that wrapped, pushed past the row's height and spilled into the next row.
+        name-text := Text {
             width: 7 * root.rem-size;
-            text: root.source.addon;
+            horizontal-stretch: 0;
+            text: root.source.name;
             font-size: 1.1 * root.rem-size;
+            font-weight: 600;
             color: Theme.text;
             wrap: word-wrap;
-            overflow: elide;
+            overflow: clip;
             vertical-alignment: center;
         }
-
+        // The description's box is capped in cut mode, and a layout places a capped child at the
+        // start of the row's cross axis -- which left the three lines sitting at the top with the
+        // name centred beside them. The column centres the capped box in the row instead.
         VerticalLayout {
+            horizontal-stretch: 1;
             alignment: center;
-            spacing: 0.35 * root.rem-size;
-            Text {
-                text: root.source.name;
-                font-size: root.rem-size;
-                font-weight: 600;
-                color: Theme.text;
-                overflow: elide;
-            }
-            Text {
+            description-text := Text {
+                horizontal-stretch: 1;
                 text: root.source.description;
                 font-size: 0.9 * root.rem-size;
                 color: Theme.text;
                 opacity: 0.9;
+                // Both modes wrap; only the cap differs. Clipped rather than elided, so a cut line
+                // runs to the right edge and stops there instead of ending early with a gap.
                 wrap: word-wrap;
-                overflow: elide;
-                max-height: 3.5 * root.rem-size;
+                overflow: clip;
+                max-height: root.description-cap;
             }
         }
 
         // Web: `.icon` — a 3rem circle of secondary accent, invisible until the row is hovered.
-        Rectangle {
-            width: 3 * root.rem-size;
-            height: 3 * root.rem-size;
-            border-radius: 1.5 * root.rem-size;
-            background: Theme.accent-green;
-            opacity: touch.has-hover ? 1 : 0;
-            HorizontalLayout {
-                alignment: center;
+        // The glyph is white on the green, 1.2rem across, and the box it is drawn in is centred
+        // by hand: a layout would stretch the image across its whole axis. The column keeps the
+        // circle centred when a wrapped row grows taller than 6rem.
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 3 * root.rem-size;
+                height: 3 * root.rem-size;
+                border-radius: 1.5 * root.rem-size;
+                background: Theme.accent-green;
+                opacity: touch.has-hover ? 1 : 0;
                 Image {
-                    width: 1.6 * root.rem-size;
-                    height: 1.6 * root.rem-size;
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    width: 1.2 * root.rem-size;
+                    height: 1.2 * root.rem-size;
                     source: @image-url("icons/play.svg");
-                    colorize: Theme.modal-background;
+                    colorize: Theme.text;
                 }
             }
         }
@@ -97,7 +122,7 @@ component StreamRow inherits Rectangle {
     }
 }
 
-// Web: `.stream-placeholder-container` — the bars that stand in until an addon answers: a 5x2rem
+// Web: `.stream-placeholder-container` Ã¢â‚¬â€ the bars that stand in until an addon answers: a 5x2rem
 // addon bar, description bars at 80% and 40%, and a play glyph pinned to the right. All of them in
 // the placeholder grey rather than the white overlay the rest of the panel uses.
 component StreamPlaceholder inherits Rectangle {
@@ -112,7 +137,7 @@ component StreamPlaceholder inherits Rectangle {
         padding-right: 1 * root.rem-size;
         spacing: 1 * root.rem-size;
 
-        // Web: `.addon-container` — a layout stretches its children across its axis, so the bar
+        // Web: `.addon-container` Ã¢â‚¬â€ a layout stretches its children across its axis, so the bar
         // needs a column of its own to be centred in, level with the bars beside it.
         VerticalLayout {
             alignment: center;
@@ -140,7 +165,7 @@ component StreamPlaceholder inherits Rectangle {
             }
         }
 
-        // Web: `.play-icon` — a 3.5x5rem box holding only the glyph, so the row reads as a Stream
+        // Web: `.play-icon` Ã¢â‚¬â€ a 3.5x5rem box holding only the glyph, so the row reads as a Stream
         // that has not arrived rather than a row that is missing something.
         Rectangle {
             width: 3.5 * root.rem-size;
@@ -157,7 +182,7 @@ component StreamPlaceholder inherits Rectangle {
     }
 }
 
-// Web: StreamsList's `NumberInput` — a 3.5rem pill of the overlay colour holding a minus, the
+// Web: StreamsList's `NumberInput` Ã¢â‚¬â€ a 3.5rem pill of the overlay colour holding a minus, the
 // label over its value, and a plus. The buttons overlay the pill, so they read a shade lighter.
 component NumberStepper inherits Rectangle {
     in property <string> label;
@@ -194,7 +219,7 @@ component NumberStepper inherits Rectangle {
     }
 
     VerticalLayout {
-        // Web: `.number-display` — flex 1 between the two 3.5rem buttons, centred, 1rem of padding.
+        // Web: `.number-display` Ã¢â‚¬â€ flex 1 between the two 3.5rem buttons, centred, 1rem of padding.
         x: 3.5 * root.rem-size;
         width: parent.width - 7 * root.rem-size;
         alignment: center;
@@ -215,7 +240,7 @@ component NumberStepper inherits Rectangle {
     }
 }
 
-// Web: `.message-container` — what stands where an empty Streams list would be: the Season and
+// Web: `.message-container` Ã¢â‚¬â€ what stands where an empty Streams list would be: the Season and
 // Episode steppers over a disabled "Show Streams", the empty illustration, the label, and the way
 // to the Addons screen.
 component StreamsMessage inherits Rectangle {
@@ -236,7 +261,7 @@ component StreamsMessage inherits Rectangle {
         if root.show-steps: VerticalLayout {
             alignment: start;
             spacing: 1 * root.rem-size;
-            // Web: `.search` is 14rem wide — the steppers' own max-width — and the button stretches
+            // Web: `.search` is 14rem wide Ã¢â‚¬â€ the steppers' own max-width Ã¢â‚¬â€ and the button stretches
             // across it. Its own 1rem bottom margin is the gap before the illustration.
             padding-bottom: 1 * root.rem-size;
 
@@ -265,7 +290,7 @@ component StreamsMessage inherits Rectangle {
             HorizontalLayout {
                 alignment: center;
                 Rectangle {
-                    // Web: `.button-container` — a 2rem pill in the accent colour, 0.5 opacity and
+                    // Web: `.button-container` Ã¢â‚¬â€ a 2rem pill in the accent colour, 0.5 opacity and
                     // no pointer events while it names the Video already on screen.
                     width: 14 * root.rem-size;
                     height: 4 * root.rem-size;
@@ -314,7 +339,7 @@ component StreamsMessage inherits Rectangle {
         HorizontalLayout {
             alignment: center;
             Rectangle {
-                // Web: `.install-button-container` — the secondary accent, 2rem radius, 4rem tall.
+                // Web: `.install-button-container` Ã¢â‚¬â€ the secondary accent, 2rem radius, 4rem tall.
                 height: 4 * root.rem-size;
                 border-radius: 2 * root.rem-size;
                 background: Theme.accent-green;
@@ -350,7 +375,7 @@ component StreamsMessage inherits Rectangle {
     }
 }
 
-// Web: `.videos-list` / `.streams-list` — the 30rem column: the Episode picker, or the Episode's
+// Web: `.videos-list` / `.streams-list` Ã¢â‚¬â€ the 30rem column: the Episode picker, or the Episode's
 // name over the Streams the addons answered with. Rounded on its left in a row, along its top
 // when the screen is one column.
 component DetailsPanel inherits Rectangle {
@@ -377,6 +402,8 @@ component DetailsPanel inherits Rectangle {
     in property <int> season-number: 0;
     in property <int> episode-number: 0;
     in property <bool> can-show-streams: false;
+    /// Whether the Streams list wraps its descriptions instead of cutting them to one line.
+    in property <bool> wrap-streams: false;
     callback select-season(int);
     callback pick-video(string);
     callback search-videos(string);
@@ -385,6 +412,7 @@ component DetailsPanel inherits Rectangle {
     callback stepped-season(int);
     callback stepped-episode(int);
     callback show-streams;
+    callback toggle-stream-wrap;
 
     background: #00000066;
     // Web: rounded along its left, square against the window's edge.
@@ -412,10 +440,11 @@ component DetailsPanel inherits Rectangle {
     if root.show-picker == false: VerticalLayout {
         spacing: 0;
 
-        // Web: .select-choices-wrapper — the way back beside the Episode's name. It belongs to a
+        // Web: .select-choices-wrapper Ã¢â‚¬â€ the way back beside the Episode's name. It belongs to a
         // list that stands for one chosen Episode, so a Film, whose Streams are its only page,
         // has none: that button had nothing to go back to and left "No streams were found" behind.
-        if root.picked-label != "": HorizontalLayout {
+        // The cut/wrap toggle rides at the right of this row whether or not there is a way back.
+        HorizontalLayout {
             // Web: .select-choices-wrapper carries a 1em top margin above the 3rem button.
             height: 4 * root.rem-size;
             padding-top: 1 * root.rem-size;
@@ -423,7 +452,8 @@ component DetailsPanel inherits Rectangle {
             padding-right: 1 * root.rem-size;
             spacing: 0.5 * root.rem-size;
             alignment: start;
-            Rectangle {
+
+            if root.picked-label != "": Rectangle {
                 width: 3 * root.rem-size;
                 height: 3 * root.rem-size;
                 border-radius: 0.5 * root.rem-size;
@@ -445,7 +475,7 @@ component DetailsPanel inherits Rectangle {
                     }
                 }
             }
-            Text {
+            if root.picked-label != "": Text {
                 // Button height, so its centred text lines up with the chevron beside it.
                 height: 3 * root.rem-size;
                 text: root.picked-label;
@@ -455,9 +485,43 @@ component DetailsPanel inherits Rectangle {
                 overflow: elide;
                 horizontal-stretch: 1;
             }
+
+            // Pushes the toggle to the row's right edge, and takes the label's place when a Film
+            // has no label to stretch instead.
+            Rectangle {
+                horizontal-stretch: root.picked-label == "" ? 1 : 0;
+            }
+
+            // The Streams' descriptions can run to several lines. Web never had a switch for it;
+            // this one cuts every row to a single line or lets them all wrap, and the choice is
+            // kept beside the profile so it is the same after a restart.
+            wrap-touch := Rectangle {
+                width: 3 * root.rem-size;
+                height: 3 * root.rem-size;
+                horizontal-stretch: 0;
+                border-radius: 0.5 * root.rem-size;
+                background: root.wrap-streams ? Theme.overlay
+                    : (wrap-hover.has-hover ? Theme.overlay : transparent);
+
+                Image {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    width: 1.5 * root.rem-size;
+                    height: 1.5 * root.rem-size;
+                    source: @image-url("icons/wrap-text.svg");
+                    colorize: Theme.text;
+                    opacity: root.wrap-streams ? 1 : 0.6;
+                }
+                wrap-hover := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.toggle-stream-wrap();
+                    }
+                }
+            }
         }
 
-        // Web: .streams-container — flex 1, padding 0 1rem, overflows.
+        // Web: .streams-container Ã¢â‚¬â€ flex 1, padding 0 1rem, overflows.
         VerticalLayout {
             padding-left: 1 * root.rem-size;
             padding-right: 1 * root.rem-size;
@@ -471,7 +535,7 @@ component DetailsPanel inherits Rectangle {
                 wrap: word-wrap;
             }
 
-            // Web: nothing Ready yet means two placeholders — and nothing of the last
+            // Web: nothing Ready yet means two placeholders Ã¢â‚¬â€ and nothing of the last
             // Episode's list survives the swap. They stand in while the title is still on its way,
             // whatever its addons turn out to be, and later only while an addon that offers
             // Streams is still out: with none installed the rows would be a wait for nothing.
@@ -510,6 +574,7 @@ component DetailsPanel inherits Rectangle {
                     for stream[index] in root.streams: StreamRow {
                         source: stream;
                         rem-size: root.rem-size;
+                        wrap: root.wrap-streams;
                         clicked => {
                             root.play-stream(index);
                         }
@@ -517,7 +582,7 @@ component DetailsPanel inherits Rectangle {
                 }
             }
 
-            // Web: .addons-loading-container — the count of addons still out, over an
+            // Web: .addons-loading-container Ã¢â‚¬â€ the count of addons still out, over an
             // accent bar. It only appears once there is something to read.
             if root.streams.length > 0 && root.streams-loading > 0: VerticalLayout {
                 alignment: center;
@@ -565,6 +630,8 @@ export component DetailsScreen inherits Rectangle {
     in property <int> season-number: 0;
     in property <int> episode-number: 0;
     in property <bool> can-show-streams: false;
+    /// Whether the Streams list wraps its descriptions instead of cutting them to one line.
+    in property <bool> wrap-streams: false;
     in property <length> rem-size: 14px;
     /// The top bar's height: the artwork runs under it, the content does not.
     in property <length> bar-height: 0px;
@@ -576,13 +643,14 @@ export component DetailsScreen inherits Rectangle {
     callback step-season(int);
     callback step-episode(int);
     callback show-streams;
+    callback toggle-stream-wrap;
     callback share;
     callback rate-like;
     callback rate-love;
 
     background: Theme.modal-background;
 
-    // Web: .background-image-layer — fixed over the whole viewport, so the artwork also runs
+    // Web: .background-image-layer Ã¢â‚¬â€ fixed over the whole viewport, so the artwork also runs
     // under the top bar, with everything else laid on top of it.
     if root.has-preview && root.preview.has-background: Image {
         width: 100%;
@@ -597,7 +665,7 @@ export component DetailsScreen inherits Rectangle {
         y: root.bar-height + 1.5 * root.rem-size;
         height: parent.height - root.bar-height - 1.5 * root.rem-size;
 
-        // Web: .meta-preview — flex 0 1 auto with `padding: 0 4rem 2rem 4rem`.
+        // Web: .meta-preview Ã¢â‚¬â€ flex 0 1 auto with `padding: 0 4rem 2rem 4rem`.
         Rectangle {
             horizontal-stretch: 1;
             VerticalLayout {
@@ -645,6 +713,7 @@ export component DetailsScreen inherits Rectangle {
             season-number: root.season-number;
             episode-number: root.episode-number;
             can-show-streams: root.can-show-streams;
+            wrap-streams: root.wrap-streams;
             select-season(index) => {
                 root.select-season(index);
             }
@@ -668,6 +737,9 @@ export component DetailsScreen inherits Rectangle {
             }
             show-streams => {
                 root.show-streams();
+            }
+            toggle-stream-wrap => {
+                root.toggle-stream-wrap();
             }
         }
     }

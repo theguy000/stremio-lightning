@@ -53,6 +53,11 @@ impl Default for PlayerConfig {
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct LocalExtras {
     pub overrides: HashMap<String, Value>,
+    /// Whether the Streams list wraps its descriptions. Kept here rather than in the profile
+    /// because it is a reading preference of this shell, and `#[serde(default)]` lets the file
+    /// written by an older build still load.
+    #[serde(default)]
+    pub wrap_streams: bool,
 }
 
 impl LocalExtras {
@@ -102,6 +107,8 @@ pub struct Data {
     pub torrent_profile: Input,
     pub transcoding_profile: Input,
     pub player_config: PlayerConfig,
+    /// Whether the Streams list wraps its descriptions.
+    pub wrap_streams: bool,
 }
 
 fn merged_settings_value(settings: &ProfileSettings, extras: &LocalExtras) -> Value {
@@ -177,6 +184,7 @@ pub(crate) fn data_from_profile(profile: &Profile, extras: &LocalExtras) -> Data
         torrent_profile: input("torrentProfile"),
         transcoding_profile: input("transcodingProfile"),
         player_config,
+        wrap_streams: extras.wrap_streams,
     }
 }
 
@@ -259,6 +267,42 @@ pub(crate) fn server_status(state: &crate::plumbing::stream_server::State) -> St
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_streams_wrap_choice_survives_a_restart() {
+        let dir = std::env::temp_dir().join("stremio-lightning-wrap-extras-test");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut extras = LocalExtras::default();
+        assert!(
+            !extras.wrap_streams,
+            "the list cuts its descriptions to begin with"
+        );
+
+        extras.wrap_streams = true;
+        extras.save(&dir);
+
+        // A fresh process reads the file back, and the screen is built from what it read.
+        let reloaded = LocalExtras::load(&dir);
+        assert!(reloaded.wrap_streams);
+        let data = data_from_profile(&Profile::default(), &reloaded);
+        assert!(data.wrap_streams);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_settings_file_from_before_the_wrap_toggle_still_loads() {
+        let dir = std::env::temp_dir().join("stremio-lightning-wrap-extras-old-test");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("native_settings.json"), r#"{"overrides":{}}"#).unwrap();
+
+        let reloaded = LocalExtras::load(&dir);
+        assert!(
+            !reloaded.wrap_streams,
+            "an older file keeps the default rather than failing"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn defaults_populate_all_settings_menus() {
