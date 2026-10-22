@@ -8,8 +8,8 @@ Svelte/WebKit or WebView2 window) are being retired and stay in the tree untouch
 
 | Path | Purpose |
 | --- | --- |
-| `crates/stremio-lightning-native` | The native client: the app, its screens, and its UI written in Slint. |
-| `crates/stremio-lightning-native-env` | The environment `stremio-core` stores and fetches through. |
+| `crates/stremio-lightning` | The native client: the app, its screens, and its UI written in Slint. |
+| `crates/stremio-lightning-env` | The environment `stremio-core` stores and fetches through. |
 | `crates/stremio-lightning-core` | Behavior still shared with the web shells: the streaming-server supervisor, the player contract, startup flags, mods and themes. |
 | `crates/xtask` | Development, validation, setup, and packaging orchestration. |
 | `crates/stremio-lightning-{windows,linux,macos}` | The retiring web shells. |

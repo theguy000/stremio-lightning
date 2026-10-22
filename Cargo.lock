@@ -5945,6 +5945,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "stremio-lightning"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "dirs",
+ "futures",
+ "getrandom 0.3.4",
+ "i-slint-backend-testing",
+ "image",
+ "libmpv2",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "slint",
+ "slint-build",
+ "stremio-core",
+ "stremio-lightning-core",
+ "stremio-lightning-env",
+ "tokio",
+ "url",
+ "windows",
+]
+
+[[package]]
 name = "stremio-lightning-core"
 version = "0.1.4"
 dependencies = [
@@ -5957,6 +5981,21 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
+]
+
+[[package]]
+name = "stremio-lightning-env"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "futures",
+ "http",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "stremio-core",
+ "tokio",
+ "url",
 ]
 
 [[package]]
@@ -5998,45 +6037,6 @@ dependencies = [
  "stremio-lightning-core",
  "stremio-lightning-identity",
  "tokio",
-]
-
-[[package]]
-name = "stremio-lightning-native"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "dirs",
- "futures",
- "getrandom 0.3.4",
- "i-slint-backend-testing",
- "image",
- "libmpv2",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "slint",
- "slint-build",
- "stremio-core",
- "stremio-lightning-core",
- "stremio-lightning-native-env",
- "tokio",
- "url",
- "windows",
-]
-
-[[package]]
-name = "stremio-lightning-native-env"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "futures",
- "http",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "stremio-core",
- "tokio",
- "url",
 ]
 
 [[package]]

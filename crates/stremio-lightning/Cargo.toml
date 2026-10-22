@@ -1,0 +1,42 @@
+[package]
+name = "stremio-lightning"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+description = "Slint desktop client for Stremio, built on stremio-core"
+build = "build.rs"
+
+[dependencies]
+stremio-lightning-env = { path = "../stremio-lightning-env" }
+stremio-lightning-core = { path = "../stremio-lightning-core" }
+stremio-core = { git = "https://github.com/theguy000/stremio-core", branch = "fix/watched-bitfield-flate2", features = ["env-future-send", "derive"] }
+slint = "1.18"
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "fs", "net", "time", "macros"] }
+futures = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+dirs = "6"
+getrandom = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
+libmpv2 = "5.0.3"
+url = "2"
+# Release dates on Episode rows, in the shape the web shows them.
+chrono = "0.4"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62.2", features = [
+    "Win32_Foundation",
+    "Win32_System_DataExchange",
+    "Win32_System_Memory",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[build-dependencies]
+slint-build = "1.18"
+
+[dev-dependencies]
+# A test in tests/adversarial_m1_tests.rs instantiates a real Slint `Window`, which needs a
+# platform backend. The default winit backend requires a display, and CI containers have none.
+i-slint-backend-testing = "1.18"
