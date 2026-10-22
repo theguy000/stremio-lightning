@@ -235,7 +235,7 @@ component NavButton inherits Rectangle {
             // 0.9 while hovered or on.
             colorize: ClassStyles.color-or(ClassStyles.icon, Theme.text);
             opacity: ClassStyles.icon.has-color ? 1.0
-                : ((root.active || touch.has-hover) ? 0.9 : 0.5);
+                : ((root.active || touch.has-hover) ? 1.0 : 0.5);
             visible: !ClassStyles.icon.hidden;
         }
         touch := TouchArea {
@@ -316,7 +316,7 @@ export component HorizontalNavBar inherits Rectangle {
                 // Web: `.icon` is dim at rest and 0.8 once the button is hovered. The default sits
                 // a shade below the web's: over artwork the chevron is the only thing in this
                 // corner, and at the web's value it competes with the title.
-                opacity: back-touch.has-hover ? 0.8 : 0.45;
+                opacity: back-touch.has-hover ? 1.0 : 0.45;
             }
             back-touch := TouchArea {
                 mouse-cursor: pointer;
@@ -399,7 +399,7 @@ export component HorizontalNavBar inherits Rectangle {
                     height: (14 * root.rem-size / 14);
                     // White like the buttons beside it, at the same 0.5 the bar's icons rest at.
                     colorize: Theme.text;
-                    opacity: menu-touch.has-hover ? 0.9 : 0.5;
+                    opacity: menu-touch.has-hover ? 1.0 : 0.5;
                 }
 
                 menu-touch := TouchArea {
