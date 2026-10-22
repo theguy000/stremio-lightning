@@ -14,6 +14,8 @@ import { ScrollView } from "std-widgets.slint";
 import { SelectOption } from "multiselect-menu.slint";
 import { PreviewData } from "meta-preview.slint";
 import { Theme } from "theme.slint";
+import { MultiselectMenu, SelectOption } from "multiselect-menu.slint";
+import { ScrollBar } from "scroll-bar.slint";
 
 /// One audio or subtitle track mpv offers, as the screen draws it.
 export struct PlayerTrack {
@@ -1464,7 +1466,7 @@ export component PlayerScreen inherits Rectangle {
                         y: 1 * root.rem-size;
                         width: 6.5 * root.rem-size;
                         height: 3 * root.rem-size;
-                        border-radius: 0.75 * root.rem-size;
+                        border-radius: 3 * root.rem-size;
                         background: prev-touch.has-hover && root.season-index > 0 ? Theme.overlay : transparent;
 
                         Image {
@@ -1498,93 +1500,19 @@ export component PlayerScreen inherits Rectangle {
                         }
                     }
 
-                    // Web: the MultiselectMenu Label -- a 3rem pill, 1.5rem of padding either
-                    // side, and a caret at the far end that turns over while its list is open.
-                    Rectangle {
+                    // Web: the Seasons bar's MultiselectMenu -- the app's own dropdown, in the
+                    // web's 2.75rem pill, opening its list in a popup so nothing is clipped.
+                    season-picker := MultiselectMenu {
                         x: (parent.width - self.width) / 2;
                         y: 1 * root.rem-size;
                         width: 9.5 * root.rem-size;
-                        height: 3 * root.rem-size;
-                        border-radius: 2.75 * root.rem-size;
-                        background: season-touch.has-hover || root.season-menu-open ? Theme.overlay : transparent;
-
-                        Text {
-                            x: 1.5 * root.rem-size;
-                            y: 0;
-                            width: parent.width - 1.5 * root.rem-size - 2.5 * root.rem-size;
-                            height: parent.height;
-                            text: root.season-title;
-                            font-size: 1 * root.rem-size;
-                            font-weight: 600;
-                            color: Theme.text;
-                            vertical-alignment: center;
-                            overflow: elide;
-                        }
-                        Image {
-                            x: parent.width - self.width - 1.5 * root.rem-size;
-                            y: (parent.height - self.height) / 2;
-                            width: 1 * root.rem-size;
-                            height: 1 * root.rem-size;
-                            source: @image-url("icons/caret-down.svg");
-                            colorize: Theme.text;
-                            opacity: 0.6;
-                            transform-rotation: root.season-menu-open ? 180deg : 0deg;
-                        }
-                        season-touch := TouchArea {
-                            mouse-cursor: pointer;
-                            clicked => {
-                                root.season-menu-open = !root.season-menu-open;
-                            }
-                        }
-                    }
-
-                    // Web: the Dropdown that pill opens -- the modal colour, 0.75rem corners, a
-                    // row per Season with the chosen one dotted.
-                    if root.season-menu-open: Rectangle {
-                        x: (parent.width - self.width) / 2;
-                        y: 4.25 * root.rem-size;
-                        width: 9.5 * root.rem-size;
-                        height: Math.min(root.seasons.length * 3, 21) * root.rem-size;
-                        border-radius: 0.75 * root.rem-size;
-                        // The drawer behind this is the same modal colour, so the panel is a shade
-                        // lighter with an edge and a shadow under it, or it reads as nothing.
-                        background: Theme.modal-raised;
-                        border-width: 1px;
-                        border-color: #ffffff1f;
-                        drop-shadow-blur: 3.2 * root.rem-size;
-                        drop-shadow-offset-y: 1.2 * root.rem-size;
-                        drop-shadow-color: #000000a6;
-
-                        for season[index] in root.seasons: Rectangle {
-                            height: 3 * root.rem-size;
-                            background: season-row-touch.has-hover ? #ffffff26 : transparent;
-
-                            Text {
-                                x: 1 * root.rem-size;
-                                y: 0;
-                                width: parent.width - 3 * root.rem-size;
-                                height: parent.height;
-                                text: season.label;
-                                font-size: 1 * root.rem-size;
-                                color: Theme.text;
-                                vertical-alignment: center;
-                                overflow: elide;
-                            }
-                            if season.selected: Rectangle {
-                                x: parent.width - 1.5 * root.rem-size;
-                                y: (parent.height - self.height) / 2;
-                                width: 0.5 * root.rem-size;
-                                height: 0.5 * root.rem-size;
-                                border-radius: self.width;
-                                background: Theme.accent-soft;
-                            }
-                            season-row-touch := TouchArea {
-                                mouse-cursor: pointer;
-                                clicked => {
-                                    root.season-menu-open = false;
-                                    root.select-season(index);
-                                }
-                            }
+                        rem-size: root.rem-size;
+                        radius: 2.75 * root.rem-size;
+                        title: root.season-title;
+                        options: root.seasons;
+                        selected-index: root.season-index;
+                        select(index) => {
+                            root.select-season(index);
                         }
                     }
 
@@ -1593,7 +1521,7 @@ export component PlayerScreen inherits Rectangle {
                         y: 1 * root.rem-size;
                         width: 6.5 * root.rem-size;
                         height: 3 * root.rem-size;
-                        border-radius: 0.75 * root.rem-size;
+                        border-radius: 3 * root.rem-size;
                         background: season-next-touch.has-hover && root.season-index + 1 < root.seasons.length ? Theme.overlay : transparent;
 
                         Text {
@@ -1722,28 +1650,14 @@ export component PlayerScreen inherits Rectangle {
                         }
                     }
 
-                    // Web: the list's scroll bar -- a track down the right edge with a thumb on
-                    // it, so it reads as a scroll bar rather than a line floating over the rows.
-                    // The box around it carries the arithmetic, so the thumb never measures itself.
-                    if drawer-flick.content-height > drawer-flick.height + 1px: Rectangle {
-                        width: 0.4 * root.rem-size;
+                    // The app's own scroll bar, bound to this list so the thumb follows it.
+                    ScrollBar {
+                        x: parent.width - self.width;
+                        y: 0px;
                         height: parent.height;
-                        x: parent.width - 0.4 * root.rem-size;
-                        border-radius: self.width;
-                        background: Theme.text;
-                        opacity: 0.08;
-
-                        property <length> thumb: Math.max(2.5 * root.rem-size, self.height * drawer-flick.height / Math.max(1px, drawer-flick.content-height));
-                        property <length> room: drawer-flick.content-height - drawer-flick.height;
-
-                        Rectangle {
-                            width: parent.width;
-                            height: parent.thumb;
-                            y: (parent.height - self.height) * Math.min(1, Math.max(0, -drawer-flick.content-y / Math.max(1px, parent.room)));
-                            border-radius: self.width;
-                            background: Theme.text;
-                            opacity: 0.5;
-                        }
+                        view-height: drawer-flick.height;
+                        content-height: drawer-flick.content-height;
+                        offset <=> drawer-flick.content-y;
                     }
                 }
             }

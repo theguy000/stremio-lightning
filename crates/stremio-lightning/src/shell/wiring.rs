@@ -552,7 +552,7 @@ impl Wiring {
         self.player_season.store(index, Ordering::Relaxed);
         if let Ok(model) = self.runtime.model() {
             let mut snapshot = self.latest.lock().unwrap().clone();
-            snapshot.player = player::data(&model, player::chosen_season(index));
+            snapshot.player = player::data(&model, Some(index));
             drop(model);
             *self.latest.lock().unwrap() = snapshot.clone();
             shell::show(&self.window, snapshot, &self.images);

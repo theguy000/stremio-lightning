@@ -380,27 +380,29 @@ pub(crate) fn unload(runtime: &AppRuntime) {
     });
 }
 
-/// One press of a season in the drawer: the index of the season in `seasons`, kept by the shell.
-pub(crate) fn season_index(seasons: &[details::Season], wanted: Option<u32>, video: u32) -> usize {
-    let number = wanted.unwrap_or(video);
-    seasons
-        .iter()
-        .position(|season| season.number == number)
-        .unwrap_or(0)
+/// Which row of `seasons` the drawer shows. A Season the viewer picked is a row of that list, so
+/// it is used as given; without one, the row holding the Video that is playing.
+pub(crate) fn season_index(seasons: &[details::Season], wanted: Option<usize>, video: u32) -> usize {
+    match wanted {
+        Some(index) if index < seasons.len() => index,
+        _ => seasons
+            .iter()
+            .position(|season| season.number == video)
+            .unwrap_or(0),
+    }
 }
 
 /// The Season the drawer should show, as the shell remembers it. `NO_SEASON` follows the Video
 /// that is playing, which is what the drawer does until a Season is picked.
 pub const NO_SEASON: usize = usize::MAX;
 
-pub(crate) fn chosen_season(stored: usize) -> Option<u32> {
-    (stored != NO_SEASON)
-        .then(|| u32::try_from(stored).ok())
-        .flatten()
+/// The row the shell remembers, or `None` while it is still following the Video.
+pub(crate) fn chosen_season(stored: usize) -> Option<usize> {
+    (stored != NO_SEASON).then_some(stored)
 }
 
 /// The whole screen, from the model and the Season the drawer is showing.
-pub fn data(model: &AppModel, wanted_season: Option<u32>) -> Data {
+pub fn data(model: &AppModel, wanted_season: Option<usize>) -> Data {
     let player = &model.player;
     let Some(selected) = player.selected.as_ref() else {
         return Data::default();
@@ -661,8 +663,13 @@ mod tests {
                 label: "Season 1".to_owned(),
             },
         ];
+        // Nothing picked: the row holding the Video that is playing.
         assert_eq!(season_index(&seasons, None, 1), 1);
-        assert_eq!(season_index(&seasons, Some(0), 1), 0);
-        assert_eq!(season_index(&seasons, Some(9), 1), 0);
+        // A picked row is the row -- this is what made the drawer's Next button look dead, when
+        // the row was read as a Season number and row 1 meant "Season 1" again.
+        assert_eq!(season_index(&seasons, Some(0), 0), 0);
+        assert_eq!(season_index(&seasons, Some(1), 1), 1);
+        // A row that no longer exists falls back to the playing Video's.
+        assert_eq!(season_index(&seasons, Some(9), 1), 1);
     }
 }

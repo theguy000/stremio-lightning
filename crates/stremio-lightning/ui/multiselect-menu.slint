@@ -65,6 +65,9 @@ export component MultiselectMenu inherits Rectangle {
     // The list opens scrolled so this row is at the top, like the web.
     in property <int> selected-index;
     in property <length> rem-size;
+    /// The label's corners. The web's generic select is a 1.5rem pill; the Seasons bar in the
+    /// player overrides it to 2.75rem, so this is a property rather than a constant.
+    in property <length> radius: 1.5 * root.rem-size;
     callback select(int);
 
     property <length> item-height: 3 * root.rem-size;
@@ -74,7 +77,7 @@ export component MultiselectMenu inherits Rectangle {
     property <bool> was-open: false;
 
     height: 3 * root.rem-size;
-    border-radius: 1.5 * root.rem-size;
+    border-radius: root.radius;
     background: ClassStyles.background-or(ClassStyles.select-input, Theme.overlay);
     opacity: ClassStyles.opacity-or(ClassStyles.select-input, 1.0);
     visible: !(ClassStyles.select-input).hidden;
