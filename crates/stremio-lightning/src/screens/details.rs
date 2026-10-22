@@ -32,7 +32,7 @@ pub struct Source {
 }
 
 /// One Episode row in the picker. `label` is `S2E5`, or `SPECIAL 5` for a Video in season 0.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Episode {
     pub id: String,
     pub label: String,
@@ -40,6 +40,12 @@ pub struct Episode {
     /// The release date as the row shows it: `Sep 1, 2023`, empty when the title gives none.
     pub released: String,
     pub thumbnail: Option<String>,
+    /// Whether the library's watched bitfield has this Video.
+    pub watched: bool,
+    /// How far into this Video the viewer is, as a percentage. The core keeps that number for the
+    /// single Video the title's library entry is sitting on; every other row carries zero, which
+    /// draws no bar.
+    pub progress: f64,
 }
 
 /// The Seasons a series offers, in the order the title supplied them — never re-sorted here,
@@ -109,6 +115,8 @@ pub(crate) fn episodes(videos: &[Video], season: u32) -> Vec<Episode> {
             }
             Some(Episode {
                 id: video.id.clone(),
+                watched: false,
+                progress: 0.0,
                 label: if info.season == 0 {
                     format!("SPECIAL {}", info.episode)
                 } else {
@@ -404,6 +412,17 @@ pub fn data(
         .unwrap_or_default();
     if !needle.is_empty() {
         season_episodes.retain(|episode| episode.title.to_lowercase().contains(&needle));
+    }
+    // The two marks the row draws: `watched` from the bitfield, `progress` from the one Video the
+    // library entry is sitting on -- the same pair the player's drawer reads.
+    let watched_field = details.watched.as_ref();
+    let library_item = details.library_item.as_ref();
+    for episode in &mut season_episodes {
+        episode.watched = watched_field.is_some_and(|watched| watched.get_video(&episode.id));
+        episode.progress = library_item
+            .filter(|item| item.state.video_id.as_deref() == Some(episode.id.as_str()))
+            .map(|item| item.progress())
+            .unwrap_or_default();
     }
 
     // The footer counts the addons that have not answered yet.

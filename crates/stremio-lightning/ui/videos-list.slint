@@ -11,6 +11,7 @@ import { ScrollView } from "std-widgets.slint";
 import { ClassStyles } from "class-styles.slint";
 import { MultiselectMenu, SelectOption } from "multiselect-menu.slint";
 import { Theme } from "theme.slint";
+import { EpisodeProgress, WatchedChip } from "watched-marks.slint";
 
 // One Episode of the chosen Season. `id` is the Video id the pick carries back to the core.
 export struct VideoRow {
@@ -20,6 +21,10 @@ export struct VideoRow {
     has-thumbnail: bool,
     thumbnail: image,
     selected: bool,
+    /// Whether the library says this Episode has been watched.
+    watched: bool,
+    /// How far into it the viewer is, as a percentage; zero draws no bar.
+    progress: float,
 }
 
 // Web: SeasonsBar's prev/next `Button` — a 6.5rem pill holding a chevron and a label.
@@ -108,6 +113,14 @@ component VideoListItem inherits Rectangle {
                 image-fit: cover;
                 opacity: 0.9;
             }
+            // Web: `progress-bar-container`, 0.5rem in from the thumbnail's bottom.
+            if root.episode.progress > 0: EpisodeProgress {
+                x: 0.5 * root.rem-size;
+                y: parent.height - self.height - 0.35 * root.rem-size;
+                width: parent.width - 1 * root.rem-size;
+                progress: root.episode.progress;
+                rem-size: root.rem-size;
+            }
         }
 
         VerticalLayout {
@@ -122,13 +135,29 @@ component VideoListItem inherits Rectangle {
                 wrap: word-wrap;
                 overflow: elide;
             }
-            Text {
-                text: root.episode.released;
-                color: Theme.text;
-                opacity: 0.44;
-                font-size: 0.8 * root.rem-size;
-                font-weight: 500;
-                overflow: elide;
+            // Web: `.flex-row-container` -- the date, and the watched chip at the far end. No
+            // width of its own: the column stretches it, and asking for one closes a loop.
+            Rectangle {
+                height: 1.6 * root.rem-size;
+
+                Text {
+                    x: 0;
+                    y: 0;
+                    width: parent.width;
+                    height: parent.height;
+                    text: root.episode.released;
+                    color: Theme.text;
+                    opacity: 0.44;
+                    font-size: 0.8 * root.rem-size;
+                    font-weight: 500;
+                    overflow: elide;
+                    vertical-alignment: center;
+                }
+                if root.episode.watched: WatchedChip {
+                    x: parent.width - self.width;
+                    y: 0;
+                    rem-size: root.rem-size;
+                }
             }
         }
 

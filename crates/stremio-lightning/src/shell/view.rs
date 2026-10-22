@@ -161,6 +161,8 @@ fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
                     has_thumbnail: thumbnail.is_some(),
                     thumbnail: thumbnail.unwrap_or_default(),
                     selected: details.picked.as_deref() == Some(episode.id.as_str()),
+                    watched: episode.watched,
+                    progress: episode.progress as f32,
                 }
             })
             .collect::<Vec<_>>(),
