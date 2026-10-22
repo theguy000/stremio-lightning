@@ -27,7 +27,15 @@ pub(crate) struct Images {
 impl Default for Images {
     fn default() -> Self {
         Self {
-            client: reqwest::Client::new(),
+            // With no timeout a host that accepts the connection and then says nothing hangs the
+            // fetch forever: the key stays "asked for", nothing is cached, no error is raised, and
+            // the row is a grey box for the rest of the session. Measured on
+            // `episodes.metahub.space`, which does exactly that from here.
+            client: reqwest::Client::builder()
+                .connect_timeout(std::time::Duration::from_secs(10))
+                .timeout(std::time::Duration::from_secs(25))
+                .build()
+                .unwrap_or_default(),
             cache: Default::default(),
             requested: Default::default(),
         }
