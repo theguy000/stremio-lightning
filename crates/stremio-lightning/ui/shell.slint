@@ -230,12 +230,12 @@ component NavButton inherits Rectangle {
             y: (11 * root.rem-size / 14);
             width: (28 * root.rem-size / 14);
             height: (28 * root.rem-size / 14);
-            // Web: a white icon inside a container at 0.6, which the hover brightens to 0.8.
-            // `toolbar-icon` is the measured 0.6 reading of that white; on hover it goes back to
-            // the text colour drawn at 0.8.
-            colorize: ClassStyles.color-or(ClassStyles.icon, (root.active || touch.has-hover) ? Theme.text : Theme.toolbar-icon);
+            // Web draws these white and lets a 0.6 container dim them. Over this app's artwork a
+            // solid grey reading of that turns to mush, so they stay white here: 0.5 at rest,
+            // 0.9 while hovered or on.
+            colorize: ClassStyles.color-or(ClassStyles.icon, Theme.text);
             opacity: ClassStyles.icon.has-color ? 1.0
-                : ((root.active || touch.has-hover) ? 0.8 : 0.36);
+                : ((root.active || touch.has-hover) ? 0.9 : 0.5);
             visible: !ClassStyles.icon.hidden;
         }
         touch := TouchArea {
@@ -313,8 +313,10 @@ export component HorizontalNavBar inherits Rectangle {
                 width: (25 * root.rem-size / 14);
                 height: (25 * root.rem-size / 14);
                 colorize: Theme.text;
-                // Web: `.icon` is 0.6 until the button is hovered, then 0.8.
-                opacity: back-touch.has-hover ? 0.8 : 0.6;
+                // Web: `.icon` is dim at rest and 0.8 once the button is hovered. The default sits
+                // a shade below the web's: over artwork the chevron is the only thing in this
+                // corner, and at the web's value it competes with the title.
+                opacity: back-touch.has-hover ? 0.8 : 0.45;
             }
             back-touch := TouchArea {
                 mouse-cursor: pointer;
@@ -395,8 +397,9 @@ export component HorizontalNavBar inherits Rectangle {
                     y: (18 * root.rem-size / 14);
                     width: (14 * root.rem-size / 14);
                     height: (14 * root.rem-size / 14);
-                    // `caret-icon` is the measured 0.6 reading of the web's white caret.
-                    colorize: menu-touch.has-hover ? Theme.text : Theme.caret-icon;
+                    // White like the buttons beside it, at the same 0.5 the bar's icons rest at.
+                    colorize: Theme.text;
+                    opacity: menu-touch.has-hover ? 0.9 : 0.5;
                 }
 
                 menu-touch := TouchArea {
