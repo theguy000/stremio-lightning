@@ -139,16 +139,19 @@ export component ShareModal inherits Rectangle {
             border-radius: 0.75 * root.rem-size;
             background: Theme.overlay;
 
-            Text {
+            // Web: a read-only text input, so the link can be selected and copied by hand as well
+            // as with the button beside it.
+            TextInput {
                 x: 1 * root.rem-size;
                 width: parent.width - 9 * root.rem-size;
                 height: parent.height;
                 text: root.link;
+                read-only: true;
+                single-line: true;
                 color: Theme.text;
                 font-size: 1.1 * root.rem-size;
                 horizontal-alignment: center;
                 vertical-alignment: center;
-                overflow: elide;
             }
 
             Rectangle {
@@ -157,16 +160,25 @@ export component ShareModal inherits Rectangle {
                 height: parent.height;
                 border-top-right-radius: 0.75 * root.rem-size;
                 border-bottom-right-radius: 0.75 * root.rem-size;
+                // Web: the button empties on hover and keeps only a 0.15rem accent edge, so the
+                // hover reads as an outline rather than a lighter fill.
                 background: copy-touch.has-hover ? transparent : Theme.accent-green;
+                border-width: copy-touch.has-hover ? 0.15 * root.rem-size : 0px;
+                border-color: Theme.accent-green;
 
                 HorizontalLayout {
                     alignment: center;
                     spacing: 0.5 * root.rem-size;
-                    Image {
-                        width: 1.2 * root.rem-size;
-                        height: 1.2 * root.rem-size;
-                        source: @image-url("icons/link.svg");
-                        colorize: Theme.text;
+                    // A layout stretches its children across the axis, so the glyph gets a column
+                    // of its own to sit in the middle of, level with the word beside it.
+                    VerticalLayout {
+                        alignment: center;
+                        Image {
+                            width: 1.2 * root.rem-size;
+                            height: 1.2 * root.rem-size;
+                            source: @image-url("icons/link.svg");
+                            colorize: Theme.text;
+                        }
                     }
                     Text {
                         text: "Copy";
