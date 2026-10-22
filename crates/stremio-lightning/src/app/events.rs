@@ -187,6 +187,15 @@ pub(crate) fn snapshot_images(
                 .as_ref()
                 .and_then(|preview| preview.background.clone()),
         )
+        // The blurred copy the details column paints under itself, made from the artwork above.
+        .chain(
+            snapshot
+                .details
+                .preview
+                .as_ref()
+                .and_then(|preview| preview.background.as_ref())
+                .map(|key| crate::plumbing::images::backdrop_key(key)),
+        )
         .chain(
             snapshot
                 .details

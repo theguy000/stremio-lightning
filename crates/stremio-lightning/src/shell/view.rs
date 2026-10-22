@@ -85,7 +85,18 @@ pub(crate) fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
     let details = &snapshot.details;
     window.set_details_has_preview(details.preview.is_some());
     if let Some(preview) = &details.preview {
-        window.set_details_preview(preview_data(preview, images));
+        let mut data = preview_data(preview, images);
+        // Web: the column on the right has `backdrop-filter: blur(15px)`, so it paints the artwork
+        // behind it blurred under its own 0.4 wash. Slint has no backdrop filter; the column draws
+        // this copy instead, lined up with the page's layer.
+        let backdrop = preview
+            .background
+            .as_ref()
+            .map(|key| crate::plumbing::images::backdrop_key(key));
+        let backdrop = images.get(&backdrop);
+        data.has_panel_backdrop = backdrop.is_some();
+        data.panel_backdrop = backdrop.unwrap_or_default();
+        window.set_details_preview(data);
     }
     window.set_streams(ModelRc::new(VecModel::from(
         details
@@ -200,6 +211,8 @@ fn preview_data(preview: &Preview, images: &Images) -> PreviewData {
         logo: logo.unwrap_or_default(),
         has_background: background.is_some(),
         background: background.unwrap_or_default(),
+        has_panel_backdrop: false,
+        panel_backdrop: Default::default(),
     }
 }
 

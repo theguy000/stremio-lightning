@@ -154,6 +154,12 @@ export component DiscoverContent inherits Rectangle {
             has-preview: root.has-preview;
             preview: root.preview;
             rem-size: root.rem-size;
+            // Web: the Show pill is a link to the title's details route, like a second click.
+            show => {
+                if (root.cards.length > root.selected-index) {
+                    root.open-item(root.cards[root.selected-index].item-id, root.cards[root.selected-index].kind, root.cards[root.selected-index].title);
+                }
+            }
         }
     }
 }

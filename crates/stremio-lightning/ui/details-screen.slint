@@ -425,7 +425,9 @@ component DetailsPanel inherits Rectangle {
     callback stepped-episode(int);
     callback show-streams;
 
-    background: #00000066;
+    // The wash is painted by the screen, under this panel: web's column is a `backdrop-filter`
+    // over the artwork, which has to be drawn before anything inside the column is.
+    background: transparent;
     // Web: rounded along its left, square against the window's edge.
     border-top-left-radius: 0.75 * root.rem-size;
     border-bottom-left-radius: 0.75 * root.rem-size;
@@ -656,6 +658,33 @@ export component DetailsScreen inherits Rectangle {
         width: 100%;
         height: 100%;
         source: root.preview.background;
+    }
+
+    // Web: the column on the right is `rgba(0, 0, 0, 0.4)` over `backdrop-filter: blur(15px)`, so
+    // the artwork runs on under it, softened almost out of sight. Slint has no backdrop filter:
+    // the column paints the page's own layer again, blurred, in the same place -- the same fit, the
+    // same 0.3 opacity over the modal colour -- and then its 0.4 wash. The artwork used to show
+    // through it as sharp detail, which read as a dirty smudge rather than a surface.
+    panel-backdrop := Rectangle {
+        x: root.width - 30 * root.rem-size;
+        y: root.bar-height;
+        width: 30 * root.rem-size;
+        height: parent.height - root.bar-height;
+        background: Theme.modal-background;
+        border-top-left-radius: 0.75 * root.rem-size;
+        border-bottom-left-radius: 0.75 * root.rem-size;
+        clip: true;
+
+        if root.has-preview && root.preview.has-panel-backdrop: panel-backdrop-image := CoverRightImage {
+            x: -(root.width - 30 * root.rem-size);
+            y: -root.bar-height;
+            width: root.width;
+            height: root.height;
+            source: root.preview.panel-backdrop;
+        }
+        Rectangle {
+            background: #00000066;
+        }
     }
 
     // Web: `.metadetails-content` starts under the top bar and pulls back up by the bar's own

@@ -162,10 +162,12 @@ pub(crate) fn preview_of(item: &MetaItemPreview) -> Preview {
             .logo
             .as_ref()
             .map(|url| format!("{url}{}", crate::plumbing::images::LOGO_SUFFIX)),
+        // Web: the panel's backdrop is the *poster*, blurred -- `renderMetaPreview` passes
+        // `background={selectedMetaItem.poster}` and never the wide artwork, which is what the
+        // details page paints across the screen instead.
         background: item
-            .background
+            .poster
             .as_ref()
-            .or(item.poster.as_ref())
             .map(|url| format!("{url}{}", crate::plumbing::images::BLUR_SUFFIX)),
     }
 }
