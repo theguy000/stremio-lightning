@@ -195,6 +195,9 @@ impl Player {
         })
         .map_err(|error| format!("could not start mpv: {error}"))?;
         mpv.disable_deprecated_events().ok();
+        // Warnings and errors from mpv itself, so a stream that will not open can say why.
+        mpv.set_property("terminal", "yes").ok();
+        mpv.set_property("msg-level", "all=warn").ok();
 
         // SAFETY: `mpv.ctx` is the valid mpv handle owned by `mpv`, which outlives this call.
         let handle = unsafe { mpv.ctx.as_mut() };
@@ -625,6 +628,19 @@ fn drain_events(player: &mut Player, status: &mut Status) {
                 // Autoplay, once the file is really open: a press that starts the load and a
                 // release that lands on the new screen must not leave the picture paused.
                 let _ = player.mpv.set_property("pause", false);
+            }
+            Event::LogMessage {
+                prefix,
+                level,
+                text,
+                ..
+            } => {
+                // mpv says why in its own log ("Failed to open ...", "HTTP error 403", "unsafe
+                // TLS"). The screen has one line for the viewer; this one is for whoever has to
+                // answer "why can't it play this stream".
+                if matches!(level, "error" | "fatal" | "warn") {
+                    eprintln!("[mpv {level}] {prefix}{text}");
+                }
             }
             Event::EndFile(reason) => {
                 status.loaded = false;

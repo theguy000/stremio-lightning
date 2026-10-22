@@ -42,17 +42,30 @@ impl Images {
             .map(Image::from_rgba8)
     }
 
-    /// Asks for a key. A key is only ever asked for once; when it arrives, `on_ready` runs on
-    /// the tokio worker so the caller can repaint.
+    /// Asks for a key. A key is only ever asked for once *while it is in flight or cached*; when
+    /// it arrives, `on_ready` runs on the tokio worker so the caller can repaint.
+    ///
+    /// A fetch that fails is forgotten rather than remembered as asked, so the next snapshot tries
+    /// again. Keeping it asked was how a single hiccup on the image host left a row grey for the
+    /// rest of the session.
     pub(crate) fn request(&self, key: String, on_ready: impl FnOnce() + Send + 'static) {
         if !self.requested.lock().unwrap().insert(key.clone()) {
             return;
         }
-        let (client, cache) = (self.client.clone(), self.cache.clone());
+        let (client, cache, requested) = (
+            self.client.clone(),
+            self.cache.clone(),
+            self.requested.clone(),
+        );
         tokio::spawn(async move {
-            if let Some(buffer) = fetch(&client, &key).await {
-                cache.lock().unwrap().insert(key, buffer);
-                on_ready();
+            match fetch(&client, &key).await {
+                Some(buffer) => {
+                    cache.lock().unwrap().insert(key, buffer);
+                    on_ready();
+                }
+                None => {
+                    requested.lock().unwrap().remove(&key);
+                }
             }
         });
     }
@@ -73,18 +86,30 @@ fn source(key: &str) -> (&str, (u32, u32)) {
 
 async fn fetch(client: &reqwest::Client, key: &str) -> Option<SharedPixelBuffer<Rgba8Pixel>> {
     let (url, (width, height)) = source(key);
-    let bytes = client
-        .get(url)
-        .send()
-        .await
-        .ok()?
-        .error_for_status()
-        .ok()?
-        .bytes()
-        .await
-        .ok()?;
+    let response = match client.get(url).send().await {
+        Ok(response) => response,
+        Err(error) => {
+            eprintln!("[image] {url}: {error}");
+            return None;
+        }
+    };
+    let response = match response.error_for_status() {
+        Ok(response) => response,
+        Err(error) => {
+            eprintln!("[image] {url}: {error}");
+            return None;
+        }
+    };
+    let bytes = match response.bytes().await {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            eprintln!("[image] {url}: {error}");
+            return None;
+        }
+    };
     tokio::task::spawn_blocking(move || {
         let image = image::load_from_memory(&bytes)
+            .map_err(|error| eprintln!("[image] decode failed: {error}"))
             .ok()?
             .thumbnail(width, height)
             .to_rgba8();
