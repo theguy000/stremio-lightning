@@ -145,7 +145,23 @@ fn snapshot(model: &AppModel, context: &Context) -> Snapshot {
 
 /// Asks for every image the new snapshot needs. The cache ignores keys it has already asked for.
 fn request_images(snapshot: &Snapshot, context: &Context) {
-    let urls = snapshot
+    for url in snapshot_images(snapshot, context.selected.load(Ordering::Relaxed)) {
+        let repaint = context.repaint.clone();
+        context.images.request(url, move || repaint());
+    }
+}
+
+/// Every image a snapshot wants on screen: the cards it shows, the Season of Episodes it lists,
+/// the drawer's Video pictures and the player's own logo and backdrop.
+///
+/// This is the one list, so a repaint that never touches the core (a Season switch in the details
+/// picker is exactly that) can still ask for the pictures its rows need. Waiting for the next core
+/// event instead is what made a later Season's thumbnails crawl in.
+pub(crate) fn snapshot_images(
+    snapshot: &Snapshot,
+    selected: usize,
+) -> impl Iterator<Item = String> + '_ {
+    snapshot
         .rows
         .iter()
         .flat_map(|row| row.cards.iter())
@@ -197,14 +213,7 @@ fn request_images(snapshot: &Snapshot, context: &Context) {
         // Every Episode of every Season, so picking another Season in the drawer paints at once
         // instead of leaving its rows as empty rectangles while the pictures arrive.
         .chain(snapshot.player.every_thumbnail.iter().cloned())
-        .chain(discover::preview_images(
-            &snapshot.discover,
-            context.selected.load(Ordering::Relaxed),
-        ));
-    for url in urls {
-        let repaint = context.repaint.clone();
-        context.images.request(url, move || repaint());
-    }
+        .chain(discover::preview_images(&snapshot.discover, selected))
 }
 
 /// The sign-in screen is done, whatever finished it.

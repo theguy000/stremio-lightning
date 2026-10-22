@@ -22,7 +22,7 @@ pub(crate) fn show(weak: &Weak<MainWindow>, snapshot: Snapshot, images: &Images)
     let _ = weak.upgrade_in_event_loop(move |window| apply(&window, &snapshot, &images));
 }
 
-fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
+pub(crate) fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
     window.set_status(snapshot.status.clone().into());
     window.set_rows(ModelRc::new(VecModel::from(
         snapshot

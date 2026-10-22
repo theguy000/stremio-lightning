@@ -88,10 +88,29 @@ impl Wiring {
         shell::show(&self.window, snapshot, &self.images);
     }
 
-    /// Repaints with a snapshot the caller has just changed.
+    /// Repaints with a snapshot the caller has just changed, and asks for every picture that
+    /// snapshot shows. A Season switch in the details picker never goes near the core, so without
+    /// this its thumbnails waited for the next core event -- which is why a later Season crawled
+    /// in while the first one, requested during a real core update, arrived at once.
     fn repaint_with(&self, snapshot: Snapshot) {
         *self.latest.lock().unwrap() = snapshot.clone();
-        shell::show(&self.window, snapshot, &self.images);
+        shell::show(&self.window, snapshot.clone(), &self.images);
+        let (latest, window, images) = (
+            self.latest.clone(),
+            self.window.clone(),
+            self.images.clone(),
+        );
+        for url in crate::app::events::snapshot_images(&snapshot, 0) {
+            let (latest, window, images) =
+                (latest.clone(), window.clone(), images.clone());
+            self.images.request(url, move || {
+                let snapshot = latest.lock().unwrap().clone();
+                let images = images.clone();
+                let _ = window.upgrade_in_event_loop(move |window| {
+                    crate::shell::view::apply(&window, &snapshot, &images);
+                });
+            });
+        }
     }
 
     fn open_item(&self, id: String, kind: String, _title: String) {

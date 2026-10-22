@@ -77,7 +77,9 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let (runtime, events) = app::build::runtime(profile);
     let runtime = Arc::new(runtime);
 
-    let images = plumbing::images::Images::default();
+    // Inside the runtime: `Images` keeps its handle, because a repaint asks for pictures from the
+    // window's thread, where `tokio::spawn` has no runtime to reach for.
+    let images = tokio.block_on(async { plumbing::images::Images::default() });
     let local_extras = Arc::new(Mutex::new(screens::settings::LocalExtras::load(&data_dir)));
     let latest: Arc<Mutex<app::Snapshot>> = Default::default();
     let selected = Arc::new(AtomicUsize::new(0));

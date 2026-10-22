@@ -22,6 +22,10 @@ pub(crate) struct Images {
     client: reqwest::Client,
     cache: Cache,
     requested: Arc<Mutex<HashSet<String>>>,
+    /// The runtime the fetches run on. Carried rather than assumed: a request can be made from the
+    /// window's thread (a repaint asks for its own pictures), where there is no runtime context to
+    /// `tokio::spawn` into.
+    runtime: tokio::runtime::Handle,
 }
 
 impl Default for Images {
@@ -38,6 +42,7 @@ impl Default for Images {
                 .unwrap_or_default(),
             cache: Default::default(),
             requested: Default::default(),
+            runtime: tokio::runtime::Handle::current(),
         }
     }
 }
@@ -67,7 +72,7 @@ impl Images {
             self.cache.clone(),
             self.requested.clone(),
         );
-        tokio::spawn(async move {
+        self.runtime.clone().spawn(async move {
             match fetch(&client, &key).await {
                 Fetched::Ready(buffer) => {
                     cache.lock().unwrap().insert(key, buffer);
