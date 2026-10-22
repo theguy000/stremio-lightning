@@ -196,8 +196,14 @@ impl Player {
         .map_err(|error| format!("could not start mpv: {error}"))?;
         mpv.disable_deprecated_events().ok();
         // Warnings and errors from mpv itself, so a stream that will not open can say why.
+        // `terminal` alone never reached this process's stderr, so mpv keeps its own file beside
+        // the app's log.
         mpv.set_property("terminal", "yes").ok();
         mpv.set_property("msg-level", "all=warn").ok();
+        if let Some(dir) = std::env::temp_dir().to_str() {
+            mpv.set_property("log-file", format!("{dir}\\stremio-lightning-mpv.log"))
+                .ok();
+        }
 
         // SAFETY: `mpv.ctx` is the valid mpv handle owned by `mpv`, which outlives this call.
         let handle = unsafe { mpv.ctx.as_mut() };

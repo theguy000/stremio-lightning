@@ -50,12 +50,14 @@ impl Images {
             .map(Image::from_rgba8)
     }
 
-    /// Asks for a key. A key is only ever asked for once *while it is in flight or cached*; when
-    /// it arrives, `on_ready` runs on the tokio worker so the caller can repaint.
+    /// Asks for a key. A key is only ever asked for once *while it is in flight, cached, or known
+    /// to be missing*; when it arrives, `on_ready` runs on the tokio worker so the caller can
+    /// repaint.
     ///
-    /// A fetch that fails is forgotten rather than remembered as asked, so the next snapshot tries
-    /// again. Keeping it asked was how a single hiccup on the image host left a row grey for the
-    /// rest of the session.
+    /// A fetch that could work next time is forgotten rather than remembered as asked, so the next
+    /// snapshot tries again -- keeping it asked was how a single hiccup on the image host left a
+    /// row grey for the rest of the session. A 404 is the exception: it will 404 again, and asking
+    /// on every snapshot hammers the host for nothing.
     pub(crate) fn request(&self, key: String, on_ready: impl FnOnce() + Send + 'static) {
         if !self.requested.lock().unwrap().insert(key.clone()) {
             return;
@@ -67,16 +69,27 @@ impl Images {
         );
         tokio::spawn(async move {
             match fetch(&client, &key).await {
-                Some(buffer) => {
+                Fetched::Ready(buffer) => {
                     cache.lock().unwrap().insert(key, buffer);
                     on_ready();
                 }
-                None => {
+                Fetched::Missing => {}
+                Fetched::Retry => {
                     requested.lock().unwrap().remove(&key);
                 }
             }
         });
     }
+}
+
+/// What a fetch came back with. The difference matters: a missing picture is missing for good,
+/// while a timeout or a 5xx may well work on the next snapshot.
+enum Fetched {
+    Ready(SharedPixelBuffer<Rgba8Pixel>),
+    /// The host says it has no such picture.
+    Missing,
+    /// Anything that could have gone differently.
+    Retry,
 }
 
 /// The URL and the size a cache key asks for.
@@ -92,30 +105,37 @@ fn source(key: &str) -> (&str, (u32, u32)) {
     }
 }
 
-async fn fetch(client: &reqwest::Client, key: &str) -> Option<SharedPixelBuffer<Rgba8Pixel>> {
+async fn fetch(client: &reqwest::Client, key: &str) -> Fetched {
     let (url, (width, height)) = source(key);
     let response = match client.get(url).send().await {
         Ok(response) => response,
         Err(error) => {
             eprintln!("[image] {url}: {error}");
-            return None;
+            return Fetched::Retry;
         }
     };
     let response = match response.error_for_status() {
         Ok(response) => response,
         Err(error) => {
             eprintln!("[image] {url}: {error}");
-            return None;
+            let missing = error
+                .status()
+                .is_some_and(|status| status.is_client_error());
+            return if missing {
+                Fetched::Missing
+            } else {
+                Fetched::Retry
+            };
         }
     };
     let bytes = match response.bytes().await {
         Ok(bytes) => bytes,
         Err(error) => {
             eprintln!("[image] {url}: {error}");
-            return None;
+            return Fetched::Retry;
         }
     };
-    tokio::task::spawn_blocking(move || {
+    let decoded = tokio::task::spawn_blocking(move || {
         let image = image::load_from_memory(&bytes)
             .map_err(|error| eprintln!("[image] decode failed: {error}"))
             .ok()?
@@ -128,7 +148,12 @@ async fn fetch(client: &reqwest::Client, key: &str) -> Option<SharedPixelBuffer<
         ))
     })
     .await
-    .ok()?
+    .ok()
+    .flatten();
+    match decoded {
+        Some(buffer) => Fetched::Ready(buffer),
+        None => Fetched::Retry,
+    }
 }
 
 #[cfg(test)]
