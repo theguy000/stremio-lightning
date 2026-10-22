@@ -37,7 +37,7 @@ pub struct Episode {
     pub id: String,
     pub label: String,
     pub title: String,
-    /// The release date as the row shows it: `Sep 1, 23`, empty when the title gives none.
+    /// The release date as the row shows it: `Sep 1, 2023`, empty when the title gives none.
     pub released: String,
     pub thumbnail: Option<String>,
 }
@@ -86,12 +86,13 @@ pub(crate) fn default_season(videos: &[Video], default_video_id: Option<&str>) -
 /// Slint has no locale formatting, so this is the same shape spelled out in English.
 fn released_label(date: Option<&chrono::DateTime<chrono::Utc>>) -> String {
     use chrono::Datelike;
+    // Web: `Oct 7, 2026` -- the whole year, in the row's own 0.8rem.
     match date {
         Some(date) => format!(
             "{} {}, {}",
             date.format("%b"),
             date.day(),
-            date.format("%y")
+            date.format("%Y")
         ),
         None => String::new(),
     }

@@ -1342,6 +1342,9 @@ export component PlayerScreen inherits Rectangle {
     }
 
     // Web: SideDrawer -- the title's own panel, from the right edge.
+    // Web: `.side-drawer` -- 35rem wide, 1rem of padding, the modal colour with only its left
+    // corners rounded. Two parts: `.info` (the title's own preview) above, then `.series-content`
+    // with the Seasons bar sitting directly on the list that scrolls.
     if root.drawer-open: Rectangle {
         x: root.width - self.width;
         y: 0;
@@ -1349,237 +1352,291 @@ export component PlayerScreen inherits Rectangle {
         height: root.height;
 
         VerticalLayout {
-            alignment: start;
+            padding: 1 * root.rem-size;
             spacing: 0;
+            alignment: start;
 
-            HorizontalLayout {
-                height: 4.5 * root.rem-size;
-                padding-left: 2 * root.rem-size;
-                padding-top: 1.5 * root.rem-size;
-                spacing: 0.5 * root.rem-size;
+            // Web: `.info` -- `padding: 1rem` around the compact MetaPreview: the logo, then the
+            // runtime and the release year at either end, then four lines of the summary. The
+            // rating is not part of it.
+            VerticalLayout {
+                padding: 1 * root.rem-size;
+                spacing: 0;
                 alignment: start;
-                Text {
-                    text: root.title;
-                    font-size: 1.3 * root.rem-size;
-                    font-weight: 700;
-                    color: Theme.text;
-                    vertical-alignment: center;
-                    horizontal-stretch: 1;
-                    overflow: elide;
-                }
-                Rectangle {
-                    width: 3.5 * root.rem-size;
-                    height: 3.5 * root.rem-size;
-                    border-radius: 0.75 * root.rem-size;
-                    background: drawer-close-touch.has-hover ? Theme.overlay : transparent;
-                    Text {
-                        text: ">";
-                        font-size: 1.6 * root.rem-size;
-                        color: Theme.text;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
-                        opacity: 0.7;
-                    }
-                    drawer-close-touch := TouchArea {
-                        mouse-cursor: pointer;
-                        clicked => {
-                            root.drawer-open = false;
-                        }
-                    }
-                }
-            }
 
-            // Web: SeasonsBar -- the season the drawer is showing, with a way to the others.
-            if root.seasons.length > 1: Rectangle {
-                height: 3 * root.rem-size;
-                border-radius: 0.75 * root.rem-size;
-                background: Theme.overlay;
-                HorizontalLayout {
-                    padding-left: 1 * root.rem-size;
-                    padding-right: 1 * root.rem-size;
-                    alignment: space-between;
+                if root.has-logo: Image {
+                    width: parent.width - 2 * root.rem-size;
+                    height: 6 * root.rem-size;
+                    source: root.logo;
+                    image-fit: contain;
+                    opacity: root.logo.width > 0 ? 1 : 0;
+                }
+
+                Rectangle {
+                    width: parent.width - 2 * root.rem-size;
+                    height: 3.5 * root.rem-size;
+
                     Text {
-                        text: "<";
-                        font-size: 1.2 * root.rem-size;
-                        color: Theme.text;
-                        vertical-alignment: center;
-                        opacity: root.season-index > 0 ? 1 : 0.3;
-                    }
-                    Text {
-                        text: root.season-title;
-                        font-size: 1 * root.rem-size;
+                        x: 0;
+                        y: 0;
+                        width: parent.width / 2;
+                        height: parent.height;
+                        text: root.preview.runtime;
+                        font-size: 1.25 * root.rem-size;
                         font-weight: 600;
                         color: Theme.text;
                         vertical-alignment: center;
                     }
                     Text {
-                        text: ">";
-                        font-size: 1.2 * root.rem-size;
+                        x: parent.width / 2;
+                        y: 0;
+                        width: parent.width / 2;
+                        height: parent.height;
+                        text: root.preview.release-info;
+                        font-size: 1.25 * root.rem-size;
+                        font-weight: 600;
                         color: Theme.text;
+                        horizontal-alignment: right;
                         vertical-alignment: center;
-                        opacity: root.season-index + 1 < root.seasons.length ? 1 : 0.3;
                     }
                 }
-                season-touch := TouchArea {
-                    mouse-cursor: pointer;
-                    clicked => {
-                        root.select-season(self.mouse-x < self.width / 2 ? root.season-index - 1 : root.season-index + 1);
-                    }
+
+                Text {
+                    width: parent.width - 2 * root.rem-size;
+                    text: root.preview.description;
+                    font-size: 1 * root.rem-size;
+                    color: Theme.text;
+                    opacity: 0.8;
+                    wrap: word-wrap;
+                    max-height: 8.4 * root.rem-size;
+                    overflow: elide;
                 }
             }
 
-            // Web: the drawer's `.info` over `.series-content .videos` -- everything under the
-            // Seasons bar scrolls. A Flickable rather than a ScrollView: the list has to know
-            // how tall it is for the scroll bar to mean anything, and a ScrollView measured the
-            // content as nothing here, which is why the episodes went missing at some sizes.
-            drawer-flick := Flickable {
+            // Web: `.series-content` -- `flex: 2` with the Seasons bar over the list.
+            VerticalLayout {
                 vertical-stretch: 1;
-                interactive: true;
+                spacing: 0;
+                alignment: start;
 
-                drawer-list := VerticalLayout {
+                // Web: SeasonsBar -- a 5rem strip: a 3rem button either side of the Season popup.
+                // It is there for a series with one Season too, with both buttons faded out, which
+                // is what tells a viewer the list belongs to a Season at all.
+                if root.has-episodes: Rectangle {
                     width: parent.width;
-                    padding-left: 2 * root.rem-size;
-                    padding-right: 2 * root.rem-size;
-                    spacing: 0.25 * root.rem-size;
-                    alignment: start;
+                    height: 5 * root.rem-size;
 
-                    // Web: MetaPreview, compact -- the name over the three info lines and the
-                    // description cut to four lines.
-                    if root.has-preview: VerticalLayout {
-                        spacing: 0.75 * root.rem-size;
-                        alignment: start;
-                        HorizontalLayout {
-                            spacing: 1 * root.rem-size;
-                            Text {
-                                text: root.preview.runtime;
-                                font-size: 1 * root.rem-size;
-                                color: Theme.text;
-                                opacity: 0.7;
-                                visible: root.preview.runtime != "";
-                            }
-                            Text {
-                                text: root.preview.release-info;
-                                font-size: 1 * root.rem-size;
-                                color: Theme.text;
-                                opacity: 0.7;
-                                visible: root.preview.release-info != "";
-                            }
-                            Text {
-                                text: root.preview.rating;
-                                font-size: 1 * root.rem-size;
-                                font-weight: 700;
-                                color: Theme.accent-yellow;
-                                visible: root.preview.rating != "";
-                            }
-                        }
-                        Text {
-                            text: root.preview.description;
-                            font-size: 1 * root.rem-size;
-                            color: Theme.text;
-                            opacity: 0.8;
-                            wrap: word-wrap;
-                            max-height: 6 * root.rem-size;
-                            overflow: clip;
-                        }
-                    }
-
-                    // Web: the Video row the drawer reuses from the details screen -- an 8x5
-                    // thumbnail with the played bar over it, then the title and the date.
-                    for episode in root.episodes: Rectangle {
-                        height: 6 * root.rem-size;
+                    prev-season := Rectangle {
+                        x: 0;
+                        y: 1 * root.rem-size;
+                        width: 6.5 * root.rem-size;
+                        height: 3 * root.rem-size;
                         border-radius: 0.75 * root.rem-size;
-                        background: episode-touch.has-hover ? Theme.overlay : (episode.selected ? Theme.overlay : transparent);
+                        background: prev-touch.has-hover && root.season-index > 0 ? Theme.overlay : transparent;
 
-                        Rectangle {
+                        Image {
                             x: 0.5 * root.rem-size;
                             y: (parent.height - self.height) / 2;
-                            width: 8 * root.rem-size;
-                            height: 5 * root.rem-size;
-                            border-radius: 0.3 * root.rem-size;
-                            background: Theme.overlay;
-                            clip: true;
-
-                            if episode.thumbnail.width > 0: Image {
-                                width: parent.width;
-                                height: parent.height;
-                                source: episode.thumbnail;
-                                image-fit: cover;
-                                opacity: 0.9;
-                            }
-                            // Web: `progress-bar` over `progress-bar-background` -- a watched
-                            // Video reads as a full bar in the accent colour.
-                            if episode.watched: Rectangle {
-                                x: 0.5 * root.rem-size;
-                                y: parent.height - self.height - 0.5 * root.rem-size;
-                                width: parent.width - 1 * root.rem-size;
-                                height: 0.4 * root.rem-size;
-                                border-radius: self.height;
-                                background: Theme.text;
-                                opacity: 0.2;
-
-                                Rectangle {
-                                    width: parent.width;
-                                    height: parent.height;
-                                    border-radius: parent.border-radius;
-                                    background: Theme.accent;
+                            width: 1.5 * root.rem-size;
+                            height: 1.5 * root.rem-size;
+                            source: @image-url("icons/chevron-back.svg");
+                            colorize: Theme.text;
+                            opacity: root.season-index > 0 ? 1 : 0.5;
+                        }
+                        Text {
+                            x: 2.25 * root.rem-size;
+                            y: 0;
+                            width: 6.5 * root.rem-size - 2.25 * root.rem-size - 0.5 * root.rem-size;
+                            height: parent.height;
+                            text: "Prev";
+                            font-size: 1 * root.rem-size;
+                            font-weight: 500;
+                            color: Theme.text;
+                            vertical-alignment: center;
+                            opacity: root.season-index > 0 ? 1 : 0.5;
+                        }
+                        prev-touch := TouchArea {
+                            mouse-cursor: root.season-index > 0 ? pointer : default;
+                            clicked => {
+                                if (root.season-index > 0) {
+                                    root.select-season(root.season-index - 1);
                                 }
                             }
                         }
+                    }
 
-                        VerticalLayout {
-                            x: 0.5 * root.rem-size + 8 * root.rem-size + 1.5 * root.rem-size;
-                            y: 0.5 * root.rem-size;
-                            width: parent.width - self.x - 0.5 * root.rem-size;
-                            height: parent.height - 1 * root.rem-size;
-                            alignment: center;
-                            spacing: 0.5 * root.rem-size;
+                    Rectangle {
+                        x: (parent.width - self.width) / 2;
+                        y: 1 * root.rem-size;
+                        width: 8.5 * root.rem-size;
+                        height: 3 * root.rem-size;
+                        border-radius: 0.75 * root.rem-size;
 
-                            Text {
-                                text: episode.title;
-                                font-size: 1 * root.rem-size;
-                                color: Theme.text;
-                                wrap: word-wrap;
-                                max-height: 2.8 * root.rem-size;
-                                overflow: elide;
-                            }
-                            Text {
-                                text: episode.released;
-                                font-size: 0.8 * root.rem-size;
-                                font-weight: 500;
-                                color: Theme.text;
-                                opacity: 0.44;
-                                visible: episode.released != "";
-                            }
+                        Text {
+                            width: parent.width;
+                            height: parent.height;
+                            text: root.season-title;
+                            font-size: 1 * root.rem-size;
+                            font-weight: 600;
+                            color: Theme.text;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
                         }
+                    }
 
-                        episode-touch := TouchArea {
-                            mouse-cursor: pointer;
+                    Rectangle {
+                        x: parent.width - self.width;
+                        y: 1 * root.rem-size;
+                        width: 6.5 * root.rem-size;
+                        height: 3 * root.rem-size;
+                        border-radius: 0.75 * root.rem-size;
+                        background: season-next-touch.has-hover && root.season-index + 1 < root.seasons.length ? Theme.overlay : transparent;
+
+                        Text {
+                            x: 0.5 * root.rem-size;
+                            y: 0;
+                            width: 6.5 * root.rem-size - 0.5 * root.rem-size - 2 * root.rem-size;
+                            height: parent.height;
+                            text: "Next";
+                            font-size: 1 * root.rem-size;
+                            font-weight: 500;
+                            color: Theme.text;
+                            horizontal-alignment: right;
+                            vertical-alignment: center;
+                            opacity: root.season-index + 1 < root.seasons.length ? 1 : 0.5;
+                        }
+                        Image {
+                            x: parent.width - self.width - 0.5 * root.rem-size;
+                            y: (parent.height - self.height) / 2;
+                            width: 1.5 * root.rem-size;
+                            height: 1.5 * root.rem-size;
+                            source: @image-url("icons/chevron-forward.svg");
+                            colorize: Theme.text;
+                            opacity: root.season-index + 1 < root.seasons.length ? 1 : 0.5;
+                        }
+                        season-next-touch := TouchArea {
+                            mouse-cursor: root.season-index + 1 < root.seasons.length ? pointer : default;
                             clicked => {
-                                root.drawer-open = false;
-                                root.select-episode(episode.id);
+                                if (root.season-index + 1 < root.seasons.length) {
+                                    root.select-season(root.season-index + 1);
+                                }
                             }
                         }
                     }
                 }
 
-                // Web: the drawer's own scroll bar -- a thin thumb down the right edge, only
-                // there when the list is longer than the drawer. The box around it carries the
-                // arithmetic, so the thumb never has to measure itself.
-                Rectangle {
-                    width: 0.3 * root.rem-size;
-                    height: parent.height;
-                    x: parent.width - 1 * root.rem-size;
+                // Web: `.videos` -- `flex: 1; min-height: 0; overflow-y: auto`, so the list is the
+                // only thing that scrolls and its last row is always reachable.
+                drawer-flick := Flickable {
+                    vertical-stretch: 1;
+                    min-height: 0px;
+                    interactive: true;
 
-                    property <length> thumb: Math.max(3 * root.rem-size, self.height * self.height / Math.max(1px, drawer-flick.content-height));
-                    property <length> room: drawer-flick.content-height - drawer-flick.height;
-
-                    if self.room > 1px: Rectangle {
+                    drawer-list := VerticalLayout {
                         width: parent.width;
-                        height: parent.thumb;
-                        y: (parent.height - self.height) * Math.min(1, Math.max(0, -drawer-flick.content-y / Math.max(1px, parent.room)));
-                        border-radius: self.width;
-                        background: Theme.text;
-                        opacity: 0.3;
+                        spacing: 0.5 * root.rem-size;
+                        padding-top: 0.5 * root.rem-size;
+                        padding-bottom: 0.5 * root.rem-size;
+                        alignment: start;
+
+                        // Web: the Video row the drawer reuses from the details screen -- an 8x5
+                        // thumbnail with the played bar over it, then the title and the date.
+                        for episode in root.episodes: Rectangle {
+                            height: 6.25 * root.rem-size;
+                            border-radius: 0.75 * root.rem-size;
+                            background: episode-touch.has-hover ? Theme.overlay : (episode.selected ? Theme.overlay : transparent);
+
+                            Rectangle {
+                                x: 0.5 * root.rem-size;
+                                y: (parent.height - self.height) / 2;
+                                width: 8 * root.rem-size;
+                                height: 5 * root.rem-size;
+                                border-radius: 0.3 * root.rem-size;
+                                background: Theme.overlay;
+                                clip: true;
+
+                                if episode.thumbnail.width > 0: Image {
+                                    width: parent.width;
+                                    height: parent.height;
+                                    source: episode.thumbnail;
+                                    image-fit: cover;
+                                    opacity: 0.9;
+                                }
+                                // Web: `progress-bar` over `progress-bar-background`, one fifth
+                                // of the way up the thumbnail's bottom padding.
+                                Rectangle {
+                                    x: 0.5 * root.rem-size;
+                                    y: parent.height - self.height - 0.35 * root.rem-size;
+                                    width: parent.width - 1 * root.rem-size;
+                                    height: 0.4 * root.rem-size;
+                                    border-radius: self.height;
+                                    background: Theme.text;
+                                    opacity: 0.2;
+
+                                    Rectangle {
+                                        width: parent.width * (episode.watched ? 1 : 0);
+                                        height: parent.height;
+                                        border-radius: parent.border-radius;
+                                        background: Theme.accent;
+                                    }
+                                }
+                            }
+
+                            VerticalLayout {
+                                x: 10 * root.rem-size;
+                                y: 0.5 * root.rem-size;
+                                width: parent.width - self.x - 0.5 * root.rem-size;
+                                height: parent.height - 1 * root.rem-size;
+                                alignment: center;
+                                spacing: 1 * root.rem-size;
+
+                                Text {
+                                    text: episode.title;
+                                    font-size: 1 * root.rem-size;
+                                    color: Theme.text;
+                                    wrap: word-wrap;
+                                    max-height: 2.8 * root.rem-size;
+                                    overflow: elide;
+                                }
+                                Text {
+                                    text: episode.released;
+                                    font-size: 0.8 * root.rem-size;
+                                    font-weight: 500;
+                                    color: Theme.text;
+                                    opacity: 0.44;
+                                    visible: episode.released != "";
+                                }
+                            }
+
+                            episode-touch := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => {
+                                    root.drawer-open = false;
+                                    root.select-episode(episode.id);
+                                }
+                            }
+                        }
+                    }
+
+                    // Web: the drawer's own scroll bar -- a thin thumb down the right edge, only
+                    // there when the list is longer than the drawer. The box around it carries the
+                    // arithmetic, so the thumb never has to measure itself.
+                    Rectangle {
+                        width: 0.3 * root.rem-size;
+                        height: parent.height;
+                        x: parent.width - 0.5 * root.rem-size;
+
+                        property <length> thumb: Math.max(3 * root.rem-size, self.height * self.height / Math.max(1px, drawer-flick.content-height));
+                        property <length> room: drawer-flick.content-height - drawer-flick.height;
+
+                        if self.room > 1px: Rectangle {
+                            width: parent.width;
+                            height: parent.thumb;
+                            y: (parent.height - self.height) * Math.min(1, Math.max(0, -drawer-flick.content-y / Math.max(1px, parent.room)));
+                            border-radius: self.width;
+                            background: Theme.text;
+                            opacity: 0.3;
+                        }
                     }
                 }
             }
@@ -1590,6 +1647,7 @@ export component PlayerScreen inherits Rectangle {
         drop-shadow-blur: 2.7 * root.rem-size;
         drop-shadow-color: #00000066;
     }
+
 
     // Web: NextVideoPopup -- offered once the end is inside the notification window.
     if root.next-open: Rectangle {
