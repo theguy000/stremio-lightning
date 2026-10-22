@@ -208,6 +208,8 @@ component SearchBar inherits Rectangle {
 component NavButton inherits Rectangle {
     in property <length> rem-size: 14px;
     in property <image> icon-source;
+    /// A button that stands for a setting, and shows when it is on.
+    in property <bool> active: false;
     callback clicked();
     width: (49 * root.rem-size / 14);
     height: (49 * root.rem-size / 14);
@@ -216,7 +218,9 @@ component NavButton inherits Rectangle {
         width: parent.width;
         height: parent.height;
         border-radius: (10.5 * root.rem-size / 14);
-        background: ClassStyles.background-or(ClassStyles.button-container, transparent);
+        // Web: a hovered `.button-container` paints the overlay; a toggle that is on keeps it.
+        background: (root.active || touch.has-hover) ? Theme.overlay
+            : ClassStyles.background-or(ClassStyles.button-container, transparent);
         opacity: ClassStyles.opacity-or(ClassStyles.button-container, 1.0);
         visible: !(ClassStyles.button-container).hidden;
 
@@ -226,12 +230,16 @@ component NavButton inherits Rectangle {
             y: (11 * root.rem-size / 14);
             width: (28 * root.rem-size / 14);
             height: (28 * root.rem-size / 14);
-            colorize: ClassStyles.color-or(ClassStyles.icon, Theme.toolbar-icon);
-            // The web draws button icons at 0.6 inside a container at 0.6.
-            opacity: ClassStyles.icon.has-color ? 0.36 : 1.0;
+            // Web: a white icon inside a container at 0.6, which the hover brightens to 0.8.
+            // `toolbar-icon` is the measured 0.6 reading of that white; on hover it goes back to
+            // the text colour drawn at 0.8.
+            colorize: ClassStyles.color-or(ClassStyles.icon, (root.active || touch.has-hover) ? Theme.text : Theme.toolbar-icon);
+            opacity: ClassStyles.icon.has-color ? 1.0
+                : ((root.active || touch.has-hover) ? 0.8 : 0.36);
             visible: !ClassStyles.icon.hidden;
         }
-        TouchArea {
+        touch := TouchArea {
+            mouse-cursor: pointer;
             clicked => {
                 root.clicked();
             }
@@ -251,6 +259,10 @@ export component HorizontalNavBar inherits Rectangle {
     /// Nothing behind the bar at all: no fill, no theme override. The details route paints its
     /// own artwork underneath and wants the bar to disappear into it.
     in property <bool> bare: false;
+    /// The details route's Streams wrap toggle, and whether it is on.
+    in property <bool> show-wrap: false;
+    in property <bool> wrap-active: false;
+    callback toggle-wrap();
     callback back-clicked();
     height: (77 * root.rem-size / 14);
 
@@ -284,20 +296,25 @@ export component HorizontalNavBar inherits Rectangle {
         }
 
         // Web: .back-button-container — the chevron that leaves the details route, in the slot the
-        // logo would otherwise fill. The slot's 84x77 comes from the logo container above.
+        // logo would otherwise fill. It is a 49x49 pill 1rem in from both edges, and hovering it
+        // paints the same overlay the bar's other buttons use.
         if root.show-back: back-button-container := Rectangle {
-            x: 0px;
-            y: 0px;
-            width: (84 * root.rem-size / 14);
-            height: (77 * root.rem-size / 14);
+            x: (14 * root.rem-size / 14);
+            y: (14 * root.rem-size / 14);
+            width: (49 * root.rem-size / 14);
+            height: (49 * root.rem-size / 14);
+            border-radius: (10.5 * root.rem-size / 14);
+            background: back-touch.has-hover ? Theme.overlay : transparent;
 
             back-icon := Image {
                 source: @image-url("icons/chevron-back.svg");
-                x: (29 * root.rem-size / 14);
-                y: (26 * root.rem-size / 14);
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
                 width: (25 * root.rem-size / 14);
                 height: (25 * root.rem-size / 14);
                 colorize: Theme.text;
+                // Web: `.icon` is 0.6 until the button is hovered, then 0.8.
+                opacity: back-touch.has-hover ? 0.8 : 0.6;
             }
             back-touch := TouchArea {
                 mouse-cursor: pointer;
@@ -315,16 +332,33 @@ export component HorizontalNavBar inherits Rectangle {
         }
 
         buttons-container := Rectangle {
-            x: parent.width - (147 * root.rem-size / 14);
+            // The details route adds a fourth button, the Streams wrap toggle. The bar keeps its
+            // fullscreen button and avatar where the web puts them and grows to the left.
+            property <length> wrap-width: root.show-wrap ? (56 * root.rem-size / 14) : 0px;
+            x: parent.width - (147 * root.rem-size / 14) - self.wrap-width;
             y: (14 * root.rem-size / 14);
-            width: (133 * root.rem-size / 14);
+            width: (133 * root.rem-size / 14) + self.wrap-width;
             height: (49 * root.rem-size / 14);
             opacity: ClassStyles.opacity-or(ClassStyles.buttons-container, 1.0);
             visible: !ClassStyles.buttons-container.hidden;
 
-            NavButton {
+            // The Streams' descriptions can run to several lines and the web never had a switch
+            // for it. This one cuts every row to a single line or lets them all wrap; the choice
+            // lives on the details route only, and is kept so it survives a restart.
+            if root.show-wrap: NavButton {
                 rem-size: root.rem-size;
                 x: 0px;
+                y: 0px;
+                icon-source: @image-url("icons/wrap-text.svg");
+                active: root.wrap-active;
+                clicked => {
+                    root.toggle-wrap();
+                }
+            }
+
+            NavButton {
+                rem-size: root.rem-size;
+                x: parent.wrap-width;
                 y: 0px;
                 icon-source: @image-url("icons/maximize.svg");
                 clicked => {
@@ -333,11 +367,14 @@ export component HorizontalNavBar inherits Rectangle {
             }
             // Web: class="label-container nav-menu-popup-label menu-toggle menu-button-container button-container"
             menu-toggle := Rectangle {
-                x: (56 * root.rem-size / 14);
+                x: parent.wrap-width + (56 * root.rem-size / 14);
                 width: (77 * root.rem-size / 14);
                 height: (49 * root.rem-size / 14);
                 border-radius: (10.5 * root.rem-size / 14);
-                background: ClassStyles.background-or(ClassStyles.menu-toggle, transparent);
+                // Web: the popup's own toggle takes the same overlay on hover as the buttons
+                // beside it, and its caret goes from 0.6 to fully drawn.
+                background: menu-touch.has-hover ? Theme.overlay
+                    : ClassStyles.background-or(ClassStyles.menu-toggle, transparent);
                 opacity: ClassStyles.opacity-or(ClassStyles.menu-toggle, 1.0);
                 visible: !(ClassStyles.menu-toggle).hidden;
 
@@ -352,16 +389,17 @@ export component HorizontalNavBar inherits Rectangle {
                     visible: !(ClassStyles.avatar).hidden;
 
                 }
-                Image {
+                caret-icon := Image {
                     source: @image-url("icons/caret-down.svg");
                     x: (53 * root.rem-size / 14);
                     y: (18 * root.rem-size / 14);
                     width: (14 * root.rem-size / 14);
                     height: (14 * root.rem-size / 14);
-                    colorize: Theme.caret-icon;
+                    // `caret-icon` is the measured 0.6 reading of the web's white caret.
+                    colorize: menu-touch.has-hover ? Theme.text : Theme.caret-icon;
                 }
 
-                TouchArea {
+                menu-touch := TouchArea {
                     mouse-cursor: pointer;
                     clicked => {
                         root.user-avatar-clicked();

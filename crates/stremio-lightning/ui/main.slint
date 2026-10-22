@@ -208,9 +208,6 @@ export component MainWindow inherits Window {
         back-to-episodes => {
             root.back-to-episodes();
         }
-        toggle-stream-wrap => {
-            root.toggle-stream-wrap();
-        }
         play-stream(index) => {
             root.play-stream(index);
         }
@@ -296,6 +293,12 @@ export component MainWindow inherits Window {
         show-search: root.section != Section.addons && !root.details-open;
         // Web: the details route turns the bar's first slot into the way back.
         show-back: root.details-open;
+        // ...and the Streams wrap toggle rides beside the fullscreen button there.
+        show-wrap: root.details-open;
+        wrap-active: root.details-wrap-streams;
+        toggle-wrap => {
+            root.toggle-stream-wrap();
+        }
         bare: root.details-open;
         back-clicked => {
             root.details-open = false;

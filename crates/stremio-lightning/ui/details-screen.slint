@@ -7,9 +7,15 @@
 // Web: `.metadetails-content` Ã¢â‚¬â€ a row holding the MetaPreview panel, a flexible spacer, and a
 // 30rem column for the Episodes or the Streams. The column's `backdrop-filter: blur(15px)` has no
 // Slint equivalent, so only its 0.4 black shows through.
-import { ScrollView } from "std-widgets.slint";
+//
+// The numbers below were re-measured off web.stremio.com over the DevTools protocol at
+// 1100x720 (the window's preferred size, where `rem` is 14px): the nav bar is 77px, the content
+// row starts at its bottom edge, `.meta-preview` pads `0 4rem 2rem`, the info box is what is left
+// above a 8.5rem action row, and the 30rem streams column runs the full content height. Where the
+// web's box is unrounded on the right, the panel is square against the window edge.
 import { SelectOption } from "multiselect-menu.slint";
-import { MetaPreview, PreviewData } from "meta-preview.slint";
+import { CoverRightImage, MetaPreview, PreviewData } from "meta-preview.slint";
+import { ScrollBar } from "scroll-bar.slint";
 import { Theme } from "theme.slint";
 import { VideoRow, VideosList } from "videos-list.slint";
 
@@ -338,6 +344,9 @@ component StreamsMessage inherits Rectangle {
         }
         HorizontalLayout {
             alignment: center;
+            // Web: `.install-button-container` carries a 1rem top margin, which is what keeps the
+            // button a gap below the label rather than against it.
+            padding-top: 1 * root.rem-size;
             Rectangle {
                 // Web: `.install-button-container` Ã¢â‚¬â€ the secondary accent, 2rem radius, 4rem tall.
                 height: 4 * root.rem-size;
@@ -404,6 +413,9 @@ component DetailsPanel inherits Rectangle {
     in property <bool> can-show-streams: false;
     /// Whether the Streams list wraps its descriptions instead of cutting them to one line.
     in property <bool> wrap-streams: false;
+    /// Web: the choices row is the 3rem back button over a 1rem margin, and nothing at all for a
+    /// Film, whose Streams are its only page.
+    property <length> choices-bottom: root.picked-label == "" ? 1 * root.rem-size : 4 * root.rem-size;
     callback select-season(int);
     callback pick-video(string);
     callback search-videos(string);
@@ -412,7 +424,6 @@ component DetailsPanel inherits Rectangle {
     callback stepped-season(int);
     callback stepped-episode(int);
     callback show-streams;
-    callback toggle-stream-wrap;
 
     background: #00000066;
     // Web: rounded along its left, square against the window's edge.
@@ -437,21 +448,26 @@ component DetailsPanel inherits Rectangle {
         }
     }
 
-    if root.show-picker == false: VerticalLayout {
-        spacing: 0;
+    if root.show-picker == false: Rectangle {
+        // Web: `.streams-list-container` — the choices row over a scroller that fills the rest of
+        // the panel. The scroller is placed by hand so the bar can sit on the panel's own right
+        // edge, as the web's does, instead of inside the 1rem padding.
+        width: parent.width;
+        height: parent.height;
 
-        // Web: .select-choices-wrapper Ã¢â‚¬â€ the way back beside the Episode's name. It belongs to a
-        // list that stands for one chosen Episode, so a Film, whose Streams are its only page,
-        // has none: that button had nothing to go back to and left "No streams were found" behind.
-        // The cut/wrap toggle rides at the right of this row whether or not there is a way back.
+        // Web: `.select-choices-wrapper` — the way back beside the Episode's name, over a 1rem
+        // margin and a 3rem button. A Film's Streams are its only page, so web leaves the row out
+        // entirely and the list starts at the panel's top; the cut/wrap toggle lives in the top
+        // bar, where it costs the panel no room.
         HorizontalLayout {
-            // Web: .select-choices-wrapper carries a 1em top margin above the 3rem button.
-            height: 4 * root.rem-size;
-            padding-top: 1 * root.rem-size;
+            // Web: the wrapper's own 1rem margin, over its 3rem button.
+            y: 1 * root.rem-size;
+            height: 3 * root.rem-size;
             padding-left: 1 * root.rem-size;
             padding-right: 1 * root.rem-size;
             spacing: 0.5 * root.rem-size;
             alignment: start;
+            visible: root.picked-label != "";
 
             if root.picked-label != "": Rectangle {
                 width: 3 * root.rem-size;
@@ -466,7 +482,8 @@ component DetailsPanel inherits Rectangle {
                     height: 1.5 * root.rem-size;
                     source: @image-url("icons/chevron-back.svg");
                     colorize: Theme.text;
-                    opacity: 0.6;
+                    // Web: `.back-button-container.active .icon` — 0.6 until hovered, then 0.8.
+                    opacity: back-touch.has-hover ? 0.8 : 0.6;
                 }
                 back-touch := TouchArea {
                     mouse-cursor: pointer;
@@ -485,72 +502,43 @@ component DetailsPanel inherits Rectangle {
                 overflow: elide;
                 horizontal-stretch: 1;
             }
-
-            // Pushes the toggle to the row's right edge, and takes the label's place when a Film
-            // has no label to stretch instead.
-            Rectangle {
-                horizontal-stretch: root.picked-label == "" ? 1 : 0;
-            }
-
-            // The Streams' descriptions can run to several lines. Web never had a switch for it;
-            // this one cuts every row to a single line or lets them all wrap, and the choice is
-            // kept beside the profile so it is the same after a restart.
-            wrap-touch := Rectangle {
-                width: 3 * root.rem-size;
-                height: 3 * root.rem-size;
-                horizontal-stretch: 0;
-                border-radius: 0.5 * root.rem-size;
-                background: root.wrap-streams ? Theme.overlay
-                    : (wrap-hover.has-hover ? Theme.overlay : transparent);
-
-                Image {
-                    x: (parent.width - self.width) / 2;
-                    y: (parent.height - self.height) / 2;
-                    width: 1.5 * root.rem-size;
-                    height: 1.5 * root.rem-size;
-                    source: @image-url("icons/wrap-text.svg");
-                    colorize: Theme.text;
-                    opacity: root.wrap-streams ? 1 : 0.6;
-                }
-                wrap-hover := TouchArea {
-                    mouse-cursor: pointer;
-                    clicked => {
-                        root.toggle-stream-wrap();
-                    }
-                }
-            }
         }
 
-        // Web: .streams-container Ã¢â‚¬â€ flex 1, padding 0 1rem, overflows.
-        VerticalLayout {
-            padding-left: 1 * root.rem-size;
-            padding-right: 1 * root.rem-size;
-            padding-top: 1 * root.rem-size;
-            spacing: 0;
+        // Web: `.streams-container` — the choices row, then `.streams-container`'s own 1rem top
+        // margin, 1rem of side padding, and a scroller that fills the rest of the panel.
+        body := Flickable {
+            x: 1 * root.rem-size;
+            y: root.choices-bottom;
+            width: parent.width - 2 * root.rem-size;
+            height: parent.height - self.y;
+            content-width: self.width;
 
-            Text {
-                text: root.play-message;
-                color: Theme.accent-red;
-                font-size: 0.9 * root.rem-size;
-                wrap: word-wrap;
-            }
-
-            // Web: nothing Ready yet means two placeholders Ã¢â‚¬â€ and nothing of the last
-            // Episode's list survives the swap. They stand in while the title is still on its way,
-            // whatever its addons turn out to be, and later only while an addon that offers
-            // Streams is still out: with none installed the rows would be a wait for nothing.
-            if root.streams.length == 0 && (root.streams-loading > 0 ? root.waits-for-streams : !root.has-title): VerticalLayout {
+            VerticalLayout {
                 alignment: start;
-                StreamPlaceholder { rem-size: root.rem-size; }
-                StreamPlaceholder { rem-size: root.rem-size; }
-            }
+                spacing: 0;
 
-            // Web: `.message-container` stands where the list would be once the addons have all
-            // answered and none of them offered a stream. The title has to be in first: saying
-            // "No streams were found" about a title whose name is not known yet is a guess, and on
-            // a Series it would flash over the Episode list that is still coming.
-            if root.streams.length == 0 && root.has-title && (root.streams-loading == 0 || !root.waits-for-streams): ScrollView {
-                StreamsMessage {
+                if root.play-message != "": Text {
+                    text: root.play-message;
+                    color: Theme.accent-red;
+                    font-size: 0.9 * root.rem-size;
+                    wrap: word-wrap;
+                }
+
+                // Web: nothing Ready yet means two placeholders — and nothing of the last
+                // Episode's list survives the swap. They stand in while the title is still on its way,
+                // whatever its addons turn out to be, and later only while an addon that offers
+                // Streams is still out: with none installed the rows would be a wait for nothing.
+                if root.streams.length == 0 && (root.streams-loading > 0 ? root.waits-for-streams : !root.has-title): VerticalLayout {
+                    alignment: start;
+                    StreamPlaceholder { rem-size: root.rem-size; }
+                    StreamPlaceholder { rem-size: root.rem-size; }
+                }
+
+                // Web: `.message-container` stands where the list would be once the addons have all
+                // answered and none of them offered a stream. The title has to be in first: saying
+                // "No streams were found" about a title whose name is not known yet is a guess, and on
+                // a Series it would flash over the Episode list that is still coming.
+                if root.streams.length == 0 && root.has-title && (root.streams-loading == 0 || !root.waits-for-streams): StreamsMessage {
                     rem-size: root.rem-size;
                     show-steps: root.has-steps;
                     season: root.season-number;
@@ -566,11 +554,14 @@ component DetailsPanel inherits Rectangle {
                         root.show-streams();
                     }
                 }
-            }
 
-            if root.streams.length > 0: ScrollView {
-                VerticalLayout {
+                // Web: `.streams-container { margin-top: 1rem }` above the rows, which is the gap the empty
+                // message does not get: it stands at the wrapper's own margin.
+                if root.streams.length > 0: VerticalLayout {
                     alignment: start;
+                    padding-top: 1 * root.rem-size;
+                    // Web: `.stream-container { margin-bottom: 0.5rem }`.
+                    spacing: 0.5 * root.rem-size;
                     for stream[index] in root.streams: StreamRow {
                         source: stream;
                         rem-size: root.rem-size;
@@ -580,27 +571,37 @@ component DetailsPanel inherits Rectangle {
                         }
                     }
                 }
-            }
 
-            // Web: .addons-loading-container Ã¢â‚¬â€ the count of addons still out, over an
-            // accent bar. It only appears once there is something to read.
-            if root.streams.length > 0 && root.streams-loading > 0: VerticalLayout {
-                alignment: center;
-                padding: 2 * root.rem-size;
-                spacing: 1 * root.rem-size;
-                Text {
-                    text: root.streams-loading + " addons loading";
-                    color: Theme.text;
-                    font-size: 1 * root.rem-size;
-                    horizontal-alignment: center;
-                }
-                Rectangle {
-                    width: 90%;
-                    height: 0.3 * root.rem-size;
-                    border-radius: 0.75 * root.rem-size;
-                    background: Theme.accent;
+                // Web: .addons-loading-container — the count of addons still out, over an
+                // accent bar. It only appears once there is something to read.
+                if root.streams.length > 0 && root.streams-loading > 0: VerticalLayout {
+                    alignment: center;
+                    padding: 2 * root.rem-size;
+                    spacing: 1 * root.rem-size;
+                    Text {
+                        text: root.streams-loading + " addons loading";
+                        color: Theme.text;
+                        font-size: 1 * root.rem-size;
+                        horizontal-alignment: center;
+                    }
+                    Rectangle {
+                        width: 90%;
+                        height: 0.3 * root.rem-size;
+                        border-radius: 0.75 * root.rem-size;
+                        background: Theme.accent;
+                    }
                 }
             }
+        }
+
+        // Web keeps this one bar on show: the list is the panel's only scroller.
+        ScrollBar {
+            x: parent.width - self.width;
+            y: body.y;
+            height: body.height;
+            view-height: body.height;
+            content-height: body.content-height;
+            offset <=> body.content-y;
         }
     }
 }
@@ -643,7 +644,6 @@ export component DetailsScreen inherits Rectangle {
     callback step-season(int);
     callback step-episode(int);
     callback show-streams;
-    callback toggle-stream-wrap;
     callback share;
     callback rate-like;
     callback rate-love;
@@ -652,18 +652,18 @@ export component DetailsScreen inherits Rectangle {
 
     // Web: .background-image-layer Ã¢â‚¬â€ fixed over the whole viewport, so the artwork also runs
     // under the top bar, with everything else laid on top of it.
-    if root.has-preview && root.preview.has-background: Image {
+    if root.has-preview && root.preview.has-background: CoverRightImage {
         width: 100%;
         height: 100%;
         source: root.preview.background;
-        image-fit: cover;
-        opacity: 0.3;
     }
 
-    // Web: .metadetails-content pads past the top overlay rather than starting flush under it.
+    // Web: `.metadetails-content` starts under the top bar and pulls back up by the bar's own
+    // height, so its content begins exactly at the bar's bottom edge. The 1.5rem this used to
+    // add pushed the whole page 21px below where the web puts it.
     HorizontalLayout {
-        y: root.bar-height + 1.5 * root.rem-size;
-        height: parent.height - root.bar-height - 1.5 * root.rem-size;
+        y: root.bar-height;
+        height: parent.height - root.bar-height;
 
         // Web: .meta-preview Ã¢â‚¬â€ flex 0 1 auto with `padding: 0 4rem 2rem 4rem`.
         Rectangle {
@@ -738,9 +738,7 @@ export component DetailsScreen inherits Rectangle {
             show-streams => {
                 root.show-streams();
             }
-            toggle-stream-wrap => {
-                root.toggle-stream-wrap();
-            }
+
         }
     }
 }

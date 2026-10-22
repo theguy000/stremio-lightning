@@ -3,12 +3,44 @@
 // Layout numbers translated by hand from src/components/MetaPreview/styles.less and its
 // ActionButton and MetaLinks styles. Licence basis: ../THIRD_PARTY_NOTICES.md.
 // Element ids reuse the web class names where one exists.
+//
+// On the details route the numbers were re-measured off web.stremio.com over the DevTools
+// protocol at 1100x720: a 9rem logo box capped at 30rem, a 1.5714rem runtime row, GENRES/CAST/
+// DIRECTORS over 1.5rem gaps, then the description under its SUMMARY label, and a 8.5rem action
+// row pinned to the panel's bottom. A floating preview keeps the older, inset numbers.
 import { ScrollBar } from "scroll-bar.slint";
 import { Theme } from "theme.slint";
 
 export struct LinkGroup {
     label: string,
     links: [string],
+}
+
+// Web: `.background-image` — `object-fit: cover` with `object-position: right`. Slint's own
+// `cover` crops evenly around the centre, which slides a wide artwork sideways by half the
+// overflow, so the scaled image is placed by hand with its right edge on the box's right edge.
+export component CoverRightImage inherits Rectangle {
+    in property <image> source;
+    in property <float> image-opacity: 0.3;
+    clip: true;
+
+    property <length> source-width: root.source.width * 1px;
+    property <length> source-height: root.source.height * 1px;
+    property <float> fill-scale: Math.max(
+        root.source-width > 0px ? root.width / root.source-width : 1,
+        root.source-height > 0px ? root.height / root.source-height : 1);
+    property <length> drawn-width: root.source-width * root.fill-scale;
+    property <length> drawn-height: root.source-height * root.fill-scale;
+
+    if root.source-width > 0px && root.source-height > 0px: Image {
+        x: parent.width - root.drawn-width;
+        y: (parent.height - root.drawn-height) / 2;
+        width: root.drawn-width;
+        height: root.drawn-height;
+        source: root.source;
+        image-fit: fill;
+        opacity: root.image-opacity;
+    }
 }
 
 export struct PreviewData {
@@ -82,14 +114,15 @@ component PreviewLinks inherits VerticalLayout {
     }
 }
 
-// Web: .runtime-label and .release-info-label.
+// Web: .runtime-label and .release-info-label — 1.25rem bold text with a 3rem gap after it.
+// The web's boxes are the text's own width, flush with the content's left edge.
 component InfoLabel inherits Rectangle {
     in property <string> text;
     in property <length> rem-size;
-    width: label.preferred-width + 0.8 * root.rem-size;
+    width: label.preferred-width;
 
     label := Text {
-        x: 0.4 * root.rem-size;
+        x: 0px;
         height: parent.height;
         text: root.text;
         vertical-alignment: center;
@@ -190,20 +223,22 @@ export component MetaPreview inherits Rectangle {
             width: parent.width + 20px;
             height: parent.height + 20px;
 
-            background-image := Image {
+            background-image := CoverRightImage {
                 width: parent.width;
                 height: parent.height;
                 source: root.preview.background;
-                image-fit: cover;
-                opacity: 0.3;
             }
         }
 
+        // Web: on the details route `.meta-preview` already carries the page's `0 4rem 2rem`, so
+        // the info box is the whole panel -- it was inset 2.5rem further by the padding that
+        // belongs to a floating preview. Its height is what is left above the action buttons,
+        // which web reserves 8.5rem for (3.5rem of padding, 4rem buttons, 1rem under them).
         if root.has-preview: meta-info-container := Rectangle {
-            x: 2.5 * root.rem-size;
-            y: 2 * root.rem-size;
-            width: root.width - 5 * root.rem-size;
-            height: parent.height - 12.5 * root.rem-size;
+            x: root.on-page ? 0px : 2.5 * root.rem-size;
+            y: root.on-page ? 0px : 2 * root.rem-size;
+            width: root.on-page ? parent.width : parent.width - 5 * root.rem-size;
+            height: root.on-page ? parent.height - 8.5 * root.rem-size : parent.height - 12.5 * root.rem-size;
 
             // Behind the Flickable: hovering anywhere over the panel shows the scroll bar (web: meta-info-container:hover).
             info-hover := TouchArea { }
@@ -218,23 +253,40 @@ export component MetaPreview inherits Rectangle {
                     spacing: 0px;
                     alignment: start;
 
-                    Rectangle {
-                        height: 8 * root.rem-size;
-                        if root.preview.has-logo: logo := Image {
+                    // Web: `.logo` — 9rem tall on the details route (8rem in a floating preview),
+                    // at most 30rem wide, drawn from the left edge and centred in its box.
+                    if root.preview.has-logo: logo-box := Rectangle {
+                        height: root.on-page ? 9 * root.rem-size : 8 * root.rem-size;
+                        logo := Image {
+                            // Pinned to the box's left: a layout would centre the 30rem box instead.
                             x: 0px;
-                            y: 0px;
-                            width: parent.width;
-                            height: 6 * root.rem-size;
+                            width: Math.min(root.on-page ? 30 * root.rem-size : parent.width, parent.width);
+                            height: root.on-page ? parent.height : 6 * root.rem-size;
                             source: root.preview.logo;
                             image-fit: contain;
                             // Web's logo sits at the content's left edge; `contain` alone centres it.
                             horizontal-alignment: left;
+                            vertical-alignment: root.on-page ? center : top;
                         }
-                        // Web shows no title text here while the logo loads, and none when the item has no logo.
+                    }
+                    // Web: `.logo-placeholder` — the title itself, at 1.7rem, when there is no logo.
+                    if !root.preview.has-logo: Text {
+                        horizontal-stretch: 1;
+                        text: root.preview.title;
+                        font-size: 1.7 * root.rem-size;
+                        color: Theme.text;
+                        opacity: 0.9;
+                        wrap: word-wrap;
+                    }
+                    // Web: `.logo { margin-bottom: 2rem }`.
+                    Rectangle {
+                        height: 2 * root.rem-size;
                     }
 
                     runtime-release-info-container := HorizontalLayout {
-                        height: 3.5714 * root.rem-size;
+                        // Web: 1.25rem text in a 1.5714rem row on the details route. The older
+                        // 3.5714rem row pushed everything under it 2rem too far down.
+                        height: (root.on-page ? 1.5714 : 3.5714) * root.rem-size;
                         // Web groups runtime, release and rating at the start of the row.
                         alignment: start;
                         spacing: 3 * root.rem-size;
@@ -253,14 +305,37 @@ export component MetaPreview inherits Rectangle {
                         }
                     }
 
-                    Rectangle {
+                    // Web: the title's links come first and the description last, over its own
+                    // 1rem margin and with the SUMMARY label the web puts above it.
+                    for group in root.preview.groups: meta-links-container := PreviewLinks {
+                        group: group;
+                        rem-size: root.rem-size;
+                    }
+
+                    if root.preview.description != "": Rectangle {
                         height: root.rem-size;
+                    }
+                    // Web: `.description-container .label-container` — 0.95rem, bold, 0.3 opaque.
+                    if root.preview.description != "": summary-label-container := Rectangle {
+                        height: 2 * root.rem-size;
+                        Text {
+                            x: 0px;
+                            y: 0px;
+                            height: 1.25 * root.rem-size;
+                            text: "SUMMARY";
+                            vertical-alignment: center;
+                            font-size: 0.95 * root.rem-size;
+                            font-weight: 700;
+                            color: Theme.text;
+                            opacity: 0.3;
+                        }
                     }
 
                     // Web: line-height 2em. Slint's `line-height-factor` is relative to the font's natural line
                     // height, so the factor is two ems over the natural height, measured on a one-line text.
-                    description-container := Rectangle {
+                    if root.preview.description != "": description-container := Rectangle {
                         height: Math.round(description-text.preferred-height / (2 * root.rem-size)) * 2 * root.rem-size;
+                        horizontal-stretch: 1;
 
                         description-line := Text {
                             text: "A";
@@ -278,11 +353,6 @@ export component MetaPreview inherits Rectangle {
                             color: Theme.text;
                         }
                     }
-
-                    for group in root.preview.groups: meta-links-container := PreviewLinks {
-                        group: group;
-                        rem-size: root.rem-size;
-                    }
                 }
             }
 
@@ -298,11 +368,15 @@ export component MetaPreview inherits Rectangle {
             }
         }
 
+        // Web: `.action-buttons-container` — 3.5rem of padding over the 4rem buttons, and 1rem
+        // under them. The row is pinned to the panel's bottom on the details route and to the
+        // 2.5rem/2rem box in a floating preview.
         if root.has-preview: action-buttons-container := HorizontalLayout {
-            x: 2.5 * root.rem-size;
-            y: parent.height - 7 * root.rem-size;
-            width: root.width - 5 * root.rem-size;
-            height: 4 * root.rem-size;
+            x: root.on-page ? 0px : 2.5 * root.rem-size;
+            y: root.on-page ? parent.height - 8.5 * root.rem-size : parent.height - 7 * root.rem-size;
+            width: root.on-page ? parent.width : parent.width - 5 * root.rem-size;
+            height: root.on-page ? 8.5 * root.rem-size : 4 * root.rem-size;
+            padding-top: root.on-page ? 3.5 * root.rem-size : 0px;
             // Web groups these at the start of the row with a fixed gap; spreading them across
             // the width is what made them read as three loose buttons.
             alignment: start;
