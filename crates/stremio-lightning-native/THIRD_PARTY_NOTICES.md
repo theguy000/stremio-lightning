@@ -9,7 +9,10 @@ their own licences.
 - Author named by the package: Smart Code Ltd.
 - Licence: MIT, as declared in the package's `package.json` on npm. The GitHub repository has no
   `LICENSE` file and the package states no copyright year, so none is given here.
-- 33 of the 138 icons. In 29 of them the only change is that `currentcolor` is written `currentColor`, because the lowercase form drew no strokes in the Slint window. The other 4 are unmodified.
+- 38 of the 138 icons. In 29 of them the only change is that `currentcolor` is written `currentColor`,
+  because the lowercase form drew no strokes in the Slint window. The other 9 are unmodified.
+  `reddit.svg` and `link.svg` were copied out of the deployed site's own markup for its share
+  dialog, which draws them from this same package.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
