@@ -32,6 +32,9 @@ export struct PlayerEpisode {
     title: string,
     selected: bool,
     watched: bool,
+    /// How far through this Episode the library says the viewer is, as a percentage; 0 when it
+    /// knows nothing, which is every Episode but the one the title is sitting on.
+    progress: float,
     released: string,
     thumbnail: image,
 }
@@ -1596,22 +1599,22 @@ export component PlayerScreen inherits Rectangle {
                                     opacity: 0.9;
                                 }
                                 // Web: `progress-bar` over `progress-bar-background`, one fifth
-                                // of the way up the thumbnail's bottom padding. Only drawn for a
-                                // Video that has been watched part way or more: an empty bar on
-                                // every row reads as progress that is not there.
-                                if episode.watched: Rectangle {
+                                // of the way up the thumbnail's bottom padding. The track is the
+                                // foreground at 20%; the violet fill is the percentage the core
+                                // keeps for the Episode the title is sitting on. Both are drawn
+                                // only when there is a number: no bar means "not started".
+                                if episode.progress > 0: Rectangle {
                                     x: 0.5 * root.rem-size;
                                     y: parent.height - self.height - 0.35 * root.rem-size;
                                     width: parent.width - 1 * root.rem-size;
                                     height: 0.4 * root.rem-size;
+                                    background: #ffffff33;
                                     border-radius: self.height;
-                                    background: Theme.text;
-                                    opacity: 0.2;
 
                                     Rectangle {
-                                        width: parent.width * (episode.watched ? 1 : 0);
+                                        width: parent.width * Math.min(episode.progress, 100) / 100;
                                         height: parent.height;
-                                        border-radius: parent.border-radius;
+                                        border-radius: parent.height / 2;
                                         background: Theme.accent;
                                     }
                                 }

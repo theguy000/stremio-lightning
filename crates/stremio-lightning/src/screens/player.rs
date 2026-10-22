@@ -19,13 +19,18 @@ use crate::app::{AppModel, AppRuntime};
 use crate::screens::{details, Preview};
 
 /// One Video in the player's side drawer.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Episode {
     pub id: String,
     pub label: String,
     pub title: String,
     pub picked: bool,
     pub watched: bool,
+    /// How far through this Episode the library says the viewer is, as a percentage. The core
+    /// defines it for the one Video the title's library entry is sitting on
+    /// (`LibraryItem::progress()`: `time_offset / duration * 100`), and there is no number for any
+    /// other Episode -- the web draws no bar for those either.
+    pub progress: f64,
     /// The date the row shows, empty when the title gives none.
     pub released: String,
     /// The row's thumbnail, when the title supplies one.
@@ -467,6 +472,12 @@ pub fn data(model: &AppModel, wanted_season: Option<usize>) -> Data {
                         .watched
                         .as_ref()
                         .is_some_and(|watched| watched.get_video(&episode.id)),
+                    progress: player
+                        .library_item
+                        .as_ref()
+                        .filter(|item| item.state.video_id.as_deref() == Some(episode.id.as_str()))
+                        .map(|item| item.progress())
+                        .unwrap_or_default(),
                     id: episode.id,
                     label: episode.label,
                     title: episode.title,

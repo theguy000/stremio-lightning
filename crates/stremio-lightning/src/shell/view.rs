@@ -284,6 +284,7 @@ fn player_view(window: &MainWindow, data: &PlayerData, images: &Images) {
                 title: episode.title.clone().into(),
                 selected: episode.picked,
                 watched: episode.watched,
+                progress: episode.progress as f32,
                 released: episode.released.clone().into(),
                 thumbnail: images.get(&episode.thumbnail).unwrap_or_default(),
             })
