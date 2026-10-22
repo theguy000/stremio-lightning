@@ -385,7 +385,11 @@ pub(crate) fn unload(runtime: &AppRuntime) {
 
 /// Which row of `seasons` the drawer shows. A Season the viewer picked is a row of that list, so
 /// it is used as given; without one, the row holding the Video that is playing.
-pub(crate) fn season_index(seasons: &[details::Season], wanted: Option<usize>, video: u32) -> usize {
+pub(crate) fn season_index(
+    seasons: &[details::Season],
+    wanted: Option<usize>,
+    video: u32,
+) -> usize {
     match wanted {
         Some(index) if index < seasons.len() => index,
         _ => seasons

@@ -56,7 +56,7 @@ pub(crate) fn seasons(videos: &[Video]) -> Vec<Season> {
         listed.push(Season {
             number: info.season,
             label: if info.season == 0 {
-                "SPECIAL".to_owned()
+                "Special".to_owned()
             } else {
                 format!("Season {}", info.season)
             },
@@ -615,7 +615,7 @@ mod tests {
             [
                 (1, "Season 1".to_owned()),
                 (2, "Season 2".to_owned()),
-                (0, "SPECIAL".to_owned()),
+                (0, "Special".to_owned()),
             ]
         );
     }

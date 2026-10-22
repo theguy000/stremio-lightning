@@ -1633,13 +1633,58 @@ export component PlayerScreen inherits Rectangle {
                                     max-height: 2.8 * root.rem-size;
                                     overflow: elide;
                                 }
-                                Text {
-                                    text: episode.released;
-                                    font-size: 0.8 * root.rem-size;
-                                    font-weight: 500;
-                                    color: Theme.text;
-                                    opacity: 0.44;
-                                    visible: episode.released != "";
+                                // Web: `.flex-row-container` -- the date on the left, and the
+                                // watched chip at the far end: a 1.6rem `.watched-container` in
+                                // `--tertiary-accent-color` with a 1.15rem eye and the label at
+                                // 0.8rem/800 in the ink the web puts on its bright chips.
+                                Rectangle {
+                                    width: parent.width;
+                                    height: 1.6 * root.rem-size;
+
+                                    Text {
+                                        x: 0;
+                                        y: 0;
+                                        width: parent.width;
+                                        height: parent.height;
+                                        text: episode.released;
+                                        font-size: 0.8 * root.rem-size;
+                                        font-weight: 500;
+                                        color: Theme.text;
+                                        opacity: 0.44;
+                                        vertical-alignment: center;
+                                    }
+
+                                    if episode.watched: Rectangle {
+                                        x: parent.width - self.width;
+                                        y: 0;
+                                        height: parent.height;
+                                        width: watched-chip.preferred-width + 1 * root.rem-size;
+                                        border-radius: 0.3 * root.rem-size;
+                                        background: Theme.accent-yellow;
+
+                                        watched-chip := HorizontalLayout {
+                                            x: 0.5 * root.rem-size;
+                                            y: 0;
+                                            width: parent.width - 1 * root.rem-size;
+                                            height: parent.height;
+                                            spacing: 0.25 * root.rem-size;
+                                            alignment: center;
+
+                                            Image {
+                                                width: 1.15 * root.rem-size;
+                                                height: 1.15 * root.rem-size;
+                                                source: @image-url("icons/eye.svg");
+                                                colorize: Theme.on-accent;
+                                            }
+                                            Text {
+                                                text: "WATCHED";
+                                                font-size: 0.8 * root.rem-size;
+                                                font-weight: 800;
+                                                color: Theme.on-accent;
+                                                vertical-alignment: center;
+                                            }
+                                        }
+                                    }
                                 }
                             }
 
