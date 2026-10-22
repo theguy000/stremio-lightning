@@ -66,15 +66,16 @@ component PlayerButton inherits Rectangle {
     background: touch.has-hover && root.enabled ? Theme.overlay : transparent;
     animate background { duration: 150ms; }
 
-    VerticalLayout {
-        alignment: center;
-        Image {
-            width: 2.2 * root.rem-size;
-            height: 2.2 * root.rem-size;
-            source: root.glyph;
-            colorize: root.lit ? Theme.accent : Theme.text;
-            opacity: root.enabled ? 1 : 0.4;
-        }
+    Image {
+        // Centred by hand: a layout centres across the axis it runs along only, and this glyph
+        // sat at the left of a square whose hover background fills the whole of it.
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: 2.2 * root.rem-size;
+        height: 2.2 * root.rem-size;
+        source: root.glyph;
+        colorize: root.lit ? Theme.accent : Theme.text;
+        opacity: root.enabled ? 1 : 0.4;
     }
 
     touch := TouchArea {
@@ -612,11 +613,13 @@ export component PlayerScreen inherits Rectangle {
             root.pressed-here = false;
         }
         scroll-event(event) => {
+            // A wheel rolled away from you reaches this screen as a positive delta, so up is
+            // louder and down is quieter, the way the web client's own wheel handler reads it.
             if (event.delta-y > 0) {
-                root.set-volume(Math.max(root.volume - 5, 0));
+                root.set-volume(Math.min(root.volume + 5, 200));
             } else {
                 if (event.delta-y < 0) {
-                    root.set-volume(Math.min(root.volume + 5, 200));
+                    root.set-volume(Math.max(root.volume - 5, 0));
                 }
             }
             EventResult.accept
@@ -961,16 +964,31 @@ export component PlayerScreen inherits Rectangle {
             }
         }
 
-        // Web: `.control-bar-buttons-container` -- 0.25rem between 4rem squares.
-        HorizontalLayout {
+        // Web: `.control-bar-buttons-container` -- 0.25rem between 4rem squares, the transport
+        // at the start and the menu cluster against the far edge. Placed by hand for the same
+        // reason the seek row is: a Slint layout measured the space between them as nothing, so
+        // the cluster sat right beside the volume slider instead of at the end of the bar.
+        bar := Rectangle {
             x: 2 * root.rem-size;
             y: 2.5 * root.rem-size;
             width: root.width - 4 * root.rem-size;
             height: 4 * root.rem-size;
-            spacing: 0.25 * root.rem-size;
-            alignment: start;
+
+            property <length> gap: 0.25 * root.rem-size;
+            property <length> square: 4 * root.rem-size;
+            /// A square plus the space after it, so the cluster is laid out from its right edge.
+            property <length> step: self.square + self.gap;
+            property <length> last: self.width - self.square;
+            /// How many squares the cluster holds: the Episode one is only there for a series.
+            property <int> cluster-count: root.has-episodes ? 6 : 5;
+            property <length> cluster: self.cluster-count * bar.step - self.gap;
+            // The volume slider keeps its 10rem unless the window is too narrow to hold the two
+            // groups apart, in which case it gives way rather than running under the cluster.
+            property <length> volume-room: self.width - 2 * bar.step - self.cluster - 1 * root.rem-size;
+            property <length> volume-width: Math.max(3 * root.rem-size, Math.min(10 * root.rem-size, self.volume-room));
 
             PlayerButton {
+                x: 0;
                 rem-size: root.rem-size;
                 glyph: root.paused || !root.loaded ? @image-url("icons/play.svg") : @image-url("icons/pause.svg");
                 clicked => {
@@ -978,6 +996,7 @@ export component PlayerScreen inherits Rectangle {
                 }
             }
             if root.has-next: PlayerButton {
+                x: bar.step;
                 rem-size: root.rem-size;
                 glyph: @image-url("icons/next.svg");
                 clicked => {
@@ -985,6 +1004,7 @@ export component PlayerScreen inherits Rectangle {
                 }
             }
             PlayerButton {
+                x: root.has-next ? 2 * bar.step : bar.step;
                 rem-size: root.rem-size;
                 glyph: root.volume-glyph;
                 clicked => {
@@ -993,7 +1013,8 @@ export component PlayerScreen inherits Rectangle {
             }
             // Web: `.volume-slider` -- the shell's own volume runs to 200%, so the track may too.
             PlayerSlider {
-                width: 10 * root.rem-size;
+                x: (root.has-next ? 3 : 2) * bar.step;
+                width: bar.volume-width;
                 height: 4 * root.rem-size;
                 rem-size: root.rem-size;
                 value: root.muted ? 0 : root.volume;
@@ -1010,14 +1031,10 @@ export component PlayerScreen inherits Rectangle {
                 }
             }
 
-            Rectangle {
-                width: 0.5 * root.rem-size;
-                horizontal-stretch: 1;
-            }
-
             // Web: the menu cluster, right-aligned: speed, subtitles, audio, episodes, scale, and
             // the options menu.
             PlayerButton {
+                x: bar.last - (root.has-episodes ? 5 : 4) * bar.step;
                 rem-size: root.rem-size;
                 glyph: @image-url("icons/speed.svg");
                 lit: root.menu == "speed";
@@ -1027,6 +1044,7 @@ export component PlayerScreen inherits Rectangle {
                 }
             }
             PlayerButton {
+                x: bar.last - (root.has-episodes ? 4 : 3) * bar.step;
                 rem-size: root.rem-size;
                 glyph: @image-url("icons/subtitles.svg");
                 enabled: root.subtitle-tracks.length > 0;
@@ -1037,6 +1055,7 @@ export component PlayerScreen inherits Rectangle {
                 }
             }
             PlayerButton {
+                x: bar.last - (root.has-episodes ? 3 : 2) * bar.step;
                 rem-size: root.rem-size;
                 glyph: @image-url("icons/audio-tracks.svg");
                 enabled: root.audio-tracks.length > 0;
@@ -1047,6 +1066,7 @@ export component PlayerScreen inherits Rectangle {
                 }
             }
             if root.has-episodes: PlayerButton {
+                x: bar.last - 2 * bar.step;
                 rem-size: root.rem-size;
                 glyph: @image-url("icons/episodes.svg");
                 lit: root.drawer-open;
@@ -1056,6 +1076,7 @@ export component PlayerScreen inherits Rectangle {
                 }
             }
             PlayerButton {
+                x: bar.last - bar.step;
                 rem-size: root.rem-size;
                 glyph: root.scale-glyph;
                 clicked => {
@@ -1063,6 +1084,7 @@ export component PlayerScreen inherits Rectangle {
                 }
             }
             PlayerButton {
+                x: bar.last;
                 rem-size: root.rem-size;
                 glyph: @image-url("icons/more-horizontal.svg");
                 enabled: root.options.length > 0;
@@ -1348,7 +1370,7 @@ export component PlayerScreen inherits Rectangle {
             }
 
             ScrollView {
-                height: root.height - 7.5 * root.rem-size;
+                vertical-stretch: 1;
 
                 VerticalLayout {
                     padding-left: 2 * root.rem-size;
