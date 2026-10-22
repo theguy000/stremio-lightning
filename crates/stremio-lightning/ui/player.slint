@@ -528,7 +528,13 @@ export component PlayerScreen inherits Rectangle {
     callback select-episode(string);
     callback select-season(int);
     callback choose-option(string);
-    callback close-menus();
+    /// Puts every panel away: the menus, the drawer and the next-Video offer. Anything that is
+    /// not a panel itself reaches for this -- a press on the picture, or Escape.
+    function close-menus() {
+        root.menu = "";
+        root.drawer-open = false;
+        root.next-dismissed = true;
+    }
 
     background: transparent;
 
@@ -1618,26 +1624,56 @@ export component PlayerScreen inherits Rectangle {
                         }
                     }
 
-                    // Web: the drawer's own scroll bar -- a thin thumb down the right edge, only
-                    // there when the list is longer than the drawer. The box around it carries the
-                    // arithmetic, so the thumb never has to measure itself.
-                    Rectangle {
-                        width: 0.3 * root.rem-size;
+                    // Web: the list's scroll bar -- a track down the right edge with a thumb on
+                    // it, so it reads as a scroll bar rather than a line floating over the rows.
+                    // The box around it carries the arithmetic, so the thumb never measures itself.
+                    if drawer-flick.content-height > drawer-flick.height + 1px: Rectangle {
+                        width: 0.4 * root.rem-size;
                         height: parent.height;
-                        x: parent.width - 0.5 * root.rem-size;
+                        x: parent.width - 0.4 * root.rem-size;
+                        border-radius: self.width;
+                        background: Theme.text;
+                        opacity: 0.08;
 
-                        property <length> thumb: Math.max(3 * root.rem-size, self.height * self.height / Math.max(1px, drawer-flick.content-height));
+                        property <length> thumb: Math.max(2.5 * root.rem-size, self.height * drawer-flick.height / Math.max(1px, drawer-flick.content-height));
                         property <length> room: drawer-flick.content-height - drawer-flick.height;
 
-                        if self.room > 1px: Rectangle {
+                        Rectangle {
                             width: parent.width;
                             height: parent.thumb;
                             y: (parent.height - self.height) * Math.min(1, Math.max(0, -drawer-flick.content-y / Math.max(1px, parent.room)));
                             border-radius: self.width;
                             background: Theme.text;
-                            opacity: 0.3;
+                            opacity: 0.5;
                         }
                     }
+                }
+            }
+        }
+
+        // A way out of the drawer, in the nav bar's own shape: closing it is what the chevron
+        // does, and it sits over the preview so the pointer never travels back across the window.
+        Rectangle {
+            x: 1.5 * root.rem-size;
+            y: 1.5 * root.rem-size;
+            width: 3.5 * root.rem-size;
+            height: 3.5 * root.rem-size;
+            border-radius: 0.75 * root.rem-size;
+            background: drawer-back-touch.has-hover ? Theme.overlay : transparent;
+
+            Image {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                width: 2 * root.rem-size;
+                height: 2 * root.rem-size;
+                source: @image-url("icons/chevron-forward.svg");
+                colorize: Theme.text;
+                opacity: 0.7;
+            }
+            drawer-back-touch := TouchArea {
+                mouse-cursor: pointer;
+                clicked => {
+                    root.drawer-open = false;
                 }
             }
         }
@@ -1745,64 +1781,89 @@ export component PlayerScreen inherits Rectangle {
         width: 0;
         height: 0;
 
+        // A panel over the picture takes the keyboard with it: the web's shortcuts are dead while
+        // a menu is open, so `f` cannot flip the window fullscreen from inside an open popup.
+        // Escape and the menu keys below stay live, so a panel can always be put away.
+        property <bool> live: root.menu == "" && !root.drawer-open && !root.next-open;
+
         KeyBinding {
             keys: @keys(Space);
             activated => {
-                root.play-pause();
+                if (keys.live) {
+                    root.play-pause();
+                }
             }
         }
         KeyBinding {
             keys: @keys(RightArrow);
             activated => {
-                root.seek-by(10);
+                if (keys.live) {
+                    root.seek-by(10);
+                }
             }
         }
         KeyBinding {
             keys: @keys(Shift + RightArrow);
             activated => {
-                root.seek-by(3);
+                if (keys.live) {
+                    root.seek-by(3);
+                }
             }
         }
         KeyBinding {
             keys: @keys(LeftArrow);
             activated => {
-                root.seek-by(-10);
+                if (keys.live) {
+                    root.seek-by(-10);
+                }
             }
         }
         KeyBinding {
             keys: @keys(Shift + LeftArrow);
             activated => {
-                root.seek-by(-3);
+                if (keys.live) {
+                    root.seek-by(-3);
+                }
             }
         }
         KeyBinding {
             keys: @keys(UpArrow);
             activated => {
-                root.set-volume(Math.min(root.volume + 5, 200));
+                if (keys.live) {
+                    root.set-volume(Math.min(root.volume + 5, 200));
+                }
             }
         }
         KeyBinding {
             keys: @keys(DownArrow);
             activated => {
-                root.set-volume(Math.max(root.volume - 5, 0));
+                if (keys.live) {
+                    root.set-volume(Math.max(root.volume - 5, 0));
+                }
             }
         }
         KeyBinding {
             keys: @keys("m");
             activated => {
-                root.toggle-muted();
+                if (keys.live) {
+                    root.toggle-muted();
+                }
             }
         }
         KeyBinding {
             keys: @keys("c");
             activated => {
-                root.toggle-subtitles();
+                if (keys.live) {
+                    root.toggle-subtitles();
+                }
             }
         }
         KeyBinding {
             keys: @keys("v");
             activated => {
-                root.cycle-scale();
+                if (keys.live) {
+                    root.cycle-scale();
+                }
             }
         }
         KeyBinding {
@@ -1838,25 +1899,33 @@ export component PlayerScreen inherits Rectangle {
         KeyBinding {
             keys: @keys(Shift + "n");
             activated => {
-                root.play-next();
+                if (keys.live) {
+                    root.play-next();
+                }
             }
         }
         KeyBinding {
             keys: @keys("f");
             activated => {
-                root.toggle-fullscreen();
+                if (keys.live) {
+                    root.toggle-fullscreen();
+                }
             }
         }
         KeyBinding {
             keys: @keys("]");
             activated => {
-                root.set-speed(Math.min(root.speed + 0.25, 4));
+                if (keys.live) {
+                    root.set-speed(Math.min(root.speed + 0.25, 4));
+                }
             }
         }
         KeyBinding {
             keys: @keys("[");
             activated => {
-                root.set-speed(Math.max(root.speed - 0.25, 0.1));
+                if (keys.live) {
+                    root.set-speed(Math.max(root.speed - 0.25, 0.1));
+                }
             }
         }
         KeyBinding {

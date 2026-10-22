@@ -176,7 +176,6 @@ export component MainWindow inherits Window {
     callback player-select-episode(string);
     callback player-select-season(int);
     callback player-choose-option(string);
-    callback player-close-menus();
     callback submit-auth-login(string, string);
     callback submit-auth-register(string, string, bool, bool, bool);
     callback auth-guest-login();
@@ -400,9 +399,6 @@ export component MainWindow inherits Window {
         }
         choose-option(action) => {
             root.player-choose-option(action);
-        }
-        close-menus => {
-            root.player-close-menus();
         }
     }
 
