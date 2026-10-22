@@ -96,8 +96,18 @@ fn handle(event: RuntimeEvent<AppEnv, AppModel>, context: &Context) {
     if model.ctx.profile.auth.is_some() {
         close_sign_in(context);
     }
-    let snapshot = snapshot(&model, context);
+    // A library sync empties the bucket before it fills it again. Publishing that instant would
+    // blank every watched mark in the drawer for a frame, which reads as the app losing them.
+    let library_blank = model.ctx.library.items.is_empty() && model.ctx.profile.auth.is_some();
+    let mut snapshot = snapshot(&model, context);
     drop(model);
+
+    if library_blank {
+        let previous = context.latest.lock().unwrap().player.episodes.clone();
+        if previous.iter().any(|episode| episode.watched) {
+            snapshot.player.episodes = previous;
+        }
+    }
 
     *context.latest.lock().unwrap() = snapshot.clone();
     request_images(&snapshot, context);
