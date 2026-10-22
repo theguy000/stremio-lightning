@@ -365,6 +365,9 @@ component DetailsPanel inherits Rectangle {
     in property <[StreamData]> streams;
     in property <int> streams-loading: 0;
     in property <bool> waits-for-streams: false;
+    /// False until the addons have answered with the title itself. Nothing can be said about
+    /// its Streams before that, so the panel waits instead of announcing there are none.
+    in property <bool> has-title: false;
     in property <bool> rate-visible: false;
     in property <bool> rate-enabled: false;
     in property <bool> rated-liked: false;
@@ -467,18 +470,20 @@ component DetailsPanel inherits Rectangle {
             }
 
             // Web: nothing Ready yet means two placeholders — and nothing of the last
-            // Episode's list survives the swap. Only while an addon that offers Streams is
-            // still out: with none installed the rows would be a wait for nothing.
-            if root.streams.length == 0 && root.streams-loading > 0 && root.waits-for-streams: VerticalLayout {
+            // Episode's list survives the swap. They stand in while the title is still on its way,
+            // whatever its addons turn out to be, and later only while an addon that offers
+            // Streams is still out: with none installed the rows would be a wait for nothing.
+            if root.streams.length == 0 && (root.streams-loading > 0 ? root.waits-for-streams : !root.has-title): VerticalLayout {
                 alignment: start;
                 StreamPlaceholder { rem-size: root.rem-size; }
                 StreamPlaceholder { rem-size: root.rem-size; }
             }
 
             // Web: `.message-container` stands where the list would be once the addons have all
-            // answered and none of them offered a stream. It stands there from the first frame
-            // when nothing is going to answer, rather than leaving the panel blank to wait.
-            if root.streams.length == 0 && !(root.streams-loading > 0 && root.waits-for-streams): ScrollView {
+            // answered and none of them offered a stream. The title has to be in first: saying
+            // "No streams were found" about a title whose name is not known yet is a guess, and on
+            // a Series it would flash over the Episode list that is still coming.
+            if root.streams.length == 0 && root.has-title && (root.streams-loading == 0 || !root.waits-for-streams): ScrollView {
                 StreamsMessage {
                     rem-size: root.rem-size;
                     show-steps: root.has-steps;
@@ -546,6 +551,9 @@ export component DetailsScreen inherits Rectangle {
     in property <[StreamData]> streams;
     in property <int> streams-loading: 0;
     in property <bool> waits-for-streams: false;
+    /// False until the addons have answered with the title itself. Nothing can be said about
+    /// its Streams before that, so the panel waits instead of announcing there are none.
+    in property <bool> has-title: false;
     in property <bool> rate-visible: false;
     in property <bool> rate-enabled: false;
     in property <bool> rated-liked: false;
@@ -629,6 +637,7 @@ export component DetailsScreen inherits Rectangle {
             streams: root.streams;
             streams-loading: root.streams-loading;
             waits-for-streams: root.waits-for-streams;
+            has-title: root.has-preview;
             play-message: root.play-message;
             has-steps: root.has-steps;
             season-number: root.season-number;
