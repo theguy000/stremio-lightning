@@ -161,6 +161,9 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     wiring.report_server_state(server.start());
     app::build::load_everything(&runtime);
+    // The same pulls the window repeats whenever it comes back to the front: the web does this
+    // once on mount too, so a mark made elsewhere is there before the first frame settles.
+    app::build::pull_from_api(&runtime);
     window.run()?;
     Ok(())
 }

@@ -8,7 +8,7 @@ use stremio_core::models::ctx::Ctx;
 use stremio_core::models::installed_addons_with_filters::{
     InstalledAddonsRequest, InstalledAddonsWithFilters, Selected as InstalledSelected,
 };
-use stremio_core::runtime::msg::{Action, ActionCatalogsWithExtra, ActionLoad};
+use stremio_core::runtime::msg::{Action, ActionCatalogsWithExtra, ActionCtx, ActionLoad};
 use stremio_core::runtime::{RuntimeAction, RuntimeEvent};
 use stremio_core::types::events::DismissedEventsBucket;
 use stremio_core::types::library::LibraryBucket;
@@ -78,5 +78,30 @@ pub fn load_everything(runtime: &AppRuntime) {
         action: Action::Load(ActionLoad::InstalledAddonsWithFilters(InstalledSelected {
             request: InstalledAddonsRequest { r#type: None },
         })),
+    });
+}
+
+/// Re-reads the parts of the account another client may have changed: the library (which carries
+/// every `watched` mark and the one watch position per title), the user's profile, the installed
+/// addons and the notifications.
+///
+/// Web: `src/App/App.js` dispatches exactly these four on mount and again on every window focus,
+/// which is how a mark made in the browser shows up in another client.
+pub fn pull_from_api(runtime: &AppRuntime) {
+    runtime.dispatch(RuntimeAction {
+        field: None,
+        action: Action::Ctx(ActionCtx::PullAddonsFromAPI),
+    });
+    runtime.dispatch(RuntimeAction {
+        field: None,
+        action: Action::Ctx(ActionCtx::PullUserFromAPI { token: None }),
+    });
+    runtime.dispatch(RuntimeAction {
+        field: None,
+        action: Action::Ctx(ActionCtx::SyncLibraryWithAPI),
+    });
+    runtime.dispatch(RuntimeAction {
+        field: None,
+        action: Action::Ctx(ActionCtx::PullNotifications),
     });
 }
