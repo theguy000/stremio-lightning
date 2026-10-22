@@ -1670,13 +1670,23 @@ export component PlayerScreen inherits Rectangle {
                                             spacing: 0.25 * root.rem-size;
                                             alignment: center;
 
-                                            Image {
+                                            // A layout lines its children up on one axis only.
+                                            // Both of these carry the chip's height and centre
+                                            // their own contents, or the eye rides above the text.
+                                            Rectangle {
                                                 width: 1.15 * root.rem-size;
-                                                height: 1.15 * root.rem-size;
-                                                source: @image-url("icons/eye.svg");
-                                                colorize: Theme.on-accent;
+                                                height: 1.6 * root.rem-size;
+
+                                                Image {
+                                                    y: (parent.height - self.height) / 2;
+                                                    width: 1.15 * root.rem-size;
+                                                    height: 1.15 * root.rem-size;
+                                                    source: @image-url("icons/eye.svg");
+                                                    colorize: Theme.on-accent;
+                                                }
                                             }
                                             Text {
+                                                height: 1.6 * root.rem-size;
                                                 text: "WATCHED";
                                                 font-size: 0.8 * root.rem-size;
                                                 font-weight: 800;
