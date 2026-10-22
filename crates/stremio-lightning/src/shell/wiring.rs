@@ -854,20 +854,6 @@ pub(crate) fn start_player_sync(wiring: &Wiring) {
 pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
     start_player_sync(&wiring);
     {
-        // Web: `src/App/App.js` re-reads the account on mount and on every window focus, which
-        // is how a mark made in the browser reaches another client. Slint's `Window` has no focus
-        // flag, so the shell asks the platform, and only the rising edge pulls.
-        let wiring = wiring.clone();
-        let mut was_focused = false;
-        window.on_check_focus(move || {
-            let focused = window_is_in_front();
-            if focused && !was_focused {
-                crate::app::build::pull_from_api(&wiring.runtime);
-            }
-            was_focused = focused;
-        });
-    }
-    {
         let wiring = wiring.clone();
         window.on_player_back(move || wiring.player_back());
     }
@@ -1117,27 +1103,4 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
         window.on_auth_forgot_password(move |email| wiring.forgot_password(email.to_string()));
     }
     window.on_auth_dismissed(move || wiring.dismiss_sign_in());
-}
-
-/// Whether this process owns the window in front of the user. On Windows that is
-/// `GetForegroundWindow` and the id of the process that made it; everywhere else there is no
-/// cheap answer, so the app treats itself as in front and leaves the pulls to startup.
-fn window_is_in_front() -> bool {
-    #[cfg(windows)]
-    {
-        use windows::Win32::UI::WindowsAndMessaging::{
-            GetForegroundWindow, GetWindowThreadProcessId,
-        };
-        let front = unsafe { GetForegroundWindow() };
-        if front.0.is_null() {
-            return false;
-        }
-        let mut pid = 0u32;
-        unsafe { GetWindowThreadProcessId(front, Some(&mut pid)) };
-        pid == std::process::id()
-    }
-    #[cfg(not(windows))]
-    {
-        true
-    }
 }

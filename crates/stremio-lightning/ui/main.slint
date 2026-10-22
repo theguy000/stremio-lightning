@@ -131,11 +131,6 @@ export component MainWindow inherits Window {
     in-out property <bool> share-open: false;
     in property <string> share-link;
 
-    /// Asks the shell whether this window has just come back to the front -- Web: the library,
-    /// profile, addons and notifications are re-read on every window focus, which is how a mark
-    /// made in another client shows up here. The shell owns the focus flag, since the window
-    /// element has none.
-    callback check-focus();
     callback open-item(string, string, string);
     callback load-next-page();
     callback select-preview(int);
@@ -404,16 +399,6 @@ export component MainWindow inherits Window {
         }
         choose-option(action) => {
             root.player-choose-option(action);
-        }
-    }
-
-    // Web: the same four pulls on every window focus. The timer only asks; the shell decides,
-    // because Slint's `Window` carries no focus flag to watch.
-    focus-watch := Timer {
-        interval: 700ms;
-        running: true;
-        triggered => {
-            root.check-focus();
         }
     }
 
