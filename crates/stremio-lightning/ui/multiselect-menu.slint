@@ -68,6 +68,9 @@ export component MultiselectMenu inherits Rectangle {
     /// The label's corners. The web's generic select is a 1.5rem pill; the Seasons bar in the
     /// player overrides it to 2.75rem, so this is a property rather than a constant.
     in property <length> radius: 1.5 * root.rem-size;
+    /// A label that carries no fill of its own until the pointer is on it, as the Seasons bar's
+    /// does over the drawer. A form select keeps its fill, which is the default.
+    in property <bool> quiet: false;
     callback select(int);
 
     property <length> item-height: 3 * root.rem-size;
@@ -78,7 +81,7 @@ export component MultiselectMenu inherits Rectangle {
 
     height: 3 * root.rem-size;
     border-radius: root.radius;
-    background: ClassStyles.background-or(ClassStyles.select-input, Theme.overlay);
+    background: root.quiet && !(label-touch.has-hover || popup.is-open) ? transparent : ClassStyles.background-or(ClassStyles.select-input, Theme.overlay);
     opacity: ClassStyles.opacity-or(ClassStyles.select-input, 1.0);
     visible: !(ClassStyles.select-input).hidden;
 
@@ -102,7 +105,7 @@ export component MultiselectMenu inherits Rectangle {
         colorize: Theme.caret-icon;
         transform-rotation: popup.is-open ? 180deg : 0deg;
     }
-    TouchArea {
+    label-touch := TouchArea {
         mouse-cursor: pointer;
         pointer-event(event) => {
             if (event.kind == PointerEventKind.down) {

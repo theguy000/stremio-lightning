@@ -1508,6 +1508,7 @@ export component PlayerScreen inherits Rectangle {
                         width: 9.5 * root.rem-size;
                         rem-size: root.rem-size;
                         radius: 2.75 * root.rem-size;
+                        quiet: true;
                         title: root.season-title;
                         options: root.seasons;
                         selected-index: root.season-index;
@@ -1595,8 +1596,10 @@ export component PlayerScreen inherits Rectangle {
                                     opacity: 0.9;
                                 }
                                 // Web: `progress-bar` over `progress-bar-background`, one fifth
-                                // of the way up the thumbnail's bottom padding.
-                                Rectangle {
+                                // of the way up the thumbnail's bottom padding. Only drawn for a
+                                // Video that has been watched part way or more: an empty bar on
+                                // every row reads as progress that is not there.
+                                if episode.watched: Rectangle {
                                     x: 0.5 * root.rem-size;
                                     y: parent.height - self.height - 0.35 * root.rem-size;
                                     width: parent.width - 1 * root.rem-size;

@@ -73,6 +73,9 @@ pub struct Data {
     pub season: usize,
     pub seasons: Vec<(String, u32)>,
     pub episodes: Vec<Episode>,
+    /// The thumbnails of every Episode of every Season, so the drawer can be asked for any of
+    /// them without a wait.
+    pub every_thumbnail: Vec<String>,
     pub preview: Option<Preview>,
     pub options: Vec<MenuOption>,
     pub subtitles: Vec<Subtitle>,
@@ -442,6 +445,14 @@ pub fn data(model: &AppModel, wanted_season: Option<usize>) -> Data {
         .get(season)
         .map(|season| season.number)
         .unwrap_or(playing_season);
+    let every_thumbnail: Vec<String> = meta
+        .map(|meta| {
+            meta.videos
+                .iter()
+                .filter_map(|video| video.thumbnail.clone())
+                .collect()
+        })
+        .unwrap_or_default();
     let episodes = meta
         .map(|meta| {
             details::episodes(&meta.videos, number)
@@ -515,6 +526,7 @@ pub fn data(model: &AppModel, wanted_season: Option<usize>) -> Data {
             .map(|season| (season.label.clone(), season.number))
             .collect(),
         episodes,
+        every_thumbnail,
         preview: meta.map(|meta| crate::screens::preview_of(&meta.preview)),
         options,
         subtitles: Data::subtitles_of(player),

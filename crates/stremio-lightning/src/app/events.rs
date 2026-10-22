@@ -184,6 +184,9 @@ fn request_images(snapshot: &Snapshot, context: &Context) {
                 .iter()
                 .filter_map(|episode| episode.thumbnail.clone()),
         )
+        // Every Episode of every Season, so picking another Season in the drawer paints at once
+        // instead of leaving its rows as empty rectangles while the pictures arrive.
+        .chain(snapshot.player.every_thumbnail.iter().cloned())
         .chain(discover::preview_images(
             &snapshot.discover,
             context.selected.load(Ordering::Relaxed),
