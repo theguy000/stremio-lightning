@@ -736,7 +736,10 @@ export component PlayerScreen inherits Rectangle {
     }
 
     // Web: Error -- the message over the black the player leaves behind.
-    if root.error != "": Rectangle {
+    // Only while nothing is playing: mpv reports an error for the file it just replaced as
+    // well as for one that really failed, and an error laid over a playing picture reads as
+    // the player failing at random.
+    if root.error != "" && !root.loaded: Rectangle {
         x: 0;
         y: 0;
         width: root.width;

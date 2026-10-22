@@ -363,7 +363,13 @@ impl Wiring {
         window.set_player_subtitles_size((status.subtitles_scale * 100.0) as f32);
         window.set_player_subtitles_offset((status.subtitles_delay * 1000.0) as f32);
 
-        if !status.error.is_empty() && *self.playback_error.lock().unwrap() != status.error {
+        if status.error.is_empty() {
+            // A file that is open has no error, whatever the one before it said.
+            if !self.playback_error.lock().unwrap().is_empty() {
+                *self.playback_error.lock().unwrap() = String::new();
+                window.set_player_error("".into());
+            }
+        } else if *self.playback_error.lock().unwrap() != status.error {
             *self.playback_error.lock().unwrap() = status.error.clone();
             window.set_player_error(status.error.into());
         }

@@ -159,6 +159,24 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         },
     ));
 
+    // One-time: drop the library this client cached for itself. Its items carry modification
+    // times from this machine, and a local copy that looks newer than the account makes the sync
+    // *push* it instead of pulling -- which is how watched marks made elsewhere stopped arriving
+    // (measured: the item's mtime was "now" while its watched field was days old). Emptying it
+    // lets the first sync pull the account's copy, which then owns the items.
+    {
+        let marker = "library_cache_reset";
+        if tokio
+            .block_on(AppEnv::get_storage::<bool>(marker))
+            .ok()
+            .flatten()
+            != Some(true)
+        {
+            let _ = tokio.block_on(AppEnv::set_storage::<()>("library", None));
+            let _ = tokio.block_on(AppEnv::set_storage::<()>("library_recent", None));
+            let _ = tokio.block_on(AppEnv::set_storage(marker, Some(&true)));
+        }
+    }
     wiring.report_server_state(server.start());
     app::build::load_everything(&runtime);
     // The same pulls the window repeats whenever it comes back to the front: the web does this
