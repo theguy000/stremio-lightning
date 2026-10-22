@@ -11,6 +11,17 @@ members = [
 ]
 resolver = "2"
 
+# Dev/test builds carried full DWARF for all 780+ dependencies by default, which
+# dominated local build time (19.7 GB of .pdb files, 45 GB of target/debug).
+# Line-table debug info for our own crates keeps `cargo test` backtraces and
+# breakpoints usable; dependencies get none, since stepping into Slint/wgpu
+# internals is rare. To revert, set `debug = 2` and drop the package override.
+[profile.dev]
+debug = 1
+
+[profile.dev.package."*"]
+debug = 0
+
 [profile.release]
 opt-level = 3
 lto = "thin"
