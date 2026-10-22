@@ -341,67 +341,74 @@ export component MetaPreview inherits Rectangle {
             }
             // Web: `Ratings` — a like and a love in one pill, each filled while it is set and dim
             // until the core has said which (if either) the title carries.
-            // Web: `Ratings` — a like and a love in one pill, each filled while it is set and dim
-            // until the core has said which (if either) the title carries. The glyphs sit against
-            // the pill itself rather than inside the halves they belong to: a nested `parent` did
-            // not resolve to the half, and a layout would stretch them across the axis.
+            //
+            // Two 4rem cells, at 0 and at 4rem: the hover circle, the glyph and the target of a
+            // half all measure from their own cell, never from the pill. Measuring from the pill
+            // is what put the like's circle in the middle of it, under the gap between the two.
             if root.rate-visible: rate-container := Rectangle {
                 width: 8 * root.rem-size;
                 height: 4 * root.rem-size;
-                border-radius: 4 * root.rem-size;
+                // A stadium: the radius is half the height, so the ends are true semicircles.
+                border-radius: 2 * root.rem-size;
                 background: Theme.overlay;
 
                 Rectangle {
+                    x: 0px;
+                    y: 0px;
                     width: 4 * root.rem-size;
-                    height: 100%;
-                    border-radius: 4 * root.rem-size;
+                    height: 4 * root.rem-size;
+                    border-radius: 2 * root.rem-size;
                     background: like-touch.has-hover && root.rate-enabled ? #ffffff1a : transparent;
-                }
-                Rectangle {
-                    x: 4 * root.rem-size;
-                    width: 4 * root.rem-size;
-                    height: 100%;
-                    border-radius: 4 * root.rem-size;
-                    background: love-touch.has-hover && root.rate-enabled ? #ffffff1a : transparent;
-                }
 
-                // Centre of each 4rem half, whatever the glyph's own width.
-                Image {
-                    x: 2 * root.rem-size - self.width / 2;
-                    y: (parent.height - self.height) / 2;
-                    width: 1.75 * root.rem-size;
-                    height: 1.75 * root.rem-size;
-                    source: root.rated-liked ? @image-url("icons/thumbs-up.svg") : @image-url("icons/thumbs-up-outline.svg");
-                    colorize: Theme.text;
-                    opacity: root.rate-enabled ? 0.9 : 0.4;
-                }
-                Image {
-                    x: 6 * root.rem-size - self.width / 2;
-                    y: (parent.height - self.height) / 2;
-                    width: 1.75 * root.rem-size;
-                    height: 1.75 * root.rem-size;
-                    source: root.rated-loved ? @image-url("icons/heart.svg") : @image-url("icons/heart-outline.svg");
-                    colorize: Theme.text;
-                    opacity: root.rate-enabled ? 0.9 : 0.4;
-                }
-
-                like-touch := TouchArea {
-                    width: 4 * root.rem-size;
-                    height: 100%;
-                    enabled: root.rate-enabled;
-                    mouse-cursor: pointer;
-                    clicked => {
-                        root.rate-like();
+                    Image {
+                        x: (4 * root.rem-size - self.width) / 2;
+                        y: (4 * root.rem-size - self.height) / 2;
+                        width: 1.75 * root.rem-size;
+                        height: 1.75 * root.rem-size;
+                        source: root.rated-liked ? @image-url("icons/thumbs-up.svg") : @image-url("icons/thumbs-up-outline.svg");
+                        colorize: Theme.text;
+                        opacity: root.rate-enabled ? 0.9 : 0.4;
+                    }
+                    like-touch := TouchArea {
+                        x: 0px;
+                        y: 0px;
+                        width: 4 * root.rem-size;
+                        height: 4 * root.rem-size;
+                        enabled: root.rate-enabled;
+                        mouse-cursor: pointer;
+                        clicked => {
+                            root.rate-like();
+                        }
                     }
                 }
-                love-touch := TouchArea {
+
+                Rectangle {
                     x: 4 * root.rem-size;
+                    y: 0px;
                     width: 4 * root.rem-size;
-                    height: 100%;
-                    enabled: root.rate-enabled;
-                    mouse-cursor: pointer;
-                    clicked => {
-                        root.rate-love();
+                    height: 4 * root.rem-size;
+                    border-radius: 2 * root.rem-size;
+                    background: love-touch.has-hover && root.rate-enabled ? #ffffff1a : transparent;
+
+                    Image {
+                        x: (4 * root.rem-size - self.width) / 2;
+                        y: (4 * root.rem-size - self.height) / 2;
+                        width: 1.75 * root.rem-size;
+                        height: 1.75 * root.rem-size;
+                        source: root.rated-loved ? @image-url("icons/heart.svg") : @image-url("icons/heart-outline.svg");
+                        colorize: Theme.text;
+                        opacity: root.rate-enabled ? 0.9 : 0.4;
+                    }
+                    love-touch := TouchArea {
+                        x: 0px;
+                        y: 0px;
+                        width: 4 * root.rem-size;
+                        height: 4 * root.rem-size;
+                        enabled: root.rate-enabled;
+                        mouse-cursor: pointer;
+                        clicked => {
+                            root.rate-love();
+                        }
                     }
                 }
             }

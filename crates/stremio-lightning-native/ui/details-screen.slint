@@ -412,8 +412,10 @@ component DetailsPanel inherits Rectangle {
     if root.show-picker == false: VerticalLayout {
         spacing: 0;
 
-        // Web: .select-choices-wrapper — the way back beside the Episode's name.
-        HorizontalLayout {
+        // Web: .select-choices-wrapper — the way back beside the Episode's name. It belongs to a
+        // list that stands for one chosen Episode, so a Film, whose Streams are its only page,
+        // has none: that button had nothing to go back to and left "No streams were found" behind.
+        if root.picked-label != "": HorizontalLayout {
             // Web: .select-choices-wrapper carries a 1em top margin above the 3rem button.
             height: 4 * root.rem-size;
             padding-top: 1 * root.rem-size;
