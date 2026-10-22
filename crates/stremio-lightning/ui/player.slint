@@ -943,6 +943,14 @@ export component PlayerScreen inherits Rectangle {
         y: root.height - self.height;
         width: root.width;
         height: 7 * root.rem-size;
+            // A press anywhere on this panel stops here, so it cannot reach the picture behind
+            // it. An empty TouchArea is transparent to the pointer; one that answers every event
+            // is a wall.
+            TouchArea {
+                pointer-event(event) => {
+                    EventResult.accept
+                }
+            }
 
         Rectangle {
             x: 0;
@@ -1162,6 +1170,14 @@ export component PlayerScreen inherits Rectangle {
         height: root.menu-height;
         x: root.width - self.width - 4 * root.rem-size;
         y: root.height - self.height - 7.5 * root.rem-size;
+            // A press anywhere on this panel stops here, so it cannot reach the picture behind
+            // it. An empty TouchArea is transparent to the pointer; one that answers every event
+            // is a wall.
+            TouchArea {
+                pointer-event(event) => {
+                    EventResult.accept
+                }
+            }
 
         PlayerMenu {
             width: parent.width;
@@ -1359,6 +1375,14 @@ export component PlayerScreen inherits Rectangle {
         y: 0;
         width: 35 * root.rem-size;
         height: root.height;
+            // A press anywhere on this panel stops here, so it cannot reach the picture behind
+            // it. An empty TouchArea is transparent to the pointer; one that answers every event
+            // is a wall.
+            TouchArea {
+                pointer-event(event) => {
+                    EventResult.accept
+                }
+            }
 
         VerticalLayout {
             padding: 1 * root.rem-size;
@@ -1504,7 +1528,7 @@ export component PlayerScreen inherits Rectangle {
                             source: @image-url("icons/caret-down.svg");
                             colorize: Theme.text;
                             opacity: 0.6;
-                            rotation-angle: root.season-menu-open ? 180deg : 0deg;
+                            transform-rotation: root.season-menu-open ? 180deg : 0deg;
                         }
                         season-touch := TouchArea {
                             mouse-cursor: pointer;
@@ -1522,11 +1546,14 @@ export component PlayerScreen inherits Rectangle {
                         width: 9.5 * root.rem-size;
                         height: Math.min(root.seasons.length * 3, 21) * root.rem-size;
                         border-radius: 0.75 * root.rem-size;
-                        background: Theme.modal-background;
-                        clip: true;
-                        drop-shadow-blur: 2.7 * root.rem-size;
-                        drop-shadow-offset-y: 1.35 * root.rem-size;
-                        drop-shadow-color: #00000066;
+                        // The drawer behind this is the same modal colour, so the panel is a shade
+                        // lighter with an edge and a shadow under it, or it reads as nothing.
+                        background: Theme.modal-raised;
+                        border-width: 1px;
+                        border-color: #ffffff1f;
+                        drop-shadow-blur: 3.2 * root.rem-size;
+                        drop-shadow-offset-y: 1.2 * root.rem-size;
+                        drop-shadow-color: #000000a6;
 
                         for season[index] in root.seasons: Rectangle {
                             height: 3 * root.rem-size;
@@ -1762,6 +1789,14 @@ export component PlayerScreen inherits Rectangle {
         height: 12 * root.rem-size;
         x: root.width - self.width - 4 * root.rem-size;
         y: root.height - self.height - 7.5 * root.rem-size;
+            // A press anywhere on this panel stops here, so it cannot reach the picture behind
+            // it. An empty TouchArea is transparent to the pointer; one that answers every event
+            // is a wall.
+            TouchArea {
+                pointer-event(event) => {
+                    EventResult.accept
+                }
+            }
 
         PlayerMenu {
             width: parent.width;
