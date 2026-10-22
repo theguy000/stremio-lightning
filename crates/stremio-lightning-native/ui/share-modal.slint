@@ -139,9 +139,10 @@ export component ShareModal inherits Rectangle {
             border-radius: 0.75 * root.rem-size;
             background: Theme.overlay;
 
-            // Web: a read-only text input, so the link can be selected and copied by hand as well
-            // as with the button beside it.
-            TextInput {
+            // Web: a read-only text input. Clicking it takes the whole link, so it can be copied
+            // by hand as well as with the button beside it, and the field never takes the keyboard:
+            // a caret in the middle of a link that cannot be edited is only a distraction.
+            link-input := TextInput {
                 x: 1 * root.rem-size;
                 width: parent.width - 9 * root.rem-size;
                 height: parent.height;
@@ -152,6 +153,15 @@ export component ShareModal inherits Rectangle {
                 font-size: 1.1 * root.rem-size;
                 horizontal-alignment: center;
                 vertical-alignment: center;
+            }
+            TouchArea {
+                clicked => {
+                    // Taking the link is all this does: the end is beyond the text, so the whole
+                    // link is selected whatever its length. Copying stays with the button beside
+                    // it, and the field is not given the keyboard, because a caret in a field that
+                    // cannot be edited is only a distraction.
+                    link-input.set-selection-offsets(0, 1000);
+                }
             }
 
             Rectangle {
