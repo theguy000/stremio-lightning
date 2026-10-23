@@ -87,6 +87,12 @@ export component DiscoverContent inherits Rectangle {
         (-root.scroll-offset + meta-items-container.height) / root.row-pitch) + 1;
     changed grid-scroll => {
         root.report-visible();
+    }
+    /// Counts how many times the shell has said the grid stopped moving. A count rather than a
+    /// flag, so two settles in a row are two changes: the next page is asked for once the scrolling
+    /// has stopped, not on every notch of a flick that would fly straight past it.
+    in property <int> settle-count: 0;
+    changed settle-count => {
         root.check-end();
     }
     changed grid-height => {

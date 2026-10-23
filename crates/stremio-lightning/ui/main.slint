@@ -146,6 +146,9 @@ export component MainWindow inherits Window {
     /// Where the Discover grid is, how big its viewport is and how tall its contents are, so the
     /// shell can clamp a wheel notch before it moves `discover-scroll`.
     callback grid-bounds(length, length, length, length, length);
+    /// How many times the shell has said the Discover grid stopped moving, so it only asks for the
+    /// next page once the scrolling has stopped.
+    in-out property <int> grid-settle-count: 0;
     /// How far the Discover grid is scrolled, in pixels: zero at the top, negative below it. The
     /// shell moves it for the wheel; the grid draws it.
     in-out property <length> discover-scroll: 0px;
@@ -237,6 +240,7 @@ export component MainWindow inherits Window {
         grid-bounds(x, y, width, viewport, content) => {
             root.grid-bounds(x, y, width, viewport, content);
         }
+        settle-count: root.grid-settle-count;
         scroll-offset <=> root.discover-scroll;
         open-item(id, kind, title) => {
             root.details-open = true;

@@ -117,6 +117,9 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         playback_error: playback_error.clone(),
         playback: Default::default(),
         player_sync: Default::default(),
+        // Fires once the Discover grid has stopped moving, to fetch the row of cards either side of
+        // the screen. Started and restarted by the grid itself.
+        settle: Default::default(),
     };
     shell::wire(&window, wiring.clone());
     // The wheel is taken from the window itself: left to a Slint Flickable it costs a whole

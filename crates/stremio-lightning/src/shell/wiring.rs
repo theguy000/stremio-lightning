@@ -23,6 +23,31 @@ use crate::screens::{auth, details, discover, player, settings};
 use crate::shell;
 use crate::MainWindow;
 
+/// How long the Discover grid has to keep still before the posters for what is on screen are
+/// fetched. Long enough that a scroll in progress never triggers it, short enough that the
+/// screenful is asked for the moment the scrolling stops.
+const SETTLE_MS: u64 = 150;
+
+/// How fast the grid has to be moving before its posters wait for it to stop, in pixels a second.
+/// A wheel turned at ten notches a second is about a thousand; a flick of a touchpad is three times
+/// that, and at that speed a row of cards is on screen for a tenth of a second and nobody has read
+/// it. Below this the screenful is fetched as it arrives, as a browser's `loading="lazy"` does.
+const FLYING: f32 = 1800.0;
+
+/// The grid's last report: where it is scrolled to, how tall it is, how far apart its rows are, how
+/// many columns it has, and when it said so -- the last two numbers are what tells a flick from a
+/// scroll. Kept for `fill_the_slack`, which runs after the scrolling has stopped.
+static GRID: Mutex<Option<GridReport>> = Mutex::new(None);
+
+#[derive(Clone, Copy)]
+struct GridReport {
+    scroll: f32,
+    height: f32,
+    pitch: f32,
+    columns: i32,
+    at: std::time::Instant,
+}
+
 /// Every handle the callbacks need, in one value, so registering a callback is one line.
 #[derive(Clone)]
 pub(crate) struct Wiring {
@@ -59,6 +84,9 @@ pub(crate) struct Wiring {
     pub(crate) playback_error: Arc<Mutex<String>>,
     pub(crate) playback: Arc<Mutex<Playback>>,
     pub(crate) player_sync: Arc<Timer>,
+    /// Restarted by the Discover grid every time it moves; fires when it has stopped, which is when
+    /// the row of cards either side of the screen is fetched.
+    pub(crate) settle: Arc<Timer>,
 }
 
 /// Where the picture is, as the player last heard it. The core is told about the play head once
@@ -695,22 +723,69 @@ impl Wiring {
     /// can be a hundred cards, and fetching all of them at once is what web's `loading="lazy"` never
     /// does. The range is kept, so a repaint for any other reason asks for the same cards.
     fn visible_range(&self, scroll: f32, height: f32, pitch: f32, columns: i32) {
+        let now = std::time::Instant::now();
+        let previous = *GRID.lock().unwrap();
+        *GRID.lock().unwrap() = Some(GridReport {
+            scroll,
+            height,
+            pitch,
+            columns,
+            at: now,
+        });
+        // How fast the grid is going, from the last report: while it is flying past, a row of cards
+        // is on screen for a fraction of a second and asking for its posters is work nobody sees.
+        let flying = previous.is_some_and(|before| {
+            let seconds = now.duration_since(before.at).as_secs_f32();
+            seconds > 0.0 && seconds < 0.25 && (scroll - before.scroll).abs() / seconds > FLYING
+        });
         let range = discover::visible_range(scroll, height, pitch, columns);
-        if *self.visible.lock().unwrap() == range {
+        if *self.visible.lock().unwrap() != range {
+            *self.visible.lock().unwrap() = range;
+            if crate::plumbing::images::tracing() {
+                eprintln!(
+                    "[grid] scrolled {scroll:.0}px of {height:.0}px, rows {pitch:.0}px x {columns}: \
+                     cards {}..{}{}",
+                    range.0,
+                    range.0 + range.1,
+                    if flying { " (flying: posters wait)" } else { "" }
+                );
+            }
+            if !flying {
+                let snapshot = self.latest.lock().unwrap().clone();
+                for url in discover::card_images(&snapshot.discover, range) {
+                    self.request_painting(url);
+                }
+            }
+        }
+        // Whether or not the posters were asked for now, the grid being still is what says the
+        // screenful is worth filling: it restarts on every report, so it only fires once the
+        // scrolling has stopped.
+        let wiring = self.clone();
+        self.settle.start(
+            slint::TimerMode::SingleShot,
+            std::time::Duration::from_millis(SETTLE_MS),
+            move || wiring.fill_the_slack(),
+        );
+    }
+
+    /// The grid has stopped moving: fetch what is on screen and the row either side, so a screenful
+    /// that was flown past is filled in and the next scroll finds its posters already asked for.
+    /// Cards already asked for are dropped by the image cache, so a scroll that stopped where it was
+    /// costs nothing.
+    fn fill_the_slack(&self) {
+        let Some(grid) = *GRID.lock().unwrap() else {
             return;
-        }
-        *self.visible.lock().unwrap() = range;
-        if crate::plumbing::images::tracing() {
-            eprintln!(
-                "[grid] scrolled {scroll:.0}px of {height:.0}px, rows {pitch:.0}px x {columns}: \
-                 cards {}..{}",
-                range.0,
-                range.0 + range.1
-            );
-        }
+        };
+        let range = discover::settled_range(grid.scroll, grid.height, grid.pitch, grid.columns);
         let snapshot = self.latest.lock().unwrap().clone();
         for url in discover::card_images(&snapshot.discover, range) {
             self.request_painting(url);
+        }
+        // Only now that the grid is still is the next page worth asking for: asked for on every
+        // notch of a flick it pulls a page of cards, and their posters, into a scroll that is
+        // already past them.
+        if let Some(window) = self.window.upgrade() {
+            window.set_grid_settle_count(window.get_grid_settle_count() + 1);
         }
     }
 

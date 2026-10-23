@@ -105,16 +105,27 @@ pub fn preview_images(data: &Data, index: usize) -> Vec<String> {
 /// many of them are. `scroll`, `height`, `pitch` and `columns` come from the grid itself, which
 /// reports them whenever it moves.
 ///
-/// A row of slack is kept at each end, because a card arriving just out of sight is what a scroll
-/// would show next; on an unsized grid (`height` of nothing, which is what the first report from a
-/// window that has not been laid out looks like) a screenful is assumed so the screen is not left
-/// blank.
+/// Strictly what is on screen: while the wheel is turning, a row beyond the screen is a poster
+/// fetched, decoded and drawn for something nobody is looking at yet, and a fast scroll asks for
+/// several screenfuls a second. `settled_range` adds that row back once the grid has stopped. On an
+/// unsized grid (`height` of nothing, which is what the first report from a window that has not been
+/// laid out looks like) a screenful is assumed so the screen is not left blank.
 pub fn visible_range(scroll: f32, height: f32, pitch: f32, columns: i32) -> (usize, usize) {
+    range(scroll, height, pitch, columns, 0.0)
+}
+
+/// The cards on screen plus a row of slack at each end: what to have ready for the scroll that comes
+/// next, asked for once the grid has come to rest rather than while it is moving.
+pub fn settled_range(scroll: f32, height: f32, pitch: f32, columns: i32) -> (usize, usize) {
+    range(scroll, height, pitch, columns, 1.0)
+}
+
+fn range(scroll: f32, height: f32, pitch: f32, columns: i32, slack: f32) -> (usize, usize) {
     let columns = usize::try_from(columns).unwrap_or(1).max(1);
     let pitch = if pitch > 0.0 { pitch } else { 1.0 };
     let height = if height > 0.0 { height } else { pitch * 3.0 };
-    let first_row = ((scroll - pitch).max(0.0) / pitch).floor() as usize;
-    let last_row = ((scroll + height + pitch).max(0.0) / pitch).floor() as usize;
+    let first_row = ((scroll - slack * pitch) / pitch).floor().max(0.0) as usize;
+    let last_row = ((scroll + height + slack * pitch).max(0.0) / pitch).floor() as usize;
     (first_row * columns, (last_row + 1 - first_row) * columns)
 }
 
@@ -136,16 +147,18 @@ pub fn card_images<'a>(
 
 #[cfg(test)]
 mod tests {
-    use super::{card_images, visible_range, Data};
+    use super::{card_images, settled_range, visible_range, Data};
     use crate::screens::Card;
 
     #[test]
-    fn the_range_is_what_is_on_screen_plus_a_row_each_side() {
-        // Four columns, rows 300px apart, a 720px grid at the top: three rows are visible and one
-        // row of slack is kept below.
-        assert_eq!(visible_range(0.0, 720.0, 300.0, 4), (0, 16));
-        // Scrolled two rows down: one row of slack above, and the range follows the scroll.
-        assert_eq!(visible_range(600.0, 720.0, 300.0, 4), (4, 20));
+    fn what_is_on_screen_is_asked_for_at_once_and_the_slack_once_it_settles() {
+        // Four columns, rows 300px apart, a 720px grid at the top: three rows are visible.
+        assert_eq!(visible_range(0.0, 720.0, 300.0, 4), (0, 12));
+        // Scrolled two rows down: the range follows the scroll, and nothing above it.
+        assert_eq!(visible_range(600.0, 720.0, 300.0, 4), (8, 12));
+        // Once the grid has stopped, a row either side is fetched for the next scroll.
+        assert_eq!(settled_range(0.0, 720.0, 300.0, 4), (0, 16));
+        assert_eq!(settled_range(600.0, 720.0, 300.0, 4), (4, 20));
     }
 
     #[test]

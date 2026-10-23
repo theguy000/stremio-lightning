@@ -22,7 +22,83 @@ pub(crate) const PAGE_SUFFIX: &str = "#page";
 /// Web: the details column's `backdrop-filter: blur(15px)` over the artwork behind it.
 pub(crate) const BACKDROP_SUFFIX: &str = "#backdrop";
 
-pub(crate) type Cache = Arc<Mutex<HashMap<String, SharedPixelBuffer<Rgba8Pixel>>>>;
+/// How much decoded picture the cache may hold before the least recently used ones are let go. A
+/// poster is 300x450, 540 kB, and the artwork that fills the window is 1920x1080, 8 MB: without a
+/// cap a session of browsing keeps every one of them, and measured at 472 MB.
+const CACHE_LIMIT: usize = 192 * 1024 * 1024;
+
+pub(crate) type Cache = Arc<Mutex<Cached>>;
+
+/// Decoded pictures by key, oldest use first out once the cache is over its limit.
+#[derive(Default)]
+pub(crate) struct Cached {
+    entries: HashMap<String, (SharedPixelBuffer<Rgba8Pixel>, usize, u64)>,
+    bytes: usize,
+    /// Counts up on every use, so the picture used longest ago is the smallest.
+    tick: u64,
+    limit: usize,
+}
+
+impl Cached {
+    #[cfg(test)]
+    fn with_limit(limit: usize) -> Self {
+        Self {
+            limit,
+            ..Self::default()
+        }
+    }
+
+    fn get(&mut self, key: &str) -> Option<SharedPixelBuffer<Rgba8Pixel>> {
+        self.tick += 1;
+        let (buffer, _, used) = self.entries.get_mut(key)?;
+        *used = self.tick;
+        Some(buffer.clone())
+    }
+
+    fn contains_key(&self, key: &str) -> bool {
+        self.entries.contains_key(key)
+    }
+
+    /// Puts a picture in, and says which keys it had to let go of to make room. Those have to be
+    /// asked for again if they are ever wanted again, so the caller takes them off its "asked for"
+    /// list: a poster let go of here must not look like one already on its way.
+    fn insert(&mut self, key: String, buffer: SharedPixelBuffer<Rgba8Pixel>) -> Vec<String> {
+        let bytes = buffer.width() as usize * buffer.height() as usize * 4;
+        self.tick += 1;
+        if let Some((_, was, _)) = self.entries.insert(key.clone(), (buffer, bytes, self.tick)) {
+            self.bytes -= was;
+        }
+        self.bytes += bytes;
+        let limit = if self.limit == 0 { CACHE_LIMIT } else { self.limit };
+        let mut let_go = Vec::new();
+        while self.bytes > limit {
+            // Never the picture just made: it is the one about to be drawn.
+            let Some(oldest) = self
+                .entries
+                .iter()
+                .filter(|(k, _)| **k != key)
+                .min_by_key(|(_, (_, _, used))| *used)
+                .map(|(k, _)| k.clone())
+            else {
+                break;
+            };
+            if let Some((_, bytes, _)) = self.entries.remove(&oldest) {
+                self.bytes -= bytes;
+                let_go.push(oldest);
+            }
+        }
+        let_go
+    }
+
+    fn iter(&self) -> impl Iterator<Item = (&String, &SharedPixelBuffer<Rgba8Pixel>)> {
+        self.entries.iter().map(|(key, (buffer, _, _))| (key, buffer))
+    }
+
+    #[cfg(test)]
+    fn bytes(&self) -> usize {
+        self.bytes
+    }
+}
 
 /// A key held back because the picture it would be made from is being downloaded: the key itself
 /// and what to run once it has been made.
@@ -81,7 +157,7 @@ impl Images {
     /// The image for a key, if it has arrived. Read while the window is being filled in.
     pub(crate) fn get(&self, key: &Option<String>) -> Option<Image> {
         key.as_ref()
-            .and_then(|key| self.cache.lock().unwrap().get(key).cloned())
+            .and_then(|key| self.cache.lock().unwrap().get(key))
             .map(Image::from_rgba8)
     }
 
@@ -153,7 +229,8 @@ impl Images {
             };
             match result {
                 Fetched::Ready(buffer) => {
-                    cache.lock().unwrap().insert(key, buffer);
+                    let let_go = cache.lock().unwrap().insert(key, buffer);
+                    forget(&requested, let_go);
                     on_ready();
                     release(&waiting, &cache, &requested, &base);
                 }
@@ -206,6 +283,19 @@ fn should_wait(blur: bool, base: &str, requested: &HashSet<String>, cached: bool
     blur && !cached && requested.contains(base)
 }
 
+/// Takes the keys the cache let go of off the "asked for" list, so a picture that was dropped to
+/// make room is fetched again if it is ever wanted again, rather than staying blank for the rest of
+/// the session.
+fn forget(requested: &Arc<Mutex<HashSet<String>>>, let_go: Vec<String>) {
+    if let_go.is_empty() {
+        return;
+    }
+    let mut requested = requested.lock().unwrap();
+    for key in let_go {
+        requested.remove(&key);
+    }
+}
+
 /// Hands the keys that were waiting on `url` the picture that has just landed: each is made from
 /// it, never downloaded again, and its caller repainted.
 fn release(
@@ -228,7 +318,8 @@ fn release(
             .flatten();
             match made {
                 Some(buffer) => {
-                    cache.lock().unwrap().insert(key, buffer);
+                    let let_go = cache.lock().unwrap().insert(key, buffer);
+                    forget(&requested, let_go);
                     on_ready();
                 }
                 None => {
@@ -434,6 +525,42 @@ async fn fetch(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A 4x4 picture, 64 bytes: small enough to make a cache limit out of whole ones.
+    fn picture() -> SharedPixelBuffer<Rgba8Pixel> {
+        SharedPixelBuffer::<Rgba8Pixel>::new(4, 4)
+    }
+
+    #[test]
+    fn the_cache_lets_go_of_the_oldest_picture_once_it_is_full() {
+        let mut cache = Cached::with_limit(64 + 8);
+        cache.insert("a".to_owned(), picture());
+        cache.insert("b".to_owned(), picture());
+        assert!(!cache.contains_key("a"), "the oldest should have been let go");
+        assert!(cache.contains_key("b"));
+        assert!(cache.bytes() <= 64 + 8);
+    }
+
+    #[test]
+    fn a_picture_used_again_is_the_last_to_go() {
+        let mut cache = Cached::with_limit(128);
+        cache.insert("a".to_owned(), picture());
+        cache.insert("b".to_owned(), picture());
+        // Reading "a" makes "b" the least recently used, so "b" is what goes next.
+        assert!(cache.get("a").is_some());
+        cache.insert("c".to_owned(), picture());
+        assert!(cache.contains_key("a"));
+        assert!(cache.contains_key("c"));
+        assert!(!cache.contains_key("b"));
+    }
+
+    #[test]
+    fn the_picture_just_made_is_never_let_go() {
+        // A limit under one picture would otherwise evict the one that is about to be drawn.
+        let mut cache = Cached::with_limit(1);
+        cache.insert("a".to_owned(), picture());
+        assert!(cache.contains_key("a"));
+    }
 
     #[test]
     fn a_key_says_which_size_it_wants() {
