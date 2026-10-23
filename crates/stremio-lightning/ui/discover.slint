@@ -234,7 +234,9 @@ export component DiscoverContent inherits Rectangle {
                     height: parent.height;
                     view-height: parent.height;
                     content-height: root.grid-height-total;
-                    offset: -root.scroll-offset;
+                    // `scroll-offset` is already in the bar's own convention: zero at the top,
+                    // negative further down. Negating it here pinned the handle at the top.
+                    offset: root.scroll-offset;
                 }
 
                 // Dragging the bar moves the grid: the pointer's height down the viewport is the

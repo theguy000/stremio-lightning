@@ -18,7 +18,7 @@ use i_slint_backend_winit::{EventResult, WinitWindowAccessor};
 use slint::{ComponentHandle, LogicalPosition, Weak};
 use winit::event::{MouseScrollDelta, WindowEvent};
 
-use crate::MainWindow;
+use crate::{MainWindow, Section};
 
 /// How far one line of a `LineDelta` scrolls, in logical pixels. winit reports a mouse wheel notch
 /// as one line on Windows, and a browser scrolls about 100px for one.
@@ -68,6 +68,16 @@ pub(crate) fn wire(window: &MainWindow) {
                 let Some(window) = weak.upgrade() else {
                     return EventResult::Propagate;
                 };
+                // The bounds are the *last* ones the grid reported, and the grid is gone the moment
+                // another screen opens: taking the wheel there would swallow it into an offset
+                // nothing is drawing. On the board that is most of the page, which is why its wheel
+                // stopped working after a visit to Discover.
+                if window.get_section() != Section::Discover
+                    || window.get_details_open()
+                    || window.get_playing()
+                {
+                    return EventResult::Propagate;
+                }
                 let Some(grid) = grid.get() else {
                     return EventResult::Propagate;
                 };
