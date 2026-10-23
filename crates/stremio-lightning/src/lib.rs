@@ -119,6 +119,9 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         player_sync: Default::default(),
     };
     shell::wire(&window, wiring.clone());
+    // The wheel is taken from the window itself: left to a Slint Flickable it costs a whole
+    // animation, and a whole animation is a core.
+    shell::wheel::wire(&window);
     // Playback news goes to the wiring, which is the only thing that knows both mpv and the
     // core: it moves the window, tells the core where the play head is, and moves on to the
     // next Video when a stream ends.

@@ -11,6 +11,11 @@ stremio-lightning-env = { path = "../stremio-lightning-env" }
 stremio-lightning-core = { path = "../stremio-lightning-core" }
 stremio-core = { git = "https://github.com/theguy000/stremio-core", branch = "fix/watched-bitfield-flate2", features = ["env-future-send", "derive"] }
 slint = "1.18"
+# The wheel is taken from winit rather than from Slint's language, which has no wheel event: this is
+# Slint's own winit wrapper, so the hook is the same on Windows, Linux and macOS. `winit` is named
+# here only to match the event types that wrapper speaks, at the version it is built against.
+i-slint-backend-winit = "1.18"
+winit = "0.30"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "fs", "net", "time", "macros"] }
 futures = "0.3"
 serde = { version = "1", features = ["derive"] }

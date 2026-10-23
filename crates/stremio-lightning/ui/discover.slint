@@ -32,6 +32,9 @@ export component DiscoverContent inherits Rectangle {
     // of one row of cards and how many cards are in a row. The shell works out which cards that is
     // and asks for those pictures only, the way a browser's `loading="lazy"` does.
     callback visible-range(length, length, length, int);
+    /// Where the grid is on the window, how big its viewport is and how tall its contents are. The
+    /// shell scrolls it (`wheel.rs`), so it needs all three to clamp one wheel notch.
+    callback grid-bounds(length, length, length, length, length);
     // (input index, option index): the user picked an option in the filter bar.
     callback select-option(int, int);
 
@@ -61,19 +64,29 @@ export component DiscoverContent inherits Rectangle {
         + (root.cell-width - 2 * root.rem-size) * root.poster-shape-ratio
         + 4 * root.rem-size;
     property <int> row-count: Math.ceil(root.cards.length / root.columns);
+    /// How far the grid is scrolled: zero at the top, negative further down. Nothing but the shell
+    /// and the scrollbar touch it -- this grid is not a `Flickable`, because a `Flickable` animates
+    /// every wheel notch over 180ms and redraws the whole window for each frame of that animation:
+    /// measured at ~200ms of a core per notch.
+    in-out property <length> scroll-offset: 0px;
+    /// How tall the whole grid is: what `scroll-offset` runs from zero down to.
+    property <length> grid-height-total: root.row-count * root.cell-height
+        + Math.max(root.row-count - 1, 0) * root.gap;
     /// The scrolled distance into the grid and how much of it is on screen. Both are read by the
     /// `visible-range` report below.
-    property <length> grid-scroll: -meta-items-container.content-y;
+    property <length> grid-scroll: -root.scroll-offset;
     property <length> grid-height: meta-items-container.height;
     property <length> row-pitch: root.cell-height + root.gap;
     changed grid-scroll => {
         root.report-visible();
+        root.check-end();
     }
     changed grid-height => {
         root.report-visible();
     }
     changed row-count => {
         root.report-visible();
+        root.check-end();
     }
     init => {
         root.report-visible();
@@ -85,14 +98,20 @@ export component DiscoverContent inherits Rectangle {
             - (root.input-count - 1) * 1.5 * root.rem-size) / root.input-count);
 
     function check-end() {
-        if (-meta-items-container.content-y + meta-items-container.height
-            > meta-items-container.content-height - 400px) {
+        if (-root.scroll-offset + meta-items-container.height
+            > root.grid-height-total - 400px) {
             root.load-next-page();
         }
     }
 
     function report-visible() {
         root.visible-range(root.grid-scroll, root.grid-height, root.row-pitch, root.columns);
+        // Where the grid is and how tall its contents are, so the shell can clamp a wheel notch
+        // itself: it owns `scroll-offset`, this only draws it.
+        root.grid-bounds(meta-items-container.absolute-position.x,
+            meta-items-container.absolute-position.y,
+            meta-items-container.width, meta-items-container.height,
+            root.grid-height-total);
     }
 
     discover-content := Rectangle {
@@ -121,57 +140,61 @@ export component DiscoverContent inherits Rectangle {
                     select(option) => {
                         // A new catalog starts at the top with its first card selected.
                         root.selected-index = 0;
-                        meta-items-container.content-y = 0px;
+                        root.scroll-offset = 0px;
                         root.select-option(index, option);
                     }
                 }
             }
 
-            meta-items-container := Flickable {
+            // The grid's viewport, clipped. Plain rectangles rather than a `Flickable`: the shell
+            // moves `scroll-offset`, this only draws it, so a wheel notch is one frame.
+            meta-items-container := Rectangle {
                 x: 0px;
                 y: 6 * root.rem-size;
                 width: root.catalog-width - root.grid-right-margin;
                 height: parent.height - 6 * root.rem-size;
-                content-width: self.width;
-                content-height: root.row-count * root.cell-height + Math.max(root.row-count - 1, 0) * root.gap;
-                changed content-y => {
-                    root.check-end();
-                }
-                changed content-height => {
-                    root.check-end();
-                }
+                clip: true;
 
-                for card[index] in root.cards: MetaItem {
-                    x: 1.5 * root.rem-size + Math.mod(index, root.columns) * (root.cell-width + root.gap);
-                    y: Math.floor(index / root.columns) * (root.cell-height + root.gap);
-                    width: root.cell-width;
-                    height: root.cell-height;
-                    card: card;
-                    selected: index == root.selected-index;
-                    rem-size: root.rem-size;
-                    poster-shape-ratio: root.poster-shape-ratio;
-                    hovered => {
-                        root.hover-card(index);
-                    }
-                    // Web: a click on a card that is not selected selects it, a second click opens it.
-                    clicked => {
-                        if (index == root.selected-index || !root.preview-visible) {
-                            root.open-item(card.item-id, card.kind, card.title);
-                        } else {
-                            root.selected-index = index;
-                            root.select-item(index);
+                grid := Rectangle {
+                    x: 0px;
+                    y: root.scroll-offset;
+                    width: parent.width;
+                    height: root.grid-height-total;
+
+                    for card[index] in root.cards: MetaItem {
+                        x: 1.5 * root.rem-size + Math.mod(index, root.columns) * (root.cell-width + root.gap);
+                        y: Math.floor(index / root.columns) * (root.cell-height + root.gap);
+                        width: root.cell-width;
+                        height: root.cell-height;
+                        card: card;
+                        selected: index == root.selected-index;
+                        rem-size: root.rem-size;
+                        poster-shape-ratio: root.poster-shape-ratio;
+                        hovered => {
+                            root.hover-card(index);
+                        }
+                        // Web: a click on a card that is not selected selects it, a second click opens it.
+                        clicked => {
+                            if (index == root.selected-index || !root.preview-visible) {
+                                root.open-item(card.item-id, card.kind, card.title);
+                            } else {
+                                root.selected-index = index;
+                                root.select-item(index);
+                            }
                         }
                     }
                 }
-            }
 
-            ScrollBar {
-                x: meta-items-container.x + meta-items-container.width - self.width;
-                y: meta-items-container.y;
-                height: meta-items-container.height;
-                view-height: meta-items-container.height;
-                content-height: meta-items-container.content-height;
-                offset <=> meta-items-container.content-y;
+                // Drawn from the same offset and nothing else. It shows where the grid is; it does
+                // not own the position, so it cannot fight the shell over it.
+                ScrollBar {
+                    x: parent.width - self.width;
+                    y: 0px;
+                    height: parent.height;
+                    view-height: parent.height;
+                    content-height: root.grid-height-total;
+                    offset: -root.scroll-offset;
+                }
             }
         }
 
