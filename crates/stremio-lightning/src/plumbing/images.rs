@@ -30,12 +30,14 @@ type Waiter = (String, Box<dyn FnOnce() + Send>);
 
 /// How many pictures are downloaded at once. A catalog's whole grid was asked for together -- 88
 /// connections to one host, the first done in a third of a second and the last in thirty-six -- so
-/// the host is not willing to serve that many friends of ours at the same time. Six is what a
-/// browser opens to one host, and it is enough to keep the wire busy.
-const BULK_FETCHES: usize = 6;
+/// the host is not willing to serve that many friends of ours at the same time. This is a queue:
+/// the keys are taken in the order they were asked for, so the cards on screen are the first
+/// through. With HTTP/2 these are streams on one connection rather than connections, which is why
+/// it can be wider than the six a browser opens per host over HTTP/1.1.
+const BULK_FETCHES: usize = 16;
 /// The pictures a click is waiting on -- the panel's backdrop and its logo -- have a lane of their
 /// own, so they are never queued behind a grid's worth of posters.
-const URGENT_FETCHES: usize = 3;
+const URGENT_FETCHES: usize = 4;
 
 #[derive(Clone)]
 pub(crate) struct Images {
@@ -143,7 +145,10 @@ impl Images {
             }
             drop(held);
             let result = match made {
-                Some(buffer) => Fetched::Ready(buffer),
+                Some(buffer) => {
+                    trace(format_args!("made {key}"));
+                    Fetched::Ready(buffer)
+                }
                 None => fetch(&client, &key, &gate).await,
             };
             match result {
@@ -153,9 +158,11 @@ impl Images {
                     release(&waiting, &cache, &requested, &base);
                 }
                 Fetched::Missing => {
+                    trace(format_args!("missing {key}"));
                     abandon(&waiting, &requested, &base);
                 }
                 Fetched::Retry => {
+                    trace(format_args!("retry {key}"));
                     requested.lock().unwrap().remove(&key);
                     abandon(&waiting, &requested, &base);
                 }
@@ -168,6 +175,28 @@ impl Images {
 /// logo. These take the urgent lane so they are not queued behind a grid of posters.
 fn is_urgent(key: &str) -> bool {
     is_blurred(key) || key.ends_with(LOGO_SUFFIX) || key.ends_with(PAGE_SUFFIX)
+}
+
+/// Milliseconds since this process started asking for pictures.
+fn clock() -> u128 {
+    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    START
+        .get_or_init(std::time::Instant::now)
+        .elapsed()
+        .as_millis()
+}
+
+/// Whether to trace every load. Off unless `LIGHTNING_TRACE_IMAGES` is set: the timeline of a
+/// screen's pictures is what says whether the queue is doing its job.
+fn tracing() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("LIGHTNING_TRACE_IMAGES").is_some())
+}
+
+fn trace(message: std::fmt::Arguments<'_>) {
+    if tracing() {
+        eprintln!("[img] t={} {message}", clock());
+    }
 }
 
 /// Whether this key should wait for the picture another key is already downloading whole. Every
@@ -335,6 +364,8 @@ async fn fetch(
         Ok(permit) => permit,
         Err(_) => return Fetched::Retry,
     };
+    let started = std::time::Instant::now();
+    trace(format_args!("start {key}"));
     let response = match client.get(url).send().await {
         Ok(response) => response,
         Err(error) => {
@@ -342,6 +373,7 @@ async fn fetch(
             return Fetched::Retry;
         }
     };
+    let version = response.version();
     let response = match response.error_for_status() {
         Ok(response) => response,
         Err(error) => {
@@ -366,6 +398,8 @@ async fn fetch(
     // The wire is free again as soon as the body is in; decoding happens on the blocking pool, and
     // holding the permit through it would keep the next picture waiting on the CPU instead.
     drop(permit);
+    let net = started.elapsed().as_millis();
+    let length = bytes.len();
     let decoded = tokio::task::spawn_blocking(move || {
         let image = image::load_from_memory(&bytes)
             .map_err(|error| eprintln!("[image] decode failed: {error}"))
@@ -385,6 +419,12 @@ async fn fetch(
     .await
     .ok()
     .flatten();
+    trace(format_args!(
+        "done {:?} net={net}ms decode={}ms {}kB {key}",
+        version,
+        started.elapsed().as_millis() - net,
+        length / 1024
+    ));
     match decoded {
         Some(buffer) => Fetched::Ready(buffer),
         None => Fetched::Retry,
