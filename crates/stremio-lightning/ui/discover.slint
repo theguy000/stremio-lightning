@@ -28,6 +28,10 @@ export component DiscoverContent inherits Rectangle {
     callback select-item(int);
     /// The pointer came to rest on a card: its pictures can be fetched before it is opened.
     callback hover-card(int);
+    // How much of the grid is on screen: the scrolled distance, the viewport's height, the height
+    // of one row of cards and how many cards are in a row. The shell works out which cards that is
+    // and asks for those pictures only, the way a browser's `loading="lazy"` does.
+    callback visible-range(length, length, length, int);
     // (input index, option index): the user picked an option in the filter bar.
     callback select-option(int, int);
 
@@ -57,6 +61,23 @@ export component DiscoverContent inherits Rectangle {
         + (root.cell-width - 2 * root.rem-size) * root.poster-shape-ratio
         + 4 * root.rem-size;
     property <int> row-count: Math.ceil(root.cards.length / root.columns);
+    /// The scrolled distance into the grid and how much of it is on screen. Both are read by the
+    /// `visible-range` report below.
+    property <length> grid-scroll: -meta-items-container.content-y;
+    property <length> grid-height: meta-items-container.height;
+    property <length> row-pitch: root.cell-height + root.gap;
+    changed grid-scroll => {
+        root.report-visible();
+    }
+    changed grid-height => {
+        root.report-visible();
+    }
+    changed row-count => {
+        root.report-visible();
+    }
+    init => {
+        root.report-visible();
+    }
     // Web: up to three inputs of 15rem that shrink together beside a 5rem filter button slot.
     property <int> input-count: Math.max(1, Math.min(root.inputs.length, 3));
     property <length> input-width: Math.min(15 * root.rem-size,
@@ -68,6 +89,10 @@ export component DiscoverContent inherits Rectangle {
             > meta-items-container.content-height - 400px) {
             root.load-next-page();
         }
+    }
+
+    function report-visible() {
+        root.visible-range(root.grid-scroll, root.grid-height, root.row-pitch, root.columns);
     }
 
     discover-content := Rectangle {

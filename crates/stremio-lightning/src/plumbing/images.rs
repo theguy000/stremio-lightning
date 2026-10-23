@@ -188,7 +188,7 @@ fn clock() -> u128 {
 
 /// Whether to trace every load. Off unless `LIGHTNING_TRACE_IMAGES` is set: the timeline of a
 /// screen's pictures is what says whether the queue is doing its job.
-fn tracing() -> bool {
+pub(crate) fn tracing() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| std::env::var_os("LIGHTNING_TRACE_IMAGES").is_some())
 }

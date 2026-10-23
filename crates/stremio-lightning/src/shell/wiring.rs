@@ -32,6 +32,9 @@ pub(crate) struct Wiring {
     pub(crate) images: Images,
     pub(crate) latest: Arc<Mutex<Snapshot>>,
     pub(crate) selected: Arc<AtomicUsize>,
+    /// The Discover cards on screen, as the first one and how many. Only these have their posters
+    /// asked for; the grid reports the range again whenever it is scrolled.
+    pub(crate) visible: Arc<Mutex<(usize, usize)>>,
     /// The Season the details screen's episode picker is showing, if it has been touched.
     pub(crate) season: Arc<AtomicUsize>,
     /// The Video id whose Streams the details screen is showing, if one was picked.
@@ -95,22 +98,29 @@ impl Wiring {
     fn repaint_with(&self, snapshot: Snapshot) {
         *self.latest.lock().unwrap() = snapshot.clone();
         shell::show(&self.window, snapshot.clone(), &self.images);
+        let visible = *self.visible.lock().unwrap();
+        let selected = self.selected.load(Ordering::Relaxed);
+        for url in crate::app::events::snapshot_images(&snapshot, selected, visible) {
+            self.request_painting(url);
+        }
+    }
+
+    /// Asks for a picture and repaints when it lands. Everything the window is waiting to show goes
+    /// through here: a key asked for without this arrives in the cache and stays a grey rectangle,
+    /// which is what a grid scrolled into view used to look like.
+    fn request_painting(&self, url: String) {
         let (latest, window, images) = (
             self.latest.clone(),
             self.window.clone(),
             self.images.clone(),
         );
-        for url in crate::app::events::snapshot_images(&snapshot, 0) {
-            let (latest, window, images) =
-                (latest.clone(), window.clone(), images.clone());
-            self.images.request(url, move || {
-                let snapshot = latest.lock().unwrap().clone();
-                let images = images.clone();
-                let _ = window.upgrade_in_event_loop(move |window| {
-                    crate::shell::view::apply(&window, &snapshot, &images);
-                });
+        self.images.request(url, move || {
+            let snapshot = latest.lock().unwrap().clone();
+            let images = images.clone();
+            let _ = window.upgrade_in_event_loop(move |window| {
+                crate::shell::view::apply(&window, &snapshot, &images);
             });
-        }
+        });
     }
 
     fn open_item(&self, id: String, kind: String, _title: String) {
@@ -682,6 +692,29 @@ impl Wiring {
         }
     }
 
+    /// The grid moved. Its cards' posters are asked for as they come on screen -- a page of Discover
+    /// can be a hundred cards, and fetching all of them at once is what web's `loading="lazy"` never
+    /// does. The range is kept, so a repaint for any other reason asks for the same cards.
+    fn visible_range(&self, scroll: f32, height: f32, pitch: f32, columns: i32) {
+        let range = discover::visible_range(scroll, height, pitch, columns);
+        if *self.visible.lock().unwrap() == range {
+            return;
+        }
+        *self.visible.lock().unwrap() = range;
+        if crate::plumbing::images::tracing() {
+            eprintln!(
+                "[grid] scrolled {scroll:.0}px of {height:.0}px, rows {pitch:.0}px x {columns}: \
+                 cards {}..{}",
+                range.0,
+                range.0 + range.1
+            );
+        }
+        let snapshot = self.latest.lock().unwrap().clone();
+        for url in discover::card_images(&snapshot.discover, range) {
+            self.request_painting(url);
+        }
+    }
+
     fn select_addon_input_option(&self, input: i32, option: i32) {
         // Input 0 is the catalog menu, which has only "Installed".
         if input != 1 {
@@ -1075,6 +1108,12 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
     {
         let wiring = wiring.clone();
         window.on_hover_card(move |index| wiring.hover_card(index));
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_visible_range(move |scroll, height, pitch, columns| {
+            wiring.visible_range(scroll, height, pitch, columns)
+        });
     }
     {
         let wiring = wiring.clone();

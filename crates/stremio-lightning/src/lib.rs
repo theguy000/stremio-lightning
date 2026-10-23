@@ -83,6 +83,9 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let local_extras = Arc::new(Mutex::new(screens::settings::LocalExtras::load(&data_dir)));
     let latest: Arc<Mutex<app::Snapshot>> = Default::default();
     let selected = Arc::new(AtomicUsize::new(0));
+    // The Discover cards on screen, until the grid says otherwise. A screenful and a bit, so the
+    // first frame of a catalog is never empty while the grid works its own range out.
+    let visible = Arc::new(Mutex::new((0, 24)));
     let season = Arc::new(AtomicUsize::new(screens::details::NO_SEASON));
     let picked: Arc<Mutex<Option<String>>> = Default::default();
     let video_query: Arc<Mutex<String>> = Default::default();
@@ -98,6 +101,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         images: images.clone(),
         latest: latest.clone(),
         selected: selected.clone(),
+        visible: visible.clone(),
         season: season.clone(),
         picked: picked.clone(),
         video_query: video_query.clone(),
@@ -149,6 +153,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             images,
             latest,
             selected,
+            visible,
             season,
             player_season,
             picked,

@@ -26,6 +26,9 @@ pub(crate) struct Context {
     pub(crate) latest: Arc<Mutex<Snapshot>>,
     /// The Discover card whose preview panel is open.
     pub(crate) selected: Arc<AtomicUsize>,
+    /// The Discover cards on screen, as the first one and how many: the only cards whose posters
+    /// are asked for. The grid reports this whenever it is scrolled.
+    pub(crate) visible: Arc<Mutex<(usize, usize)>>,
     /// The Season the details screen's episode picker is showing, if it has been touched.
     pub(crate) season: Arc<AtomicUsize>,
     /// The Season the player's side drawer is showing, if it has been touched.
@@ -145,7 +148,8 @@ fn snapshot(model: &AppModel, context: &Context) -> Snapshot {
 
 /// Asks for every image the new snapshot needs. The cache ignores keys it has already asked for.
 fn request_images(snapshot: &Snapshot, context: &Context) {
-    for url in snapshot_images(snapshot, context.selected.load(Ordering::Relaxed)) {
+    let visible = *context.visible.lock().unwrap();
+    for url in snapshot_images(snapshot, context.selected.load(Ordering::Relaxed), visible) {
         let repaint = context.repaint.clone();
         context.images.request(url, move || repaint());
     }
@@ -160,19 +164,15 @@ fn request_images(snapshot: &Snapshot, context: &Context) {
 pub(crate) fn snapshot_images(
     snapshot: &Snapshot,
     selected: usize,
+    visible: (usize, usize),
 ) -> impl Iterator<Item = String> + '_ {
     snapshot
         .rows
         .iter()
         .flat_map(|row| row.cards.iter())
         .filter_map(|card| card.poster.clone())
-        .chain(
-            snapshot
-                .discover
-                .cards
-                .iter()
-                .filter_map(|card| card.poster.clone()),
-        )
+        // Only the cards on screen: the rest of the catalog is asked for as it is scrolled to.
+        .chain(discover::card_images(&snapshot.discover, visible))
         .chain(
             snapshot
                 .details

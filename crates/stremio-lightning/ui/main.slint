@@ -140,6 +140,9 @@ export component MainWindow inherits Window {
     callback load-next-page();
     callback select-preview(int);
     callback hover-card(int);
+    /// How much of the Discover grid is on screen: scrolled distance, viewport height, row height,
+    /// cards in a row.
+    callback visible-range(length, length, length, int);
     callback select-input-option(int, int);
     callback select-addon-input-option(int, int);
     callback search-addons(string);
@@ -221,6 +224,9 @@ export component MainWindow inherits Window {
         }
         hover-card(index) => {
             root.hover-card(index);
+        }
+        visible-range(scroll, height, pitch, columns) => {
+            root.visible-range(scroll, height, pitch, columns);
         }
         open-item(id, kind, title) => {
             root.details-open = true;
