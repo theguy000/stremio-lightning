@@ -23,9 +23,10 @@ pub(crate) const PAGE_SUFFIX: &str = "#page";
 pub(crate) const BACKDROP_SUFFIX: &str = "#backdrop";
 
 /// How much decoded picture the cache may hold before the least recently used ones are let go. A
-/// poster is 300x450, 540 kB, and the artwork that fills the window is 1920x1080, 8 MB: without a
-/// cap a session of browsing keeps every one of them, and measured at 472 MB.
-const CACHE_LIMIT: usize = 192 * 1024 * 1024;
+/// poster is 300x450, 540 kB, so this is about ninety of them -- five screens of Discover, which is
+/// as far back as scrolling usually goes. The artwork that fills the window is 1920x1080, 8 MB, so
+/// only a few of those are kept at a time.
+const CACHE_LIMIT: usize = 48 * 1024 * 1024;
 
 pub(crate) type Cache = Arc<Mutex<Cached>>;
 
