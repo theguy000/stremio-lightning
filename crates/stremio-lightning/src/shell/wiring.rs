@@ -725,6 +725,20 @@ impl Wiring {
         }
     }
 
+    /// Says which pictures are on screen, so the cache keeps those while it makes room for others.
+    /// Without this it is free to let go of a poster that is being looked at, and with a limit on
+    /// it that is exactly what happened: a grid of blank cards after some scrolling.
+    fn remember_wanted(&self, range: (usize, usize)) {
+        let selected = self.selected.load(Ordering::Relaxed);
+        let keys: Vec<String> = {
+            let snapshot = self.latest.lock().unwrap();
+            let cards = discover::card_images(&snapshot.discover, range);
+            let panel = discover::preview_images(&snapshot.discover, selected);
+            cards.chain(panel).collect()
+        };
+        self.images.set_wanted(keys);
+    }
+
     /// The grid moved. Its cards' posters are asked for as they come on screen -- a page of Discover
     /// can be a hundred cards, and fetching all of them at once is what web's `loading="lazy"` never
     /// does. The range is kept, so a repaint for any other reason asks for the same cards.
@@ -745,6 +759,7 @@ impl Wiring {
             seconds > 0.0 && seconds < 0.25 && (scroll - before.scroll).abs() / seconds > FLYING
         });
         let range = discover::visible_range(scroll, height, pitch, columns);
+        self.remember_wanted(range);
         if *self.visible.lock().unwrap() != range {
             *self.visible.lock().unwrap() = range;
             if crate::plumbing::images::tracing() {
@@ -786,6 +801,7 @@ impl Wiring {
             return;
         };
         let range = discover::settled_range(grid.scroll, grid.height, grid.pitch, grid.columns);
+        self.remember_wanted(range);
         let urls: Vec<String> = {
             let snapshot = self.latest.lock().unwrap();
             discover::card_images(&snapshot.discover, range).collect()

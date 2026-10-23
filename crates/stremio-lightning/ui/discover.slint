@@ -125,6 +125,15 @@ export component DiscoverContent inherits Rectangle {
         }
     }
 
+    /// Drags the grid to `position`, where zero is the top of the catalog and one is the end of it.
+    /// The scrollbar's drag calls this: the pointer's place down the viewport is the grid's place in
+    /// the catalog, so the bar follows the drag rather than the drag following the bar.
+    public function drag-scroll(position: float) {
+        root.scroll-offset = -Math.max(0.0, Math.min(1.0, position))
+            * Math.max(0px, root.grid-height-total - meta-items-container.height);
+        root.check-end();
+    }
+
     /// Where the grid is and how tall its contents are, so the shell can clamp a wheel notch itself:
     /// it owns `scroll-offset`, this only draws it. Nothing here moves when the grid scrolls, so it
     /// is reported when the layout changes and not on every notch.
@@ -226,6 +235,24 @@ export component DiscoverContent inherits Rectangle {
                     view-height: parent.height;
                     content-height: root.grid-height-total;
                     offset: -root.scroll-offset;
+                }
+
+                // Dragging the bar moves the grid: the pointer's height down the viewport is the
+                // grid's position, so the bar follows the finger instead of the other way round.
+                // A wider strip than the bar itself -- web's is four pixels, which is not a target.
+                scroll-drag := TouchArea {
+                    x: parent.width - 1 * root.rem-size;
+                    y: 0px;
+                    width: 1 * root.rem-size;
+                    height: parent.height;
+                    // `moved` does not arrive while the button is held; the pointer events do, and
+                    // the area holds the pointer from the press until the release.
+                    pointer-event(event) => {
+                        if (event.kind == PointerEventKind.down
+                            || (event.kind == PointerEventKind.move && self.pressed)) {
+                            root.drag-scroll(self.mouse-y / self.height);
+                        }
+                    }
                 }
             }
         }

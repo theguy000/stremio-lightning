@@ -63,7 +63,16 @@ impl Cached {
     /// Puts a picture in, and says which keys it had to let go of to make room. Those have to be
     /// asked for again if they are ever wanted again, so the caller takes them off its "asked for"
     /// list: a poster let go of here must not look like one already on its way.
-    fn insert(&mut self, key: String, buffer: SharedPixelBuffer<Rgba8Pixel>) -> Vec<String> {
+    ///
+    /// `keep` is what the window is showing: those are never let go. If they are all that is left,
+    /// the cache goes over its limit rather than blanking a card the user is looking at -- a
+    /// screenful of posters is about eleven megabytes, so that ceiling is a real one.
+    fn insert(
+        &mut self,
+        key: String,
+        buffer: SharedPixelBuffer<Rgba8Pixel>,
+        keep: &HashSet<String>,
+    ) -> Vec<String> {
         let bytes = buffer.width() as usize * buffer.height() as usize * 4;
         self.tick += 1;
         if let Some((_, was, _)) = self.entries.insert(key.clone(), (buffer, bytes, self.tick)) {
@@ -73,11 +82,11 @@ impl Cached {
         let limit = if self.limit == 0 { CACHE_LIMIT } else { self.limit };
         let mut let_go = Vec::new();
         while self.bytes > limit {
-            // Never the picture just made: it is the one about to be drawn.
+            // Never the picture just made, and never one that is on screen.
             let Some(oldest) = self
                 .entries
                 .iter()
-                .filter(|(k, _)| **k != key)
+                .filter(|(k, _)| **k != key && !keep.contains(*k))
                 .min_by_key(|(_, (_, _, used))| *used)
                 .map(|(k, _)| k.clone())
             else {
@@ -124,6 +133,10 @@ pub(crate) struct Images {
     /// Keys waiting on a download of their own picture at full size, by URL. Held rather than
     /// fetched again, and made from it the moment it lands.
     waiting: Arc<Mutex<HashMap<String, Vec<Waiter>>>>,
+    /// The keys the window is showing right now. The cache will let go of anything rather than one
+    /// of these: a screenful's posters are what the user is looking at, and letting one go to make
+    /// room for a picture nobody asked for is what left a grid of blank cards.
+    wanted: Arc<Mutex<HashSet<String>>>,
     bulk: Arc<tokio::sync::Semaphore>,
     urgent: Arc<tokio::sync::Semaphore>,
     /// The runtime the fetches run on. Carried rather than assumed: a request can be made from the
@@ -147,6 +160,7 @@ impl Default for Images {
             cache: Default::default(),
             requested: Default::default(),
             waiting: Default::default(),
+            wanted: Default::default(),
             bulk: Arc::new(tokio::sync::Semaphore::new(BULK_FETCHES)),
             urgent: Arc::new(tokio::sync::Semaphore::new(URGENT_FETCHES)),
             runtime: tokio::runtime::Handle::current(),
@@ -155,6 +169,17 @@ impl Default for Images {
 }
 
 impl Images {
+    /// Says which pictures the window is showing, so the cache keeps them while it makes room for
+    /// others. Called whenever the screen's pictures change: the visible cards' posters and the
+    /// panel's logo and backdrop.
+    pub(crate) fn set_wanted(&self, keys: impl IntoIterator<Item = String>) {
+        let keys: HashSet<String> = keys.into_iter().collect();
+        let mut wanted = self.wanted.lock().unwrap();
+        if *wanted != keys {
+            *wanted = keys;
+        }
+    }
+
     /// The image for a key, if it has arrived. Read while the window is being filled in.
     pub(crate) fn get(&self, key: &Option<String>) -> Option<Image> {
         key.as_ref()
@@ -174,11 +199,12 @@ impl Images {
         if !self.requested.lock().unwrap().insert(key.clone()) {
             return;
         }
-        let (client, cache, requested, waiting) = (
+        let (client, cache, requested, waiting, wanted) = (
             self.client.clone(),
             self.cache.clone(),
             self.requested.clone(),
             self.waiting.clone(),
+            self.wanted.clone(),
         );
         let gate = if is_urgent(&key) {
             self.urgent.clone()
@@ -230,10 +256,13 @@ impl Images {
             };
             match result {
                 Fetched::Ready(buffer) => {
-                    let let_go = cache.lock().unwrap().insert(key, buffer);
+                    // What is on screen is read before the cache is locked, so the two locks are
+                    // always taken in the same order.
+                    let keep = wanted.lock().unwrap().clone();
+                    let let_go = cache.lock().unwrap().insert(key, buffer, &keep);
                     forget(&requested, let_go);
                     on_ready();
-                    release(&waiting, &cache, &requested, &base);
+                    release(&waiting, &cache, &requested, &wanted, &base);
                 }
                 Fetched::Missing => {
                     trace(format_args!("missing {key}"));
@@ -303,11 +332,12 @@ fn release(
     waiting: &Arc<Mutex<HashMap<String, Vec<Waiter>>>>,
     cache: &Cache,
     requested: &Arc<Mutex<HashSet<String>>>,
+    wanted: &Arc<Mutex<HashSet<String>>>,
     url: &str,
 ) {
     let ready = waiting.lock().unwrap().remove(url).unwrap_or_default();
     for (key, on_ready) in ready {
-        let (cache, requested, key) = (cache.clone(), requested.clone(), key.clone());
+        let (cache, requested, wanted, key) = (cache.clone(), requested.clone(), wanted.clone(), key.clone());
         tokio::spawn(async move {
             let made = tokio::task::spawn_blocking({
                 let cache = cache.clone();
@@ -319,7 +349,8 @@ fn release(
             .flatten();
             match made {
                 Some(buffer) => {
-                    let let_go = cache.lock().unwrap().insert(key, buffer);
+                    let keep = wanted.lock().unwrap().clone();
+                    let let_go = cache.lock().unwrap().insert(key, buffer, &keep);
                     forget(&requested, let_go);
                     on_ready();
                 }
@@ -532,11 +563,16 @@ mod tests {
         SharedPixelBuffer::<Rgba8Pixel>::new(4, 4)
     }
 
+    /// Nothing is on screen for these: the cache is free to let go of anything.
+    fn on_nothing() -> HashSet<String> {
+        HashSet::new()
+    }
+
     #[test]
     fn the_cache_lets_go_of_the_oldest_picture_once_it_is_full() {
         let mut cache = Cached::with_limit(64 + 8);
-        cache.insert("a".to_owned(), picture());
-        cache.insert("b".to_owned(), picture());
+        cache.insert("a".to_owned(), picture(), &on_nothing());
+        cache.insert("b".to_owned(), picture(), &on_nothing());
         assert!(!cache.contains_key("a"), "the oldest should have been let go");
         assert!(cache.contains_key("b"));
         assert!(cache.bytes() <= 64 + 8);
@@ -545,11 +581,11 @@ mod tests {
     #[test]
     fn a_picture_used_again_is_the_last_to_go() {
         let mut cache = Cached::with_limit(128);
-        cache.insert("a".to_owned(), picture());
-        cache.insert("b".to_owned(), picture());
+        cache.insert("a".to_owned(), picture(), &on_nothing());
+        cache.insert("b".to_owned(), picture(), &on_nothing());
         // Reading "a" makes "b" the least recently used, so "b" is what goes next.
         assert!(cache.get("a").is_some());
-        cache.insert("c".to_owned(), picture());
+        cache.insert("c".to_owned(), picture(), &on_nothing());
         assert!(cache.contains_key("a"));
         assert!(cache.contains_key("c"));
         assert!(!cache.contains_key("b"));
@@ -559,8 +595,25 @@ mod tests {
     fn the_picture_just_made_is_never_let_go() {
         // A limit under one picture would otherwise evict the one that is about to be drawn.
         let mut cache = Cached::with_limit(1);
-        cache.insert("a".to_owned(), picture());
+        cache.insert("a".to_owned(), picture(), &on_nothing());
         assert!(cache.contains_key("a"));
+    }
+
+    #[test]
+    fn a_picture_on_screen_is_not_let_go_to_make_room_for_one_that_is_not() {
+        // Room for one picture, two wanted: the screen wins and the cache goes over its limit
+        // rather than blanking a card the user is looking at. This is the bug that made a grid of
+        // grey boxes after some scrolling.
+        let mut cache = Cached::with_limit(64);
+        let on_screen: HashSet<String> = ["a".to_owned()].into_iter().collect();
+        cache.insert("a".to_owned(), picture(), &on_screen);
+        cache.insert("b".to_owned(), picture(), &on_screen);
+        assert!(cache.contains_key("a"), "the picture on screen must stay");
+        assert!(cache.contains_key("b"), "and the one just made stays too");
+
+        // Once nothing is on screen, the oldest goes as usual.
+        cache.insert("c".to_owned(), picture(), &on_nothing());
+        assert!(cache.contains_key("c"));
     }
 
     #[test]
@@ -635,6 +688,7 @@ mod tests {
         cache.lock().unwrap().insert(
             "https://example.com/a.jpg".to_owned(),
             SharedPixelBuffer::<Rgba8Pixel>::new(300, 450),
+            &on_nothing(),
         );
         let blurred = derive(&cache, "https://example.com/a.jpg#blur").unwrap();
         assert_eq!((blurred.width(), blurred.height()), (300, 450));
@@ -646,6 +700,7 @@ mod tests {
         cache.lock().unwrap().insert(
             "https://example.com/a.jpg#blur".to_owned(),
             SharedPixelBuffer::<Rgba8Pixel>::new(300, 450),
+            &on_nothing(),
         );
         // The page wants the real artwork and only a blurred copy of it is here: that would be a
         // small picture blown up, so it has to be fetched.
