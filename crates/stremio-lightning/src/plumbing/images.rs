@@ -28,6 +28,15 @@ pub(crate) type Cache = Arc<Mutex<HashMap<String, SharedPixelBuffer<Rgba8Pixel>>
 /// and what to run once it has been made.
 type Waiter = (String, Box<dyn FnOnce() + Send>);
 
+/// How many pictures are downloaded at once. A catalog's whole grid was asked for together -- 88
+/// connections to one host, the first done in a third of a second and the last in thirty-six -- so
+/// the host is not willing to serve that many friends of ours at the same time. Six is what a
+/// browser opens to one host, and it is enough to keep the wire busy.
+const BULK_FETCHES: usize = 6;
+/// The pictures a click is waiting on -- the panel's backdrop and its logo -- have a lane of their
+/// own, so they are never queued behind a grid's worth of posters.
+const URGENT_FETCHES: usize = 3;
+
 #[derive(Clone)]
 pub(crate) struct Images {
     client: reqwest::Client,
@@ -36,6 +45,8 @@ pub(crate) struct Images {
     /// Keys waiting on a download of their own picture at full size, by URL. Held rather than
     /// fetched again, and made from it the moment it lands.
     waiting: Arc<Mutex<HashMap<String, Vec<Waiter>>>>,
+    bulk: Arc<tokio::sync::Semaphore>,
+    urgent: Arc<tokio::sync::Semaphore>,
     /// The runtime the fetches run on. Carried rather than assumed: a request can be made from the
     /// window's thread (a repaint asks for its own pictures), where there is no runtime context to
     /// `tokio::spawn` into.
@@ -57,6 +68,8 @@ impl Default for Images {
             cache: Default::default(),
             requested: Default::default(),
             waiting: Default::default(),
+            bulk: Arc::new(tokio::sync::Semaphore::new(BULK_FETCHES)),
+            urgent: Arc::new(tokio::sync::Semaphore::new(URGENT_FETCHES)),
             runtime: tokio::runtime::Handle::current(),
         }
     }
@@ -88,6 +101,11 @@ impl Images {
             self.requested.clone(),
             self.waiting.clone(),
         );
+        let gate = if is_urgent(&key) {
+            self.urgent.clone()
+        } else {
+            self.bulk.clone()
+        };
         self.runtime.clone().spawn(async move {
             // Another size of the same picture is here often enough to matter: the Discover panel
             // wants the poster it already shows blurred, and the details column wants the artwork
@@ -126,7 +144,7 @@ impl Images {
             drop(held);
             let result = match made {
                 Some(buffer) => Fetched::Ready(buffer),
-                None => fetch(&client, &key).await,
+                None => fetch(&client, &key, &gate).await,
             };
             match result {
                 Fetched::Ready(buffer) => {
@@ -144,6 +162,12 @@ impl Images {
             }
         });
     }
+}
+
+/// A key whose picture a click is waiting on: the panel's backdrop, the details page's artwork, its
+/// logo. These take the urgent lane so they are not queued behind a grid of posters.
+fn is_urgent(key: &str) -> bool {
+    is_blurred(key) || key.ends_with(LOGO_SUFFIX) || key.ends_with(PAGE_SUFFIX)
 }
 
 /// Whether this key should wait for the picture another key is already downloading whole. Every
@@ -301,8 +325,16 @@ fn derive(cache: &Cache, key: &str) -> Option<SharedPixelBuffer<Rgba8Pixel>> {
     prepare(&source, size, blur)
 }
 
-async fn fetch(client: &reqwest::Client, key: &str) -> Fetched {
+async fn fetch(
+    client: &reqwest::Client,
+    key: &str,
+    gate: &Arc<tokio::sync::Semaphore>,
+) -> Fetched {
     let (url, size, blur) = source(key);
+    let permit = match gate.acquire().await {
+        Ok(permit) => permit,
+        Err(_) => return Fetched::Retry,
+    };
     let response = match client.get(url).send().await {
         Ok(response) => response,
         Err(error) => {
@@ -331,6 +363,9 @@ async fn fetch(client: &reqwest::Client, key: &str) -> Fetched {
             return Fetched::Retry;
         }
     };
+    // The wire is free again as soon as the body is in; decoding happens on the blocking pool, and
+    // holding the permit through it would keep the next picture waiting on the CPU instead.
+    drop(permit);
     let decoded = tokio::task::spawn_blocking(move || {
         let image = image::load_from_memory(&bytes)
             .map_err(|error| eprintln!("[image] decode failed: {error}"))
