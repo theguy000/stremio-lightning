@@ -12,8 +12,9 @@ use crate::screens::settings::Data as SettingsData;
 use crate::screens::Preview;
 use crate::screens::{Card, Input};
 use crate::{
-    AddonData, CatalogRow, LinkGroup, MainWindow, PlayerEpisode, PlayerOption, PlayerTrack,
-    PosterData, PreviewData, SelectInputData, SelectOption, SettingsViewData, StreamData, VideoRow,
+    AddonData, CatalogRow, LibraryCard, LibrarySort, LinkGroup, MainWindow, PlayerEpisode,
+    PlayerOption, PlayerTrack, PosterData, PreviewData, SelectInputData, SelectOption,
+    SettingsViewData, StreamData, VideoRow,
 };
 
 /// Copies everything a snapshot describes onto the window. Runs on the window's thread.
@@ -59,6 +60,62 @@ pub(crate) fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
             .map(|preview| preview_data(preview, images))
             .collect::<Vec<_>>(),
     )));
+
+    let library = &snapshot.library;
+    window.set_library_type_title(library.type_title.clone().into());
+    window.set_library_type_index(
+        i32::try_from(
+            library
+                .type_options
+                .iter()
+                .position(|(_, selected)| *selected)
+                .unwrap_or(0),
+        )
+        .unwrap_or_default(),
+    );
+    window.set_library_types(ModelRc::new(VecModel::from(
+        library
+            .type_options
+            .iter()
+            .map(|(label, selected)| SelectOption {
+                label: label.clone().into(),
+                selected: *selected,
+            })
+            .collect::<Vec<_>>(),
+    )));
+    window.set_library_sorts(ModelRc::new(VecModel::from(
+        library
+            .sorts
+            .iter()
+            .map(|sort| LibrarySort {
+                label: sort.label.clone().into(),
+                selected: sort.selected,
+            })
+            .collect::<Vec<_>>(),
+    )));
+    window.set_library_cards(ModelRc::new(VecModel::from(
+        library
+            .cards
+            .iter()
+            .map(|card| {
+                let poster = images.get(&card.poster);
+                LibraryCard {
+                    item_id: card.id.clone().into(),
+                    kind: card.kind.clone().into(),
+                    title: card.title.clone().into(),
+                    has_poster: poster.is_some(),
+                    poster: poster.unwrap_or_default(),
+                    shape: card.shape.into(),
+                    progress: card.progress as f32,
+                    watched: card.watched,
+                    new_videos: i32::try_from(card.new_videos).unwrap_or(i32::MAX),
+                }
+            })
+            .collect::<Vec<_>>(),
+    )));
+    window.set_library_message(library.message.clone().into());
+    window.set_library_has_more(library.has_more);
+    window.set_library_grid_key(library.grid_key.clone().into());
 
     window.set_addons(ModelRc::new(VecModel::from(
         crate::screens::addons::visible(&snapshot.addons.cards, &window.get_addons_query())

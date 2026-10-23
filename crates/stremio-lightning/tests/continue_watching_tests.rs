@@ -10,6 +10,7 @@ use stremio_core::models::catalog_with_filters::CatalogWithFilters;
 use stremio_core::models::continue_watching_preview::ContinueWatchingPreview;
 use stremio_core::models::ctx::Ctx;
 use stremio_core::models::installed_addons_with_filters::InstalledAddonsWithFilters;
+use stremio_core::models::library_with_filters::{LibraryWithFilters, NotRemovedFilter};
 use stremio_core::types::events::DismissedEventsBucket;
 use stremio_core::types::library::{LibraryBucket, LibraryItem};
 use stremio_core::types::notifications::NotificationsBucket;
@@ -44,6 +45,8 @@ fn model_with_library(items: Vec<LibraryItem>) -> app::AppModel {
     let library = LibraryBucket::new(uid.clone(), items);
     let notifications = NotificationsBucket::new::<stremio_lightning_env::AppEnv>(uid.clone(), vec![]);
     let (continue_watching_preview, _) = ContinueWatchingPreview::new(&library, &notifications);
+    let (library_with_filters, _) =
+        LibraryWithFilters::<NotRemovedFilter>::new(&library, &notifications);
     let (discover, _) = CatalogWithFilters::<MetaItemPreview>::new(&profile);
     let (installed_addons, _) = InstalledAddonsWithFilters::new(&profile);
     app::AppModel {
@@ -59,6 +62,7 @@ fn model_with_library(items: Vec<LibraryItem>) -> app::AppModel {
         continue_watching_preview,
         board: Default::default(),
         discover,
+        library: library_with_filters,
         installed_addons,
         meta_details: Default::default(),
         player: Default::default(),

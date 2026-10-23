@@ -26,8 +26,17 @@ export struct CatalogRow {
 export component MetaItem inherits Rectangle {
     in property <PosterData> card;
     in property <bool> selected;
+    /// Library only: the account has watched this title, so the web draws a check mark in the
+    /// poster's top-left corner.
+    in property <bool> watched: false;
+    /// Library only: new Videos the addons reported, drawn as the layered "+N" badge.
+    in property <int> new-videos: 0;
     in property <float> poster-shape-ratio;
     in property <length> rem-size;
+    /// Set by a card that draws its link larger than this one, such as the Library tile.
+    in property <bool> hovered-by-owner: false;
+    /// Whether the pointer is on the card, for the Library's action-menu button and the ring.
+    out property <bool> is-hovered: root.hovered-by-owner || card-touch.has-hover;
     callback clicked();
     /// The pointer came to rest on this card. The Discover panel asks for the card's pictures
     /// then, so opening it does not have to wait for a download.
@@ -98,6 +107,90 @@ export component MetaItem inherits Rectangle {
                     height: parent.height;
                     background: Theme.text;
                     opacity: 0.3;
+                }
+            }
+
+            // Web: `.watched-icon-layer` -- a 1.5rem accent circle 0.5rem in from the top-left,
+            // with a white checkmark at half its size.
+            if root.watched: Rectangle {
+                x: 0.5 * root.rem-size;
+                y: 0.5 * root.rem-size;
+                width: 1.5 * root.rem-size;
+                height: self.width;
+                border-radius: self.width / 2;
+                background: Theme.accent;
+
+                Path {
+                    x: 0.35 * root.rem-size;
+                    y: 0.35 * root.rem-size;
+                    width: parent.width - 0.7 * root.rem-size;
+                    height: parent.height - 0.7 * root.rem-size;
+                    viewbox-width: 512;
+                    viewbox-height: 512;
+                    commands: "M421 128 L197 384 L101 288";
+                    fill: transparent;
+                    stroke: Theme.text;
+                    stroke-width: 0.12 * root.rem-size;
+                }
+            }
+
+            // Web: `.new-videos` -- three stacked 2.25x1.25rem labels stepping in from the top
+            // right; the front one carries the add icon and the count in the accent colour.
+            if root.new-videos > 0: Rectangle {
+                x: 0px;
+                y: 0px;
+                width: parent.width;
+                height: parent.height;
+
+                Rectangle {
+                    x: parent.width - 2.25 * root.rem-size - 0.5 * root.rem-size;
+                    y: 0.5 * root.rem-size;
+                    width: 2.25 * root.rem-size;
+                    height: 1.25 * root.rem-size;
+                    border-radius: 0.25 * root.rem-size;
+                    background: Theme.text;
+                    opacity: 0.4;
+                }
+                Rectangle {
+                    x: parent.width - 2.25 * root.rem-size - 0.75 * root.rem-size;
+                    y: 0.75 * root.rem-size;
+                    width: 2.25 * root.rem-size;
+                    height: 1.25 * root.rem-size;
+                    border-radius: 0.25 * root.rem-size;
+                    background: Theme.text;
+                    opacity: 0.6;
+                }
+                Rectangle {
+                    x: parent.width - 2.25 * root.rem-size - 1 * root.rem-size;
+                    y: 1 * root.rem-size;
+                    width: 2.25 * root.rem-size;
+                    height: 1.25 * root.rem-size;
+                    border-radius: 0.25 * root.rem-size;
+                    background: Theme.text;
+
+                    Path {
+                        x: 0.35 * root.rem-size;
+                        y: (parent.height - self.height) / 2;
+                        width: 0.8 * root.rem-size;
+                        height: self.width;
+                        viewbox-width: 512;
+                        viewbox-height: 512;
+                        commands: "M256 112 L256 400 M112 256 L400 256";
+                        fill: transparent;
+                        stroke: Theme.accent;
+                        stroke-width: 0.08 * root.rem-size;
+                    }
+                    Text {
+                        x: 1.15 * root.rem-size;
+                        width: parent.width - 1.3 * root.rem-size;
+                        height: parent.height;
+                        text: "+\\{root.new-videos}";
+                        vertical-alignment: center;
+                        horizontal-alignment: center;
+                        font-size: 0.8 * root.rem-size;
+                        font-weight: 600;
+                        color: Theme.accent;
+                    }
                 }
             }
         }

@@ -12,6 +12,7 @@ pub mod auth;
 pub mod board;
 pub mod details;
 pub mod discover;
+pub mod library;
 pub mod player;
 pub mod settings;
 

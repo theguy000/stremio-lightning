@@ -1,0 +1,388 @@
+// Based on stremio-web (https://github.com/Stremio/stremio-web),
+// Copyright (C) 2017-2026 Smart code 203358507.
+// Layout numbers translated by hand from src/routes/Library (Library.js, styles.less,
+// useSelectableInputs.js), src/components/Chips (Chip.less) and src/components/MetaItem.
+// Licence basis: ../THIRD_PARTY_NOTICES.md.
+import { ClassStyles } from "class-styles.slint";
+import { MetaItem, PosterData } from "board.slint";
+import { MultiselectMenu, SelectOption } from "multiselect-menu.slint";
+import { Theme } from "theme.slint";
+
+/// One tile of the Library grid. The web passes a `LibraryItem` through `LibItem` to `MetaItem`,
+/// which draws the progress bar, the watched check and the new-episodes badge.
+export struct LibraryCard {
+    item-id: string,
+    kind: string,
+    title: string,
+    poster: image,
+    has-poster: bool,
+    /// "poster", "square" or "landscape": the web's serializer turns Landscape into Square.
+    shape: string,
+    progress: float,
+    watched: bool,
+    new-videos: int,
+}
+
+/// One sort chip. The web's sort control is a row of chips, not a menu.
+export struct LibrarySort {
+    label: string,
+    selected: bool,
+}
+
+// Web: `Chip.less` -- a 2.75rem pill, 1.75rem of horizontal padding, 1rem/500 text at 0.6
+// opacity; the selected one fills with `--quaternary-accent-color` and goes fully opaque.
+component SortChip inherits Rectangle {
+    in property <string> label;
+    in property <bool> selected;
+    in property <length> rem-size;
+    callback clicked();
+
+    height: 2.75 * root.rem-size;
+    width: label-text.preferred-width + 3.5 * root.rem-size;
+    border-radius: self.height / 2;
+    background: root.selected ? Theme.quaternary-accent
+        : touch.has-hover ? Theme.overlay : transparent;
+    opacity: root.selected || touch.has-hover ? 1.0 : 0.6;
+
+    label-text := Text {
+        x: 1.75 * root.rem-size;
+        y: 0px;
+        width: parent.width - 3.5 * root.rem-size;
+        height: parent.height;
+        text: root.label;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        font-size: 1 * root.rem-size;
+        font-weight: 500;
+        color: Theme.text;
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// Web: one option row of the MetaItem's Multiselect menu: 3rem high, hover paints the overlay.
+component CardMenuOption inherits Rectangle {
+    in property <string> label;
+    in property <string> action;
+    in property <length> rem-size;
+    callback picked(string);
+
+    height: 3 * root.rem-size;
+    background: touch.has-hover ? #ffffff26 : transparent;
+
+    Text {
+        x: 1 * root.rem-size;
+        width: parent.width - 2 * root.rem-size;
+        height: parent.height;
+        text: root.label;
+        vertical-alignment: center;
+        overflow: elide;
+        font-size: 1 * root.rem-size;
+        color: Theme.text;
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.picked(root.action);
+        }
+    }
+}
+
+// Web: a MetaItem in the Library grid, plus the `more-vertical` button that appears on hover and
+// opens the LibItem action menu. The card itself stays the shared MetaItem, so a Library poster
+// looks exactly like a Board or Discover one.
+component LibraryItemCard inherits Rectangle {
+    in property <LibraryCard> card;
+    in property <length> rem-size;
+    callback open();
+    callback action(string);
+
+    property <float> shape-ratio: root.card.shape == "square" ? 1.0
+        : root.card.shape == "landscape" ? 0.5625 : 1.464;
+    property <length> menu-height: (root.card.progress > 0 ? 4 : 3) * 3 * root.rem-size;
+    property <bool> menu-open: false;
+
+    meta := MetaItem {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
+        card: {
+            item-id: root.card.item-id,
+            kind: root.card.kind,
+            title: root.card.title,
+            poster: root.card.poster,
+            has-poster: root.card.has-poster,
+            progress: root.card.progress,
+        };
+        watched: root.card.watched;
+        new-videos: root.card.new-videos;
+        rem-size: root.rem-size;
+        poster-shape-ratio: root.shape-ratio;
+        hovered-by-owner: tile-touch.has-hover;
+        clicked => {
+            root.open();
+        }
+    }
+
+    // Web: the whole `.meta-item` is the link. `MetaItem` sizes itself from its contents, which
+    // leaves the strip under the title bar unpressed, so the tile carries the link here.
+    tile-touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.open();
+        }
+    }
+
+    // Web: `.menu-label-container` -- 1rem in from the right and bottom, a 1.5rem glyph at 0.6
+    // opacity, and `opacity: 0` until the card is hovered. The web dims the button rather than
+    // hiding it, so the corner is still pressed while the glyph is invisible; Slint skips
+    // hit-testing below `opacity: 0`, so the glyph carries the fade and the button stays pressable.
+    menu-button := Rectangle {
+        x: parent.width - 2.5 * root.rem-size;
+        y: parent.height - 5 * root.rem-size;
+        width: 1.5 * root.rem-size;
+        height: 4 * root.rem-size;
+
+        Image {
+            x: 0px;
+            y: 1 * root.rem-size;
+            width: 1.5 * root.rem-size;
+            height: 1.5 * root.rem-size;
+            source: @image-url("icons/more-horizontal.svg");
+            colorize: Theme.text;
+            opacity: tile-touch.has-hover || root.menu-open ? 0.6 : 0.0;
+            transform-rotation: 90deg;
+        }
+        menu-touch := TouchArea {
+            mouse-cursor: pointer;
+            clicked => {
+                root.menu-open = !root.menu-open;
+                if (root.menu-open) {
+                    menu.show();
+                } else {
+                    menu.close();
+                }
+            }
+        }
+    }
+
+    menu := PopupWindow {
+        x: Math.max(0px, root.width - 10 * root.rem-size);
+        y: root.height - 1 * root.rem-size - root.menu-height;
+        width: 10 * root.rem-size;
+        height: root.menu-height;
+        close-policy: PopupClosePolicy.close-on-click-outside;
+
+        Rectangle {
+            width: parent.width;
+            height: parent.height;
+            border-radius: 0.75 * root.rem-size;
+            background: Theme.modal-background;
+            drop-shadow-blur: 15px;
+            drop-shadow-color: #7b5bf55e;
+            clip: true;
+
+            VerticalLayout {
+                CardMenuOption {
+                    label: "Details";
+                    action: "details";
+                    rem-size: root.rem-size;
+                    picked(action) => {
+                        menu.close();
+                        root.action(action);
+                    }
+                }
+                if root.card.progress > 0: CardMenuOption {
+                    label: "Dismiss";
+                    action: "dismiss";
+                    rem-size: root.rem-size;
+                    picked(action) => {
+                        menu.close();
+                        root.action(action);
+                    }
+                }
+                CardMenuOption {
+                    label: root.card.watched ? "Mark as unwatched" : "Mark as watched";
+                    action: "watched";
+                    rem-size: root.rem-size;
+                    picked(action) => {
+                        menu.close();
+                        root.action(action);
+                    }
+                }
+                CardMenuOption {
+                    label: "Remove";
+                    action: "remove";
+                    rem-size: root.rem-size;
+                    picked(action) => {
+                        menu.close();
+                        root.action(action);
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Web: `<Library />` when `profile.auth !== null`, inside the route's padded content box.
+export component LibraryContent inherits Rectangle {
+    in property <[LibraryCard]> cards;
+    in property <string> type-title;
+    in property <[SelectOption]> type-options;
+    in property <int> type-index;
+    in property <[LibrarySort]> sorts;
+    in property <string> message: "";
+    in property <bool> has-more: false;
+    in property <string> grid-key;
+    in property <length> viewport-width;
+    callback select-type(int);
+    callback select-sort(int);
+    callback load-more();
+    callback open-item(string, string, string);
+    callback item-action(string, string);
+
+    property <length> rem-size: Theme.rem-size(root.viewport-width);
+    // Web: 10 columns at >=2200, then one fewer at each breakpoint; 6 at 1084-1300.
+    property <int> columns: root.width > 2200px ? 10
+        : root.width > 1900px ? 9
+        : root.width > 1600px ? 8
+        : root.width > 1300px ? 7
+        : root.width > 1000px ? 6
+        : root.width > 800px ? 5
+        : root.width > 640px ? 4 : 3;
+    property <length> grid-padding: 1.5 * root.rem-size;
+    property <length> grid-gap: 0.5 * root.rem-size;
+    property <length> tile-width: (root.width - 2 * root.grid-padding - (root.columns - 1) * root.grid-gap) / root.columns;
+    property <length> tile-height: 2 * root.rem-size + (root.tile-width - 2 * root.rem-size) * 1.464 + 4 * root.rem-size;
+    property <float> row-count: (root.cards.length + root.columns - 1) / root.columns;
+    property <length> grid-height: root.row-count * root.tile-height + (root.row-count - 1) * root.grid-gap;
+    property <bool> empty: root.cards.length == 0;
+
+    // Web: `Library.js` returns the grid to the top when a page-1 request (a type or sort
+    // change) arrives. The key changes for those requests only, not when a page is appended.
+    changed grid-key => {
+        if (!root.empty) {
+            meta-items-container.content-y = 0px;
+        }
+    }
+
+    VerticalLayout {
+        alignment: start;
+
+        // Web: `.selectable-inputs-container` -- 1.5rem all round, a 2.75rem type menu and the
+        // six sort chips beside it.
+        selectable-inputs-container := Rectangle {
+            height: 5.75 * root.rem-size;
+            background: ClassStyles.background-or(ClassStyles.selectable-inputs-container, transparent);
+            opacity: ClassStyles.opacity-or(ClassStyles.selectable-inputs-container, 1.0);
+            visible: !ClassStyles.selectable-inputs-container.hidden;
+
+            HorizontalLayout {
+                x: root.grid-padding;
+                width: parent.width - 2 * root.grid-padding;
+                height: parent.height;
+                padding-top: 1.5 * root.rem-size;
+                padding-bottom: 1.5 * root.rem-size;
+                spacing: 1.5 * root.rem-size;
+
+                MultiselectMenu {
+                    width: 12 * root.rem-size;
+                    height: 2.75 * root.rem-size;
+                    rem-size: root.rem-size;
+                    title: root.type-title;
+                    options: root.type-options;
+                    selected-index: root.type-index;
+                    select(index) => {
+                        root.select-type(index);
+                    }
+                }
+                sort-chips := Rectangle {
+                    height: 2.75 * root.rem-size;
+                    clip: true;
+
+                    HorizontalLayout {
+                        spacing: 1 * root.rem-size;
+                        alignment: start;
+                        for sort[index] in root.sorts: SortChip {
+                            label: sort.label;
+                            selected: sort.selected;
+                            rem-size: root.rem-size;
+                            clicked => {
+                                root.select-sort(index);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if root.empty: Rectangle {
+            width: parent.width;
+            height: parent.height - 5.75 * root.rem-size;
+            background: ClassStyles.background-or(ClassStyles.message-container, transparent);
+            opacity: ClassStyles.opacity-or(ClassStyles.message-container, 1.0);
+            visible: !ClassStyles.message-container.hidden;
+
+            VerticalLayout {
+                alignment: center;
+                padding-top: 4 * root.rem-size;
+
+                Image {
+                    width: 12 * root.rem-size;
+                    height: 12 * root.rem-size;
+                    source: @image-url("images/empty.png");
+                    image-fit: contain;
+                    opacity: 0.9;
+                }
+                Rectangle { height: 2 * root.rem-size; }
+                Text {
+                    width: parent.width;
+                    height: 2 * root.rem-size;
+                    text: root.message;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    font-size: 2 * root.rem-size;
+                    font-weight: 400;
+                    color: Theme.text;
+                }
+            }
+        }
+
+        meta-items-container := Flickable {
+            width: parent.width;
+            height: parent.height - 5.75 * root.rem-size;
+            visible: !root.empty;
+            content-width: self.width;
+            content-height: Math.max(root.grid-height + 2 * root.grid-padding, self.height);
+            // Web: `Library.js` returns to the top when a page-1 request (a type or sort change)
+            // arrives. The key changes for those requests only, not when a later page is appended.
+            // Web: `useOnScrollToBottom` loads the next page 400px before the bottom.
+            changed content-y => {
+                if (root.has-more && self.content-height > self.height + 400px
+                    && self.content-y > self.content-height - self.height - 400px) {
+                    root.load-more();
+                }
+            }
+
+            for card[index] in root.cards: LibraryItemCard {
+                x: root.grid-padding + Math.mod(index, root.columns) * (root.tile-width + root.grid-gap);
+                y: root.grid-padding + Math.floor(index / root.columns) * (root.tile-height + root.grid-gap);
+                width: root.tile-width;
+                height: root.tile-height;
+                card: card;
+                rem-size: root.rem-size;
+                open => {
+                    root.open-item(card.item-id, card.kind, card.title);
+                }
+                action(action) => {
+                    root.item-action(card.item-id, action);
+                }
+            }
+        }
+    }
+}

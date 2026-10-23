@@ -8,9 +8,9 @@ use std::sync::Arc;
 mod support;
 
 slint::slint! {
-    import { MainWindow, SettingsViewData } from "ui/main.slint";
+    import { MainWindow, LibraryCard, SettingsViewData } from "ui/main.slint";
     import { Section } from "ui/shell.slint";
-    export { MainWindow, Section, SettingsViewData }
+    export { MainWindow, LibraryCard, Section, SettingsViewData }
 }
 
 fn create_default_settings(logged_in: bool, user_email: &str) -> SettingsViewData {
@@ -183,8 +183,8 @@ fn test_empirical_navigation_and_lifecycle_suite() {
     );
 
     // Case B: When logged_in is true
-    // The logged-in Library and Calendar screens do not exist yet, so the logged-out
-    // placeholder stays up and having a session unlocks nothing.
+    // The signed-in Library draws the account's own grid instead of the placeholder. The Calendar
+    // route is still the placeholder, because its screen has not been built.
     let logged_in_settings = create_default_settings(true, "alice@stremio.com");
     window.set_settings(logged_in_settings);
     assert!(window.get_settings().logged_in);
@@ -197,6 +197,28 @@ fn test_empirical_navigation_and_lifecycle_suite() {
         window.get_section(),
         Section::Library,
         "Library must stay reachable while logged in"
+    );
+
+    // The signed-in Library shows the cards the shell builds for it, which is what replaces the
+    // placeholder. Whether the grid or the placeholder is painted is decided in Slint, so this
+    // pins the other half: the signed-in route keeps the account's cards.
+    use slint::Model as _;
+
+    window.set_library_cards(slint::ModelRc::new(slint::VecModel::from(vec![LibraryCard {
+        item_id: "tt0111161".into(),
+        kind: "movie".into(),
+        title: "The Shawshank Redemption".into(),
+        poster: slint::Image::default(),
+        has_poster: false,
+        shape: "poster".into(),
+        progress: 0.0,
+        watched: true,
+        new_videos: 0,
+    }])));
+    assert_eq!(
+        window.get_library_cards().row_count(),
+        1,
+        "a signed-in Library keeps the cards the shell hands it"
     );
 
     // On Calendar:

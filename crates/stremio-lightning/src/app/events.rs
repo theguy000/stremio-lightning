@@ -12,7 +12,7 @@ use stremio_lightning_env::AppEnv;
 
 use super::{AppModel, AppRuntime, Snapshot};
 use crate::plumbing::images::{backdrop_key, Images};
-use crate::screens::{auth, discover, player, settings};
+use crate::screens::{auth, discover, library, player, settings};
 use crate::shell;
 use crate::MainWindow;
 
@@ -133,6 +133,7 @@ fn snapshot(model: &AppModel, context: &Context) -> Snapshot {
         status,
         rows,
         discover: discover::data(model),
+        library: library::data(model),
         addons: crate::screens::addons::data(model),
         details: crate::screens::details::data(
             model,
@@ -176,6 +177,7 @@ pub(crate) fn snapshot_images(
     board_images(snapshot)
         // Only the cards on screen: the rest of the catalog is asked for as it is scrolled to.
         .chain(discover_images(snapshot, visible, selected))
+        .chain(library_images(snapshot))
         .chain(details_images(snapshot))
         .chain(addon_images(snapshot))
         .chain(player_images(snapshot))
@@ -198,6 +200,7 @@ pub(crate) fn shown_images(
 ) -> impl Iterator<Item = String> + '_ {
     board_images(snapshot)
         .chain(discover_images(snapshot, visible, selected))
+        .chain(library_images(snapshot))
         .chain(details_images(snapshot))
         .chain(addon_images(snapshot))
         .chain(player_images(snapshot))
@@ -262,6 +265,12 @@ fn addon_images(snapshot: &Snapshot) -> impl Iterator<Item = String> + '_ {
         .cards
         .iter()
         .filter_map(|card| card.logo.clone())
+}
+
+/// The Library grid's posters. The catalog is already page-limited by the core (100 a page), so
+/// this is at most two or three screenfuls; the web's browser fetches the rest lazily.
+fn library_images(snapshot: &Snapshot) -> impl Iterator<Item = String> + '_ {
+    library::card_images(&snapshot.library)
 }
 
 /// The player: its logo, the artwork behind it and the Episode drawer's thumbnails. Empty until a

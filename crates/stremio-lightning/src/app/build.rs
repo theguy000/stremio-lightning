@@ -9,6 +9,10 @@ use stremio_core::models::ctx::Ctx;
 use stremio_core::models::installed_addons_with_filters::{
     InstalledAddonsRequest, InstalledAddonsWithFilters, Selected as InstalledSelected,
 };
+use stremio_core::models::library_with_filters::{
+    LibraryRequest, LibraryRequestPage, LibraryWithFilters, NotRemovedFilter,
+    Selected as LibrarySelected,
+};
 use stremio_core::runtime::msg::{Action, ActionCatalogsWithExtra, ActionCtx, ActionLoad};
 use stremio_core::runtime::{RuntimeAction, RuntimeEvent};
 use stremio_core::types::events::DismissedEventsBucket;
@@ -36,6 +40,10 @@ pub fn runtime(profile: Profile) -> (AppRuntime, Receiver<RuntimeEvent<AppEnv, A
     // with the stored session has its row on the first frame. After that the core keeps it in
     // step with the library by itself: it is stremio-core's model, not a second copy of it.
     let (continue_watching_preview, _) = ContinueWatchingPreview::new(&library, &notifications);
+    // Web: `useLibrary` dispatches a `Load` with the route's request on mount. There is no route
+    // here, so the Library opens on the core's default request -- everything, last watched first.
+    let (library_with_filters, library_effects) =
+        LibraryWithFilters::<NotRemovedFilter>::new(&library, &notifications);
     let model = AppModel {
         ctx: Ctx::new(
             profile,
@@ -49,6 +57,7 @@ pub fn runtime(profile: Profile) -> (AppRuntime, Receiver<RuntimeEvent<AppEnv, A
         board: Default::default(),
         continue_watching_preview,
         discover,
+        library: library_with_filters,
         installed_addons,
         meta_details: Default::default(),
         player: Default::default(),
@@ -59,6 +68,7 @@ pub fn runtime(profile: Profile) -> (AppRuntime, Receiver<RuntimeEvent<AppEnv, A
         discover_effects
             .into_iter()
             .chain(installed_effects)
+            .chain(library_effects)
             .collect(),
         1000,
     )
@@ -85,6 +95,16 @@ pub fn load_everything(runtime: &AppRuntime) {
         field: None,
         action: Action::Load(ActionLoad::InstalledAddonsWithFilters(InstalledSelected {
             request: InstalledAddonsRequest { r#type: None },
+        })),
+    });
+    runtime.dispatch(RuntimeAction {
+        field: None,
+        action: Action::Load(ActionLoad::LibraryWithFilters(LibrarySelected {
+            request: LibraryRequest {
+                r#type: None,
+                sort: Default::default(),
+                page: LibraryRequestPage::default(),
+            },
         })),
     });
 }

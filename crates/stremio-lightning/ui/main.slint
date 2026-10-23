@@ -5,6 +5,7 @@ import { BoardContent, CatalogRow, PosterData } from "board.slint";
 import { AddonData, AddonsContent } from "addons.slint";
 import { DiscoverContent, SelectInputData } from "discover.slint";
 import { LoggedOutPlaceholder } from "logged-out-placeholder.slint";
+import { LibraryCard, LibraryContent, LibrarySort } from "library.slint";
 import { SettingsContent, SettingsViewData } from "settings.slint";
 import { SelectOption } from "multiselect-menu.slint";
 import { LinkGroup, PreviewData } from "meta-preview.slint";
@@ -12,7 +13,7 @@ import { DetailsScreen, StreamData } from "details-screen.slint";
 import { PlayerScreen, PlayerEpisode, PlayerOption, PlayerTrack } from "player.slint";
 export { PlayerEpisode, PlayerOption, PlayerTrack }
 import { VideoRow } from "videos-list.slint";
-export { AddonData, LinkGroup, PreviewData, SelectInputData, SelectOption, SettingsViewData, StreamData, VideoRow }
+export { AddonData, LibraryCard, LibrarySort, LinkGroup, PreviewData, SelectInputData, SelectOption, SettingsViewData, StreamData, VideoRow }
 import { ClassStyle, ClassStyles } from "class-styles.slint";
 import { IntroContent } from "intro.slint";
 import { ShareModal } from "share-modal.slint";
@@ -36,6 +37,18 @@ export component MainWindow inherits Window {
     in property <string> discover-shape: "poster";
     in property <[SelectInputData]> discover-inputs: [];
     in property <[PreviewData]> discover-previews: [];
+    in property <[LibraryCard]> library-cards: [];
+    in property <string> library-type-title: "All";
+    in property <[SelectOption]> library-types: [];
+    in property <int> library-type-index: 0;
+    in property <[LibrarySort]> library-sorts: [];
+    in property <bool> library-has-more: false;
+    in property <string> library-grid-key;
+    in property <string> library-message;
+    callback select-library-type(int);
+    callback select-library-sort(int);
+    callback load-more-library();
+    callback library-item-action(string, string);
     in property <[AddonData]> addons: [];
     in property <[SelectInputData]> addon-inputs: [];
     in property <string> addons-message;
@@ -513,9 +526,9 @@ export component MainWindow inherits Window {
         }
     }
 
-    // The logged-in Library and Calendar screens are not built yet, so both always
-    // show the logged-out placeholder for now.
-    if root.section == Section.library && !root.details-open && !root.playing: LoggedOutPlaceholder {
+    // Web: the Library route shows the Placeholder only while `profile.auth` is null; a signed-in
+    // account gets the grid of its own titles.
+    if root.section == Section.library && !root.settings.logged-in && !root.details-open && !root.playing: LoggedOutPlaceholder {
         x: root.nav-width;
         y: root.bar-height;
         width: parent.width - root.nav-width;
@@ -530,6 +543,39 @@ export component MainWindow inherits Window {
         log-in => { root.auth-open = true; }
     }
 
+    if root.section == Section.library && root.settings.logged-in && !root.details-open && !root.playing: LibraryContent {
+        x: root.nav-width;
+        y: root.bar-height;
+        width: parent.width - root.nav-width;
+        height: parent.height - root.bar-height;
+        viewport-width: root.width;
+        cards: root.library-cards;
+        type-title: root.library-type-title;
+        type-options: root.library-types;
+        type-index: root.library-type-index;
+        sorts: root.library-sorts;
+        message: root.library-message;
+        has-more: root.library-has-more;
+        grid-key: root.library-grid-key;
+        select-type(index) => {
+            root.select-library-type(index);
+        }
+        select-sort(index) => {
+            root.select-library-sort(index);
+        }
+        load-more => {
+            root.load-more-library();
+        }
+        open-item(id, kind, title) => {
+            root.details-open = true;
+            root.open-item(id, kind, title);
+        }
+        item-action(id, action) => {
+            root.library-item-action(id, action);
+        }
+    }
+
+    // The logged-in Calendar screen is not built yet, so it still shows the placeholder.
     if root.section == Section.calendar && !root.details-open && !root.playing: LoggedOutPlaceholder {
         x: root.nav-width;
         y: root.bar-height;

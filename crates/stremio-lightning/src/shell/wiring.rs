@@ -9,7 +9,10 @@ use std::sync::{Arc, Mutex};
 use slint::{ComponentHandle, ModelRc, Timer, Weak};
 use stremio_core::models::catalog_with_filters::Selected as CatalogSelected;
 use stremio_core::models::installed_addons_with_filters::Selected as InstalledSelected;
-use stremio_core::runtime::msg::{Action, ActionCatalogWithFilters, ActionLoad};
+use stremio_core::models::library_with_filters::Selected as LibrarySelected;
+use stremio_core::runtime::msg::{
+    Action, ActionCatalogWithFilters, ActionCtx, ActionLibraryWithFilters, ActionLoad,
+};
 use stremio_core::runtime::RuntimeAction;
 use stremio_core::types::profile::GDPRConsent;
 
@@ -720,6 +723,86 @@ impl Wiring {
         }
     }
 
+    fn select_library_type(&self, option: i32) {
+        let request = {
+            let snapshot = self.latest.lock().unwrap();
+            usize::try_from(option)
+                .ok()
+                .and_then(|option| snapshot.library.type_requests.get(option))
+                .cloned()
+        };
+        if let Some(request) = request {
+            self.runtime.dispatch(RuntimeAction {
+                field: None,
+                action: Action::Load(ActionLoad::LibraryWithFilters(LibrarySelected { request })),
+            });
+        }
+    }
+
+    fn select_library_sort(&self, option: i32) {
+        let request = {
+            let snapshot = self.latest.lock().unwrap();
+            usize::try_from(option)
+                .ok()
+                .and_then(|option| snapshot.library.sorts.get(option))
+                .map(|sort| sort.request.clone())
+        };
+        if let Some(request) = request {
+            self.runtime.dispatch(RuntimeAction {
+                field: None,
+                action: Action::Load(ActionLoad::LibraryWithFilters(LibrarySelected { request })),
+            });
+        }
+    }
+
+    fn load_more_library(&self) {
+        self.runtime.dispatch(RuntimeAction {
+            field: None,
+            action: Action::LibraryWithFilters(ActionLibraryWithFilters::LoadNextPage),
+        });
+    }
+
+    /// One item of the Library card's menu. The options the web offers are Details, Dismiss,
+    /// Mark watched/unwatched and Remove; Play stays on the details route because a native
+    /// Stream has to be resolved before mpv can be handed an address.
+    fn library_item_action(&self, id: String, action: String) {
+        let card = {
+            let snapshot = self.latest.lock().unwrap();
+            snapshot
+                .library
+                .cards
+                .iter()
+                .find(|card| card.id == id)
+                .cloned()
+        };
+        let Some(card) = card else { return };
+        match action.as_str() {
+            "details" => self.open_item(card.id, card.kind, card.title),
+            "watched" => self.runtime.dispatch(RuntimeAction {
+                field: None,
+                action: Action::Ctx(ActionCtx::LibraryItemMarkAsWatched {
+                    id,
+                    is_watched: !card.watched,
+                }),
+            }),
+            "dismiss" => {
+                self.runtime.dispatch(RuntimeAction {
+                    field: None,
+                    action: Action::Ctx(ActionCtx::RewindLibraryItem(id.clone())),
+                });
+                self.runtime.dispatch(RuntimeAction {
+                    field: None,
+                    action: Action::Ctx(ActionCtx::DismissNotificationItem(id)),
+                });
+            }
+            "remove" => self.runtime.dispatch(RuntimeAction {
+                field: None,
+                action: Action::Ctx(ActionCtx::RemoveFromLibrary(id)),
+            }),
+            _ => {}
+        }
+    }
+
     fn select_preview(&self, index: i32) {
         let index = usize::try_from(index).unwrap_or(0);
         self.selected.store(index, Ordering::Relaxed);
@@ -1245,6 +1328,24 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
     {
         let wiring = wiring.clone();
         window.on_hover_card(move |index| wiring.hover_card(index));
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_select_library_type(move |option| wiring.select_library_type(option));
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_select_library_sort(move |option| wiring.select_library_sort(option));
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_load_more_library(move || wiring.load_more_library());
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_library_item_action(move |id, action| {
+            wiring.library_item_action(id.to_string(), action.to_string())
+        });
     }
     {
         let wiring = wiring.clone();
