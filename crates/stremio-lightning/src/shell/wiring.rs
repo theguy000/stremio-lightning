@@ -664,19 +664,15 @@ impl Wiring {
         let index = usize::try_from(index).unwrap_or(0);
         self.selected.store(index, Ordering::Relaxed);
         let snapshot = self.latest.lock().unwrap().clone();
-        // Only the pieces needed to repaint cross into the fetch task; `Wiring` itself holds a
-        // non-`Send` player.
-        let (window, latest, images) = (
-            self.window.clone(),
-            self.latest.clone(),
-            self.images.clone(),
-        );
-        let _guard = self.handle.enter();
+        // Paint the panel now: its title, rating, genres and the rest are already in this snapshot,
+        // and the pictures are baked into what is painted. Waiting for a picture to arrive before
+        // repainting was the whole of why a click could open a blank panel -- a card whose pictures
+        // had already been fetched on hover never repainted at all, because the request for them is
+        // deduped and nothing ever fired, and a card whose pictures had not been fetched opened
+        // blank until the last of them landed.
+        shell::show(&self.window, snapshot.clone(), &self.images);
         for url in discover::preview_images(&snapshot.discover, index) {
-            let (window, latest, images) = (window.clone(), latest.clone(), images.clone());
-            self.images.request(url, move || {
-                shell::show(&window, latest.lock().unwrap().clone(), &images)
-            });
+            self.request_painting(url);
         }
     }
 
@@ -687,8 +683,11 @@ impl Wiring {
     fn hover_card(&self, index: i32) {
         let index = usize::try_from(index).unwrap_or(0);
         let snapshot = self.latest.lock().unwrap().clone();
+        // With the repaint attached, so the pictures are in the painted panel by the time the click
+        // comes: asking for them here and repainting only on the click would leave the click's own
+        // request deduped, with nothing left to paint the panel when the pictures landed.
         for url in discover::preview_images(&snapshot.discover, index) {
-            self.images.request(url, || {});
+            self.request_painting(url);
         }
     }
 
