@@ -60,7 +60,7 @@ export component MetaItem inherits Rectangle {
             border-radius: 0.95 * root.rem-size;
             border-width: 0.2 * root.rem-size;
             border-color: white;
-            visible: root.selected || card-touch.has-hover;
+            visible: root.selected || root.is-hovered;
         }
 
         poster-container := Rectangle {
@@ -81,7 +81,7 @@ export component MetaItem inherits Rectangle {
                 image-fit: cover;
                 opacity: ClassStyles.opacity-or(ClassStyles.poster-image, 0.9);
                 // Web: .poster-image-layer scales to 1.05 while the card is selected or hovered.
-                transform-scale: (root.selected || card-touch.has-hover) ? 1.05 : 1.0;
+                transform-scale: (root.selected || root.is-hovered) ? 1.05 : 1.0;
                 visible: !ClassStyles.poster-image.hidden;
             }
 

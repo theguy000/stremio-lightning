@@ -64,23 +64,26 @@ component SortChip inherits Rectangle {
     }
 }
 
-// Web: one option row of the MetaItem's Multiselect menu: 3rem high, hover paints the overlay.
+// Web: one option row of the MetaItem's Multiselect menu. `padding: 1rem 1.5rem` around a 1rem
+// line box, which lands at 46px in a 14px rem -- and, at the menu's 9rem width, wraps the longer
+// "Mark as ..." label onto a second line, so the row height comes from the text, not a constant.
 component CardMenuOption inherits Rectangle {
     in property <string> label;
     in property <string> action;
     in property <length> rem-size;
     callback picked(string);
 
-    height: 3 * root.rem-size;
+    height: label-text.preferred-height + 2 * root.rem-size;
     background: touch.has-hover ? #ffffff26 : transparent;
 
-    Text {
-        x: 1 * root.rem-size;
-        width: parent.width - 2 * root.rem-size;
-        height: parent.height;
+    label-text := Text {
+        x: 21 * root.rem-size / 14;
+        width: parent.width - 42 * root.rem-size / 14;
+        y: 1 * root.rem-size;
+        height: parent.height - 2 * root.rem-size;
         text: root.label;
         vertical-alignment: center;
-        overflow: elide;
+        wrap: word-wrap;
         font-size: 1 * root.rem-size;
         color: Theme.text;
     }
@@ -103,8 +106,13 @@ component LibraryItemCard inherits Rectangle {
 
     property <float> shape-ratio: root.card.shape == "square" ? 1.0
         : root.card.shape == "landscape" ? 0.5625 : 1.464;
-    property <length> menu-height: (root.card.progress > 0 ? 4 : 3) * 3 * root.rem-size;
-    property <bool> menu-open: false;
+    /// Mirrors the popup rather than a flag of its own: a click outside closes the popup, and a
+    /// flag would stay `true` and turn the button's next press into a no-op close.
+    property <bool> menu-open: menu.is-open;
+    /// The pointer is somewhere on this card. The action-menu button sits above the tile's own
+    /// touch area, so the tile stops being hovered the moment the pointer reaches the button;
+    /// counting both keeps the button up while it is being aimed at.
+    property <bool> pointer-on-card: tile-touch.has-hover || menu-button.is-hovered || root.menu-open;
 
     meta := MetaItem {
         x: 0px;
@@ -123,7 +131,7 @@ component LibraryItemCard inherits Rectangle {
         new-videos: root.card.new-videos;
         rem-size: root.rem-size;
         poster-shape-ratio: root.shape-ratio;
-        hovered-by-owner: tile-touch.has-hover;
+        hovered-by-owner: root.pointer-on-card;
         clicked => {
             root.open();
         }
@@ -132,6 +140,10 @@ component LibraryItemCard inherits Rectangle {
     // Web: the whole `.meta-item` is the link. `MetaItem` sizes itself from its contents, which
     // leaves the strip under the title bar unpressed, so the tile carries the link here.
     tile-touch := TouchArea {
+        x: root.rem-size;
+        y: root.rem-size;
+        width: parent.width - 2 * root.rem-size;
+        height: parent.height - 2 * root.rem-size;
         mouse-cursor: pointer;
         clicked => {
             root.open();
@@ -143,39 +155,44 @@ component LibraryItemCard inherits Rectangle {
     // hiding it, so the corner is still pressed while the glyph is invisible; Slint skips
     // hit-testing below `opacity: 0`, so the glyph carries the fade and the button stays pressable.
     menu-button := Rectangle {
-        x: parent.width - 2.5 * root.rem-size;
+        out property <bool> is-hovered: menu-touch.has-hover;
+        // Web: `right: 1rem` measured from the card's outer edge, which puts the button a
+        // gutter-width outside the title column rather than inside it.
+        x: parent.width - 1.5 * root.rem-size;
         y: parent.height - 5 * root.rem-size;
         width: 1.5 * root.rem-size;
         height: 4 * root.rem-size;
 
         Image {
             x: 0px;
+            // Web: `padding: 1rem 0` on a 4rem box, so the icon fills the 2rem left between.
             y: 1 * root.rem-size;
             width: 1.5 * root.rem-size;
-            height: 1.5 * root.rem-size;
+            height: 2 * root.rem-size;
             source: @image-url("icons/more-horizontal.svg");
             colorize: Theme.text;
-            opacity: tile-touch.has-hover || root.menu-open ? 0.6 : 0.0;
+            opacity: root.pointer-on-card ? 0.6 : 0.0;
             transform-rotation: 90deg;
         }
         menu-touch := TouchArea {
             mouse-cursor: pointer;
             clicked => {
-                root.menu-open = !root.menu-open;
                 if (root.menu-open) {
-                    menu.show();
-                } else {
                     menu.close();
+                } else {
+                    menu.show();
                 }
             }
         }
     }
 
     menu := PopupWindow {
-        x: Math.max(0px, root.width - 10 * root.rem-size);
-        y: root.height - 1 * root.rem-size - root.menu-height;
-        width: 10 * root.rem-size;
-        height: root.menu-height;
+        // Web: 9rem wide, opening from the button's left edge and from its bottom, so the list
+        // hangs off the card's bottom-right corner instead of sitting inside the card.
+        x: Math.max(0px, root.width - 21 * root.rem-size / 14);
+        y: root.height - 1 * root.rem-size;
+        width: 126 * root.rem-size / 14;
+        height: options-layout.preferred-height;
         close-policy: PopupClosePolicy.close-on-click-outside;
 
         Rectangle {
@@ -187,7 +204,7 @@ component LibraryItemCard inherits Rectangle {
             drop-shadow-color: #7b5bf55e;
             clip: true;
 
-            VerticalLayout {
+            options-layout := VerticalLayout {
                 CardMenuOption {
                     label: "Details";
                     action: "details";
