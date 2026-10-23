@@ -22,11 +22,15 @@ pub(crate) const PAGE_SUFFIX: &str = "#page";
 /// Web: the details column's `backdrop-filter: blur(15px)` over the artwork behind it.
 pub(crate) const BACKDROP_SUFFIX: &str = "#backdrop";
 
-/// How much decoded picture the cache may hold before the least recently used ones are let go. A
-/// poster is 300x450, 540 kB, so this is about ninety of them -- five screens of Discover, which is
-/// as far back as scrolling usually goes. The artwork that fills the window is 1920x1080, 8 MB, so
-/// only a few of those are kept at a time.
-const CACHE_LIMIT: usize = 48 * 1024 * 1024;
+/// How much decoded picture the cache may hold before the least recently used ones are let go.
+///
+/// The pictures the window is showing are never let go of at all (see [`Cached::insert`]), so this
+/// has to fit what a screen draws, with room left over for the one coming next. A poster is
+/// 300x450, 540 kB: a board of eight catalogs of ten cards is 49 MB, a settled screenful of Discover
+/// of up to forty cards is 22 MB, the player's artwork and its drawer's Episode thumbnails are
+/// about 21 MB, and twenty addon logos are 9 MB. The widest of those screens is a little under
+/// a hundred megabytes, which leaves a screen and a half of Discover to scroll back through.
+const CACHE_LIMIT: usize = 128 * 1024 * 1024;
 
 pub(crate) type Cache = Arc<Mutex<Cached>>;
 
@@ -170,8 +174,8 @@ impl Default for Images {
 
 impl Images {
     /// Says which pictures the window is showing, so the cache keeps them while it makes room for
-    /// others. Called whenever the screen's pictures change: the visible cards' posters and the
-    /// panel's logo and backdrop.
+    /// others. Called whenever that changes: on every new snapshot, and on every report the
+    /// Discover grid sends of what it has scrolled to.
     pub(crate) fn set_wanted(&self, keys: impl IntoIterator<Item = String>) {
         let keys: HashSet<String> = keys.into_iter().collect();
         let mut wanted = self.wanted.lock().unwrap();
@@ -614,6 +618,27 @@ mod tests {
         // Once nothing is on screen, the oldest goes as usual.
         cache.insert("c".to_owned(), picture(), &on_nothing());
         assert!(cache.contains_key("c"));
+    }
+
+    #[test]
+    fn a_page_of_scrolling_never_lets_go_of_a_picture_that_is_on_screen() {
+        // What a session looks like: a board's posters are on screen, and a page of Discover is
+        // scrolled past them -- sixteen downloads at a time, each one a candidate to evict. None
+        // of the board's may go, however far past its own budget the cache has to reach.
+        let mut cache = Cached::with_limit(4 * 64);
+        let on_screen: HashSet<String> = (0..4).map(|index| format!("board-{index}")).collect();
+        for key in &on_screen {
+            cache.insert(key.clone(), picture(), &on_screen);
+        }
+        for index in 0..40 {
+            cache.insert(format!("discover-{index}"), picture(), &on_screen);
+        }
+        for key in &on_screen {
+            assert!(cache.contains_key(key), "{key} was let go");
+        }
+        // And the scroll's own pictures are what the room is taken from.
+        assert!(!cache.contains_key("discover-0"));
+        assert!(cache.contains_key("discover-39"));
     }
 
     #[test]

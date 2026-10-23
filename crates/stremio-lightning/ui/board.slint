@@ -12,6 +12,9 @@ export struct PosterData {
     title: string,
     poster: image,
     has-poster: bool,
+    /// How far into the title the viewer is, as a percentage. Zero draws no bar, which is every
+    /// card but the Continue Watching row's.
+    progress: float,
 }
 
 export struct CatalogRow {
@@ -71,6 +74,31 @@ export component MetaItem inherits Rectangle {
                 // Web: .poster-image-layer scales to 1.05 while the card is selected or hovered.
                 transform-scale: (root.selected || card-touch.has-hover) ? 1.05 : 1.0;
                 visible: !ClassStyles.poster-image.hidden;
+            }
+
+            // Web: `.progress-bar-layer` -- 1rem in from the poster's left, right and bottom,
+            // 0.45rem tall with half its height as the radius. The played part is the foreground
+            // colour and the rest is the same colour at 30%, which is what `.progress-bar` over
+            // `.progress-bar-background` composites to.
+            if root.card.progress > 0: progress-bar-layer := Rectangle {
+                x: 1 * root.rem-size;
+                y: parent.height - self.height - 1 * root.rem-size;
+                width: parent.width - 2 * root.rem-size;
+                height: 0.45 * root.rem-size;
+                border-radius: self.height / 2;
+                clip: true;
+
+                Rectangle {
+                    width: parent.width * Math.min(Math.max(root.card.progress, 0), 100) / 100;
+                    height: parent.height;
+                    background: Theme.text;
+                }
+                Rectangle {
+                    width: parent.width;
+                    height: parent.height;
+                    background: Theme.text;
+                    opacity: 0.3;
+                }
             }
         }
 

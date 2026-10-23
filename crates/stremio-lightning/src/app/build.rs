@@ -4,6 +4,7 @@
 use futures::channel::mpsc::Receiver;
 use stremio_core::models::catalog_with_filters::CatalogWithFilters;
 use stremio_core::models::catalogs_with_extra::Selected;
+use stremio_core::models::continue_watching_preview::ContinueWatchingPreview;
 use stremio_core::models::ctx::Ctx;
 use stremio_core::models::installed_addons_with_filters::{
     InstalledAddonsRequest, InstalledAddonsWithFilters, Selected as InstalledSelected,
@@ -29,17 +30,24 @@ pub fn runtime(profile: Profile) -> (AppRuntime, Receiver<RuntimeEvent<AppEnv, A
     // `default()` has nothing to pick from, so a `Load` with no selection would select nothing.
     let (discover, discover_effects) = CatalogWithFilters::<MetaItemPreview>::new(&profile);
     let (installed_addons, installed_effects) = InstalledAddonsWithFilters::new(&profile);
+    let library = LibraryBucket::new(uid.clone(), vec![]);
+    let notifications = NotificationsBucket::new::<AppEnv>(uid.clone(), vec![]);
+    // The preview is built from the buckets rather than defaulted, so a library that came back
+    // with the stored session has its row on the first frame. After that the core keeps it in
+    // step with the library by itself: it is stremio-core's model, not a second copy of it.
+    let (continue_watching_preview, _) = ContinueWatchingPreview::new(&library, &notifications);
     let model = AppModel {
         ctx: Ctx::new(
             profile,
-            LibraryBucket::new(uid.clone(), vec![]),
+            library,
             StreamsBucket::new(uid.clone()),
             ServerUrlsBucket::new::<AppEnv>(uid.clone()),
-            NotificationsBucket::new::<AppEnv>(uid.clone(), vec![]),
+            notifications,
             SearchHistoryBucket::new(uid.clone()),
             DismissedEventsBucket::new(uid),
         ),
         board: Default::default(),
+        continue_watching_preview,
         discover,
         installed_addons,
         meta_details: Default::default(),

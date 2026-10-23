@@ -28,6 +28,9 @@ pub struct Card {
     pub kind: String,
     pub title: String,
     pub poster: Option<String>,
+    /// How far into the title the viewer is, as a percentage: the Continue Watching row draws it as
+    /// a bar, and every other row's cards are zero.
+    pub progress: f64,
 }
 
 /// One filter in a screen's bar (type, catalog, or an extra such as genre): the closed label,
@@ -116,6 +119,7 @@ pub(crate) fn card_of(item: &MetaItemPreview) -> Card {
         kind: item.r#type.clone(),
         title: item.name.clone(),
         poster: item.poster.as_ref().map(|url| url.to_string()),
+        progress: 0.0,
     }
 }
 

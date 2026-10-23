@@ -11,7 +11,7 @@ use stremio_core::runtime::RuntimeEvent;
 use stremio_lightning_env::AppEnv;
 
 use super::{AppModel, AppRuntime, Snapshot};
-use crate::plumbing::images::Images;
+use crate::plumbing::images::{backdrop_key, Images};
 use crate::screens::{auth, discover, player, settings};
 use crate::shell;
 use crate::MainWindow;
@@ -146,71 +146,132 @@ fn snapshot(model: &AppModel, context: &Context) -> Snapshot {
     }
 }
 
-/// Asks for every image the new snapshot needs. The cache ignores keys it has already asked for.
+/// Asks for every image the new snapshot needs, and says which of them the window is showing, so
+/// the cache keeps those. The cache ignores keys it has already asked for.
 fn request_images(snapshot: &Snapshot, context: &Context) {
     let visible = *context.visible.lock().unwrap();
-    for url in snapshot_images(snapshot, context.selected.load(Ordering::Relaxed), visible) {
+    let selected = context.selected.load(Ordering::Relaxed);
+    // Said before the first request goes out, so the first picture to land is already protected
+    // from the ones queued behind it.
+    context
+        .images
+        .set_wanted(shown_images(snapshot, visible, selected));
+    for url in snapshot_images(snapshot, visible, selected) {
         let repaint = context.repaint.clone();
         context.images.request(url, move || repaint());
     }
 }
 
-/// Every image a snapshot wants on screen: the cards it shows, the Season of Episodes it lists,
-/// the drawer's Video pictures and the player's own logo and backdrop.
+/// Every image a snapshot wants on screen, or is about to want: the cards it shows, the Season of
+/// Episodes it lists, the drawer's Video pictures and the player's own logo and backdrop.
 ///
 /// This is the one list, so a repaint that never touches the core (a Season switch in the details
 /// picker is exactly that) can still ask for the pictures its rows need. Waiting for the next core
 /// event instead is what made a later Season's thumbnails crawl in.
 pub(crate) fn snapshot_images(
     snapshot: &Snapshot,
-    selected: usize,
     visible: (usize, usize),
+    selected: usize,
 ) -> impl Iterator<Item = String> + '_ {
+    board_images(snapshot)
+        // Only the cards on screen: the rest of the catalog is asked for as it is scrolled to.
+        .chain(discover_images(snapshot, visible, selected))
+        .chain(details_images(snapshot))
+        .chain(addon_images(snapshot))
+        .chain(player_images(snapshot))
+        // Every Episode of every Season, so picking another Season in the drawer paints at once
+        // instead of leaving its rows as empty rectangles while the pictures arrive.
+        .chain(snapshot.player.every_thumbnail.iter().cloned())
+}
+
+/// The pictures the window is showing, which are the ones the cache may not let go of: the same
+/// list as `snapshot_images` minus the pictures asked for ahead of being seen -- the rest of a
+/// Discover catalog, and the thumbnails of Seasons the drawer is not showing.
+///
+/// That difference is the whole point of it. Asking for a picture early costs a download; holding
+/// one costs a poster's worth of memory, and holding every picture ever asked for is what filled
+/// the cache with posters nobody was looking at and let go of the ones that were.
+pub(crate) fn shown_images(
+    snapshot: &Snapshot,
+    visible: (usize, usize),
+    selected: usize,
+) -> impl Iterator<Item = String> + '_ {
+    board_images(snapshot)
+        .chain(discover_images(snapshot, visible, selected))
+        .chain(details_images(snapshot))
+        .chain(addon_images(snapshot))
+        .chain(player_images(snapshot))
+}
+
+/// The Board's rows: Continue Watching and one row per catalog, which is what the home screen
+/// draws. Kept whatever screen is showing, because it is the one every visit back from Discover
+/// lands on and it does not grow: eight catalogs of ten cards, plus the continued titles.
+fn board_images(snapshot: &Snapshot) -> impl Iterator<Item = String> + '_ {
     snapshot
         .rows
         .iter()
         .flat_map(|row| row.cards.iter())
         .filter_map(|card| card.poster.clone())
-        // Only the cards on screen: the rest of the catalog is asked for as it is scrolled to.
-        .chain(discover::card_images(&snapshot.discover, visible))
+}
+
+/// A screenful of the Discover grid, and the preview panel's pictures for the card it has open.
+fn discover_images(
+    snapshot: &Snapshot,
+    visible: (usize, usize),
+    selected: usize,
+) -> impl Iterator<Item = String> + '_ {
+    discover::card_images(&snapshot.discover, visible)
+        .chain(discover::preview_images(&snapshot.discover, selected))
+}
+
+/// The details screen: the panel's logo, the artwork behind it, the blurred copy the column paints
+/// under itself, and the Episode picker's thumbnails.
+///
+/// Nothing while the player is open: it covers the details screen, so its pictures are neither
+/// drawn nor worth holding, and the page artwork they include is the largest picture the app has.
+fn details_images(snapshot: &Snapshot) -> impl Iterator<Item = String> + '_ {
+    let preview = if snapshot.player.open {
+        None
+    } else {
+        snapshot.details.preview.as_ref()
+    };
+    preview
+        .and_then(|preview| preview.logo.clone())
+        .into_iter()
+        .chain(preview.and_then(|preview| preview.background.clone()))
+        // Made from the artwork above, so it is never downloaded on its own.
         .chain(
-            snapshot
-                .details
-                .preview
-                .as_ref()
-                .and_then(|preview| preview.logo.clone()),
-        )
-        .chain(
-            snapshot
-                .details
-                .preview
-                .as_ref()
-                .and_then(|preview| preview.background.clone()),
-        )
-        // The blurred copy the details column paints under itself, made from the artwork above.
-        .chain(
-            snapshot
-                .details
-                .preview
-                .as_ref()
+            preview
                 .and_then(|preview| preview.background.as_ref())
-                .map(|key| crate::plumbing::images::backdrop_key(key)),
+                .map(|key| backdrop_key(key)),
         )
         .chain(
             snapshot
                 .details
                 .episodes
                 .iter()
+                .filter(move |_| preview.is_some())
                 .filter_map(|episode| episode.thumbnail.clone()),
         )
-        .chain(
-            snapshot
-                .addons
-                .cards
-                .iter()
-                .filter_map(|card| card.logo.clone()),
-        )
-        .chain(snapshot.player.logo.clone())
+}
+
+/// The addon cards' logos: one small picture each, and all of them at once on that screen.
+fn addon_images(snapshot: &Snapshot) -> impl Iterator<Item = String> + '_ {
+    snapshot
+        .addons
+        .cards
+        .iter()
+        .filter_map(|card| card.logo.clone())
+}
+
+/// The player: its logo, the artwork behind it and the Episode drawer's thumbnails. Empty until a
+/// Stream is opened, which is what `player::data` hands back when nothing is picked.
+fn player_images(snapshot: &Snapshot) -> impl Iterator<Item = String> + '_ {
+    snapshot
+        .player
+        .logo
+        .clone()
+        .into_iter()
         .chain(snapshot.player.background.clone())
         .chain(
             snapshot
@@ -219,10 +280,6 @@ pub(crate) fn snapshot_images(
                 .iter()
                 .filter_map(|episode| episode.thumbnail.clone()),
         )
-        // Every Episode of every Season, so picking another Season in the drawer paints at once
-        // instead of leaving its rows as empty rectangles while the pictures arrive.
-        .chain(snapshot.player.every_thumbnail.iter().cloned())
-        .chain(discover::preview_images(&snapshot.discover, selected))
 }
 
 /// The sign-in screen is done, whatever finished it.
@@ -233,4 +290,130 @@ fn close_sign_in(context: &Context) {
         window.set_auth_error("".into());
         window.set_auth_open(false);
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::app::Snapshot;
+    use crate::screens::{board, details, discover, player, Card, Preview};
+
+    use super::{shown_images, snapshot_images};
+
+    fn card(poster: &str) -> Card {
+        Card {
+            id: poster.to_owned(),
+            kind: "movie".to_owned(),
+            title: poster.to_owned(),
+            poster: Some(poster.to_owned()),
+            progress: 0.0,
+        }
+    }
+
+    fn preview(poster: &str) -> Preview {
+        Preview {
+            logo: Some(format!("{poster}#logo")),
+            background: Some(format!("{poster}#blur")),
+            ..Preview::default()
+        }
+    }
+
+    fn posters(count: usize) -> Vec<Card> {
+        (1..=count)
+            .map(|index| card(&format!("https://example.com/card-{index}")))
+            .collect()
+    }
+
+    /// A window showing a two-card Board row and a three-card Discover catalog.
+    fn snapshot() -> Snapshot {
+        Snapshot {
+            rows: vec![board::Row {
+                title: "Popular - Movie".to_owned(),
+                shape: "poster",
+                cards: vec![
+                    card("https://example.com/board-1"),
+                    card("https://example.com/board-2"),
+                ],
+            }],
+            discover: discover::Data {
+                shape: "poster",
+                cards: posters(3),
+                inputs: Vec::new(),
+                previews: (1..=3)
+                    .map(|index| preview(&format!("https://example.com/card-{index}")))
+                    .collect(),
+            },
+            ..Snapshot::default()
+        }
+    }
+
+    fn listed(list: impl Iterator<Item = String>) -> Vec<String> {
+        list.collect()
+    }
+
+    #[test]
+    fn the_board_is_shown_whatever_screen_the_window_is_on() {
+        // The board is what every visit back from Discover lands on, so it is held even while
+        // the grid is the screen on the window -- which is when it used to be let go of.
+        let snapshot = snapshot();
+        let shown = listed(shown_images(&snapshot, (0, 2), 0));
+        assert!(shown.contains(&"https://example.com/board-1".to_owned()));
+        assert!(shown.contains(&"https://example.com/board-2".to_owned()));
+    }
+
+    #[test]
+    fn the_screenful_on_display_is_shown_and_the_rest_of_the_catalog_is_not() {
+        let snapshot = snapshot();
+        let shown = listed(shown_images(&snapshot, (0, 2), 0));
+        assert!(shown.contains(&"https://example.com/card-1".to_owned()));
+        assert!(shown.contains(&"https://example.com/card-2".to_owned()));
+        // The card scrolled out of the range is drawn blank and filled in when it comes back.
+        assert!(!shown.contains(&"https://example.com/card-3".to_owned()));
+        // The panel's pictures come with the card it has open, and only that one's.
+        assert!(shown.contains(&"https://example.com/card-1#logo".to_owned()));
+        assert!(shown.contains(&"https://example.com/card-1#blur".to_owned()));
+        assert!(!shown.contains(&"https://example.com/card-2#logo".to_owned()));
+    }
+
+    #[test]
+    fn what_is_asked_for_ahead_of_being_seen_is_asked_for_but_not_held() {
+        let mut snapshot = snapshot();
+        snapshot.player.every_thumbnail = vec!["https://example.com/season-4.jpg".to_owned()];
+        assert!(listed(snapshot_images(&snapshot, (0, 3), 0))
+            .contains(&"https://example.com/season-4.jpg".to_owned()));
+        assert!(!listed(shown_images(&snapshot, (0, 3), 0))
+            .contains(&"https://example.com/season-4.jpg".to_owned()));
+    }
+
+    #[test]
+    fn the_details_column_is_held_until_the_player_covers_it() {
+        let mut snapshot = snapshot();
+        snapshot.details.preview = Some(Preview {
+            logo: Some("https://example.com/art#logo".to_owned()),
+            background: Some("https://example.com/art#page".to_owned()),
+            ..Preview::default()
+        });
+        snapshot.details.episodes = vec![details::Episode {
+            thumbnail: Some("https://example.com/episode.jpg".to_owned()),
+            ..details::Episode::default()
+        }];
+        let shown = listed(shown_images(&snapshot, (0, 2), 0));
+        assert!(shown.contains(&"https://example.com/art#logo".to_owned()));
+        assert!(shown.contains(&"https://example.com/art#page".to_owned()));
+        // The column's blurred backdrop is made from the page artwork, and is a key of its own.
+        assert!(shown.contains(&"https://example.com/art#backdrop".to_owned()));
+        assert!(shown.contains(&"https://example.com/episode.jpg".to_owned()));
+
+        // A player covers the details screen, and brings the artwork behind itself instead.
+        snapshot.player.open = true;
+        snapshot.player.background = Some("https://example.com/wide#blur".to_owned());
+        snapshot.player.episodes = vec![player::Episode {
+            thumbnail: Some("https://example.com/drawer.jpg".to_owned()),
+            ..player::Episode::default()
+        }];
+        let shown = listed(shown_images(&snapshot, (0, 2), 0));
+        assert!(!shown.contains(&"https://example.com/episode.jpg".to_owned()));
+        assert!(!shown.contains(&"https://example.com/art#page".to_owned()));
+        assert!(shown.contains(&"https://example.com/wide#blur".to_owned()));
+        assert!(shown.contains(&"https://example.com/drawer.jpg".to_owned()));
+    }
 }

@@ -48,6 +48,33 @@ struct GridReport {
     at: std::time::Instant,
 }
 
+/// Says which pictures the window is showing, so the cache keeps those while it makes room for
+/// others. A free function rather than a method: nothing of the window's own is needed, and the
+/// events that ask for pictures run it from the thread they arrive on.
+fn remember_wanted(
+    images: &Images,
+    latest: &Mutex<Snapshot>,
+    visible: &Mutex<(usize, usize)>,
+    selected: usize,
+) {
+    let range = drawn_range(visible);
+    let snapshot = latest.lock().unwrap();
+    images.set_wanted(crate::app::events::shown_images(&snapshot, range, selected));
+}
+
+/// The cards the Discover grid is drawing, as the last report it sent describes them. It draws the
+/// rows on screen and one either side of them, so a poster is worth keeping while its card is still
+/// drawn rather than only while it is in the viewport. Before the first report, the screenful the
+/// shell starts from.
+fn drawn_range(visible: &Mutex<(usize, usize)>) -> (usize, usize) {
+    // Read out and the lock let go of, so the two are never held at the same time.
+    let grid = *GRID.lock().unwrap();
+    match grid {
+        Some(grid) => discover::settled_range(grid.scroll, grid.height, grid.pitch, grid.columns),
+        None => *visible.lock().unwrap(),
+    }
+}
+
 /// Every handle the callbacks need, in one value, so registering a callback is one line.
 #[derive(Clone)]
 pub(crate) struct Wiring {
@@ -117,6 +144,7 @@ impl Wiring {
     fn repaint(&self) {
         let snapshot = self.latest.lock().unwrap().clone();
         shell::show(&self.window, snapshot, &self.images);
+        self.remember_wanted();
     }
 
     /// Repaints with a snapshot the caller has just changed, and asks for every picture that
@@ -126,9 +154,10 @@ impl Wiring {
     fn repaint_with(&self, snapshot: Snapshot) {
         *self.latest.lock().unwrap() = snapshot.clone();
         shell::show(&self.window, snapshot.clone(), &self.images);
+        self.remember_wanted();
         let visible = *self.visible.lock().unwrap();
         let selected = self.selected.load(Ordering::Relaxed);
-        for url in crate::app::events::snapshot_images(&snapshot, selected, visible) {
+        for url in crate::app::events::snapshot_images(&snapshot, visible, selected) {
             self.request_painting(url);
         }
     }
@@ -136,6 +165,9 @@ impl Wiring {
     /// Asks for a picture and repaints when it lands. Everything the window is waiting to show goes
     /// through here: a key asked for without this arrives in the cache and stays a grey rectangle,
     /// which is what a grid scrolled into view used to look like.
+    ///
+    /// It does not say what is on screen: every caller of this asked for the picture *after*
+    /// saying so, which is why the key is already being kept when it lands.
     fn request_painting(&self, url: String) {
         let (latest, window, images) = (
             self.latest.clone(),
@@ -691,6 +723,8 @@ impl Wiring {
     fn select_preview(&self, index: i32) {
         let index = usize::try_from(index).unwrap_or(0);
         self.selected.store(index, Ordering::Relaxed);
+        // The panel's pictures are on screen now, and the ones it had are not.
+        self.remember_wanted();
         let snapshot = self.latest.lock().unwrap().clone();
         // Paint the panel now: its title, rating, genres and the rest are already in this snapshot,
         // and the pictures are baked into what is painted. Waiting for a picture to arrive before
@@ -727,16 +761,15 @@ impl Wiring {
 
     /// Says which pictures are on screen, so the cache keeps those while it makes room for others.
     /// Without this it is free to let go of a poster that is being looked at, and with a limit on
-    /// it that is exactly what happened: a grid of blank cards after some scrolling.
-    fn remember_wanted(&self, range: (usize, usize)) {
-        let selected = self.selected.load(Ordering::Relaxed);
-        let keys: Vec<String> = {
-            let snapshot = self.latest.lock().unwrap();
-            let cards = discover::card_images(&snapshot.discover, range);
-            let panel = discover::preview_images(&snapshot.discover, selected);
-            cards.chain(panel).collect()
-        };
-        self.images.set_wanted(keys);
+    /// it that is exactly what happened: a grid of blank cards after some scrolling -- and, since
+    /// only the Discover grid ever said so, a board of them after a visit to Discover.
+    fn remember_wanted(&self) {
+        remember_wanted(
+            &self.images,
+            &self.latest,
+            &self.visible,
+            self.selected.load(Ordering::Relaxed),
+        );
     }
 
     /// The grid moved. Its cards' posters are asked for as they come on screen -- a page of Discover
@@ -759,7 +792,9 @@ impl Wiring {
             seconds > 0.0 && seconds < 0.25 && (scroll - before.scroll).abs() / seconds > FLYING
         });
         let range = discover::visible_range(scroll, height, pitch, columns);
-        self.remember_wanted(range);
+        // What the cache may keep is what the grid draws, not only what is strictly on screen: the
+        // row either side is drawn too, and a poster let go of there comes back blank.
+        self.remember_wanted();
         if *self.visible.lock().unwrap() != range {
             *self.visible.lock().unwrap() = range;
             if crate::plumbing::images::tracing() {
@@ -801,7 +836,7 @@ impl Wiring {
             return;
         };
         let range = discover::settled_range(grid.scroll, grid.height, grid.pitch, grid.columns);
-        self.remember_wanted(range);
+        self.remember_wanted();
         let urls: Vec<String> = {
             let snapshot = self.latest.lock().unwrap();
             discover::card_images(&snapshot.discover, range).collect()

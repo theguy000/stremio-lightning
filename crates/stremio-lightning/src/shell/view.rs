@@ -224,6 +224,7 @@ fn poster_data(card: &Card, images: &Images) -> PosterData {
         title: card.title.clone().into(),
         has_poster: poster.is_some(),
         poster: poster.unwrap_or_default(),
+        progress: card.progress as f32,
     }
 }
 

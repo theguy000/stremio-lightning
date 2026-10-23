@@ -3,6 +3,7 @@
 
 use stremio_core::models::catalog_with_filters::CatalogWithFilters;
 use stremio_core::models::catalogs_with_extra::CatalogsWithExtra;
+use stremio_core::models::continue_watching_preview::ContinueWatchingPreview;
 use stremio_core::models::ctx::Ctx;
 use stremio_core::models::installed_addons_with_filters::InstalledAddonsWithFilters;
 use stremio_core::models::meta_details::MetaDetails;
@@ -20,6 +21,9 @@ use crate::screens::{addons, board, details, discover, player, settings};
 pub struct AppModel {
     pub ctx: Ctx,
     pub board: CatalogsWithExtra,
+    /// The titles the account left unfinished, kept by the core from the library. The Board
+    /// draws them as its first row, above the addon catalogs.
+    pub continue_watching_preview: ContinueWatchingPreview,
     pub discover: CatalogWithFilters<MetaItemPreview>,
     pub installed_addons: InstalledAddonsWithFilters,
     pub meta_details: MetaDetails,
