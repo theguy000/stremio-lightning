@@ -97,13 +97,16 @@ export component DiscoverContent inherits Rectangle {
     }
     changed grid-height => {
         root.report-visible();
+        root.report-bounds();
     }
     changed row-count => {
         root.report-visible();
+        root.report-bounds();
         root.check-end();
     }
     init => {
         root.report-visible();
+        root.report-bounds();
     }
     // Web: up to three inputs of 15rem that shrink together beside a 5rem filter button slot.
     property <int> input-count: Math.max(1, Math.min(root.inputs.length, 3));
@@ -122,14 +125,18 @@ export component DiscoverContent inherits Rectangle {
         }
     }
 
-    function report-visible() {
-        root.visible-range(root.grid-scroll, root.grid-height, root.row-pitch, root.columns);
-        // Where the grid is and how tall its contents are, so the shell can clamp a wheel notch
-        // itself: it owns `scroll-offset`, this only draws it.
+    /// Where the grid is and how tall its contents are, so the shell can clamp a wheel notch itself:
+    /// it owns `scroll-offset`, this only draws it. Nothing here moves when the grid scrolls, so it
+    /// is reported when the layout changes and not on every notch.
+    function report-bounds() {
         root.grid-bounds(meta-items-container.absolute-position.x,
             meta-items-container.absolute-position.y,
             meta-items-container.width, meta-items-container.height,
             root.grid-height-total);
+    }
+
+    function report-visible() {
+        root.visible-range(root.grid-scroll, root.grid-height, root.row-pitch, root.columns);
     }
 
     discover-content := Rectangle {

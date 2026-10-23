@@ -710,11 +710,17 @@ impl Wiring {
     /// be there by the time a click lands. Asking on hover is where we can get the same head start.
     fn hover_card(&self, index: i32) {
         let index = usize::try_from(index).unwrap_or(0);
-        let snapshot = self.latest.lock().unwrap().clone();
+        // The URLs are taken out under the lock rather than by cloning the snapshot: hovering fires
+        // as cards move under a still pointer, and a clone of the snapshot is every card and every
+        // preview in it, not the two pictures this wants.
+        let urls = {
+            let snapshot = self.latest.lock().unwrap();
+            discover::preview_images(&snapshot.discover, index)
+        };
         // With the repaint attached, so the pictures are in the painted panel by the time the click
         // comes: asking for them here and repainting only on the click would leave the click's own
         // request deduped, with nothing left to paint the panel when the pictures landed.
-        for url in discover::preview_images(&snapshot.discover, index) {
+        for url in urls {
             self.request_painting(url);
         }
     }
@@ -751,8 +757,11 @@ impl Wiring {
                 );
             }
             if !flying {
-                let snapshot = self.latest.lock().unwrap().clone();
-                for url in discover::card_images(&snapshot.discover, range) {
+                let urls: Vec<String> = {
+                    let snapshot = self.latest.lock().unwrap();
+                    discover::card_images(&snapshot.discover, range).collect()
+                };
+                for url in urls {
                     self.request_painting(url);
                 }
             }
@@ -777,8 +786,11 @@ impl Wiring {
             return;
         };
         let range = discover::settled_range(grid.scroll, grid.height, grid.pitch, grid.columns);
-        let snapshot = self.latest.lock().unwrap().clone();
-        for url in discover::card_images(&snapshot.discover, range) {
+        let urls: Vec<String> = {
+            let snapshot = self.latest.lock().unwrap();
+            discover::card_images(&snapshot.discover, range).collect()
+        };
+        for url in urls {
             self.request_painting(url);
         }
         // Only now that the grid is still is the next page worth asking for: asked for on every
