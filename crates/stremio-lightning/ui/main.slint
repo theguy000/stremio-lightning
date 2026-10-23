@@ -139,6 +139,7 @@ export component MainWindow inherits Window {
     callback open-item(string, string, string);
     callback load-next-page();
     callback select-preview(int);
+    callback hover-card(int);
     callback select-input-option(int, int);
     callback select-addon-input-option(int, int);
     callback search-addons(string);
@@ -217,6 +218,9 @@ export component MainWindow inherits Window {
         viewport-width: root.width;
         select-item(index) => {
             root.select-preview(index);
+        }
+        hover-card(index) => {
+            root.hover-card(index);
         }
         open-item(id, kind, title) => {
             root.details-open = true;

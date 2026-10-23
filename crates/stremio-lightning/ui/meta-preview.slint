@@ -316,8 +316,9 @@ export component MetaPreview inherits Rectangle {
                             height: root.on-page ? parent.height : 6 * root.rem-size;
                             source: root.preview.logo;
                             image-fit: contain;
-                            // Web's logo sits at the content's left edge; `contain` alone centres it.
-                            horizontal-alignment: left;
+                            // The page keeps its logo on the content's left edge; the panel centres
+                            // the title, which is the only thing at its top.
+                            horizontal-alignment: root.on-page ? left : center;
                             vertical-alignment: root.on-page ? center : top;
                         }
                     }
@@ -329,6 +330,7 @@ export component MetaPreview inherits Rectangle {
                         color: Theme.text;
                         opacity: 0.9;
                         wrap: word-wrap;
+                        horizontal-alignment: root.on-page ? left : center;
                     }
                     // Web: `.logo { margin-bottom: 2rem }`.
                     Rectangle {

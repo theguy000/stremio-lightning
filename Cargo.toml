@@ -22,6 +22,18 @@ debug = 1
 [profile.dev.package."*"]
 debug = 0
 
+# Decoding one 300x450 poster took ~180ms unoptimised, and a catalog's worth of them kept the CPU
+# busy for seconds while the Discover grid filled in a card at a time -- longer than the download
+# that preceded each one. The decoders are the dependencies worth optimising even in a dev build.
+[profile.dev.package.image]
+opt-level = 3
+
+[profile.dev.package.zune-jpeg]
+opt-level = 3
+
+[profile.dev.package.png]
+opt-level = 3
+
 [profile.release]
 opt-level = 3
 lto = "thin"

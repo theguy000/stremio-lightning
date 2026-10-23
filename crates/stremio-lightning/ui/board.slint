@@ -26,6 +26,9 @@ export component MetaItem inherits Rectangle {
     in property <float> poster-shape-ratio;
     in property <length> rem-size;
     callback clicked();
+    /// The pointer came to rest on this card. The Discover panel asks for the card's pictures
+    /// then, so opening it does not have to wait for a download.
+    callback hovered();
 
     meta-item-link := Rectangle {
         x: root.rem-size;
@@ -110,6 +113,11 @@ export component MetaItem inherits Rectangle {
 
         card-touch := TouchArea {
             mouse-cursor: pointer;
+            changed has-hover => {
+                if (self.has-hover) {
+                    root.hovered();
+                }
+            }
             clicked => {
                 root.clicked();
             }

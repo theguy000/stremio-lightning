@@ -26,6 +26,8 @@ export component DiscoverContent inherits Rectangle {
     callback open-item(string, string, string);
     callback load-next-page();
     callback select-item(int);
+    /// The pointer came to rest on a card: its pictures can be fetched before it is opened.
+    callback hover-card(int);
     // (input index, option index): the user picked an option in the filter bar.
     callback select-option(int, int);
 
@@ -123,6 +125,9 @@ export component DiscoverContent inherits Rectangle {
                     selected: index == root.selected-index;
                     rem-size: root.rem-size;
                     poster-shape-ratio: root.poster-shape-ratio;
+                    hovered => {
+                        root.hover-card(index);
+                    }
                     // Web: a click on a card that is not selected selects it, a second click opens it.
                     clicked => {
                         if (index == root.selected-index || !root.preview-visible) {

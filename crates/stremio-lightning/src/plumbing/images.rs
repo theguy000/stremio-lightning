@@ -24,11 +24,18 @@ pub(crate) const BACKDROP_SUFFIX: &str = "#backdrop";
 
 pub(crate) type Cache = Arc<Mutex<HashMap<String, SharedPixelBuffer<Rgba8Pixel>>>>;
 
+/// A key held back because the picture it would be made from is being downloaded: the key itself
+/// and what to run once it has been made.
+type Waiter = (String, Box<dyn FnOnce() + Send>);
+
 #[derive(Clone)]
 pub(crate) struct Images {
     client: reqwest::Client,
     cache: Cache,
     requested: Arc<Mutex<HashSet<String>>>,
+    /// Keys waiting on a download of their own picture at full size, by URL. Held rather than
+    /// fetched again, and made from it the moment it lands.
+    waiting: Arc<Mutex<HashMap<String, Vec<Waiter>>>>,
     /// The runtime the fetches run on. Carried rather than assumed: a request can be made from the
     /// window's thread (a repaint asks for its own pictures), where there is no runtime context to
     /// `tokio::spawn` into.
@@ -49,6 +56,7 @@ impl Default for Images {
                 .unwrap_or_default(),
             cache: Default::default(),
             requested: Default::default(),
+            waiting: Default::default(),
             runtime: tokio::runtime::Handle::current(),
         }
     }
@@ -74,10 +82,11 @@ impl Images {
         if !self.requested.lock().unwrap().insert(key.clone()) {
             return;
         }
-        let (client, cache, requested) = (
+        let (client, cache, requested, waiting) = (
             self.client.clone(),
             self.cache.clone(),
             self.requested.clone(),
+            self.waiting.clone(),
         );
         self.runtime.clone().spawn(async move {
             // Another size of the same picture is here often enough to matter: the Discover panel
@@ -93,6 +102,28 @@ impl Images {
             .await
             .ok()
             .flatten();
+            // The picture this would be made from may be downloading right now -- the panel's
+            // blurred poster is asked for while the grid's copy of that same poster is still on its
+            // way. Wait for it there instead of downloading it a second time; landing it releases
+            // this key. (The waiting lock is taken before the cache is read, and the other side
+            // writes the cache before reading the lock, so neither can miss the other.)
+            let (url, _, blur) = source(&key);
+            let base = url.to_owned();
+            let mut held = waiting.lock().unwrap();
+            if made.is_none()
+                && should_wait(
+                    blur.is_some(),
+                    &base,
+                    &requested.lock().unwrap(),
+                    cache.lock().unwrap().contains_key(&base),
+                )
+            {
+                held.entry(base)
+                    .or_default()
+                    .push((key, Box::new(on_ready)));
+                return;
+            }
+            drop(held);
             let result = match made {
                 Some(buffer) => Fetched::Ready(buffer),
                 None => fetch(&client, &key).await,
@@ -101,13 +132,69 @@ impl Images {
                 Fetched::Ready(buffer) => {
                     cache.lock().unwrap().insert(key, buffer);
                     on_ready();
+                    release(&waiting, &cache, &requested, &base);
                 }
-                Fetched::Missing => {}
+                Fetched::Missing => {
+                    abandon(&waiting, &requested, &base);
+                }
                 Fetched::Retry => {
+                    requested.lock().unwrap().remove(&key);
+                    abandon(&waiting, &requested, &base);
+                }
+            }
+        });
+    }
+}
+
+/// Whether this key should wait for the picture another key is already downloading whole. Every
+/// card's poster is asked for on each snapshot, so the blurred copy of one that is still on its way
+/// waits for it: fetching it here too is the second download a click used to cost.
+fn should_wait(blur: bool, base: &str, requested: &HashSet<String>, cached: bool) -> bool {
+    blur && !cached && requested.contains(base)
+}
+
+/// Hands the keys that were waiting on `url` the picture that has just landed: each is made from
+/// it, never downloaded again, and its caller repainted.
+fn release(
+    waiting: &Arc<Mutex<HashMap<String, Vec<Waiter>>>>,
+    cache: &Cache,
+    requested: &Arc<Mutex<HashSet<String>>>,
+    url: &str,
+) {
+    let ready = waiting.lock().unwrap().remove(url).unwrap_or_default();
+    for (key, on_ready) in ready {
+        let (cache, requested, key) = (cache.clone(), requested.clone(), key.clone());
+        tokio::spawn(async move {
+            let made = tokio::task::spawn_blocking({
+                let cache = cache.clone();
+                let key = key.clone();
+                move || derive(&cache, &key)
+            })
+            .await
+            .ok()
+            .flatten();
+            match made {
+                Some(buffer) => {
+                    cache.lock().unwrap().insert(key, buffer);
+                    on_ready();
+                }
+                None => {
                     requested.lock().unwrap().remove(&key);
                 }
             }
         });
+    }
+}
+
+/// Lets the keys waiting on `url` go, because the picture they wanted is not coming: forgetting
+/// them is what lets a later snapshot ask again.
+fn abandon(
+    waiting: &Arc<Mutex<HashMap<String, Vec<Waiter>>>>,
+    requested: &Arc<Mutex<HashSet<String>>>,
+    url: &str,
+) {
+    for (key, _) in waiting.lock().unwrap().remove(url).unwrap_or_default() {
+        requested.lock().unwrap().remove(&key);
     }
 }
 
@@ -304,6 +391,39 @@ mod tests {
             backdrop_key("https://example.com/a.jpg#blur"),
             "https://example.com/a.jpg#blur"
         );
+    }
+
+    #[test]
+    fn a_blur_waits_for_the_picture_that_is_already_on_its_way() {
+        let mut on_their_way = HashSet::new();
+        on_their_way.insert("https://example.com/a.jpg".to_owned());
+        assert!(should_wait(
+            true,
+            "https://example.com/a.jpg",
+            &on_their_way,
+            false
+        ));
+        // Nothing of the sort on its way: the blur has to fetch the picture itself.
+        assert!(!should_wait(
+            true,
+            "https://example.com/a.jpg",
+            &HashSet::new(),
+            false
+        ));
+        // Already here: it is made from that, not held.
+        assert!(!should_wait(
+            true,
+            "https://example.com/a.jpg",
+            &on_their_way,
+            true
+        ));
+        // A key that wants the real thing is never held back.
+        assert!(!should_wait(
+            false,
+            "https://example.com/a.jpg",
+            &on_their_way,
+            false
+        ));
     }
 
     #[test]

@@ -670,6 +670,18 @@ impl Wiring {
         }
     }
 
+    /// The pointer came to rest on a card. Its pictures are asked for now, so the panel is already
+    /// complete when the card is clicked: web gets that for free, because the panel's backdrop is
+    /// the same URL the card's own poster has already downloaded, and the logo is small enough to
+    /// be there by the time a click lands. Asking on hover is where we can get the same head start.
+    fn hover_card(&self, index: i32) {
+        let index = usize::try_from(index).unwrap_or(0);
+        let snapshot = self.latest.lock().unwrap().clone();
+        for url in discover::preview_images(&snapshot.discover, index) {
+            self.images.request(url, || {});
+        }
+    }
+
     fn select_addon_input_option(&self, input: i32, option: i32) {
         // Input 0 is the catalog menu, which has only "Installed".
         if input != 1 {
@@ -1059,6 +1071,10 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
     {
         let wiring = wiring.clone();
         window.on_select_preview(move |index| wiring.select_preview(index));
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_hover_card(move |index| wiring.hover_card(index));
     }
     {
         let wiring = wiring.clone();
