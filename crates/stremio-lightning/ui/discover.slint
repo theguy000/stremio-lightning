@@ -72,11 +72,19 @@ export component DiscoverContent inherits Rectangle {
     /// How tall the whole grid is: what `scroll-offset` runs from zero down to.
     property <length> grid-height-total: root.row-count * root.cell-height
         + Math.max(root.row-count - 1, 0) * root.gap;
+    /// The height a page was last asked for at, so the end of a catalog does not ask on every notch.
+    property <length> page-asked-at: -1px;
     /// The scrolled distance into the grid and how much of it is on screen. Both are read by the
     /// `visible-range` report below.
     property <length> grid-scroll: -root.scroll-offset;
     property <length> grid-height: meta-items-container.height;
     property <length> row-pitch: root.cell-height + root.gap;
+    /// The rows of cards that are on screen, plus one either side. Everything else is left out of
+    /// the drawing entirely.
+    property <float> first-shown-row: Math.max(0,
+        Math.floor(-root.scroll-offset / root.row-pitch) - 1);
+    property <float> last-shown-row: Math.floor(
+        (-root.scroll-offset + meta-items-container.height) / root.row-pitch) + 1;
     changed grid-scroll => {
         root.report-visible();
         root.check-end();
@@ -98,8 +106,12 @@ export component DiscoverContent inherits Rectangle {
             - (root.input-count - 1) * 1.5 * root.rem-size) / root.input-count);
 
     function check-end() {
-        if (-root.scroll-offset + meta-items-container.height
-            > root.grid-height-total - 400px) {
+        // Once per page: at the end of a catalog every notch asks again, and a page that has not
+        // arrived yet cannot be asked for twice. When one does arrive the grid grows, and the next
+        // call is allowed.
+        if (-root.scroll-offset + meta-items-container.height > root.grid-height-total - 400px
+            && root.grid-height-total != root.page-asked-at) {
+            root.page-asked-at = root.grid-height-total;
             root.load-next-page();
         }
     }
@@ -153,6 +165,8 @@ export component DiscoverContent inherits Rectangle {
                 y: 6 * root.rem-size;
                 width: root.catalog-width - root.grid-right-margin;
                 height: parent.height - 6 * root.rem-size;
+                // Needed even though the rows below are culled to what is on screen: the edge rows
+                // are drawn whole and would otherwise show above the filter bar and below the grid.
                 clip: true;
 
                 grid := Rectangle {
@@ -161,7 +175,12 @@ export component DiscoverContent inherits Rectangle {
                     width: parent.width;
                     height: root.grid-height-total;
 
+                    // Only the rows on screen are drawn, and the viewport does not clip: a clip is a
+                    // stencil pass for the whole frame, and forty-nine cards of which sixteen are
+                    // visible cost more to draw than sixteen.
                     for card[index] in root.cards: MetaItem {
+                        visible: Math.floor(index / root.columns) >= root.first-shown-row
+                            && Math.floor(index / root.columns) <= root.last-shown-row;
                         x: 1.5 * root.rem-size + Math.mod(index, root.columns) * (root.cell-width + root.gap);
                         y: Math.floor(index / root.columns) * (root.cell-height + root.gap);
                         width: root.cell-width;
