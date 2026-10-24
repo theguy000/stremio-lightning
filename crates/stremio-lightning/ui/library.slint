@@ -126,11 +126,32 @@ component LibraryItemCard inherits Rectangle {
     property <length> pointer-x: 0px;
     property <length> pointer-y: 0px;
 
+    /// Escape closes the list, the way the web's menus do. Slint's popup close policies only
+    /// cover clicks, so the card holds the keyboard itself -- but only while the list is open, or
+    /// one of these would swallow the key on every card in the grid.
+    menu-keys := FocusScope {
+        key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                menu.close();
+                return accept;
+            }
+            return reject;
+        }
+    }
+
     function open-menu-at(x: length, y: length) {
         root.pointer-x = x;
         root.pointer-y = y;
         root.menu-at-pointer = true;
         menu.show();
+        menu-keys.focus();
+    }
+
+    // The button opens the same list; both ways take the keyboard, and Escape gives it back.
+    changed menu-open => {
+        if (root.menu-open) {
+            menu-keys.focus();
+        }
     }
 
     meta := MetaItem {
