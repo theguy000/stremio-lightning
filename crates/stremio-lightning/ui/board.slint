@@ -87,6 +87,11 @@ export component MetaItem inherits Rectangle {
     out property <bool> menu-active: menu-touch.has-hover || root.menu-open;
     /// One option of the list: "details", "dismiss", "watched" or "remove".
     callback item-action(string);
+    /// Web: `LibItem` builds the list and then filters it, and the two entries below are only
+    /// there when the caller asks for them -- the Library does, the Board's Continue Watching row
+    /// does not, so that card's list is Details and Dismiss only.
+    in property <bool> menu-offers-watched: false;
+    in property <bool> menu-offers-remove: false;
     /// Web: 9rem wide. A right-click opens the list at the pointer, so the two ways to open it are
     /// kept apart by this flag.
     property <length> menu-width: 126 * root.rem-size / 14;
@@ -440,7 +445,7 @@ export component MetaItem inherits Rectangle {
                         root.item-action(action);
                     }
                 }
-                CardMenuOption {
+                if root.menu-offers-watched: CardMenuOption {
                     label: root.card.watched ? "Mark as unwatched" : "Mark as watched";
                     action: "watched";
                     rem-size: root.rem-size;
@@ -449,7 +454,7 @@ export component MetaItem inherits Rectangle {
                         root.item-action(action);
                     }
                 }
-                CardMenuOption {
+                if root.menu-offers-remove: CardMenuOption {
                     label: "Remove";
                     action: "remove";
                     rem-size: root.rem-size;

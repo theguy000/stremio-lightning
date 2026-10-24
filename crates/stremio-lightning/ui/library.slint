@@ -131,6 +131,10 @@ component LibraryItemCard inherits Rectangle {
         poster-shape-ratio: root.shape-ratio;
         hovered-by-owner: root.pointer-on-card;
         menu-enabled: true;
+        // Web: the Library route is the one that passes `removable` and a `watched` flag, so both
+        // of these rows are part of its list and not of the Board's.
+        menu-offers-watched: true;
+        menu-offers-remove: true;
         viewport-width: root.viewport-width;
         viewport-height: root.viewport-height;
         clicked => {

@@ -167,3 +167,28 @@ fn a_board_with_nothing_started_has_no_continue_watching_row() {
     let (_, rows) = screens::board::data(&model);
     assert!(rows.is_empty());
 }
+
+/// Marking a continued title watched is not a second kind of Dismiss, but on this row it reads
+/// like one: the core clears the resume position, and a card is only in the row while it has one.
+/// Pinned here so the two are never mistaken for each other again.
+#[test]
+fn marking_a_continued_title_watched_takes_it_out_of_the_row() {
+    let mut item = library_item(
+        "tt1",
+        "Half Watched",
+        "poster",
+        "2026-10-03T00:00:00Z",
+        30_000,
+        120_000,
+    );
+    item.mark_as_watched::<stremio_lightning_env::AppEnv>(true);
+    assert!(item.watched(), "the watch count went up");
+    assert_eq!(item.state.time_offset, 0, "and the resume position is gone");
+
+    let model = model_with_library(vec![item]);
+    let (_, rows) = screens::board::data(&model);
+    assert!(
+        rows.is_empty(),
+        "a title with no resume position is not something to continue"
+    );
+}
