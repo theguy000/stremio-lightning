@@ -195,14 +195,18 @@ component LibraryItemCard inherits Rectangle {
 
         Image {
             x: 0px;
-            // Web: `padding: 1rem 0` on a 4rem box, so the icon fills the 2rem left between.
-            y: 1 * root.rem-size;
+            // Web: `padding: 1rem 0` on a 4rem box leaves a 1.5rem square slot in the middle, and
+            // the square is what keeps the dots round: a 1.5rem x 2rem box stretches them into
+            // little ovals.
+            y: 1.25 * root.rem-size;
             width: 1.5 * root.rem-size;
-            height: 2 * root.rem-size;
-            source: @image-url("icons/more-horizontal.svg");
+            height: 1.5 * root.rem-size;
+            // Web: `more-vertical`. Turning `more-horizontal` a quarter turn at run time did
+            // nothing here -- the same three dots came out horizontal, stretched to the box -- so
+            // the dots are turned in the asset instead.
+            source: @image-url("icons/more-vertical.svg");
             colorize: Theme.text;
             opacity: root.pointer-on-card ? 0.6 : 0.0;
-            transform-rotation: 90deg;
         }
         menu-touch := TouchArea {
             mouse-cursor: pointer;
