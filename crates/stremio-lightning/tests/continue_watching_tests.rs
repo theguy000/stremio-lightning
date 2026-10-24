@@ -122,6 +122,29 @@ fn the_board_opens_with_what_the_account_left_unfinished() {
     );
     assert_eq!(half.progress, 25.0, "ten minutes of a two-hour film");
     assert_eq!(first.cards[1].progress, 25.0, "one hour of four");
+
+    // The row's cards are library items, so the web offers its action list on them, and the
+    // poster carries the check mark the library's own grid draws.
+    assert!(first.menu, "the Continue Watching row offers the action list");
+    assert!(!half.watched, "nothing has been watched through");
+}
+
+#[test]
+fn a_continued_title_watched_through_carries_the_mark() {
+    let mut item = library_item(
+        "tt1",
+        "Watched Through",
+        "poster",
+        "2026-10-03T00:00:00Z",
+        30_000,
+        120_000,
+    );
+    item.state.times_watched = 1;
+    let model = model_with_library(vec![item]);
+
+    let (_, rows) = screens::board::data(&model);
+    let card = rows[0].cards.first().expect("a continued title");
+    assert!(card.watched, "the item's own state says it was watched");
 }
 
 #[test]

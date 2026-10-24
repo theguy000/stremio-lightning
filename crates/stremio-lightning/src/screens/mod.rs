@@ -32,6 +32,9 @@ pub struct Card {
     /// How far into the title the viewer is, as a percentage: the Continue Watching row draws it as
     /// a bar, and every other row's cards are zero.
     pub progress: f64,
+    /// Whether the account has watched the title: the Continue Watching row's cards are library
+    /// items, and the poster carries the check mark the web draws for one.
+    pub watched: bool,
 }
 
 /// One filter in a screen's bar (type, catalog, or an extra such as genre): the closed label,
@@ -121,6 +124,7 @@ pub(crate) fn card_of(item: &MetaItemPreview) -> Card {
         title: item.name.clone(),
         poster: item.poster.as_ref().map(|url| url.to_string()),
         progress: 0.0,
+        watched: false,
     }
 }
 

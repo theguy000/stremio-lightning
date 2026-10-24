@@ -32,6 +32,7 @@ pub(crate) fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
             .map(|row| CatalogRow {
                 title: row.title.clone().into(),
                 shape: row.shape.into(),
+                menu: row.menu,
                 cards: ModelRc::new(VecModel::from(
                     row.cards
                         .iter()
@@ -282,6 +283,7 @@ fn poster_data(card: &Card, images: &Images) -> PosterData {
         has_poster: poster.is_some(),
         poster: poster.unwrap_or_default(),
         progress: card.progress as f32,
+        watched: card.watched,
     }
 }
 

@@ -142,6 +142,14 @@ impl Default for Playback {
     }
 }
 
+/// The data the action list needs from whichever card opened it.
+struct ActionTarget {
+    id: String,
+    kind: String,
+    title: String,
+    watched: bool,
+}
+
 impl Wiring {
     /// Repaints with the snapshot the last event produced.
     fn repaint(&self) {
@@ -762,20 +770,42 @@ impl Wiring {
         });
     }
 
-    /// One item of the Library card's menu. The options the web offers are Details, Dismiss,
-    /// Mark watched/unwatched and Remove; Play stays on the details route because a native
-    /// Stream has to be resolved before mpv can be handed an address.
-    fn library_item_action(&self, id: String, action: String) {
-        let card = {
-            let snapshot = self.latest.lock().unwrap();
-            snapshot
-                .library
-                .cards
-                .iter()
-                .find(|card| card.id == id)
-                .cloned()
+    /// The card behind an id, for the action list the Library grid and the Board's Continue
+    /// Watching row both open. Both are library items, so both offer the same four options.
+    fn action_target(&self, id: &str) -> Option<ActionTarget> {
+        let snapshot = self.latest.lock().unwrap();
+        let library_card = snapshot.library.cards.iter().find(|card| card.id == id);
+        if let Some(card) = library_card {
+            return Some(ActionTarget {
+                id: card.id.clone(),
+                kind: card.kind.clone(),
+                title: card.title.clone(),
+                watched: card.watched,
+            });
+        }
+        // The Board draws before the Library has ever been opened, so a card acted on from there
+        // is answered by its own row.
+        snapshot
+            .rows
+            .iter()
+            .filter(|row| row.menu)
+            .flat_map(|row| row.cards.iter())
+            .find(|card| card.id == id)
+            .map(|card| ActionTarget {
+                id: card.id.clone(),
+                kind: card.kind.clone(),
+                title: card.title.clone(),
+                watched: card.watched,
+            })
+    }
+
+    /// One item of a card's action list. The options the web offers are Details, Dismiss, Mark
+    /// watched/unwatched and Remove; Play stays on the details route because a native Stream has
+    /// to be resolved before mpv can be handed an address.
+    fn item_action(&self, id: String, action: String) {
+        let Some(card) = self.action_target(&id) else {
+            return;
         };
-        let Some(card) = card else { return };
         match action.as_str() {
             "details" => self.open_item(card.id, card.kind, card.title),
             "watched" => self.runtime.dispatch(RuntimeAction {
@@ -1344,7 +1374,13 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
     {
         let wiring = wiring.clone();
         window.on_library_item_action(move |id, action| {
-            wiring.library_item_action(id.to_string(), action.to_string())
+            wiring.item_action(id.to_string(), action.to_string())
+        });
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_board_item_action(move |id, action| {
+            wiring.item_action(id.to_string(), action.to_string())
         });
     }
     {

@@ -315,6 +315,7 @@ mod tests {
             title: poster.to_owned(),
             poster: Some(poster.to_owned()),
             progress: 0.0,
+            watched: false,
         }
     }
 
@@ -342,6 +343,7 @@ mod tests {
                     card("https://example.com/board-1"),
                     card("https://example.com/board-2"),
                 ],
+                menu: false,
             }],
             discover: discover::Data {
                 shape: "poster",

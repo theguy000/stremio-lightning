@@ -64,40 +64,11 @@ component SortChip inherits Rectangle {
     }
 }
 
-// Web: one option row of the MetaItem's Multiselect menu. `padding: 1rem 1.5rem` around a 1rem
-// line box, which lands at 46px in a 14px rem -- and, at the menu's 9rem width, wraps the longer
-// "Mark as ..." label onto a second line, so the row height comes from the text, not a constant.
-component CardMenuOption inherits Rectangle {
-    in property <string> label;
-    in property <string> action;
-    in property <length> rem-size;
-    callback picked(string);
-
-    height: label-text.preferred-height + 2 * root.rem-size;
-    background: touch.has-hover ? #ffffff26 : transparent;
-
-    label-text := Text {
-        x: 21 * root.rem-size / 14;
-        width: parent.width - 42 * root.rem-size / 14;
-        y: 1 * root.rem-size;
-        height: parent.height - 2 * root.rem-size;
-        text: root.label;
-        vertical-alignment: center;
-        wrap: word-wrap;
-        font-size: 1 * root.rem-size;
-        color: Theme.text;
-    }
-    touch := TouchArea {
-        mouse-cursor: pointer;
-        clicked => {
-            root.picked(root.action);
-        }
-    }
-}
-
-// Web: a MetaItem in the Library grid, plus the `more-vertical` button that appears on hover and
-// opens the LibItem action menu. The card itself stays the shared MetaItem, so a Library poster
-// looks exactly like a Board or Discover one.
+// Web: a MetaItem in the Library grid. The poster stays the shared MetaItem, so a Library card
+// looks exactly like a Board or Discover one, and the action list is the MetaItem's own -- the
+// same one the Board's Continue Watching row opens. All this adds is the link: the web's whole
+// `.meta-item` is clickable, while the MetaItem on its own leaves the strip under the title
+// unpressed.
 component LibraryItemCard inherits Rectangle {
     in property <LibraryCard> card;
     in property <length> rem-size;
@@ -110,47 +81,34 @@ component LibraryItemCard inherits Rectangle {
 
     property <float> shape-ratio: root.card.shape == "square" ? 1.0
         : root.card.shape == "landscape" ? 0.5625 : 1.464;
-    /// Mirrors the popup rather than a flag of its own: a click outside closes the popup, and a
-    /// flag would stay `true` and turn the button's next press into a no-op close.
-    property <bool> menu-open: menu.is-open;
     /// The pointer is somewhere on this card. The action-menu button sits above the tile's own
     /// touch area, so the tile stops being hovered the moment the pointer reaches the button;
     /// counting both keeps the button up while it is being aimed at.
-    property <bool> pointer-on-card: tile-touch.has-hover || menu-button.is-hovered || root.menu-open;
-    /// Web: the list is 9rem wide. Its button is a 1.5rem target that only appears on hover, which
-    /// is a small thing to aim at on a desktop, so a right-click on the tile opens the same list
-    /// where the pointer is.
-    property <length> menu-width: 126 * root.rem-size / 14;
-    /// Which of the two places the list opens from: the button's corner, or a right-click.
-    property <bool> menu-at-pointer: false;
-    property <length> pointer-x: 0px;
-    property <length> pointer-y: 0px;
+    property <bool> pointer-on-card: tile-touch.has-hover || meta.menu-active;
 
-    /// Escape closes the list, the way the web's menus do. Slint's popup close policies only
-    /// cover clicks, so the card holds the keyboard itself -- but only while the list is open, or
-    /// one of these would swallow the key on every card in the grid.
-    menu-keys := FocusScope {
-        key-pressed(event) => {
-            if (event.text == Key.Escape) {
-                menu.close();
-                return accept;
+    // Web: the whole `.meta-item` is the link. `MetaItem` covers everything but the 1rem gutter
+    // around the card, so this tile takes what is left of it -- and it sits *under* the MetaItem,
+    // which is what lets the card's own action-menu button take a press: the button is drawn
+    // inside the MetaItem, and anything above the MetaItem would swallow the click first.
+    tile-touch := TouchArea {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
+        mouse-cursor: pointer;
+        // The right button never reaches `clicked`; it arrives here as a press and a release, and
+        // the list is opened from the release. Opening on the press instead left the right-clicks
+        // after the first one closing the list without reopening it, because a press outside a
+        // popup is also what dismisses it.
+        pointer-event(event) => {
+            if (event.button == PointerEventButton.right && event.kind == PointerEventKind.up) {
+                // The card's own box is what the popup's coordinates start at, so the pointer
+                // arrives as it is.
+                meta.open-menu-at(self.mouse-x, self.mouse-y);
             }
-            return reject;
         }
-    }
-
-    function open-menu-at(x: length, y: length) {
-        root.pointer-x = x;
-        root.pointer-y = y;
-        root.menu-at-pointer = true;
-        menu.show();
-        menu-keys.focus();
-    }
-
-    // The button opens the same list; both ways take the keyboard, and Escape gives it back.
-    changed menu-open => {
-        if (root.menu-open) {
-            menu-keys.focus();
+        clicked => {
+            root.open();
         }
     }
 
@@ -166,154 +124,20 @@ component LibraryItemCard inherits Rectangle {
             poster: root.card.poster,
             has-poster: root.card.has-poster,
             progress: root.card.progress,
+            watched: root.card.watched,
         };
-        watched: root.card.watched;
         new-videos: root.card.new-videos;
         rem-size: root.rem-size;
         poster-shape-ratio: root.shape-ratio;
         hovered-by-owner: root.pointer-on-card;
+        menu-enabled: true;
+        viewport-width: root.viewport-width;
+        viewport-height: root.viewport-height;
         clicked => {
             root.open();
         }
-    }
-
-    // Web: the whole `.meta-item` is the link. `MetaItem` sizes itself from its contents, which
-    // leaves the strip under the title bar unpressed, so the tile carries the link here.
-    tile-touch := TouchArea {
-        x: root.rem-size;
-        y: root.rem-size;
-        width: parent.width - 2 * root.rem-size;
-        height: parent.height - 2 * root.rem-size;
-        mouse-cursor: pointer;
-        // The right button never reaches `clicked`; it arrives here as a press and a release, and
-        // the list is opened from the release. Opening on the press instead left the right-clicks
-        // after the first one closing the list without reopening it, because a press outside a
-        // popup is also what dismisses it.
-        pointer-event(event) => {
-            if (event.button == PointerEventButton.right && event.kind == PointerEventKind.up) {
-                // The area sits 1rem inside the card, and the popup's coordinates start at the
-                // card's edge, so the gutter goes back on here.
-                root.open-menu-at(self.mouse-x + root.rem-size, self.mouse-y + root.rem-size);
-            }
-        }
-        clicked => {
-            root.open();
-        }
-    }
-
-    // Web: `.menu-label-container` -- 1rem in from the right and bottom, a 1.5rem glyph at 0.6
-    // opacity, and `opacity: 0` until the card is hovered. The web dims the button rather than
-    // hiding it, so the corner is still pressed while the glyph is invisible; Slint skips
-    // hit-testing below `opacity: 0`, so the glyph carries the fade and the button stays pressable.
-    menu-button := Rectangle {
-        out property <bool> is-hovered: menu-touch.has-hover;
-        // Web: `right: 1rem` measured from the card's outer edge, which puts the button a
-        // gutter-width outside the title column rather than inside it.
-        x: parent.width - 1.5 * root.rem-size;
-        y: parent.height - 5 * root.rem-size;
-        width: 1.5 * root.rem-size;
-        height: 4 * root.rem-size;
-
-        Image {
-            x: 0px;
-            // Web: `padding: 1rem 0` on a 4rem box leaves a 1.5rem square slot in the middle, and
-            // the square is what keeps the dots round: a 1.5rem x 2rem box stretches them into
-            // little ovals.
-            y: 1.25 * root.rem-size;
-            width: 1.5 * root.rem-size;
-            height: 1.5 * root.rem-size;
-            // Web: `more-vertical`. Turning `more-horizontal` a quarter turn at run time did
-            // nothing here -- the same three dots came out horizontal, stretched to the box -- so
-            // the dots are turned in the asset instead.
-            source: @image-url("icons/more-vertical.svg");
-            colorize: Theme.text;
-            opacity: root.pointer-on-card ? 0.6 : 0.0;
-        }
-        menu-touch := TouchArea {
-            mouse-cursor: pointer;
-            clicked => {
-                if (root.menu-open) {
-                    menu.close();
-                } else {
-                    // The button always opens from its own corner, even after a right-click moved
-                    // the list somewhere else.
-                    root.menu-at-pointer = false;
-                    menu.show();
-                }
-            }
-        }
-    }
-
-    menu := PopupWindow {
-        // Web: 9rem wide, opening from the button's left edge and from its bottom, so the list
-        // hangs off the card's bottom-right corner instead of sitting inside the card.
-        //
-        // A right-click opens the same list at the pointer instead: pulled back when it would run
-        // off the window's right edge, and flipped above the pointer when it would run past the
-        // bottom one. The popup is drawn inside the window, so a list past either edge is clipped.
-        // Its coordinates start at the card's own box, so the window's edges are the card's
-        // position taken back off again.
-        x: root.menu-at-pointer
-            ? Math.max(-root.absolute-position.x, Math.min(root.pointer-x,
-                root.viewport-width - root.absolute-position.x - root.menu-width))
-            : Math.max(0px, root.width - 21 * root.rem-size / 14);
-        y: root.menu-at-pointer
-            ? (root.pointer-y + options-layout.preferred-height
-                    > root.viewport-height - root.absolute-position.y
-                ? Math.max(-root.absolute-position.y, root.pointer-y - options-layout.preferred-height)
-                : root.pointer-y)
-            : root.height - 1 * root.rem-size;
-        width: root.menu-width;
-        height: options-layout.preferred-height;
-        close-policy: PopupClosePolicy.close-on-click-outside;
-
-        Rectangle {
-            width: parent.width;
-            height: parent.height;
-            border-radius: 0.75 * root.rem-size;
-            background: Theme.modal-background;
-            drop-shadow-blur: 15px;
-            drop-shadow-color: #7b5bf55e;
-            clip: true;
-
-            options-layout := VerticalLayout {
-                CardMenuOption {
-                    label: "Details";
-                    action: "details";
-                    rem-size: root.rem-size;
-                    picked(action) => {
-                        menu.close();
-                        root.action(action);
-                    }
-                }
-                if root.card.progress > 0: CardMenuOption {
-                    label: "Dismiss";
-                    action: "dismiss";
-                    rem-size: root.rem-size;
-                    picked(action) => {
-                        menu.close();
-                        root.action(action);
-                    }
-                }
-                CardMenuOption {
-                    label: root.card.watched ? "Mark as unwatched" : "Mark as watched";
-                    action: "watched";
-                    rem-size: root.rem-size;
-                    picked(action) => {
-                        menu.close();
-                        root.action(action);
-                    }
-                }
-                CardMenuOption {
-                    label: "Remove";
-                    action: "remove";
-                    rem-size: root.rem-size;
-                    picked(action) => {
-                        menu.close();
-                        root.action(action);
-                    }
-                }
-            }
+        item-action(action) => {
+            root.action(action);
         }
     }
 }

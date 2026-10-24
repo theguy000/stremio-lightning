@@ -180,6 +180,7 @@ mod tests {
                     title: format!("Card {index}"),
                     poster: Some(format!("https://example.com/{index}.jpg")),
                     progress: 0.0,
+                    watched: false,
                 })
                 .collect(),
             inputs: Vec::new(),

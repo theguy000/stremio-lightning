@@ -49,6 +49,7 @@ export component MainWindow inherits Window {
     callback select-library-sort(int);
     callback load-more-library();
     callback library-item-action(string, string);
+    callback board-item-action(string, string);
     in property <[AddonData]> addons: [];
     in property <[SelectInputData]> addon-inputs: [];
     in property <string> addons-message;
@@ -225,6 +226,14 @@ export component MainWindow inherits Window {
         open-item(id, kind, title) => {
             root.details-open = true;
             root.open-item(id, kind, title);
+        }
+        item-action(id, action) => {
+            // The list's Details is the route a click on the tile takes, so it has to put the
+            // details screen up the way a click does. The other options change the row in place.
+            if (action == "details") {
+                root.details-open = true;
+            }
+            root.board-item-action(id, action);
         }
     }
 

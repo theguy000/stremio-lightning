@@ -20,6 +20,9 @@ pub struct Row {
     pub title: String,
     pub shape: &'static str,
     pub cards: Vec<Card>,
+    /// Whether the row's cards carry the action list. The web offers it in the Continue Watching
+    /// row, whose cards are library items; an addon catalog's cards do not.
+    pub menu: bool,
 }
 
 /// What the Board shows, and the line of text above it.
@@ -41,6 +44,7 @@ pub fn data(model: &AppModel) -> (String, Vec<Row>) {
                         .take(CATALOG_PREVIEW_SIZE)
                         .map(card_of)
                         .collect(),
+                    menu: false,
                 });
             }
             Some(Loadable::Err(_)) => failed += 1,
@@ -78,6 +82,7 @@ fn continue_watching_row(preview: &ContinueWatchingPreview) -> Option<Row> {
         title: CONTINUE_WATCHING_TITLE.to_owned(),
         shape: shape_of_library_items(items.iter().copied()),
         cards: items.iter().map(|item| card_of_library_item(item)).collect(),
+        menu: true,
     })
 }
 
@@ -102,5 +107,6 @@ fn card_of_library_item(item: &LibraryItem) -> Card {
         title: item.name.clone(),
         poster: item.poster.as_ref().map(|url| url.to_string()),
         progress: item.progress(),
+        watched: item.watched(),
     }
 }
