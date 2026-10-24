@@ -97,13 +97,15 @@ export component MultiselectMenu inherits Rectangle {
         color: Theme.text;
     }
     icon := Image {
-        source: @image-url("icons/caret-down.svg");
+        // Web: the caret turns over while the menu is open. Turning it at run time with
+        // `transform-rotation` does nothing on a colorized image -- the same caret comes back in
+        // both states -- so the two ways round are two assets.
+        source: popup.is-open ? @image-url("icons/caret-up.svg") : @image-url("icons/caret-down.svg");
         width: root.rem-size;
         height: root.rem-size;
         x: parent.width - 1.5 * root.rem-size - self.width;
         y: (parent.height - self.height) / 2;
         colorize: Theme.caret-icon;
-        transform-rotation: popup.is-open ? 180deg : 0deg;
     }
     label-touch := TouchArea {
         mouse-cursor: pointer;
