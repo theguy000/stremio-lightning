@@ -111,12 +111,7 @@ pub fn data(model: &AppModel) -> Data {
     };
     let grid_key = library.selected.as_ref().map_or_else(
         || "none".to_owned(),
-        |selected| {
-            format!(
-                "{:?}|{:?}",
-                selected.request.r#type, selected.request.sort
-            )
-        },
+        |selected| format!("{:?}|{:?}", selected.request.r#type, selected.request.sort),
     );
     Data {
         type_title,

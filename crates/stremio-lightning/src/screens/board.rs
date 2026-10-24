@@ -81,7 +81,10 @@ fn continue_watching_row(preview: &ContinueWatchingPreview) -> Option<Row> {
     Some(Row {
         title: CONTINUE_WATCHING_TITLE.to_owned(),
         shape: shape_of_library_items(items.iter().copied()),
-        cards: items.iter().map(|item| card_of_library_item(item)).collect(),
+        cards: items
+            .iter()
+            .map(|item| card_of_library_item(item))
+            .collect(),
         menu: true,
     })
 }
@@ -89,9 +92,7 @@ fn continue_watching_row(preview: &ContinueWatchingPreview) -> Option<Row> {
 /// A library item's own poster shape, with one web-ism kept: stremio-core's preview serialiser
 /// turns a Landscape poster into a Square one, because a landscape shape in a row of posters
 /// reads as a mistake (`serialize_continue_watching_preview.rs`).
-fn shape_of_library_items<'a>(
-    items: impl IntoIterator<Item = &'a LibraryItem>,
-) -> &'static str {
+fn shape_of_library_items<'a>(items: impl IntoIterator<Item = &'a LibraryItem>) -> &'static str {
     match items.into_iter().next().map(|item| &item.poster_shape) {
         Some(PosterShape::Landscape | PosterShape::Square) => "square",
         _ => "poster",

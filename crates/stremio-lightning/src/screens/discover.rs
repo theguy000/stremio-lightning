@@ -144,7 +144,6 @@ pub fn card_images<'a>(
         .filter_map(|card| card.poster.clone())
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::{card_images, settled_range, visible_range, Data};

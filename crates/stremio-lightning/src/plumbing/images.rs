@@ -83,7 +83,11 @@ impl Cached {
             self.bytes -= was;
         }
         self.bytes += bytes;
-        let limit = if self.limit == 0 { CACHE_LIMIT } else { self.limit };
+        let limit = if self.limit == 0 {
+            CACHE_LIMIT
+        } else {
+            self.limit
+        };
         let mut let_go = Vec::new();
         while self.bytes > limit {
             // Never the picture just made, and never one that is on screen.
@@ -105,7 +109,9 @@ impl Cached {
     }
 
     fn iter(&self) -> impl Iterator<Item = (&String, &SharedPixelBuffer<Rgba8Pixel>)> {
-        self.entries.iter().map(|(key, (buffer, _, _))| (key, buffer))
+        self.entries
+            .iter()
+            .map(|(key, (buffer, _, _))| (key, buffer))
     }
 
     #[cfg(test)]
@@ -341,7 +347,12 @@ fn release(
 ) {
     let ready = waiting.lock().unwrap().remove(url).unwrap_or_default();
     for (key, on_ready) in ready {
-        let (cache, requested, wanted, key) = (cache.clone(), requested.clone(), wanted.clone(), key.clone());
+        let (cache, requested, wanted, key) = (
+            cache.clone(),
+            requested.clone(),
+            wanted.clone(),
+            key.clone(),
+        );
         tokio::spawn(async move {
             let made = tokio::task::spawn_blocking({
                 let cache = cache.clone();
@@ -481,11 +492,7 @@ fn derive(cache: &Cache, key: &str) -> Option<SharedPixelBuffer<Rgba8Pixel>> {
     prepare(&source, size, blur)
 }
 
-async fn fetch(
-    client: &reqwest::Client,
-    key: &str,
-    gate: &Arc<tokio::sync::Semaphore>,
-) -> Fetched {
+async fn fetch(client: &reqwest::Client, key: &str, gate: &Arc<tokio::sync::Semaphore>) -> Fetched {
     let (url, size, blur) = source(key);
     let permit = match gate.acquire().await {
         Ok(permit) => permit,
@@ -577,7 +584,10 @@ mod tests {
         let mut cache = Cached::with_limit(64 + 8);
         cache.insert("a".to_owned(), picture(), &on_nothing());
         cache.insert("b".to_owned(), picture(), &on_nothing());
-        assert!(!cache.contains_key("a"), "the oldest should have been let go");
+        assert!(
+            !cache.contains_key("a"),
+            "the oldest should have been let go"
+        );
         assert!(cache.contains_key("b"));
         assert!(cache.bytes() <= 64 + 8);
     }
@@ -653,7 +663,11 @@ mod tests {
         );
         assert_eq!(
             source("https://example.com/a.jpg#backdrop"),
-            ("https://example.com/a.jpg", (480, 270), Some(BACKDROP_SIGMA))
+            (
+                "https://example.com/a.jpg",
+                (480, 270),
+                Some(BACKDROP_SIGMA)
+            )
         );
         assert_eq!(
             source("https://example.com/a.jpg"),

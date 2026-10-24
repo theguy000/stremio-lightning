@@ -156,7 +156,10 @@ pub(crate) fn decode_entities(text: &str) -> String {
     while let Some(start) = rest.find('&') {
         out.push_str(&rest[..start]);
         let after = &rest[start..];
-        match ENTITIES.iter().find(|(entity, _)| after.starts_with(entity)) {
+        match ENTITIES
+            .iter()
+            .find(|(entity, _)| after.starts_with(entity))
+        {
             Some((entity, replacement)) => {
                 out.push_str(replacement);
                 rest = &after[entity.len()..];
@@ -246,7 +249,10 @@ mod tests {
     #[test]
     fn entities_in_a_name_are_undone() {
         assert_eq!(decode_entities("Josh O&apos;Connor"), "Josh O'Connor");
-        assert_eq!(decode_entities("Dungeons &amp; Dragons"), "Dungeons & Dragons");
+        assert_eq!(
+            decode_entities("Dungeons &amp; Dragons"),
+            "Dungeons & Dragons"
+        );
         assert_eq!(decode_entities("&quot;Weird&quot; Al"), "\"Weird\" Al");
         // One pass, so an escaped ampersand does not become an entity.
         assert_eq!(decode_entities("&amp;apos;"), "&apos;");

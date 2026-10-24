@@ -43,7 +43,8 @@ fn model_with_library(items: Vec<LibraryItem>) -> app::AppModel {
     let profile = Profile::default();
     let uid = profile.uid();
     let library = LibraryBucket::new(uid.clone(), items);
-    let notifications = NotificationsBucket::new::<stremio_lightning_env::AppEnv>(uid.clone(), vec![]);
+    let notifications =
+        NotificationsBucket::new::<stremio_lightning_env::AppEnv>(uid.clone(), vec![]);
     let (continue_watching_preview, _) = ContinueWatchingPreview::new(&library, &notifications);
     let (library_with_filters, _) =
         LibraryWithFilters::<NotRemovedFilter>::new(&library, &notifications);
@@ -70,7 +71,14 @@ fn model_with_library(items: Vec<LibraryItem>) -> app::AppModel {
 }
 
 /// A library item the way the API sends one, with the one watch position a title sits on.
-fn library_item(id: &str, name: &str, shape: &str, modified: &str, offset: u64, duration: u64) -> LibraryItem {
+fn library_item(
+    id: &str,
+    name: &str,
+    shape: &str,
+    modified: &str,
+    offset: u64,
+    duration: u64,
+) -> LibraryItem {
     serde_json::from_value(serde_json::json!({
         "_id": id,
         "name": name,
@@ -96,11 +104,32 @@ fn library_item(id: &str, name: &str, shape: &str, modified: &str, offset: u64, 
 fn the_board_opens_with_what_the_account_left_unfinished() {
     let model = model_with_library(vec![
         // Newest first: ten minutes into a two-hour film.
-        library_item("tt1", "Half Watched", "landscape", "2026-10-03T00:00:00Z", 30_000, 120_000),
+        library_item(
+            "tt1",
+            "Half Watched",
+            "landscape",
+            "2026-10-03T00:00:00Z",
+            30_000,
+            120_000,
+        ),
         // Older: one of four hours behind it.
-        library_item("tt2", "Just Started", "poster", "2026-10-02T00:00:00Z", 60_000, 240_000),
+        library_item(
+            "tt2",
+            "Just Started",
+            "poster",
+            "2026-10-02T00:00:00Z",
+            60_000,
+            240_000,
+        ),
         // Never played, so it is in the library but not in Continue Watching.
-        library_item("tt3", "Not Started", "poster", "2026-10-01T00:00:00Z", 0, 120_000),
+        library_item(
+            "tt3",
+            "Not Started",
+            "poster",
+            "2026-10-01T00:00:00Z",
+            0,
+            120_000,
+        ),
     ]);
 
     let (_, rows) = screens::board::data(&model);
@@ -110,8 +139,16 @@ fn the_board_opens_with_what_the_account_left_unfinished() {
     // Web: a Landscape poster in the row is drawn as a Square one.
     assert_eq!(first.shape, "square");
 
-    let ids = first.cards.iter().map(|card| card.id.as_str()).collect::<Vec<_>>();
-    assert_eq!(ids, ["tt1", "tt2"], "newest first, and only what was started");
+    let ids = first
+        .cards
+        .iter()
+        .map(|card| card.id.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        ids,
+        ["tt1", "tt2"],
+        "newest first, and only what was started"
+    );
 
     let half = &first.cards[0];
     assert_eq!(half.title, "Half Watched");
@@ -125,7 +162,10 @@ fn the_board_opens_with_what_the_account_left_unfinished() {
 
     // The row's cards are library items, so the web offers its action list on them, and the
     // poster carries the check mark the library's own grid draws.
-    assert!(first.menu, "the Continue Watching row offers the action list");
+    assert!(
+        first.menu,
+        "the Continue Watching row offers the action list"
+    );
     assert!(!half.watched, "nothing has been watched through");
 }
 

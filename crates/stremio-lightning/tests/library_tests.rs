@@ -53,7 +53,8 @@ fn runtime_with(
     let profile = Profile::default();
     let uid = profile.uid();
     let library = LibraryBucket::new(uid.clone(), items);
-    let notifications = NotificationsBucket::new::<stremio_lightning_env::AppEnv>(uid.clone(), notifications);
+    let notifications =
+        NotificationsBucket::new::<stremio_lightning_env::AppEnv>(uid.clone(), notifications);
     let (continue_watching_preview, _) = ContinueWatchingPreview::new(&library, &notifications);
     let (library_with_filters, _) =
         LibraryWithFilters::<NotRemovedFilter>::new(&library, &notifications);
@@ -172,7 +173,10 @@ fn the_grid_lists_the_whole_library_newest_watched_first() {
                 0,
             ),
         ],
-        vec![notification("tt2", "tt2:1:1"), notification("tt2", "tt2:1:2")],
+        vec![
+            notification("tt2", "tt2:1:1"),
+            notification("tt2", "tt2:1:2"),
+        ],
     );
     let model = runtime.model().expect("the model is readable");
     let data = screens::library::data(&model);
@@ -198,12 +202,18 @@ fn the_grid_lists_the_whole_library_newest_watched_first() {
     let started = &data.cards[1];
     assert_eq!(started.shape, "poster");
     assert_eq!(started.progress, 25.0);
-    assert_eq!(started.new_videos, 2, "two new videos in the notification bucket");
+    assert_eq!(
+        started.new_videos, 2,
+        "two new videos in the notification bucket"
+    );
 
     assert_eq!(data.message, "");
     assert!(data.type_title == "All");
     assert_eq!(
-        data.type_options.iter().map(|(label, _)| label.as_str()).collect::<Vec<_>>(),
+        data.type_options
+            .iter()
+            .map(|(label, _)| label.as_str())
+            .collect::<Vec<_>>(),
         ["All", "Movie", "Series"],
         "the core's priority order"
     );
@@ -269,10 +279,16 @@ fn choosing_a_type_loads_only_that_type_and_the_message_says_when_it_is_empty() 
     let data = screens::library::data(&model);
     assert_eq!(data.type_title, "Series");
     assert_eq!(
-        data.cards.iter().map(|card| card.id.as_str()).collect::<Vec<_>>(),
+        data.cards
+            .iter()
+            .map(|card| card.id.as_str())
+            .collect::<Vec<_>>(),
         ["tt2"]
     );
-    assert_eq!(data.message, "", "a non-empty filtered library says nothing");
+    assert_eq!(
+        data.message, "",
+        "a non-empty filtered library says nothing"
+    );
 
     // A type with no titles in it: the core keeps the type in its selectable list only when the
     // library has one, so the empty case is the library itself being empty.
@@ -318,10 +334,16 @@ fn a_watched_title_keeps_its_check_mark_and_a_removed_one_leaves_the_grid() {
     let model = runtime.model().expect("the model is readable");
     let data = screens::library::data(&model);
     assert_eq!(
-        data.cards.iter().map(|card| card.id.as_str()).collect::<Vec<_>>(),
+        data.cards
+            .iter()
+            .map(|card| card.id.as_str())
+            .collect::<Vec<_>>(),
         ["tt1"],
         "NotRemovedFilter keeps a removed title out of the catalog"
     );
-    assert!(data.cards[0].watched, "times_watched is the web's watched check");
+    assert!(
+        data.cards[0].watched,
+        "times_watched is the web's watched check"
+    );
     assert_eq!(data.cards[0].progress, 25.0);
 }

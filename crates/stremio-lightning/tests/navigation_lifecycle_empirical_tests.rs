@@ -204,17 +204,19 @@ fn test_empirical_navigation_and_lifecycle_suite() {
     // pins the other half: the signed-in route keeps the account's cards.
     use slint::Model as _;
 
-    window.set_library_cards(slint::ModelRc::new(slint::VecModel::from(vec![LibraryCard {
-        item_id: "tt0111161".into(),
-        kind: "movie".into(),
-        title: "The Shawshank Redemption".into(),
-        poster: slint::Image::default(),
-        has_poster: false,
-        shape: "poster".into(),
-        progress: 0.0,
-        watched: true,
-        new_videos: 0,
-    }])));
+    window.set_library_cards(slint::ModelRc::new(slint::VecModel::from(vec![
+        LibraryCard {
+            item_id: "tt0111161".into(),
+            kind: "movie".into(),
+            title: "The Shawshank Redemption".into(),
+            poster: slint::Image::default(),
+            has_poster: false,
+            shape: "poster".into(),
+            progress: 0.0,
+            watched: true,
+            new_videos: 0,
+        },
+    ])));
     assert_eq!(
         window.get_library_cards().row_count(),
         1,
