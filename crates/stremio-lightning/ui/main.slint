@@ -571,6 +571,11 @@ export component MainWindow inherits Window {
             root.open-item(id, kind, title);
         }
         item-action(id, action) => {
+            // The list's Details is the route a click on the tile takes, so it has to put the
+            // details screen up the way a click does. The other options change the grid in place.
+            if (action == "details") {
+                root.details-open = true;
+            }
             root.library-item-action(id, action);
         }
     }
