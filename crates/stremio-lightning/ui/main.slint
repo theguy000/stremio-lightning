@@ -210,6 +210,8 @@ export component MainWindow inherits Window {
     callback share();
     callback rate-like();
     callback rate-love();
+    callback details-toggle-library();
+    callback details-toggle-watched();
     callback share-close();
     callback share-copy();
     callback share-to(string);
@@ -361,6 +363,12 @@ export component MainWindow inherits Window {
         }
         rate-love => {
             root.rate-love();
+        }
+        toggle-library => {
+            root.details-toggle-library();
+        }
+        toggle-watched => {
+            root.details-toggle-watched();
         }
     }
 

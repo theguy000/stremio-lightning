@@ -649,6 +649,8 @@ export component DetailsScreen inherits Rectangle {
     callback share;
     callback rate-like;
     callback rate-love;
+    callback toggle-library;
+    callback toggle-watched;
 
     background: Theme.modal-background;
 
@@ -718,6 +720,12 @@ export component DetailsScreen inherits Rectangle {
                     }
                     rate-love => {
                         root.rate-love();
+                    }
+                    toggle-library => {
+                        root.toggle-library();
+                    }
+                    toggle-watched => {
+                        root.toggle-watched();
                     }
                 }
             }

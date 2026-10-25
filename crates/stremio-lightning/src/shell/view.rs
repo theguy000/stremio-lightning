@@ -275,6 +275,8 @@ fn preview_data(preview: &Preview, images: &Images) -> PreviewData {
         background: background.unwrap_or_default(),
         has_panel_backdrop: false,
         panel_backdrop: Default::default(),
+        in_library: preview.in_library,
+        watched: preview.watched,
     }
 }
 

@@ -4,7 +4,7 @@
 use stremio_core::constants::{META_RESOURCE_NAME, STREAM_RESOURCE_NAME};
 use stremio_core::models::common::Loadable;
 use stremio_core::models::meta_details::{MetaDetails, Selected as DetailsSelected};
-use stremio_core::runtime::msg::{Action, ActionLoad, ActionMetaDetails};
+use stremio_core::runtime::msg::{Action, ActionCtx, ActionLoad, ActionMetaDetails};
 use stremio_core::runtime::RuntimeAction;
 use stremio_core::types::addon::ResourcePath;
 use stremio_core::types::rating::Rating;
@@ -343,6 +343,45 @@ pub(crate) fn rate(runtime: &AppRuntime, status: Option<Rating>) {
     });
 }
 
+/// Web: the action group's first button. In the library it dispatches `RemoveFromLibrary` with
+/// the id; out of it, `AddToLibrary` with the preview the addons answered with.
+pub(crate) fn toggle_library(runtime: &AppRuntime) {
+    let Ok(model) = runtime.model() else {
+        return;
+    };
+    let Some(item) = meta_item(&model.meta_details).map(|item| item.preview.clone()) else {
+        return;
+    };
+    let (in_library, _) = crate::screens::library_state(&model, &item.id);
+    drop(model);
+    let action = if in_library {
+        ActionCtx::RemoveFromLibrary(item.id)
+    } else {
+        ActionCtx::AddToLibrary(item)
+    };
+    runtime.dispatch(RuntimeAction {
+        field: None,
+        action: Action::Ctx(action),
+    });
+}
+
+/// Web: the second button of the same group. `MarkAsWatched` is a MetaDetails action, so the
+/// core creates the library entry itself when the title is not in the library yet.
+pub(crate) fn toggle_watched(runtime: &AppRuntime) {
+    let Ok(model) = runtime.model() else {
+        return;
+    };
+    let Some(id) = meta_item(&model.meta_details).map(|item| item.preview.id.clone()) else {
+        return;
+    };
+    let (_, watched) = crate::screens::library_state(&model, &id);
+    drop(model);
+    runtime.dispatch(RuntimeAction {
+        field: None,
+        action: Action::MetaDetails(ActionMetaDetails::MarkAsWatched(!watched)),
+    });
+}
+
 /// The title the addons answered with, if they have answered: the page holding the meta itself.
 pub(crate) fn meta_item(details: &MetaDetails) -> Option<&MetaItem> {
     details
@@ -451,6 +490,8 @@ pub fn data(
                 .background
                 .as_ref()
                 .map(|url| format!("{url}{}", crate::plumbing::images::PAGE_SUFFIX));
+            (preview.in_library, preview.watched) =
+                crate::screens::library_state(model, &item.preview.id);
             preview
         }),
         steps: picked.and_then(|picked| steps(videos, picked, moved)),
