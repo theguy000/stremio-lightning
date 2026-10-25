@@ -18,7 +18,9 @@ pub mod settings;
 
 use stremio_core::constants::IMDB_LINK_CATEGORY;
 use stremio_core::types::addon::ResourceRequest;
+use stremio_core::types::library::LibraryItem;
 use stremio_core::types::resource::{MetaItemPreview, PosterShape};
+use stremio_core::types::streams::StreamsItemKey;
 
 use crate::{AppModel, SelectInputData, SelectOption};
 
@@ -35,6 +37,22 @@ pub struct Card {
     /// Whether the account has watched the title: the Continue Watching row's cards are library
     /// items, and the poster carries the check mark the web draws for one.
     pub watched: bool,
+    /// Whether the title can be played straight from the card: the web offers its play button and
+    /// its "Play" row only when a Stream for the title's current Video is already at hand.
+    pub playable: bool,
+}
+
+/// Web: whether a title can be played from its card. `stremio-core-web` puts a player link on a
+/// library item only when the Streams bucket already holds a Stream for the Video the title is
+/// sitting on, and `LibItem` drops both its play button and its "Play" row when there is no link.
+pub(crate) fn can_play(model: &AppModel, item: &LibraryItem) -> bool {
+    let Some(video_id) = item.state.video_id.as_ref() else {
+        return false;
+    };
+    model.ctx.streams.items.contains_key(&StreamsItemKey {
+        meta_id: item.id.clone(),
+        video_id: video_id.clone(),
+    })
 }
 
 /// One filter in a screen's bar (type, catalog, or an extra such as genre): the closed label,
@@ -125,6 +143,9 @@ pub(crate) fn card_of(item: &MetaItemPreview) -> Card {
         poster: item.poster.as_ref().map(|url| url.to_string()),
         progress: 0.0,
         watched: false,
+        // A catalog's card is not a library item, so nothing has resolved a Stream for it: the web
+        // offers no play button or Play row on those either.
+        playable: false,
     }
 }
 

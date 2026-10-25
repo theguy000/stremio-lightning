@@ -18,7 +18,7 @@ use stremio_core::types::profile::Profile;
 use stremio_core::types::resource::MetaItemPreview;
 use stremio_core::types::search_history::SearchHistoryBucket;
 use stremio_core::types::server_urls::ServerUrlsBucket;
-use stremio_core::types::streams::StreamsBucket;
+use stremio_core::types::streams::{StreamsBucket, StreamsItemKey};
 use stremio_lightning::{app, screens};
 
 /// `AppEnv::init` may only run once per process, so every test in this binary shares it.
@@ -230,5 +230,51 @@ fn marking_a_continued_title_watched_takes_it_out_of_the_row() {
     assert!(
         rows.is_empty(),
         "a title with no resume position is not something to continue"
+    );
+}
+
+/// Web: a card offers Play only when the Streams bucket already holds a Stream for the Video the
+/// title is sitting on. Both of `stremio-core-web`'s serializers look it up there to build the
+/// player link, and `LibItem` drops its play button and its "Play" row when that link is null.
+#[test]
+fn play_is_offered_only_for_a_title_whose_stream_is_at_hand() {
+    let mut item = library_item(
+        "tt1",
+        "Half Watched",
+        "poster",
+        "2026-10-03T00:00:00Z",
+        30_000,
+        120_000,
+    );
+    let model = model_with_library(vec![item.clone()]);
+    let (_, rows) = screens::board::data(&model);
+    assert!(
+        !rows[0].cards[0].playable,
+        "nothing has been played, so there is no Stream for Play to open"
+    );
+
+    item.state.video_id = Some("tt1:1:1".to_owned());
+    let mut model = model_with_library(vec![item]);
+    model.ctx.streams.items.insert(
+        StreamsItemKey {
+            meta_id: "tt1".to_owned(),
+            video_id: "tt1:1:1".to_owned(),
+        },
+        serde_json::from_value(serde_json::json!({
+            "stream": { "url": "https://example.com/tt1.mkv" },
+            "type": "movie",
+            "metaId": "tt1",
+            "videoId": "tt1:1:1",
+            "metaTransportUrl": "https://v3-cinemeta.strem.io/manifest.json",
+            "streamTransportUrl": "https://torrentio.strem.fun/manifest.json",
+            "state": null,
+            "_mtime": "2026-10-03T00:00:00Z"
+        }))
+        .expect("a streams item"),
+    );
+    let (_, rows) = screens::board::data(&model);
+    assert!(
+        rows[0].cards[0].playable,
+        "the Stream the core kept for this Video is what Play opens"
     );
 }

@@ -180,6 +180,7 @@ mod tests {
                     poster: Some(format!("https://example.com/{index}.jpg")),
                     progress: 0.0,
                     watched: false,
+                    playable: false,
                 })
                 .collect(),
             inputs: Vec::new(),

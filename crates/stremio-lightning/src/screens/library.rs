@@ -22,6 +22,10 @@ pub struct Card {
     pub shape: &'static str,
     pub progress: f64,
     pub watched: bool,
+    /// Whether the title can be played from the card: the web's library serializer adds a player
+    /// link only for a title whose current Video already has a Stream, and `LibItem` drops its
+    /// play button and "Play" row without one.
+    pub playable: bool,
     /// How many new Videos the notifications bucket holds for this title, capped at 99 like
     /// `LibItem.js`.
     pub new_videos: u32,
@@ -145,6 +149,7 @@ pub fn data(model: &AppModel) -> Data {
                 shape: shape_of(&item.poster_shape),
                 progress: item.progress(),
                 watched: item.watched(),
+                playable: super::can_play(model, item),
                 new_videos: new_videos(model, &item.id),
             })
             .collect(),

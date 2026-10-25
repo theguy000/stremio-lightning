@@ -799,14 +799,23 @@ impl Wiring {
             })
     }
 
-    /// One item of a card's action list. The options the web offers are Details, Dismiss, Mark
-    /// watched/unwatched and Remove; Play stays on the details route because a native Stream has
-    /// to be resolved before mpv can be handed an address.
+    /// One item of a card's action list, or the play button on the poster: the web's Play, Details,
+    /// Dismiss, Mark watched/unwatched and Remove, each doing what `LibItem.js` dispatches.
     fn item_action(&self, id: String, action: String) {
         let Some(card) = self.action_target(&id) else {
             return;
         };
         match action.as_str() {
+            "play" => {
+                let opened = player::open_for(&self.runtime, &id);
+                let message = match opened {
+                    Ok(()) => String::new(),
+                    Err(error) => format!("Can't play this title: {error}"),
+                };
+                if let Some(window) = self.window.upgrade() {
+                    window.set_play_message(message.into());
+                }
+            }
             "details" => self.open_item(card.id, card.kind, card.title),
             "watched" => self.runtime.dispatch(RuntimeAction {
                 field: None,
