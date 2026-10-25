@@ -32,6 +32,13 @@ const MONTHS: [&str; 12] = [
     "December",
 ];
 
+/// Web: `toMonth(..., 'short')` -- `Date#toLocaleString` with `{ month: 'short' }` for the profile's
+/// interface language, which for English is `en-US`. Its short months are three letters, and its
+/// September is "Sep" rather than the "Sept" that `en-GB` gives.
+const MONTHS_SHORT: [&str; 12] = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+
 /// The week headers, Monday first: the core's `first_weekday` counts from Monday.
 const WEEKDAYS: [&str; 7] = [
     "Monday",
@@ -132,8 +139,8 @@ pub fn data(model: &AppModel) -> Data {
             .any(|items| !matches!(items.content.as_ref(), Some(Loadable::Ready(_)))),
         year: selected.year,
         month: month.to_owned(),
-        prev: month_name(calendar.selectable.prev.month).to_owned(),
-        next: month_name(calendar.selectable.next.month).to_owned(),
+        prev: month_short(calendar.selectable.prev.month).to_owned(),
+        next: month_short(calendar.selectable.next.month).to_owned(),
         first_weekday,
         days,
         list,
@@ -143,6 +150,12 @@ pub fn data(model: &AppModel) -> Data {
 fn month_name(month: u32) -> &'static str {
     let index = month.saturating_sub(1) as usize;
     MONTHS.get(index).copied().unwrap_or_default()
+}
+
+/// The same month as the selector's two buttons show it: "Sep", "Oct", "Nov".
+fn month_short(month: u32) -> &'static str {
+    let index = month.saturating_sub(1) as usize;
+    MONTHS_SHORT.get(index).copied().unwrap_or_default()
 }
 
 fn slot_of(content: &stremio_core::models::calendar::ContentItem) -> Slot {
