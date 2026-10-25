@@ -12,9 +12,9 @@ use crate::screens::settings::Data as SettingsData;
 use crate::screens::Preview;
 use crate::screens::{Card, Input};
 use crate::{
-    AddonData, CatalogRow, LibraryCard, LibrarySort, LinkGroup, MainWindow, PlayerEpisode,
-    PlayerOption, PlayerTrack, PosterData, PreviewData, SelectInputData, SelectOption,
-    SettingsViewData, StreamData, VideoRow,
+    AddonData, CalendarData, CalendarDay, CalendarSlot, CatalogRow, LibraryCard, LibrarySort,
+    LinkGroup, MainWindow, PlayerEpisode, PlayerOption, PlayerTrack, PosterData, PreviewData,
+    SelectInputData, SelectOption, SettingsViewData, StreamData, VideoRow,
 };
 
 /// Copies everything a snapshot describes onto the window. Runs on the window's thread.
@@ -135,6 +135,7 @@ pub(crate) fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
             })
             .collect::<Vec<_>>(),
     )));
+    window.set_calendar(calendar_view(&snapshot.calendar, images));
     window.set_addon_inputs(inputs(snapshot.addons.inputs.clone()));
     window.set_addons_message(snapshot.addons.message.clone().into());
 
@@ -272,6 +273,51 @@ fn preview_data(preview: &Preview, images: &Images) -> PreviewData {
         background: background.unwrap_or_default(),
         has_panel_backdrop: false,
         panel_backdrop: Default::default(),
+    }
+}
+
+/// The Calendar's month, its grid and its list, with every picture already in the cache.
+fn calendar_view(data: &crate::screens::calendar::Data, images: &Images) -> CalendarData {
+    let day = |day: &crate::screens::calendar::Day| CalendarDay {
+        day: i32::try_from(day.day).unwrap_or(i32::MAX),
+        today: day.today,
+        heading: day.heading.clone().into(),
+        slots: ModelRc::new(VecModel::from(
+            day.slots
+                .iter()
+                .map(|slot| {
+                    let poster = images.get(&slot.poster);
+                    let thumbnail = images.get(&slot.thumbnail);
+                    CalendarSlot {
+                        video_id: slot.video_id.clone().into(),
+                        meta_id: slot.meta_id.clone().into(),
+                        kind: slot.kind.clone().into(),
+                        title: slot.title.clone().into(),
+                        name: slot.name.clone().into(),
+                        label: slot.label.clone().into(),
+                        has_poster: poster.is_some(),
+                        poster: poster.unwrap_or_default(),
+                        has_thumbnail: thumbnail.is_some(),
+                        thumbnail: thumbnail.unwrap_or_default(),
+                    }
+                })
+                .collect::<Vec<_>>(),
+        )),
+    };
+    CalendarData {
+        signed_in: data.signed_in,
+        loading: data.loading,
+        year: data.year,
+        month: data.month.clone().into(),
+        prev: data.prev.clone().into(),
+        next: data.next.clone().into(),
+        first_weekday: i32::try_from(data.first_weekday).unwrap_or_default(),
+        days: ModelRc::new(VecModel::from(
+            data.days.iter().map(day).collect::<Vec<_>>(),
+        )),
+        list: ModelRc::new(VecModel::from(
+            data.list.iter().map(day).collect::<Vec<_>>(),
+        )),
     }
 }
 

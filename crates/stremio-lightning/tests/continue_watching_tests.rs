@@ -62,6 +62,7 @@ fn model_with_library(items: Vec<LibraryItem>) -> app::AppModel {
         ),
         continue_watching_preview,
         board: Default::default(),
+        calendar: Default::default(),
         discover,
         library: library_with_filters,
         installed_addons,

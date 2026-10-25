@@ -71,6 +71,7 @@ fn runtime_with(
             DismissedEventsBucket::new(uid),
         ),
         board: Default::default(),
+        calendar: Default::default(),
         continue_watching_preview,
         discover,
         library: library_with_filters,

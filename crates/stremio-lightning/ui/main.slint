@@ -1,5 +1,6 @@
 import { Button } from "std-widgets.slint";
 import { Theme } from "theme.slint";
+import { CalendarContent, CalendarData } from "calendar.slint";
 import { HorizontalNavBar, Section, VerticalNavBar } from "shell.slint";
 import { BoardContent, CatalogRow, PosterData } from "board.slint";
 import { AddonData, AddonsContent } from "addons.slint";
@@ -54,6 +55,16 @@ export component MainWindow inherits Window {
     in property <[SelectInputData]> addon-inputs: [];
     in property <string> addons-message;
     in-out property <string> addons-query;
+    /// The Calendar's month, its days and the days with something on them, as the core holds them.
+    in-out property <CalendarData> calendar;
+    /// The day the user clicked in the grid: a highlight, and nothing the core is told about.
+    in-out property <int> calendar-selected-day: -1;
+    callback calendar-prev-month();
+    callback calendar-next-month();
+    callback calendar-open-slot(string, string, string);
+    /// Fired when the Calendar is selected, so the month can be loaded the way the web loads it
+    /// on mount rather than at startup, when the library it reads may still be empty.
+    callback calendar-shown();
     in property <string> app-version;
     in property <string> build-version;
     in property <SettingsViewData> settings;
@@ -349,6 +360,9 @@ export component MainWindow inherits Window {
         select(target) => {
             root.details-open = false;
             root.section = target;
+            if (target == Section.calendar) {
+                root.calendar-shown();
+            }
         }
     }
 
@@ -589,8 +603,30 @@ export component MainWindow inherits Window {
         }
     }
 
-    // The logged-in Calendar screen is not built yet, so it still shows the placeholder.
-    if root.section == Section.calendar && !root.details-open && !root.playing: LoggedOutPlaceholder {
+    // Web: `Calendar.js` shows the Calendar to a signed-in account and the placeholder to one
+    // that is not, so the screen needs no session check of its own.
+    if root.section == Section.calendar && !root.details-open && !root.playing: CalendarContent {
+        x: root.nav-width;
+        y: root.bar-height;
+        width: parent.width - root.nav-width;
+        height: parent.height - root.bar-height;
+        rem-size: root.rem-size;
+        data: root.calendar;
+        selected-day: root.calendar-selected-day;
+        prev-month => {
+            root.calendar-prev-month();
+        }
+        next-month => {
+            root.calendar-next-month();
+        }
+        open-slot(meta-id, kind, video-id) => {
+            // Web: the calendar's entries are details links, so the details screen is what opens.
+            root.details-open = true;
+            root.calendar-open-slot(meta-id, kind, video-id);
+        }
+    }
+
+    if root.section == Section.calendar && !root.details-open && !root.playing && !root.calendar.signed-in: LoggedOutPlaceholder {
         x: root.nav-width;
         y: root.bar-height;
         width: parent.width - root.nav-width;
