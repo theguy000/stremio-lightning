@@ -214,6 +214,7 @@ fn test_empirical_navigation_and_lifecycle_suite() {
             shape: "poster".into(),
             progress: 0.0,
             watched: true,
+            playable: true,
             new_videos: 0,
         },
     ])));

@@ -20,6 +20,9 @@ export struct LibraryCard {
     shape: string,
     progress: float,
     watched: bool,
+    /// Whether a Stream for the title's current Video is at hand: the web draws the poster's play
+    /// button and the list's "Play" row only then.
+    playable: bool,
     new-videos: int,
 }
 
@@ -125,6 +128,7 @@ component LibraryItemCard inherits Rectangle {
             has-poster: root.card.has-poster,
             progress: root.card.progress,
             watched: root.card.watched,
+            playable: root.card.playable,
         };
         new-videos: root.card.new-videos;
         rem-size: root.rem-size;

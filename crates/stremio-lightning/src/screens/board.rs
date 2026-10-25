@@ -6,7 +6,7 @@ use stremio_core::models::continue_watching_preview::ContinueWatchingPreview;
 use stremio_core::types::library::LibraryItem;
 use stremio_core::types::resource::PosterShape;
 
-use super::{card_of, catalog_title, shape_of, Card};
+use super::{can_play, card_of, catalog_title, shape_of, Card};
 use crate::AppModel;
 
 /// stremio-web's `CATALOG_PREVIEW_SIZE`: how many cards a Board row keeps.
@@ -60,7 +60,7 @@ pub fn data(model: &AppModel) -> (String, Vec<Row>) {
     );
     // Web: Board.js draws the continued titles above the addon rows, and only while there are
     // any, so a board with nothing started looks exactly as it did before.
-    let mut rows = continue_watching_row(&model.continue_watching_preview)
+    let mut rows = continue_watching_row(model, &model.continue_watching_preview)
         .into_iter()
         .collect::<Vec<_>>();
     rows.append(&mut catalogs);
@@ -70,7 +70,7 @@ pub fn data(model: &AppModel) -> (String, Vec<Row>) {
 /// The row the web puts first: what the account left unfinished, newest first, as the core's own
 /// preview holds it. A client that has never started a title -- and every signed-out one -- has
 /// nothing here.
-fn continue_watching_row(preview: &ContinueWatchingPreview) -> Option<Row> {
+fn continue_watching_row(model: &AppModel, preview: &ContinueWatchingPreview) -> Option<Row> {
     let items = preview
         .items
         .iter()
@@ -83,7 +83,7 @@ fn continue_watching_row(preview: &ContinueWatchingPreview) -> Option<Row> {
         shape: shape_of_library_items(items.iter().copied()),
         cards: items
             .iter()
-            .map(|item| card_of_library_item(item))
+            .map(|item| card_of_library_item(model, item))
             .collect(),
         menu: true,
     })
@@ -101,7 +101,7 @@ fn shape_of_library_items<'a>(items: impl IntoIterator<Item = &'a LibraryItem>) 
 
 /// One card of the Continue Watching row. The core keeps the one watch position a title is
 /// sitting on, and `progress()` is that position as a percentage of its length.
-fn card_of_library_item(item: &LibraryItem) -> Card {
+fn card_of_library_item(model: &AppModel, item: &LibraryItem) -> Card {
     Card {
         id: item.id.clone(),
         kind: item.r#type.clone(),
@@ -109,5 +109,6 @@ fn card_of_library_item(item: &LibraryItem) -> Card {
         poster: item.poster.as_ref().map(|url| url.to_string()),
         progress: item.progress(),
         watched: item.watched(),
+        playable: can_play(model, item),
     }
 }

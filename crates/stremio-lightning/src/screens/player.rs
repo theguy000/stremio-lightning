@@ -14,6 +14,7 @@ use stremio_core::runtime::RuntimeAction;
 use stremio_core::types::addon::{ResourcePath, ResourceRequest};
 use stremio_core::types::player::VideoScale;
 use stremio_core::types::resource::{MetaItem, Subtitles};
+use stremio_core::types::streams::StreamsItemKey;
 
 use crate::app::{AppModel, AppRuntime};
 use crate::screens::{details, Preview};
@@ -183,6 +184,61 @@ fn picked(model: &AppModel, index: usize) -> Option<PlayerSelected> {
             &request.path.id,
         )),
     })
+}
+
+/// Plays a title from a card, the way the web's `#/player/<type>/<id>/<videoId>` link does: the
+/// Stream it opens is the one the core already resolved and kept for the Video the title is
+/// sitting on -- the same condition that gave the card its play button in the first place.
+pub(crate) fn open_for(runtime: &AppRuntime, id: &str) -> Result<(), String> {
+    let model = runtime
+        .model()
+        .map_err(|_| "the app state is not available".to_owned())?;
+    let item = model
+        .ctx
+        .library
+        .items
+        .get(id)
+        .ok_or("this title is not in the library")?;
+    let video_id = item
+        .state
+        .video_id
+        .clone()
+        .ok_or("nothing has been played from this title yet")?;
+    let streams_item = model
+        .ctx
+        .streams
+        .items
+        .get(&StreamsItemKey {
+            meta_id: item.id.clone(),
+            video_id,
+        })
+        .ok_or("this title has no stream to play")?;
+    let selected = PlayerSelected {
+        stream: streams_item.stream.clone(),
+        stream_request: Some(ResourceRequest {
+            base: streams_item.stream_transport_url.clone(),
+            path: ResourcePath::without_extra(
+                "stream",
+                &streams_item.r#type,
+                &streams_item.video_id,
+            ),
+        }),
+        meta_request: Some(ResourceRequest {
+            base: streams_item.meta_transport_url.clone(),
+            path: ResourcePath::without_extra("meta", &streams_item.r#type, &streams_item.meta_id),
+        }),
+        subtitles_path: Some(ResourcePath::without_extra(
+            SUBTITLES_RESOURCE_NAME,
+            &streams_item.r#type,
+            &streams_item.meta_id,
+        )),
+    };
+    drop(model);
+    runtime.dispatch(RuntimeAction {
+        field: Some(crate::app::AppModelField::Player),
+        action: Action::Load(ActionLoad::Player(Box::new(selected))),
+    });
+    Ok(())
 }
 
 /// Loads the Stream the details screen lists at `index`.

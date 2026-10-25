@@ -316,6 +316,7 @@ mod tests {
             poster: Some(poster.to_owned()),
             progress: 0.0,
             watched: false,
+            playable: false,
         }
     }
 

@@ -18,6 +18,9 @@ export struct PosterData {
     /// Whether the account has watched this title: the web's MetaItem draws a check mark in the
     /// poster's top-left corner for one, whichever row the card is in.
     watched: bool,
+    /// Whether a Stream for the title's current Video is at hand. The web draws the round play
+    /// button on the poster and the "Play" row in the list only when one is.
+    playable: bool,
 }
 
 export struct CatalogRow {
@@ -92,6 +95,9 @@ export component MetaItem inherits Rectangle {
     /// does not, so that card's list is Details and Dismiss only.
     in property <bool> menu-offers-watched: false;
     in property <bool> menu-offers-remove: false;
+    /// Web: `onDismissClick` is what draws the ✕ on the poster, and only the Continue Watching
+    /// item wrapper passes one -- a Library card has the same list but no ✕.
+    in property <bool> dismissable: false;
     /// Web: 9rem wide. A right-click opens the list at the pointer, so the two ways to open it are
     /// kept apart by this flag.
     property <length> menu-width: 126 * root.rem-size / 14;
@@ -348,6 +354,83 @@ export component MetaItem inherits Rectangle {
     // Drawn on every card and switched on where the web offers the list, rather than put
     // behind an `if`: an id inside a conditional is out of reach from the rest of the card,
     // and the list has to be opened from a public function.
+    // Web: `<MetaItem>`'s `.play-icon-layer` -- a 4rem circle centred on the poster, drawn
+    // whenever the title has a Stream at hand. Its ring is the foreground colour inset by 0.15rem;
+    // under the pointer the ring turns transparent and the circle fills with the accent colour,
+    // and the poster behind it scales to 1.05 (which it already does for any hovered card).
+    if root.card.playable: play-button := Rectangle {
+        x: root.rem-size + (root.width - 2 * root.rem-size) / 2 - 2 * root.rem-size;
+        y: root.rem-size + (root.width - 2 * root.rem-size) * root.poster-shape-ratio / 2
+            - 2 * root.rem-size;
+        width: 4 * root.rem-size;
+        height: self.width;
+        border-radius: self.width / 2;
+        background: root.is-hovered ? Theme.accent : Theme.background;
+        opacity: root.is-hovered ? 1.0 : 0.4;
+
+        // `.play-icon-outer`: a 0.15rem ring just inside the circle's edge.
+        Rectangle {
+            width: parent.width;
+            height: parent.height;
+            border-radius: self.width / 2;
+            border-width: 0.15 * root.rem-size;
+            border-color: root.is-hovered ? transparent : Theme.text;
+        }
+
+        Image {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: 2.25 * root.rem-size;
+            height: self.width;
+            source: @image-url("icons/play.svg");
+            colorize: Theme.text;
+        }
+
+        play-touch := TouchArea {
+            mouse-cursor: pointer;
+            clicked => {
+                root.item-action("play");
+            }
+        }
+    }
+
+    // Web: `<MetaItem>`'s `.dismiss-icon-layer` -- a 1.5rem circle 0.5rem in from the poster's
+    // top-left, `opacity: 0` and out of reach until the card is hovered. Only the Continue
+    // Watching item passes `onDismissClick`, so only its cards draw one.
+    if root.dismissable: dismiss-button := Rectangle {
+        x: root.rem-size + 0.5 * root.rem-size;
+        y: root.rem-size + 0.5 * root.rem-size;
+        width: 1.5 * root.rem-size;
+        height: self.width;
+        opacity: root.is-hovered ? 1.0 : 0.0;
+
+        // `.dismiss-icon-backdrop`: the page colour at 0.6 behind a white glyph at 0.8.
+        Rectangle {
+            width: parent.width;
+            height: parent.height;
+            border-radius: self.width / 2;
+            background: Theme.background;
+            opacity: 0.6;
+        }
+
+        Image {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: 1.25 * root.rem-size;
+            height: self.width;
+            source: @image-url("icons/close.svg");
+            colorize: Theme.text;
+            opacity: 0.8;
+        }
+
+        dismiss-touch := TouchArea {
+            mouse-cursor: pointer;
+            clicked => {
+                root.item-action("dismiss");
+            }
+        }
+    }
+
     menu-button := Rectangle {
         out property <bool> is-hovered: menu-touch.has-hover;
         visible: root.menu-enabled;
@@ -427,6 +510,16 @@ export component MetaItem inherits Rectangle {
             clip: true;
 
             options-layout := VerticalLayout {
+                // Web: `LibItem`'s list leads with Play, and drops it when there is no player link.
+                if root.card.playable: CardMenuOption {
+                    label: "Play";
+                    action: "play";
+                    rem-size: root.rem-size;
+                    picked(action) => {
+                        menu.close();
+                        root.item-action(action);
+                    }
+                }
                 CardMenuOption {
                     label: "Details";
                     action: "details";
@@ -560,6 +653,9 @@ component MetaRow inherits Rectangle {
             rem-size: root.rem-size;
             poster-shape-ratio: root.poster-shape-ratio;
             menu-enabled: root.catalog.menu;
+            // Web: `ContinueWatchingItem` is the one caller that passes `onDismissClick`, and it
+            // passes `actionMenu` with it, so a row that offers the list is a row that offers the ✕.
+            dismissable: root.catalog.menu;
             viewport-width: root.viewport-width;
             viewport-height: root.viewport-height;
             clicked => {

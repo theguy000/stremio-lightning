@@ -109,6 +109,7 @@ pub(crate) fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
                     shape: card.shape.into(),
                     progress: card.progress as f32,
                     watched: card.watched,
+                    playable: card.playable,
                     new_videos: i32::try_from(card.new_videos).unwrap_or(i32::MAX),
                 }
             })
@@ -284,6 +285,7 @@ fn poster_data(card: &Card, images: &Images) -> PosterData {
         poster: poster.unwrap_or_default(),
         progress: card.progress as f32,
         watched: card.watched,
+        playable: card.playable,
     }
 }
 
