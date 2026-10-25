@@ -8,7 +8,6 @@ use std::sync::{Arc, Mutex};
 
 use slint::{ComponentHandle, ModelRc, Timer, Weak};
 use stremio_core::models::catalog_with_filters::Selected as CatalogSelected;
-use stremio_core::models::installed_addons_with_filters::Selected as InstalledSelected;
 use stremio_core::models::library_with_filters::Selected as LibrarySelected;
 use stremio_core::runtime::msg::{
     Action, ActionCatalogWithFilters, ActionCtx, ActionLibraryWithFilters, ActionLoad,
@@ -1024,28 +1023,27 @@ impl Wiring {
         }
     }
 
+    /// A press in one of the Addons screen's two menus: the catalog menu ("Installed", "Official",
+    /// "Community", "Podcasts") or the type menu under it. Each option carries the load it asks for,
+    /// because the two lists on this screen come from two different models.
     fn select_addon_input_option(&self, input: i32, option: i32) {
-        // Input 0 is the catalog menu, which has only "Installed".
-        if input != 1 {
-            return;
-        }
-        let request = usize::try_from(option).ok().and_then(|option| {
-            self.latest
-                .lock()
-                .unwrap()
-                .addons
-                .type_requests
-                .get(option)
-                .cloned()
+        let choice = usize::try_from(input).ok().and_then(|input| {
+            let snapshot = self.latest.lock().unwrap();
+            snapshot.addons.choices.get(input).and_then(|choices| {
+                usize::try_from(option)
+                    .ok()
+                    .and_then(|option| choices.get(option).cloned())
+            })
         });
-        if let Some(request) = request {
-            self.runtime.dispatch(RuntimeAction {
-                field: None,
-                action: Action::Load(ActionLoad::InstalledAddonsWithFilters(InstalledSelected {
-                    request,
-                })),
-            });
+        if let Some(choice) = choice {
+            addons::select(&self.runtime, &choice);
         }
+    }
+
+    /// A marketplace card's Install button: the descriptor the catalog answered with goes to the
+    /// core's own install action, the same one the pasted-URL dialog uses.
+    fn install_market_addon(&self, transport_url: &str) {
+        addons::install_from_market(&self.runtime, transport_url);
     }
 
     /// A setting changed: write it, tell the core, and let the player and the screen catch up.
@@ -1512,7 +1510,37 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
             }
         });
     }
-    window.on_addon_open(move |url| addons::configure(&url));
+    {
+        let wiring = wiring.clone();
+        window.on_addon_open(move |url| {
+            // A marketplace card has no configuration page to open yet: the web opens the manifest
+            // dialog on it, which is where its Install button is.
+            let installed = wiring
+                .latest
+                .lock()
+                .unwrap()
+                .addons
+                .cards
+                .iter()
+                .any(|card| card.transport_url == url.as_str() && card.installed);
+            if !installed {
+                if addons::open_details(&wiring.runtime, &url).is_ok() {
+                    if let Some(window) = wiring.window.upgrade() {
+                        window.set_addon_add_open(true);
+                        window.set_addon_add_url(url.clone());
+                        window.set_addon_add_submitted(true);
+                        window.set_addon_add_error("".into());
+                    }
+                }
+                return;
+            }
+            addons::configure(&url);
+        });
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_addon_install_market(move |url| wiring.install_market_addon(&url));
+    }
     {
         let wiring = wiring.clone();
         window.on_select_setting_option(move |key, option| {

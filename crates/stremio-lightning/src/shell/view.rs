@@ -132,6 +132,7 @@ pub(crate) fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
                     description: card.description.clone().into(),
                     has_logo: logo.is_some(),
                     logo: logo.unwrap_or_default(),
+                    installed: card.installed,
                 }
             })
             .collect::<Vec<_>>(),

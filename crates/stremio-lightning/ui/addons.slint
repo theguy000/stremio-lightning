@@ -19,6 +19,8 @@ export struct AddonData {
     description: string,
     logo: image,
     has-logo: bool,
+    /// Web: `Addon.js` shows Uninstall on an addon the account has and Install on one it has not.
+    installed: bool,
 }
 
 // Web: `AddonDetailsModal` -- the manifest a pasted URL answered with, before it is installed.
@@ -39,6 +41,37 @@ export struct AddonPendingData {
 }
 
 // Web: the Uninstall button. A pill with a 2px outline at 30% opacity, full opacity on hover.
+// Web: `.install-button-container` -- the green pill a marketplace card offers, which turns into an
+// outline of itself under the pointer.
+component InstallButton inherits Rectangle {
+    in property <length> rem-size;
+    in property <bool> hovered: false;
+    callback clicked();
+
+    height: 3.5 * root.rem-size;
+    border-radius: self.height / 2;
+    border-width: 2px;
+    border-color: Theme.accent-green;
+    background: ClassStyles.background-or(
+        ClassStyles.install-button-container,
+        root.hovered ? transparent : Theme.accent-green
+    );
+    opacity: ClassStyles.opacity-or(ClassStyles.install-button-container, 1.0);
+    visible: !ClassStyles.install-button-container.hidden;
+
+    label := Text {
+        width: parent.width;
+        height: parent.height;
+        text: "Install";
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        font-size: 1.1 * root.rem-size;
+        font-weight: 700;
+        color: ClassStyles.color-or(ClassStyles.label, root.hovered ? Theme.accent-green : Theme.on-accent);
+        visible: !ClassStyles.label.hidden;
+    }
+}
+
 component UninstallButton inherits Rectangle {
     in property <length> rem-size;
     in property <bool> hovered: false;
@@ -114,6 +147,7 @@ component AddonCard inherits Rectangle {
     in property <length> rem-size;
     callback open();
     callback uninstall();
+    callback install();
     callback share();
 
     // The card's 1.5rem padding plus its 0.15rem border.
@@ -253,7 +287,15 @@ component AddonCard inherits Rectangle {
                 opacity: ClassStyles.opacity-or(ClassStyles.action-buttons-container, 1.0);
                 visible: !ClassStyles.action-buttons-container.hidden;
 
-                uninstall-button-container := UninstallButton {
+                // Web: one pill in this row, which reads Uninstall on an installed addon and
+                // Install -- green -- on one the account does not have yet.
+                if root.data.installed: uninstall-button-container := UninstallButton {
+                    width: 100%;
+                    height: 100%;
+                    rem-size: root.rem-size;
+                    hovered: uninstall-touch.has-hover;
+                }
+                if !root.data.installed: install-button-container := InstallButton {
                     width: 100%;
                     height: 100%;
                     rem-size: root.rem-size;
@@ -272,6 +314,8 @@ component AddonCard inherits Rectangle {
 
         // The presses are taken here, on the card itself: a TouchArea only receives what its own
         // box covers, and these two are the size of the column's halves.
+        // One target under either pill: it uninstalls an addon the account has and installs one it
+        // does not.
         uninstall-touch := TouchArea {
             x: parent.width - root.pad - root.buttons-width;
             y: root.pad;
@@ -279,7 +323,11 @@ component AddonCard inherits Rectangle {
             height: 3.5 * root.rem-size;
             mouse-cursor: pointer;
             clicked => {
-                root.uninstall();
+                if root.data.installed {
+                    root.uninstall();
+                } else {
+                    root.install();
+                }
             }
         }
         share-touch := TouchArea {
@@ -321,6 +369,7 @@ export component AddonsContent inherits Rectangle {
     callback add-close();
     /// A card's own buttons, each naming the addon by its manifest URL.
     callback uninstall(string);
+    callback install(string);
     callback share(string);
     callback open(string);
 
@@ -473,6 +522,9 @@ export component AddonsContent inherits Rectangle {
             }
             uninstall => {
                 root.uninstall(entry.transport-url);
+            }
+            install => {
+                root.install(entry.transport-url);
             }
             share => {
                 root.share(entry.transport-url);

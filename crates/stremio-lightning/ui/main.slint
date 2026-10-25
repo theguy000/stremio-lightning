@@ -58,6 +58,9 @@ export component MainWindow inherits Window {
     /// The add-addon dialog: up or not, what was typed, and the manifest the URL answered with.
     in-out property <bool> addon-add-open;
     in-out property <string> addon-add-url;
+    /// Whether the pasted URL has been submitted, so a manifest the core already holds is not
+    /// shown before the dialog asks for one.
+    in-out property <bool> addon-add-submitted: false;
     in property <AddonPendingData> addon-pending;
     /// A URL the add-addon dialog could not parse, and nothing else.
     in-out property <string> addon-add-error;
@@ -66,6 +69,8 @@ export component MainWindow inherits Window {
     callback addon-add-install();
     callback addon-add-close();
     callback addon-uninstall(string);
+    /// A marketplace card's Install button.
+    callback addon-install-market(string);
     callback addon-share(string);
     callback addon-open(string);
     /// The Calendar's month, its days and the days with something on them, as the core holds them.
@@ -674,6 +679,7 @@ export component MainWindow inherits Window {
         query <=> root.addons-query;
         add-open <=> root.addon-add-open;
         add-url <=> root.addon-add-url;
+        add-submitted <=> root.addon-add-submitted;
         pending: root.addon-pending;
         add-error: root.addon-add-error;
         select-option(input, option) => {
@@ -695,8 +701,10 @@ export component MainWindow inherits Window {
             root.addon-add-close();
         }
         uninstall(url) => {
-            root.addon-add-open = true;
             root.addon-uninstall(url);
+        }
+        install(url) => {
+            root.addon-install-market(url);
         }
         share(url) => {
             root.addon-share(url);

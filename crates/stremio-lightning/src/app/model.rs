@@ -12,6 +12,7 @@ use stremio_core::models::library_with_filters::{LibraryWithFilters, NotRemovedF
 use stremio_core::models::meta_details::MetaDetails;
 use stremio_core::models::player::Player;
 use stremio_core::runtime::Runtime;
+use stremio_core::types::addon::Descriptor;
 use stremio_core::types::resource::MetaItemPreview;
 use stremio_core::Model;
 use stremio_lightning_env::AppEnv;
@@ -32,6 +33,10 @@ pub struct AppModel {
     /// Library route reads. Its own `selected` request is what the type and sort menus change.
     pub library: LibraryWithFilters<NotRemovedFilter>,
     pub installed_addons: InstalledAddonsWithFilters,
+    /// Web: `/addons` reads this for the marketplace list -- the addon catalogs the installed
+    /// addons declare (Cinemeta offers "Official", "Community" and "Podcasts") and the descriptors
+    /// one of them answers with. Same model the route calls `remote_addons`.
+    pub remote_addons: CatalogWithFilters<Descriptor>,
     /// The addon behind a pasted URL: what its manifest says, and whether the account already has
     /// it. The web's `/addons` route reads the same model through its `AddonDetailsModal`.
     pub addon_details: AddonDetails,
