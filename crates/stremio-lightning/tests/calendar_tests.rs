@@ -131,3 +131,51 @@ fn a_month_given_is_the_month_opened() {
         "a Monday-first week puts Thursday fourth"
     );
 }
+
+#[test]
+fn a_title_added_after_the_month_loaded_asks_for_it_again() {
+    let (runtime, _events) = runtime();
+    let before = {
+        let model = runtime.model().expect("the model is readable");
+        screens::calendar::library_signature(&model)
+    };
+    assert!(
+        screens::calendar::needs_load(None, before, true),
+        "a Calendar that has never been built asks for its month"
+    );
+    assert!(
+        !screens::calendar::needs_load(Some(before), before, false),
+        "and a visit with the same library keeps the month it has"
+    );
+
+    // A title arrives -- from the web, or from this app's own details page.
+    let preview: MetaItemPreview = serde_json::from_value(serde_json::json!({
+        "id": "tt1",
+        "type": "series",
+        "name": "A series",
+        "posterShape": "poster"
+    }))
+    .expect("a preview");
+    runtime.dispatch(RuntimeAction {
+        field: None,
+        action: Action::Ctx(stremio_core::runtime::msg::ActionCtx::AddToLibrary(preview)),
+    });
+
+    let after = {
+        let model = runtime.model().expect("the model is readable");
+        assert_eq!(
+            model.ctx.library.items.len(),
+            1,
+            "the title is in the library"
+        );
+        screens::calendar::library_signature(&model)
+    };
+    assert_ne!(
+        before, after,
+        "the library is not the one the month was built from"
+    );
+    assert!(
+        screens::calendar::needs_load(Some(before), after, false),
+        "so the next visit asks for the month again, and the title's Episodes come with it"
+    );
+}

@@ -164,6 +164,35 @@ fn slot_of(content: &stremio_core::models::calendar::ContentItem) -> Slot {
     }
 }
 
+/// What a loaded month was built from: how many titles the library held, and the newest of them.
+/// Two visits with the same signature are looking at the same library.
+pub type LibrarySignature = (usize, Option<chrono::DateTime<chrono::Utc>>);
+
+/// The signature of the library the app holds now.
+pub fn library_signature(model: &AppModel) -> LibrarySignature {
+    (
+        model.ctx.library.items.len(),
+        model
+            .ctx
+            .library
+            .items
+            .values()
+            .map(|item| item.mtime)
+            .max(),
+    )
+}
+
+/// Whether the month on screen has to be asked for again: nothing has been loaded yet, or the
+/// library is not the one the month was built from -- which is what hid a title added after the
+/// Calendar had been visited once.
+pub fn needs_load(
+    loaded: Option<LibrarySignature>,
+    now: LibrarySignature,
+    calendar_empty: bool,
+) -> bool {
+    calendar_empty || loaded != Some(now)
+}
+
 /// Web: `useCalendar` dispatches `Load` with the route's year and month, and the core fills in
 /// the current month when it is given none.
 pub(crate) fn load(runtime: &AppRuntime, month: Option<(i32, u32)>) {
