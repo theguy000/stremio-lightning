@@ -1,6 +1,7 @@
 //! The app's state: the stremio-core models the UI reads, the runtime that owns them, and the
 //! snapshot of "what the window currently shows".
 
+use stremio_core::models::addon_details::AddonDetails;
 use stremio_core::models::calendar::Calendar;
 use stremio_core::models::catalog_with_filters::CatalogWithFilters;
 use stremio_core::models::catalogs_with_extra::CatalogsWithExtra;
@@ -31,6 +32,9 @@ pub struct AppModel {
     /// Library route reads. Its own `selected` request is what the type and sort menus change.
     pub library: LibraryWithFilters<NotRemovedFilter>,
     pub installed_addons: InstalledAddonsWithFilters,
+    /// The addon behind a pasted URL: what its manifest says, and whether the account already has
+    /// it. The web's `/addons` route reads the same model through its `AddonDetailsModal`.
+    pub addon_details: AddonDetails,
     /// One month of the Episodes the library's titles are releasing: the model stremio-web's
     /// `/calendar` route reads.
     pub calendar: Calendar,

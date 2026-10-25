@@ -11,6 +11,8 @@ import { Theme } from "theme.slint";
 
 // One installed addon. `logo` is only valid when `has-logo` is true.
 export struct AddonData {
+    /// The addon's own manifest URL: what its buttons name it by.
+    transport-url: string,
     name: string,
     version: string,
     types: string,
@@ -19,10 +21,27 @@ export struct AddonData {
     has-logo: bool,
 }
 
+// Web: `AddonDetailsModal` -- the manifest a pasted URL answered with, before it is installed.
+export struct AddonPendingData {
+    open: bool,
+    transport-url: string,
+    name: string,
+    version: string,
+    types: string,
+    description: string,
+    logo: image,
+    has-logo: bool,
+    /// Whether the manifest has arrived, which is when Install can be pressed.
+    ready: bool,
+    /// Whether the account already has this addon.
+    installed: bool,
+    error: string,
+}
+
 // Web: the Uninstall button. A pill with a 2px outline at 30% opacity, full opacity on hover.
 component UninstallButton inherits Rectangle {
     in property <length> rem-size;
-    out property <bool> hovered: touch.has-hover;
+    in property <bool> hovered: false;
     callback clicked();
 
     height: 3.5 * root.rem-size;
@@ -44,18 +63,12 @@ component UninstallButton inherits Rectangle {
         color: ClassStyles.color-or(ClassStyles.label, Theme.text);
         visible: !ClassStyles.label.hidden;
     }
-    touch := TouchArea {
-        mouse-cursor: pointer;
-        clicked => {
-            root.clicked();
-        }
-    }
 }
 
 // Web: the Share addon button. An icon and a label in the middle of the box, the label underlined on hover.
 component ShareButton inherits Rectangle {
     in property <length> rem-size;
-    out property <bool> hovered: touch.has-hover;
+    in property <bool> hovered: false;
     callback clicked();
 
     property <length> content-width: 2.5 * root.rem-size + label.width;
@@ -93,12 +106,6 @@ component ShareButton inherits Rectangle {
         background: label.color;
         visible: root.hovered && !ClassStyles.label.hidden;
     }
-    touch := TouchArea {
-        mouse-cursor: pointer;
-        clicked => {
-            root.clicked();
-        }
-    }
 }
 
 // Web: <div class="addon addon-container button-container">, one installed addon.
@@ -113,7 +120,7 @@ component AddonCard inherits Rectangle {
     property <length> pad: 23 * root.rem-size / 14;
     property <length> buttons-width: 17 * root.rem-size;
     property <length> info-x: root.pad + 8 * root.rem-size;
-    property <bool> hot: card-touch.has-hover || uninstall-button-container.hovered || share-button-container.hovered;
+    property <bool> hot: card-touch.has-hover || uninstall-touch.has-hover || share-touch.has-hover;
 
     // Web: 2 * 21px padding + 112px logo + 2 * 2px border = 158px, not a whole number of rem.
     height: 158 * root.rem-size / 14;
@@ -129,6 +136,8 @@ component AddonCard inherits Rectangle {
         visible: !ClassStyles.addon.hidden;
 
         card-touch := TouchArea {
+            width: 100%;
+            height: 100%;
             mouse-cursor: pointer;
             clicked => {
                 root.open();
@@ -245,20 +254,42 @@ component AddonCard inherits Rectangle {
                 visible: !ClassStyles.action-buttons-container.hidden;
 
                 uninstall-button-container := UninstallButton {
-                    width: parent.width;
+                    width: 100%;
+                    height: 100%;
                     rem-size: root.rem-size;
-                    clicked => {
-                        root.uninstall();
-                    }
+                    hovered: uninstall-touch.has-hover;
                 }
             }
             share-button-container := ShareButton {
                 y: 4.5 * root.rem-size;
-                width: parent.width;
+                width: 100%;
+                height: 3.5 * root.rem-size;
                 rem-size: root.rem-size;
-                clicked => {
-                    root.share();
-                }
+                hovered: share-touch.has-hover;
+            }
+
+        }
+
+        // The presses are taken here, on the card itself: a TouchArea only receives what its own
+        // box covers, and these two are the size of the column's halves.
+        uninstall-touch := TouchArea {
+            x: parent.width - root.pad - root.buttons-width;
+            y: root.pad;
+            width: root.buttons-width;
+            height: 3.5 * root.rem-size;
+            mouse-cursor: pointer;
+            clicked => {
+                root.uninstall();
+            }
+        }
+        share-touch := TouchArea {
+            x: parent.width - root.pad - root.buttons-width;
+            y: root.pad + 4.5 * root.rem-size;
+            width: root.buttons-width;
+            height: 3.5 * root.rem-size;
+            mouse-cursor: pointer;
+            clicked => {
+                root.share();
             }
         }
     }
@@ -272,9 +303,26 @@ export component AddonsContent inherits Rectangle {
     in property <string> message;
     in property <length> viewport-width;
     in-out property <string> query;
+    /// The add-addon dialog: whether it is up, what was typed into it, whether that has been
+    /// submitted, and what the core answered. The core keeps the last manifest, so the dialog
+    /// shows nothing until the field is submitted in this session.
+    in-out property <bool> add-open;
+    in-out property <string> add-url;
+    in-out property <bool> add-submitted: false;
+    in property <AddonPendingData> pending;
+    in property <string> add-error;
     // (input index, option index): the user picked an option in the filter bar.
     callback select-option(int, int);
     callback search-changed(string);
+    /// The Add addon button, and what its dialog's buttons do.
+    callback add-addon();
+    callback add-submit(string);
+    callback add-install();
+    callback add-close();
+    /// A card's own buttons, each naming the addon by its manifest URL.
+    callback uninstall(string);
+    callback share(string);
+    callback open(string);
 
     property <length> rem-size: Theme.rem-size(root.viewport-width);
     property <length> bar-height: 6 * root.rem-size;
@@ -345,7 +393,15 @@ export component AddonsContent inherits Rectangle {
                 visible: !ClassStyles.add-button-label.hidden;
             }
             add-touch := TouchArea {
+                width: 100%;
+                height: 100%;
                 mouse-cursor: pointer;
+                clicked => {
+                    root.add-open = true;
+                    root.add-url = "";
+                    root.add-submitted = false;
+                    root.add-addon();
+                }
             }
         }
 
@@ -412,6 +468,15 @@ export component AddonsContent inherits Rectangle {
             width: root.card-width;
             data: entry;
             rem-size: root.rem-size;
+            open => {
+                root.open(entry.transport-url);
+            }
+            uninstall => {
+                root.uninstall(entry.transport-url);
+            }
+            share => {
+                root.share(entry.transport-url);
+            }
         }
     }
 
@@ -434,5 +499,225 @@ export component AddonsContent inherits Rectangle {
         color: ClassStyles.color-or(ClassStyles.message-container, Theme.text);
         opacity: ClassStyles.opacity-or(ClassStyles.message-container, 1.0);
         visible: !ClassStyles.message-container.hidden;
+    }
+
+    // Web: `Addons.js`'s "Add addon" ModalDialog -- a notice, the URL field, Cancel and Add. Adding
+    // opens `AddonDetailsModal` on the parsed URL, which is what `pending` shows here, with its
+    // Install button in place of Add.
+    if root.add-open: Rectangle {
+        width: parent.width;
+        height: parent.height;
+        background: #00000066;
+
+        dialog := Rectangle {
+            width: 34 * root.rem-size;
+            height: 22 * root.rem-size;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            border-radius: 0.75 * root.rem-size;
+            background: Theme.modal-background;
+
+            Text {
+                x: 2 * root.rem-size;
+                y: 1.5 * root.rem-size;
+                width: parent.width - 4 * root.rem-size;
+                height: 2 * root.rem-size;
+                text: "Add addon";
+                vertical-alignment: center;
+                font-size: 1.5 * root.rem-size;
+                font-weight: 600;
+                color: Theme.text;
+            }
+
+            Text {
+                x: 2 * root.rem-size;
+                y: 4 * root.rem-size;
+                width: parent.width - 4 * root.rem-size;
+                height: 2.4 * root.rem-size;
+                text: "Paste the addon's manifest URL, the one that ends in /manifest.json.";
+                wrap: word-wrap;
+                font-size: root.rem-size;
+                color: Theme.text;
+                opacity: 0.7;
+            }
+
+            url-input := Rectangle {
+                x: 2 * root.rem-size;
+                y: 7 * root.rem-size;
+                width: parent.width - 4 * root.rem-size;
+                height: 3.5 * root.rem-size;
+                border-radius: 0.75 * root.rem-size;
+                background: Theme.overlay;
+                border-width: input.has-focus ? 1px : 0px;
+                border-color: Theme.accent;
+
+                input := TextInput {
+                    x: 1 * root.rem-size;
+                    width: parent.width - 2 * root.rem-size;
+                    height: parent.height;
+                    single-line: true;
+                    vertical-alignment: center;
+                    font-size: 1.1 * root.rem-size;
+                    color: Theme.text;
+                    text <=> root.add-url;
+                    accepted => {
+                        root.add-submitted = true;
+                        root.add-submit(self.text);
+                    }
+                }
+            }
+
+            // What the URL answered with: the manifest's name, version, types and description.
+            if root.add-error != "": Text {
+                x: 2 * root.rem-size;
+                y: 11 * root.rem-size;
+                width: parent.width - 4 * root.rem-size;
+                height: 2.6 * root.rem-size;
+                text: root.add-error;
+                wrap: word-wrap;
+                font-size: root.rem-size;
+                color: Theme.accent-red;
+            }
+
+            if root.add-submitted && root.pending.error != "": Text {
+                x: 2 * root.rem-size;
+                y: 11 * root.rem-size;
+                width: parent.width - 4 * root.rem-size;
+                height: 2.6 * root.rem-size;
+                text: root.pending.error;
+                wrap: word-wrap;
+                font-size: root.rem-size;
+                color: Theme.accent-red;
+            }
+
+            if root.add-submitted && root.pending.ready: Rectangle {
+                x: 2 * root.rem-size;
+                y: 11 * root.rem-size;
+                width: parent.width - 4 * root.rem-size;
+                height: 6 * root.rem-size;
+                border-radius: 0.75 * root.rem-size;
+                background: Theme.overlay;
+
+                if root.pending.has-logo: Image {
+                    x: 1 * root.rem-size;
+                    y: 1 * root.rem-size;
+                    width: 4 * root.rem-size;
+                    height: 4 * root.rem-size;
+                    source: root.pending.logo;
+                    image-fit: contain;
+                }
+
+                Text {
+                    x: 6 * root.rem-size;
+                    y: 1 * root.rem-size;
+                    width: parent.width - 7 * root.rem-size;
+                    height: 1.6 * root.rem-size;
+                    text: root.pending.name;
+                    overflow: elide;
+                    font-size: 1.2 * root.rem-size;
+                    font-weight: 600;
+                    color: Theme.text;
+                }
+                Text {
+                    x: 6 * root.rem-size;
+                    y: 2.6 * root.rem-size;
+                    width: parent.width - 7 * root.rem-size;
+                    height: 1.4 * root.rem-size;
+                    text: root.pending.version + "   " + root.pending.types + (root.pending.installed ? "   already installed" : "");
+                    overflow: elide;
+                    font-size: 0.9 * root.rem-size;
+                    color: Theme.text;
+                    opacity: 0.6;
+                }
+                Text {
+                    x: 6 * root.rem-size;
+                    y: 4 * root.rem-size;
+                    width: parent.width - 7 * root.rem-size;
+                    height: 1.6 * root.rem-size;
+                    text: root.pending.description;
+                    overflow: elide;
+                    font-size: 0.9 * root.rem-size;
+                    color: Theme.text;
+                    opacity: 0.8;
+                }
+            }
+
+            if root.add-submitted && !root.pending.ready && root.pending.error == "" && root.add-error == "": Text {
+                x: 2 * root.rem-size;
+                y: 11 * root.rem-size;
+                width: parent.width - 4 * root.rem-size;
+                height: 2 * root.rem-size;
+                text: root.add-url == "" ? "" : "Reading the manifest...";
+                font-size: root.rem-size;
+                color: Theme.text;
+                opacity: 0.6;
+            }
+
+            // Web: the dialog's buttons sit bottom-right: Cancel, then Add (or Install).
+            cancel-button := Rectangle {
+                x: parent.width - 2 * root.rem-size - self.width;
+                y: parent.height - 1.5 * root.rem-size - self.height;
+                width: 6 * root.rem-size;
+                height: 3 * root.rem-size;
+                border-radius: self.height / 2;
+                background: cancel-touch.has-hover ? Theme.overlay : transparent;
+
+                Text {
+                    width: parent.width;
+                    height: parent.height;
+                    text: "Cancel";
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    font-size: root.rem-size;
+                    font-weight: 600;
+                    color: Theme.text;
+                    opacity: 0.8;
+                }
+                cancel-touch := TouchArea {
+                    width: 100%;
+                    height: 100%;
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.add-open = false;
+                        root.add-close();
+                    }
+                }
+            }
+
+            add-button := Rectangle {
+                x: cancel-button.x - 1 * root.rem-size - self.width;
+                y: cancel-button.y;
+                width: 6.5 * root.rem-size;
+                height: 3 * root.rem-size;
+                border-radius: self.height / 2;
+                background: add-install-touch.has-hover ? Theme.accent-soft : Theme.accent;
+                opacity: root.pending.ready ? 1.0 : 0.5;
+
+                Text {
+                    width: parent.width;
+                    height: parent.height;
+                    text: root.pending.ready ? (root.pending.installed ? "Reinstall" : "Install") : "Add";
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    font-size: root.rem-size;
+                    font-weight: 700;
+                    color: Theme.text;
+                }
+                add-install-touch := TouchArea {
+                    width: 100%;
+                    height: 100%;
+                    mouse-cursor: pointer;
+                    clicked => {
+                        if (root.add-submitted && root.pending.ready) {
+                            root.add-install();
+                            root.add-open = false;
+                        } else {
+                            root.add-submitted = true;
+                            root.add-submit(root.add-url);
+                        }
+                    }
+                }
+            }
+        }
     }
 }

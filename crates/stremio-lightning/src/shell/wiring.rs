@@ -22,7 +22,7 @@ use crate::plumbing::images::Images;
 use crate::plumbing::links;
 use crate::plumbing::player::VideoPlayer;
 use crate::plumbing::stream_server::{self, Supervisor};
-use crate::screens::{auth, calendar, details, discover, player, settings};
+use crate::screens::{addons, auth, calendar, details, discover, player, settings};
 use crate::shell;
 use crate::MainWindow;
 
@@ -1438,6 +1438,51 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
         let wiring = wiring.clone();
         window.on_search_addons(move |_| wiring.repaint());
     }
+    {
+        let wiring = wiring.clone();
+        window.on_addon_add(move || {
+            if let Some(window) = wiring.window.upgrade() {
+                window.set_addon_add_error("".into());
+            }
+        });
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_addon_add_submit(move |text| {
+            let error = addons::open_details(&wiring.runtime, &text)
+                .err()
+                .unwrap_or_default();
+            if let Some(window) = wiring.window.upgrade() {
+                window.set_addon_add_error(error.into());
+            }
+        });
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_addon_add_install(move || addons::install(&wiring.runtime));
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_addon_add_close(move || {
+            if let Some(window) = wiring.window.upgrade() {
+                window.set_addon_add_error("".into());
+            }
+        });
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_addon_uninstall(move |url| addons::uninstall(&wiring.runtime, &url));
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_addon_share(move |url| {
+            if let Some(window) = wiring.window.upgrade() {
+                window.set_share_link(url.clone());
+                window.set_share_open(true);
+            }
+        });
+    }
+    window.on_addon_open(move |url| addons::configure(&url));
     {
         let wiring = wiring.clone();
         window.on_select_setting_option(move |key, option| {

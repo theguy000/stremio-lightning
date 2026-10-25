@@ -1,13 +1,21 @@
 // What the Addons screen shows: the installed addons from stremio-core's `InstalledAddonsWithFilters`.
 // Based on stremio-web src/routes/Addons (Addons.js, Addon/Addon.js, useSelectableInputs.js).
 // Licence basis: ../../THIRD_PARTY_NOTICES.md.
+use stremio_core::models::addon_details::Selected as AddonDetailsSelected;
+use stremio_core::models::common::Loadable;
 use stremio_core::models::installed_addons_with_filters::{InstalledAddonsRequest, SelectableType};
+use stremio_core::runtime::msg::{Action, ActionCtx, ActionLoad};
+use stremio_core::runtime::RuntimeAction;
 use stremio_core::types::addon::Descriptor;
+use url::Url;
 
 use super::{capitalise, AppModel, Input};
+use crate::app::AppRuntime;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct AddonCard {
+    /// What identifies this addon when its buttons are pressed: `Descriptor::transport_url`.
+    pub transport_url: String,
     pub name: String,
     pub version: String,
     pub types: String,
@@ -23,6 +31,26 @@ pub struct Data {
     pub type_requests: Vec<InstalledAddonsRequest>,
     pub cards: Vec<AddonCard>,
     pub message: String,
+    /// The addon the user pasted a URL for, while its manifest is being fetched or shown.
+    pub pending: Option<Pending>,
+}
+
+/// The "add addon" dialog: the URL the user pasted and, once the core has fetched it, the manifest
+/// it answered with -- which is what the web's `AddonDetailsModal` shows before installing.
+#[derive(Clone, Default)]
+pub struct Pending {
+    pub transport_url: String,
+    pub name: String,
+    pub version: String,
+    pub types: String,
+    pub description: String,
+    pub logo: Option<String>,
+    /// Whether the manifest has arrived, so the Install button can be pressed.
+    pub ready: bool,
+    /// Whether the account already has this addon.
+    pub installed: bool,
+    /// What went wrong, empty while nothing has.
+    pub error: String,
 }
 
 /// "Movie", "Movie & Series", "Movie, Series & Channel", like `Addon.js`.
@@ -40,6 +68,7 @@ fn types_label(types: &[String]) -> String {
 fn card_of(addon: &Descriptor) -> AddonCard {
     let manifest = &addon.manifest;
     AddonCard {
+        transport_url: addon.transport_url.to_string(),
         name: if manifest.name.is_empty() {
             manifest.id.clone()
         } else {
@@ -91,7 +120,122 @@ pub fn data(model: &AppModel) -> Data {
         type_requests: types.iter().map(|item| item.request.clone()).collect(),
         cards: installed.catalog.iter().map(card_of).collect(),
         message,
+        pending: pending(&model.addon_details),
     }
+}
+
+/// Web: `AddonDetailsModal` -- the manifest behind the pasted URL, its Install button, and the
+/// errors the fetch can answer with. `std::option` is the dialog being closed: nothing pasted.
+fn pending(details: &stremio_core::models::addon_details::AddonDetails) -> Option<Pending> {
+    let selected = details.selected.as_ref()?;
+    let transport_url = selected.transport_url.to_string();
+    let installed = details.local_addon.is_some();
+    let mut pending = Pending {
+        transport_url,
+        installed,
+        ..Pending::default()
+    };
+    match details.remote_addon.as_ref().map(|addon| &addon.content) {
+        Some(Loadable::Ready(addon)) => {
+            let manifest = &addon.manifest;
+            pending.name = if manifest.name.is_empty() {
+                manifest.id.clone()
+            } else {
+                manifest.name.clone()
+            };
+            pending.version = format!("v.{}", manifest.version);
+            pending.types = types_label(&manifest.types);
+            pending.description = manifest.description.clone().unwrap_or_default();
+            pending.logo = manifest.logo.as_ref().map(|url| url.to_string());
+            pending.ready = true;
+        }
+        Some(Loadable::Err(error)) => pending.error = format!("{error}"),
+        // Still loading, or nothing asked for yet.
+        _ => {}
+    }
+    Some(pending)
+}
+
+/// Web: `Addons.js` parses the pasted text as a URL -- `stremio://` is stremio's own scheme for
+/// the same link, so it is read as `https://` -- and hands the transport URL to `AddonDetails`.
+pub(crate) fn open_details(runtime: &AppRuntime, text: &str) -> Result<(), String> {
+    let url = parse_addon_url(text)?;
+    runtime.dispatch(RuntimeAction {
+        field: None,
+        action: Action::Load(ActionLoad::AddonDetails(AddonDetailsSelected {
+            transport_url: url,
+        })),
+    });
+    Ok(())
+}
+
+fn parse_addon_url(text: &str) -> Result<Url, String> {
+    let text = text.trim();
+    if text.is_empty() {
+        return Err("Paste the addon's manifest URL first.".to_owned());
+    }
+    let text = if let Some(rest) = text.strip_prefix("stremio://") {
+        format!("https://{rest}")
+    } else {
+        text.to_owned()
+    };
+    let url = Url::parse(&text).map_err(|error| format!("Failed to parse addon url: {error}"))?;
+    if !matches!(url.scheme(), "http" | "https") {
+        return Err("An addon URL starts with https:// or stremio://.".to_owned());
+    }
+    Ok(url)
+}
+
+/// Web: the dialog's Install button dispatches `InstallAddon` with the manifest the core fetched.
+pub(crate) fn install(runtime: &AppRuntime) {
+    let Ok(model) = runtime.model() else {
+        return;
+    };
+    let addon = model
+        .addon_details
+        .remote_addon
+        .as_ref()
+        .and_then(|addon| match &addon.content {
+            Loadable::Ready(addon) => Some(addon.clone()),
+            _ => None,
+        });
+    drop(model);
+    let Some(addon) = addon else {
+        return;
+    };
+    runtime.dispatch(RuntimeAction {
+        field: None,
+        action: Action::Ctx(ActionCtx::InstallAddon(addon)),
+    });
+}
+
+/// Web: `Addons.js`'s Configure button opens the addon's own configuration page -- its manifest
+/// URL with `manifest.json` swapped for `configure` -- in the user's browser.
+pub(crate) fn configure(transport_url: &str) {
+    let target = transport_url.replace("manifest.json", "configure");
+    crate::plumbing::links::open(&target);
+}
+
+/// Web: the card's Uninstall button dispatches `UninstallAddon` with the installed descriptor.
+pub(crate) fn uninstall(runtime: &AppRuntime, transport_url: &str) {
+    let Ok(model) = runtime.model() else {
+        return;
+    };
+    let addon = model
+        .ctx
+        .profile
+        .addons
+        .iter()
+        .find(|addon| addon.transport_url.as_str() == transport_url)
+        .cloned();
+    drop(model);
+    let Some(addon) = addon else {
+        return;
+    };
+    runtime.dispatch(RuntimeAction {
+        field: None,
+        action: Action::Ctx(ActionCtx::UninstallAddon(addon)),
+    });
 }
 
 /// The cards whose name or description contains `query`, ignoring case, like `Addons.js`.
@@ -141,5 +285,28 @@ mod tests {
         assert_eq!(visible(&cards, "CINE")[0].name, "Cinemeta");
         assert_eq!(visible(&cards, "channels")[0].name, "YouTube");
         assert!(visible(&cards, "zzz").is_empty());
+    }
+
+    #[test]
+    fn an_addon_url_is_read_the_way_the_web_reads_it() {
+        // `Addons.js` parses the pasted text as a URL; stremio's own scheme is the same link.
+        assert_eq!(
+            parse_addon_url("https://v3-cinemeta.strem.io/manifest.json")
+                .expect("an https url")
+                .as_str(),
+            "https://v3-cinemeta.strem.io/manifest.json"
+        );
+        assert_eq!(
+            parse_addon_url("  stremio://v3-cinemeta.strem.io/manifest.json  ")
+                .expect("a stremio url")
+                .as_str(),
+            "https://v3-cinemeta.strem.io/manifest.json"
+        );
+        assert!(parse_addon_url("").is_err(), "nothing pasted");
+        assert!(
+            parse_addon_url("file:///etc/passwd").is_err(),
+            "only http(s) and stremio are addon urls"
+        );
+        assert!(parse_addon_url("not a url").is_err());
     }
 }
