@@ -97,33 +97,39 @@ component CalendarSelector inherits Rectangle {
         }
     }
 
-    // Web: `.selected` -- the year above the month, 8.5rem wide.
+    // Web: `.selected` -- the year above the month, 8.5rem wide. The browser never clips a line
+    // box that is shorter than its glyphs (`line-height: 100%` only sizes the box); Slint does, so
+    // the year's box was 1rem tall around a 1rem font and its descenders were cut off. Each line
+    // now takes the height it asks for, and the pair is centred in the selector.
     Rectangle {
         x: prev-button.x + prev-button.width + 1 * root.rem-size;
         width: 8.5 * root.rem-size;
         height: parent.height;
 
-        Text {
-            y: (parent.height - self.height) / 2 - 1.25 * root.rem-size;
+        selected-column := VerticalLayout {
+            y: (parent.height - self.height) / 2;
             width: parent.width;
-            height: 1 * root.rem-size;
-            text: "\{root.year}";
-            horizontal-alignment: center;
-            font-size: 1 * root.rem-size;
-            font-weight: 500;
-            color: Theme.text;
-            opacity: 0.5;
-        }
-        Text {
-            y: (parent.height - self.height) / 2 + 0.1 * root.rem-size;
-            width: parent.width;
-            height: 1.8 * root.rem-size;
-            text: root.month;
-            horizontal-alignment: center;
-            overflow: elide;
-            font-size: 1.5 * root.rem-size;
-            font-weight: 500;
-            color: Theme.text;
+            spacing: 0px;
+            alignment: start;
+
+            Text {
+                width: parent.width;
+                text: "\{root.year}";
+                horizontal-alignment: center;
+                font-size: 1 * root.rem-size;
+                font-weight: 500;
+                color: Theme.text;
+                opacity: 0.5;
+            }
+            Text {
+                width: parent.width;
+                text: root.month;
+                horizontal-alignment: center;
+                overflow: elide;
+                font-size: 1.5 * root.rem-size;
+                font-weight: 500;
+                color: Theme.text;
+            }
         }
     }
 
@@ -244,7 +250,9 @@ component CalendarCell inherits Rectangle {
                 width: 2 * root.rem-size;
                 height: self.width;
                 border-radius: self.width / 2;
-                background: Theme.secondary;
+                // Web: `.cell .item .icon` -- the badge is `--secondary-accent-color`, the green,
+                // with the glyph in the foreground colour.
+                background: Theme.accent-green;
 
                 Image {
                     x: (parent.width - self.width) / 2;
@@ -274,36 +282,49 @@ component CalendarEpisode inherits Rectangle {
     in property <bool> blurred;
     callback opened();
 
-    height: 4.5 * root.rem-size;
+    // Web: `.episode` -- a row with `padding: 0.625rem`, `align-items: center` and an `0.875rem`
+    // gap, as tall as the taller of its two columns: the 16:9 artwork, or the three lines of text.
+    // The browser lays the info column out as a flex column, so it is only as tall as its three
+    // lines and the row centres it. Laid out by hand at a fixed height, the column stretched to
+    // the row instead: the `S1E5` label stuck to the top and the spare height sat between it and
+    // the show's name.
+    property <length> art-width: Math.min(
+        40 * (root.width - 1.25 * root.rem-size) / 100,
+        8 * root.rem-size
+    );
+
+    height: body.preferred-height;
     border-radius: 0.75 * root.rem-size;
     background: episode-touch.has-hover ? #ffffff1a : Theme.overlay;
 
-    Rectangle {
-        x: 0.625 * root.rem-size;
-        y: 0.625 * root.rem-size;
-        width: Math.min(40 * parent.width / 100, 8 * root.rem-size);
-        height: parent.height - 1.25 * root.rem-size;
-        border-radius: 0.5 * root.rem-size;
-        clip: true;
-        background: Theme.overlay;
+    body := HorizontalLayout {
+        padding: 0.625 * root.rem-size;
+        spacing: 0.875 * root.rem-size;
+        alignment: start;
 
-        if root.slot.has-thumbnail: Image {
-            width: 100%;
-            height: 100%;
-            source: root.slot.thumbnail;
-            image-fit: cover;
+        // `.artwork-container`: 40% of the row, at most 8rem, 16:9.
+        Rectangle {
+            width: root.art-width;
+            height: root.art-width * 9 / 16;
+            border-radius: 0.5 * root.rem-size;
+            clip: true;
+            background: Theme.overlay;
+
+            if root.slot.has-thumbnail: Image {
+                width: 100%;
+                height: 100%;
+                source: root.slot.thumbnail;
+                image-fit: cover;
+            }
         }
-    }
 
-    Rectangle {
-        x: 0.625 * root.rem-size + Math.min(40 * parent.width / 100, 8 * root.rem-size) + 0.875 * root.rem-size;
-        y: 0.625 * root.rem-size;
-        width: parent.width - self.x - 0.625 * root.rem-size;
-        height: parent.height - 1.25 * root.rem-size;
-
+        // `.info`: the flex column -- `gap: 0.2rem`, centred against the artwork.
         VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: center;
             spacing: 0.2 * root.rem-size;
 
+            // `S1E5`, in the accent colour.
             Text {
                 text: root.slot.label;
                 font-size: 0.8 * root.rem-size;
@@ -311,20 +332,22 @@ component CalendarEpisode inherits Rectangle {
                 color: Theme.accent;
                 visible: root.slot.label != "";
             }
+            // The show's name, 1rem bold, at most two lines.
             Text {
                 text: root.slot.title;
                 wrap: word-wrap;
                 overflow: elide;
-                height: 2.4 * root.rem-size;
+                height: Math.min(self.preferred-height, 2.4 * root.rem-size);
                 font-size: 1 * root.rem-size;
                 font-weight: 600;
                 color: Theme.text;
             }
+            // The Episode's own name under it, 0.875rem at 0.65, at most two lines.
             Text {
                 text: root.slot.name;
                 wrap: word-wrap;
                 overflow: elide;
-                height: 2.2 * root.rem-size;
+                height: Math.min(self.preferred-height, 2.2 * root.rem-size);
                 font-size: 0.875 * root.rem-size;
                 color: Theme.text;
                 opacity: 0.65;
@@ -340,7 +363,6 @@ component CalendarEpisode inherits Rectangle {
         }
     }
 }
-
 // Web: `Item.less` -- a day with its Episodes, headed by the long date.
 component CalendarListDay inherits Rectangle {
     in property <CalendarDay> day;
@@ -420,8 +442,16 @@ export component CalendarContent inherits Rectangle {
     property <length> content-width: root.width - root.gutter;
     property <length> main-width: root.content-width - root.list-width - 0.5 * root.rem-size;
     property <int> rows: Math.max(1, Math.ceil((root.data.first-weekday + root.data.days.length) / 7));
-    property <length> cell-width: root.main-width / 7;
-    property <length> cell-height: (root.height - 1.5 * root.rem-size - 4 * root.rem-size) / root.rows;
+    // Web: `gap: 1px` between the columns and between the rows, so a cell is a seventh of what
+    // the row has left once the six separators are taken out.
+    property <length> cell-width: (root.main-width - 6 * 1px) / 7;
+    // Web: `.table` is the 3rem week header plus a grid that takes the rest of the column, with
+    // `grid-auto-rows: 1fr` -- so a cell is the height that is left over, divided by the rows the
+    // month needs. This used to leave the week header out of the sum, which made every cell 3rem
+    // too tall in total and pushed the last row past the bottom of the screen.
+    property <length> table-height: root.height - 5.5 * root.rem-size;
+    property <length> grid-height: root.table-height - 3 * root.rem-size;
+    property <length> cell-height: (root.grid-height - (root.rows - 1) * 1px) / root.rows;
 
     CalendarSelector {
         x: root.gutter;
@@ -445,7 +475,7 @@ export component CalendarContent inherits Rectangle {
         x: root.gutter;
         y: 4 * root.rem-size;
         width: root.main-width;
-        height: root.height - 5.5 * root.rem-size;
+        height: root.table-height;
         background: transparent;
 
         for name[index] in root.week-days: Text {
@@ -462,17 +492,17 @@ export component CalendarContent inherits Rectangle {
         }
 
         for day[index] in root.data.days: CalendarCell {
-            x: Math.mod(index + root.data.first-weekday, 7) * root.cell-width;
+            x: Math.mod(index + root.data.first-weekday, 7) * (root.cell-width + 1px);
             y: 3 * root.rem-size
-                + Math.floor((index + root.data.first-weekday) / 7) * root.cell-height;
+                + Math.floor((index + root.data.first-weekday) / 7) * (root.cell-height + 1px);
             // Web: 1px between cells, and the four corners of the grid rounded.
-            width: root.cell-width - 1px;
-            height: root.cell-height - 1px;
+            width: root.cell-width;
+            height: root.cell-height;
             day: day;
             active: root.selected-day == day.day;
             rem-size: root.rem-size;
-            cell-width: root.cell-width - 1px;
-            cell-height: root.cell-height - 1px;
+            cell-width: root.cell-width;
+            cell-height: root.cell-height;
             selected => {
                 root.selected-day = day.day;
             }

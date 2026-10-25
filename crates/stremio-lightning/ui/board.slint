@@ -365,7 +365,10 @@ export component MetaItem inherits Rectangle {
         width: 4 * root.rem-size;
         height: self.width;
         border-radius: self.width / 2;
-        background: root.is-hovered ? Theme.accent : Theme.background;
+        // Web: `.play-icon-background` -- `--primary-background-color` at 0.4 until the card is
+        // under the pointer, then `--secondary-accent-color` (the green) at full strength. It was
+        // the purple primary accent here, which the web never uses for this button.
+        background: root.is-hovered ? Theme.accent-green : Theme.background;
         opacity: root.is-hovered ? 1.0 : 0.4;
 
         // `.play-icon-outer`: a 0.15rem ring just inside the circle's edge.

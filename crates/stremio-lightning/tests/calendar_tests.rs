@@ -118,9 +118,13 @@ fn a_month_given_is_the_month_opened() {
 
     let model = runtime.model().expect("the model is readable");
     let data = screens::calendar::data(&model);
-    assert_eq!(data.month, "February");
-    assert_eq!(data.prev, "January");
-    assert_eq!(data.next, "March");
+    assert_eq!(
+        data.month, "February",
+        "the month in the middle is spelled out"
+    );
+    // Web: `toMonth(..., 'short')` on the two buttons either side.
+    assert_eq!(data.prev, "Jan");
+    assert_eq!(data.next, "Mar");
     assert_eq!(data.days.len(), 29, "2024 is a leap year");
     assert_eq!(
         data.days[0].heading, "Thursday, February 1",
@@ -178,4 +182,22 @@ fn a_title_added_after_the_month_loaded_asks_for_it_again() {
         screens::calendar::needs_load(Some(before), after, false),
         "so the next visit asks for the month again, and the title's Episodes come with it"
     );
+}
+
+#[test]
+fn the_months_either_side_are_abbreviated_the_way_english_abbreviates_them() {
+    let (runtime, _events) = runtime();
+    load(&runtime, Some((2026, 10)));
+
+    let model = runtime.model().expect("the model is readable");
+    let data = screens::calendar::data(&model);
+    assert_eq!(
+        data.month, "October",
+        "the month on screen stays spelled out"
+    );
+    assert_eq!(
+        data.prev, "Sep",
+        "`toMonth(..., 'short')` for en-US, which is what the web shows"
+    );
+    assert_eq!(data.next, "Nov");
 }
