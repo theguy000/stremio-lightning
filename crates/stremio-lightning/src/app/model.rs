@@ -1,6 +1,7 @@
 //! The app's state: the stremio-core models the UI reads, the runtime that owns them, and the
 //! snapshot of "what the window currently shows".
 
+use stremio_core::models::calendar::Calendar;
 use stremio_core::models::catalog_with_filters::CatalogWithFilters;
 use stremio_core::models::catalogs_with_extra::CatalogsWithExtra;
 use stremio_core::models::continue_watching_preview::ContinueWatchingPreview;
@@ -14,7 +15,7 @@ use stremio_core::types::resource::MetaItemPreview;
 use stremio_core::Model;
 use stremio_lightning_env::AppEnv;
 
-use crate::screens::{addons, board, details, discover, library, player, settings};
+use crate::screens::{addons, board, calendar, details, discover, library, player, settings};
 
 /// Everything stremio-core holds for this app. One value of this type is the whole app state.
 #[derive(Model, Clone)]
@@ -30,6 +31,9 @@ pub struct AppModel {
     /// Library route reads. Its own `selected` request is what the type and sort menus change.
     pub library: LibraryWithFilters<NotRemovedFilter>,
     pub installed_addons: InstalledAddonsWithFilters,
+    /// One month of the Episodes the library's titles are releasing: the model stremio-web's
+    /// `/calendar` route reads.
+    pub calendar: Calendar,
     pub meta_details: MetaDetails,
     pub player: Player,
 }
@@ -47,5 +51,6 @@ pub(crate) struct Snapshot {
     pub(crate) details: details::Data,
     pub(crate) player: player::Data,
     pub(crate) addons: addons::Data,
+    pub(crate) calendar: calendar::Data,
     pub(crate) settings: settings::Data,
 }

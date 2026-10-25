@@ -10,6 +10,7 @@
 pub mod addons;
 pub mod auth;
 pub mod board;
+pub mod calendar;
 pub mod details;
 pub mod discover;
 pub mod library;

@@ -135,6 +135,7 @@ fn snapshot(model: &AppModel, context: &Context) -> Snapshot {
         discover: discover::data(model),
         library: library::data(model),
         addons: crate::screens::addons::data(model),
+        calendar: crate::screens::calendar::data(model),
         details: crate::screens::details::data(
             model,
             crate::screens::details::chosen_season(context.season.load(Ordering::Relaxed)),
@@ -180,6 +181,7 @@ pub(crate) fn snapshot_images(
         .chain(library_images(snapshot))
         .chain(details_images(snapshot))
         .chain(addon_images(snapshot))
+        .chain(calendar_images(snapshot))
         .chain(player_images(snapshot))
         // Every Episode of every Season, so picking another Season in the drawer paints at once
         // instead of leaving its rows as empty rectangles while the pictures arrive.
@@ -225,6 +227,16 @@ fn discover_images(
 ) -> impl Iterator<Item = String> + '_ {
     discover::card_images(&snapshot.discover, visible)
         .chain(discover::preview_images(&snapshot.discover, selected))
+}
+
+/// The Calendar: the posters in the month grid and the Episode art in the list beside it.
+fn calendar_images(snapshot: &Snapshot) -> impl Iterator<Item = String> + '_ {
+    snapshot
+        .calendar
+        .days
+        .iter()
+        .flat_map(|day| day.slots.iter())
+        .filter_map(|slot| slot.thumbnail.clone().or_else(|| slot.poster.clone()))
 }
 
 /// The details screen: the panel's logo, the artwork behind it, the blurred copy the column paints

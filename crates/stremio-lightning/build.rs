@@ -1,6 +1,10 @@
 fn main() {
     slint_build::compile("ui/main.slint").expect("failed to compile Slint UI");
 
+    // Watching the whole UI folder, not just `main.slint`: a build script that names any
+    // `rerun-if-changed` path is no longer rerun for every file in the crate, and a screen that is
+    // edited without touching `main.slint` would otherwise keep compiling its last version.
+    println!("cargo:rerun-if-changed=ui");
     println!("cargo:rerun-if-env-changed=MPV_DEV_DIR");
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
         link_windows_mpv();

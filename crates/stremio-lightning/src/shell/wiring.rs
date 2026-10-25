@@ -22,7 +22,7 @@ use crate::plumbing::images::Images;
 use crate::plumbing::links;
 use crate::plumbing::player::VideoPlayer;
 use crate::plumbing::stream_server::{self, Supervisor};
-use crate::screens::{auth, details, discover, player, settings};
+use crate::screens::{auth, calendar, details, discover, player, settings};
 use crate::shell;
 use crate::MainWindow;
 
@@ -842,6 +842,36 @@ impl Wiring {
         }
     }
 
+    /// Web: `useCalendar` loads the month when the route mounts. Nothing is loaded at startup,
+    /// because the library the core reads for it may not have synced yet and the request is only
+    /// ever made once -- an empty library would leave the Calendar empty for good.
+    fn calendar_shown(&self) {
+        let Ok(model) = self.runtime.model() else {
+            return;
+        };
+        let empty = model.calendar.meta_items.is_empty();
+        drop(model);
+        if empty {
+            calendar::load(&self.runtime, None);
+        }
+    }
+
+    /// One press of the selector's arrows.
+    fn calendar_step(&self, forward: bool) {
+        calendar::step(&self.runtime, forward);
+        if let Some(window) = self.window.upgrade() {
+            window.set_calendar_selected_day(-1);
+        }
+    }
+
+    /// A poster in the month grid or a row in the list: the title's details, on that Episode's
+    /// Streams, which is where the web's calendar links lead.
+    fn calendar_open(&self, meta_id: String, kind: String, video_id: String) {
+        self.open_item(meta_id, kind, String::new());
+        *self.picked.lock().unwrap() = Some(video_id.clone());
+        details::pick(&self.runtime, &video_id);
+    }
+
     fn select_preview(&self, index: i32) {
         let index = usize::try_from(index).unwrap_or(0);
         self.selected.store(index, Ordering::Relaxed);
@@ -1418,6 +1448,24 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
         let wiring = wiring.clone();
         window.on_toggle_setting_option(move |key, enabled| {
             wiring.toggle_setting_option(key.to_string(), enabled)
+        });
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_calendar_shown(move || wiring.calendar_shown());
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_calendar_prev_month(move || wiring.calendar_step(false));
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_calendar_next_month(move || wiring.calendar_step(true));
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_calendar_open_slot(move |meta_id, kind, video_id| {
+            wiring.calendar_open(meta_id.to_string(), kind.to_string(), video_id.to_string())
         });
     }
     window.on_open_settings_link(move |kind| links::open(&kind));

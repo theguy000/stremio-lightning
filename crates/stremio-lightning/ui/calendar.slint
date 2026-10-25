@@ -1,0 +1,517 @@
+// Based on stremio-web (https://github.com/Stremio/stremio-web),
+// Copyright (C) 2017-2026 Smart code 203358507.
+// Layout numbers translated by hand from src/routes/Calendar (Calendar.less, Selector,
+// Table, Table/Cell, List, List/Item, Episode).
+// Licence basis: ../THIRD_PARTY_NOTICES.md.
+import { Theme } from "theme.slint";
+
+// The Calendar, laid out as stremio-web's /calendar route lays it out:
+// src/routes/Calendar (Calendar.less, Selector, Table, Table/Cell, List, List/Item, Episode).
+
+export struct CalendarSlot {
+    video-id: string,
+    meta-id: string,
+    kind: string,
+    /// The title's own name (the web calls it `name` in a calendar item).
+    title: string,
+    /// The Episode's name (the web calls it `title`).
+    name: string,
+    /// "S1E5", empty for a film.
+    label: string,
+    poster: image,
+    has-poster: bool,
+    thumbnail: image,
+    has-thumbnail: bool,
+}
+
+export struct CalendarDay {
+    day: int,
+    today: bool,
+    /// "Friday, October 3"
+    heading: string,
+    slots: [CalendarSlot],
+}
+
+export struct CalendarData {
+    signed-in: bool,
+    loading: bool,
+    year: int,
+    /// "October", and the two months the arrows lead to.
+    month: string,
+    prev: string,
+    next: string,
+    /// Where the first of the month sits in a Monday-first week.
+    first-weekday: int,
+    days: [CalendarDay],
+    /// Only the days with something on them.
+    list: [CalendarDay],
+}
+
+// Web: `Selector.less` -- a 3rem row, the two buttons 6rem wide on either side of an 8.5rem
+// middle; labels and icons at half opacity until the pointer is on them.
+component CalendarSelector inherits Rectangle {
+    in property <string> month;
+    in property <string> prev;
+    in property <string> next;
+    in property <int> year;
+    in property <length> rem-size;
+    callback prev-month();
+    callback next-month();
+
+    height: 3 * root.rem-size;
+
+    prev-button := Rectangle {
+        height: 3 * root.rem-size;
+        width: 6 * root.rem-size;
+        x: (parent.width - (2 * self.width + 8.5 * root.rem-size + 2 * root.rem-size)) / 2;
+        border-radius: 0.5 * root.rem-size;
+        background: prev-touch.has-hover ? Theme.overlay : transparent;
+
+        Image {
+            x: 0.5 * root.rem-size;
+            y: (parent.height - self.height) / 2;
+            width: 1.5 * root.rem-size;
+            height: 1.5 * root.rem-size;
+            source: @image-url("icons/chevron-back.svg");
+            colorize: Theme.text;
+            opacity: prev-touch.has-hover ? 1.0 : 0.5;
+        }
+        Text {
+            x: 2 * root.rem-size;
+            width: parent.width - 2.75 * root.rem-size;
+            height: parent.height;
+            text: root.prev;
+            vertical-alignment: center;
+            horizontal-alignment: left;
+            overflow: elide;
+            font-size: 1 * root.rem-size;
+            font-weight: 500;
+            color: Theme.text;
+            opacity: prev-touch.has-hover ? 1.0 : 0.5;
+        }
+        prev-touch := TouchArea {
+            mouse-cursor: pointer;
+            clicked => {
+                root.prev-month();
+            }
+        }
+    }
+
+    // Web: `.selected` -- the year above the month, 8.5rem wide.
+    Rectangle {
+        x: prev-button.x + prev-button.width + 1 * root.rem-size;
+        width: 8.5 * root.rem-size;
+        height: parent.height;
+
+        Text {
+            y: (parent.height - self.height) / 2 - 1.25 * root.rem-size;
+            width: parent.width;
+            height: 1 * root.rem-size;
+            text: "\{root.year}";
+            horizontal-alignment: center;
+            font-size: 1 * root.rem-size;
+            font-weight: 500;
+            color: Theme.text;
+            opacity: 0.5;
+        }
+        Text {
+            y: (parent.height - self.height) / 2 + 0.1 * root.rem-size;
+            width: parent.width;
+            height: 1.8 * root.rem-size;
+            text: root.month;
+            horizontal-alignment: center;
+            overflow: elide;
+            font-size: 1.5 * root.rem-size;
+            font-weight: 500;
+            color: Theme.text;
+        }
+    }
+
+    next-button := Rectangle {
+        x: prev-button.x + prev-button.width + 8.5 * root.rem-size + 1 * root.rem-size;
+        height: 3 * root.rem-size;
+        width: 6 * root.rem-size;
+        border-radius: 0.5 * root.rem-size;
+        background: next-touch.has-hover ? Theme.overlay : transparent;
+
+        Text {
+            x: 1.25 * root.rem-size;
+            width: parent.width - 2.75 * root.rem-size;
+            height: parent.height;
+            text: root.next;
+            vertical-alignment: center;
+            horizontal-alignment: right;
+            overflow: elide;
+            font-size: 1 * root.rem-size;
+            font-weight: 500;
+            color: Theme.text;
+            opacity: next-touch.has-hover ? 1.0 : 0.5;
+        }
+        Image {
+            x: parent.width - 2 * root.rem-size;
+            y: (parent.height - self.height) / 2;
+            width: 1.5 * root.rem-size;
+            height: 1.5 * root.rem-size;
+            source: @image-url("icons/chevron-forward.svg");
+            colorize: Theme.text;
+            opacity: next-touch.has-hover ? 1.0 : 0.5;
+        }
+        next-touch := TouchArea {
+            mouse-cursor: pointer;
+            clicked => {
+                root.next-month();
+            }
+        }
+    }
+}
+
+// Web: `Cell.less` -- a day of the month with the posters released that day along its bottom.
+component CalendarCell inherits Rectangle {
+    in property <CalendarDay> day;
+    in property <bool> active;
+    in property <length> rem-size;
+    in property <length> cell-width;
+    in property <length> cell-height;
+    callback selected();
+    callback open-slot(string, string, string);
+
+    width: root.cell-width;
+    height: root.cell-height;
+    background: Theme.overlay;
+
+    // Under everything else: a poster in the cell is a button of its own, so the day's own click
+    // area has to sit below it -- a TouchArea declared later is drawn on top and takes the press.
+    cell-touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.selected();
+        }
+    }
+
+    border-width: 0.15 * root.rem-size;
+    border-color: root.active ? Theme.text : (cell-touch.has-hover ? Theme.overlay : transparent);
+
+    // `.heading` -- the day in a 2rem circle, 0.3rem in from the corner; today's is a 1.5rem
+    // accent circle.
+    Rectangle {
+        x: root.day.today ? 0.3 * root.rem-size : 0px;
+        y: root.day.today ? 0.3 * root.rem-size : 0px;
+        width: root.day.today ? 1.5 * root.rem-size : 2 * root.rem-size;
+        height: self.width;
+        border-radius: self.width / 2;
+        background: root.day.today ? Theme.accent : transparent;
+
+        Text {
+            width: parent.width;
+            height: parent.height;
+            text: "\{root.day.day}";
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            font-size: root.day.today ? 0.875 * root.rem-size : 1 * root.rem-size;
+            font-weight: 500;
+            color: Theme.text;
+        }
+    }
+
+    // `.items` -- the day's posters, each 2:3 and as tall as the strip, scrolling off the edge.
+    Rectangle {
+        x: 0.1 * root.rem-size;
+        y: parent.height - self.height - 0.1 * root.rem-size;
+        width: parent.width - 0.2 * root.rem-size;
+        height: Math.max(1 * root.rem-size, parent.height * 0.6 - 0.2 * root.rem-size);
+        clip: true;
+
+        for slot[index] in root.day.slots: Rectangle {
+            x: index * (self.height * 2 / 3 + 0.2 * root.rem-size);
+            width: self.height * 2 / 3;
+            height: parent.height;
+            border-radius: 0.35 * root.rem-size;
+            background: Theme.overlay;
+            clip: true;
+
+            if slot.has-poster: Image {
+                width: 100%;
+                height: 100%;
+                source: slot.poster;
+                image-fit: cover;
+                opacity: slot-touch.has-hover ? 0.5 : 1.0;
+            }
+
+            // Web: a 2rem play badge over the dimmed poster.
+            if slot-touch.has-hover: Rectangle {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                width: 2 * root.rem-size;
+                height: self.width;
+                border-radius: self.width / 2;
+                background: Theme.secondary;
+
+                Image {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    width: 1 * root.rem-size;
+                    height: self.width;
+                    source: @image-url("icons/play.svg");
+                    colorize: Theme.text;
+                }
+            }
+
+            slot-touch := TouchArea {
+                mouse-cursor: pointer;
+                clicked => {
+                    root.open-slot(slot.meta-id, slot.kind, slot.video-id);
+                }
+            }
+        }
+    }
+
+}
+
+// Web: `Episode.less` -- the art on the left, "S1E5", the Episode's name and the show's.
+component CalendarEpisode inherits Rectangle {
+    in property <CalendarSlot> slot;
+    in property <length> rem-size;
+    in property <bool> blurred;
+    callback opened();
+
+    height: 4.5 * root.rem-size;
+    border-radius: 0.75 * root.rem-size;
+    background: episode-touch.has-hover ? #ffffff1a : Theme.overlay;
+
+    Rectangle {
+        x: 0.625 * root.rem-size;
+        y: 0.625 * root.rem-size;
+        width: Math.min(40 * parent.width / 100, 8 * root.rem-size);
+        height: parent.height - 1.25 * root.rem-size;
+        border-radius: 0.5 * root.rem-size;
+        clip: true;
+        background: Theme.overlay;
+
+        if root.slot.has-thumbnail: Image {
+            width: 100%;
+            height: 100%;
+            source: root.slot.thumbnail;
+            image-fit: cover;
+        }
+    }
+
+    Rectangle {
+        x: 0.625 * root.rem-size + Math.min(40 * parent.width / 100, 8 * root.rem-size) + 0.875 * root.rem-size;
+        y: 0.625 * root.rem-size;
+        width: parent.width - self.x - 0.625 * root.rem-size;
+        height: parent.height - 1.25 * root.rem-size;
+
+        VerticalLayout {
+            spacing: 0.2 * root.rem-size;
+
+            Text {
+                text: root.slot.label;
+                font-size: 0.8 * root.rem-size;
+                font-weight: 600;
+                color: Theme.accent;
+                visible: root.slot.label != "";
+            }
+            Text {
+                text: root.slot.title;
+                wrap: word-wrap;
+                overflow: elide;
+                height: 2.4 * root.rem-size;
+                font-size: 1 * root.rem-size;
+                font-weight: 600;
+                color: Theme.text;
+            }
+            Text {
+                text: root.slot.name;
+                wrap: word-wrap;
+                overflow: elide;
+                height: 2.2 * root.rem-size;
+                font-size: 0.875 * root.rem-size;
+                color: Theme.text;
+                opacity: 0.65;
+                visible: root.slot.name != "";
+            }
+        }
+    }
+
+    episode-touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.opened();
+        }
+    }
+}
+
+// Web: `Item.less` -- a day with its Episodes, headed by the long date.
+component CalendarListDay inherits Rectangle {
+    in property <CalendarDay> day;
+    in property <length> rem-size;
+    in property <bool> active;
+    callback selected();
+    callback open-slot(string, string, string);
+
+    height: list-layout.preferred-height;
+    border-radius: 0.75 * root.rem-size;
+    background: Theme.overlay;
+    border-width: 0.15 * root.rem-size;
+    border-color: root.active ? Theme.text : transparent;
+
+    // Below the Episodes, for the same reason as the cell above.
+    day-touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.selected();
+        }
+    }
+
+    list-layout := VerticalLayout {
+        // `.heading` -- 3.5rem tall, and the accent colour behind it when the day is today.
+        Rectangle {
+            height: 3.5 * root.rem-size;
+            background: root.day.today ? Theme.accent : transparent;
+
+            Text {
+                x: 1 * root.rem-size;
+                width: parent.width - 2 * root.rem-size;
+                height: parent.height;
+                text: root.day.heading;
+                vertical-alignment: center;
+                overflow: elide;
+                font-size: 1 * root.rem-size;
+                font-weight: 500;
+                color: Theme.text;
+            }
+        }
+
+        VerticalLayout {
+            padding-left: 0.5 * root.rem-size;
+            padding-right: 0.5 * root.rem-size;
+            padding-bottom: 0.5 * root.rem-size;
+            spacing: 0.5 * root.rem-size;
+
+            for slot[index] in root.day.slots: CalendarEpisode {
+                slot: slot;
+                rem-size: root.rem-size;
+                opened => {
+                    root.open-slot(slot.meta-id, slot.kind, slot.video-id);
+                }
+            }
+        }
+    }
+
+}
+
+export component CalendarContent inherits Rectangle {
+    in property <CalendarData> data;
+    in property <length> rem-size;
+    in-out property <int> selected-day: -1;
+    callback prev-month();
+    callback next-month();
+    callback open-slot(string, string, string);
+
+    // Web: `.content` -- the grid and its selector on the left, the list 24rem wide on the
+    // right, 0.5rem between them and 1.5rem of padding along the bottom and the left.
+    // Web: `Table.tsx`'s `WEEK_DAYS`, Monday first, which is what the core's `first_weekday`
+    // counts from.
+    property <[string]> week-days: [
+        "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"
+    ];
+    property <length> gutter: 1.5 * root.rem-size;
+    property <length> list-width: 24 * root.rem-size;
+    property <length> content-width: root.width - root.gutter;
+    property <length> main-width: root.content-width - root.list-width - 0.5 * root.rem-size;
+    property <int> rows: Math.max(1, Math.ceil((root.data.first-weekday + root.data.days.length) / 7));
+    property <length> cell-width: root.main-width / 7;
+    property <length> cell-height: (root.height - 1.5 * root.rem-size - 4 * root.rem-size) / root.rows;
+
+    CalendarSelector {
+        x: root.gutter;
+        width: root.main-width;
+        y: 0px;
+        month: root.data.month;
+        prev: root.data.prev;
+        next: root.data.next;
+        year: root.data.year;
+        rem-size: root.rem-size;
+        prev-month => {
+            root.prev-month();
+        }
+        next-month => {
+            root.next-month();
+        }
+    }
+
+    // Web: `Table.less` -- a 3rem week header, then a seven-column grid with 1px between cells.
+    Rectangle {
+        x: root.gutter;
+        y: 4 * root.rem-size;
+        width: root.main-width;
+        height: root.height - 5.5 * root.rem-size;
+        background: transparent;
+
+        for name[index] in root.week-days: Text {
+            x: index * root.cell-width + 0.5 * root.rem-size;
+            y: 0px;
+            width: root.cell-width - 1 * root.rem-size;
+            height: 3 * root.rem-size;
+            text: name;
+            vertical-alignment: center;
+            overflow: elide;
+            font-size: 1 * root.rem-size;
+            font-weight: 500;
+            color: Theme.text;
+        }
+
+        for day[index] in root.data.days: CalendarCell {
+            x: Math.mod(index + root.data.first-weekday, 7) * root.cell-width;
+            y: 3 * root.rem-size
+                + Math.floor((index + root.data.first-weekday) / 7) * root.cell-height;
+            // Web: 1px between cells, and the four corners of the grid rounded.
+            width: root.cell-width - 1px;
+            height: root.cell-height - 1px;
+            day: day;
+            active: root.selected-day == day.day;
+            rem-size: root.rem-size;
+            cell-width: root.cell-width - 1px;
+            cell-height: root.cell-height - 1px;
+            selected => {
+                root.selected-day = day.day;
+            }
+            open-slot(meta-id, kind, video-id) => {
+                root.open-slot(meta-id, kind, video-id);
+            }
+        }
+    }
+
+    // Web: `List.less` -- 24rem wide, scrolling on its own.
+    Rectangle {
+        x: root.gutter + root.main-width + 0.5 * root.rem-size;
+        y: 0px;
+        width: root.list-width;
+        height: root.height;
+        background: transparent;
+
+        Flickable {
+            x: 1 * root.rem-size;
+            width: parent.width - 2 * root.rem-size;
+            height: parent.height;
+            content-width: self.width;
+            content-height: list-layout.preferred-height;
+
+            list-layout := VerticalLayout {
+                spacing: 1 * root.rem-size;
+
+                for day[index] in root.data.list: CalendarListDay {
+                    day: day;
+                    rem-size: root.rem-size;
+                    active: root.selected-day == day.day;
+                    selected => {
+                        root.selected-day = day.day;
+                    }
+                    open-slot(meta-id, kind, video-id) => {
+                        root.open-slot(meta-id, kind, video-id);
+                    }
+                }
+            }
+        }
+    }
+}
