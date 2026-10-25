@@ -3,7 +3,7 @@ import { Theme } from "theme.slint";
 import { CalendarContent, CalendarData } from "calendar.slint";
 import { HorizontalNavBar, Section, VerticalNavBar } from "shell.slint";
 import { BoardContent, CatalogRow, PosterData } from "board.slint";
-import { AddonData, AddonsContent } from "addons.slint";
+import { AddonData, AddonPendingData, AddonsContent } from "addons.slint";
 import { DiscoverContent, SelectInputData } from "discover.slint";
 import { LoggedOutPlaceholder } from "logged-out-placeholder.slint";
 import { LibraryCard, LibraryContent, LibrarySort } from "library.slint";
@@ -55,6 +55,19 @@ export component MainWindow inherits Window {
     in property <[SelectInputData]> addon-inputs: [];
     in property <string> addons-message;
     in-out property <string> addons-query;
+    /// The add-addon dialog: up or not, what was typed, and the manifest the URL answered with.
+    in-out property <bool> addon-add-open;
+    in-out property <string> addon-add-url;
+    in property <AddonPendingData> addon-pending;
+    /// A URL the add-addon dialog could not parse, and nothing else.
+    in-out property <string> addon-add-error;
+    callback addon-add();
+    callback addon-add-submit(string);
+    callback addon-add-install();
+    callback addon-add-close();
+    callback addon-uninstall(string);
+    callback addon-share(string);
+    callback addon-open(string);
     /// The Calendar's month, its days and the days with something on them, as the core holds them.
     in-out property <CalendarData> calendar;
     /// The day the user clicked in the grid: a highlight, and nothing the core is told about.
@@ -651,11 +664,37 @@ export component MainWindow inherits Window {
         message: root.addons-message;
         viewport-width: root.width;
         query <=> root.addons-query;
+        add-open <=> root.addon-add-open;
+        add-url <=> root.addon-add-url;
+        pending: root.addon-pending;
+        add-error: root.addon-add-error;
         select-option(input, option) => {
             root.select-addon-input-option(input, option);
         }
         search-changed(text) => {
             root.search-addons(text);
+        }
+        add-addon => {
+            root.addon-add();
+        }
+        add-submit(text) => {
+            root.addon-add-submit(text);
+        }
+        add-install => {
+            root.addon-add-install();
+        }
+        add-close => {
+            root.addon-add-close();
+        }
+        uninstall(url) => {
+            root.addon-add-open = true;
+            root.addon-uninstall(url);
+        }
+        share(url) => {
+            root.addon-share(url);
+        }
+        open(url) => {
+            root.addon-open(url);
         }
     }
 

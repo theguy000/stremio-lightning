@@ -277,6 +277,14 @@ fn addon_images(snapshot: &Snapshot) -> impl Iterator<Item = String> + '_ {
         .cards
         .iter()
         .filter_map(|card| card.logo.clone())
+        // The logo of the addon being added, while its dialog is up.
+        .chain(
+            snapshot
+                .addons
+                .pending
+                .as_ref()
+                .and_then(|pending| pending.logo.clone()),
+        )
 }
 
 /// The Library grid's posters. The catalog is already page-limited by the core (100 a page), so

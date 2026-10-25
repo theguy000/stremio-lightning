@@ -12,9 +12,9 @@ use crate::screens::settings::Data as SettingsData;
 use crate::screens::Preview;
 use crate::screens::{Card, Input};
 use crate::{
-    AddonData, CalendarData, CalendarDay, CalendarSlot, CatalogRow, LibraryCard, LibrarySort,
-    LinkGroup, MainWindow, PlayerEpisode, PlayerOption, PlayerTrack, PosterData, PreviewData,
-    SelectInputData, SelectOption, SettingsViewData, StreamData, VideoRow,
+    AddonData, AddonPendingData, CalendarData, CalendarDay, CalendarSlot, CatalogRow, LibraryCard,
+    LibrarySort, LinkGroup, MainWindow, PlayerEpisode, PlayerOption, PlayerTrack, PosterData,
+    PreviewData, SelectInputData, SelectOption, SettingsViewData, StreamData, VideoRow,
 };
 
 /// Copies everything a snapshot describes onto the window. Runs on the window's thread.
@@ -125,6 +125,7 @@ pub(crate) fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
             .map(|card| {
                 let logo = images.get(&card.logo);
                 AddonData {
+                    transport_url: card.transport_url.clone().into(),
                     name: card.name.clone().into(),
                     version: card.version.clone().into(),
                     types: card.types.clone().into(),
@@ -137,6 +138,7 @@ pub(crate) fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
     )));
     window.set_calendar(calendar_view(&snapshot.calendar, images));
     window.set_addon_inputs(inputs(snapshot.addons.inputs.clone()));
+    window.set_addon_pending(addon_pending(&snapshot.addons.pending, images));
     window.set_addons_message(snapshot.addons.message.clone().into());
 
     window.set_settings(settings_view(&snapshot.settings));
@@ -273,6 +275,31 @@ fn preview_data(preview: &Preview, images: &Images) -> PreviewData {
         background: background.unwrap_or_default(),
         has_panel_backdrop: false,
         panel_backdrop: Default::default(),
+    }
+}
+
+/// The add-addon dialog's manifest: what the pasted URL answered with, and whether it can be
+/// installed. `open` is whether there is a dialog at all.
+fn addon_pending(
+    pending: &Option<crate::screens::addons::Pending>,
+    images: &Images,
+) -> AddonPendingData {
+    let Some(pending) = pending else {
+        return AddonPendingData::default();
+    };
+    let logo = images.get(&pending.logo);
+    AddonPendingData {
+        open: true,
+        transport_url: pending.transport_url.clone().into(),
+        name: pending.name.clone().into(),
+        version: pending.version.clone().into(),
+        types: pending.types.clone().into(),
+        description: pending.description.clone().into(),
+        has_logo: logo.is_some(),
+        logo: logo.unwrap_or_default(),
+        ready: pending.ready,
+        installed: pending.installed,
+        error: pending.error.clone().into(),
     }
 }
 
