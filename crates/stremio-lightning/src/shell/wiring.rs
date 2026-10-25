@@ -15,6 +15,7 @@ use stremio_core::runtime::msg::{
 use stremio_core::runtime::RuntimeAction;
 use stremio_core::types::profile::GDPRConsent;
 
+use crate::app::events::BoardCatalogRange;
 use crate::app::{AppModel, AppRuntime, Snapshot};
 use crate::plumbing::clipboard;
 use crate::plumbing::images::Images;
@@ -119,6 +120,9 @@ pub(crate) struct Wiring {
     /// What the library looked like when the Calendar last loaded: how many items, and the
     /// newest of them. A visit with the same signature reuses the month already in the model.
     pub(crate) calendar_library: Arc<Mutex<Option<calendar::LibrarySignature>>>,
+    /// The addons the Board's catalog range was last asked for. Installing or removing one has to
+    /// ask again, or its catalogs stay on the list the core never fetched.
+    pub(crate) board_catalogs: Arc<Mutex<Option<BoardCatalogRange>>>,
 }
 
 /// Where the picture is, as the player last heard it. The core is told about the play head once

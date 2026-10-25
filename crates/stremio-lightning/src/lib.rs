@@ -121,6 +121,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         // the screen. Started and restarted by the grid itself.
         settle: Default::default(),
         calendar_library: Default::default(),
+        board_catalogs: Default::default(),
     };
     shell::wire(&window, wiring.clone());
     // The wheel is taken from the window itself: left to a Slint Flickable it costs a whole
@@ -169,6 +170,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             local_extras,
             playback_error,
             auth: wiring.auth.clone(),
+            board_catalogs: wiring.board_catalogs.clone(),
             repaint,
         },
     ));
