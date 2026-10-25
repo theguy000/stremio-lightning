@@ -86,6 +86,8 @@ impl Input {
 /// What a preview panel shows for one card. `logo` and `background` are image-cache keys.
 #[derive(Clone, Default)]
 pub struct Preview {
+    /// The title's id: what the library actions are keyed by.
+    pub id: String,
     pub title: String,
     pub runtime: String,
     pub release: String,
@@ -95,6 +97,10 @@ pub struct Preview {
     pub has_trailer: bool,
     pub logo: Option<String>,
     pub background: Option<String>,
+    /// Web: `inLibrary` — the library holds the title and has not been told to forget it.
+    pub in_library: bool,
+    /// Web: `watched` — the core's own answer for the title as a whole.
+    pub watched: bool,
 }
 
 /// "Popular - Movie": the catalog's name (the addon's name when the catalog has none, as
@@ -217,6 +223,7 @@ pub(crate) fn preview_of(item: &MetaItemPreview) -> Preview {
         *label = label.to_uppercase();
     }
     Preview {
+        id: item.id.clone(),
         title: decode_entities(&item.name),
         runtime: item.runtime.clone().unwrap_or_default(),
         release: item
@@ -243,7 +250,22 @@ pub(crate) fn preview_of(item: &MetaItemPreview) -> Preview {
             .poster
             .as_ref()
             .map(|url| format!("{url}{}", crate::plumbing::images::BLUR_SUFFIX)),
+        in_library: false,
+        watched: false,
     }
+}
+
+/// The two bits the details page's action group draws, read the way stremio-core-web reads them:
+/// an item still flagged `removed` is not in the library, and `watched` is the core's answer for
+/// the title as a whole rather than for one Video.
+pub fn library_state(model: &AppModel, id: &str) -> (bool, bool) {
+    model
+        .ctx
+        .library
+        .items
+        .get(id)
+        .map(|item| (!item.removed, item.watched()))
+        .unwrap_or_default()
 }
 
 /// One filter of a screen's bar as Slint wants it.

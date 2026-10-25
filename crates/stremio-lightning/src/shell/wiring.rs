@@ -322,6 +322,16 @@ impl Wiring {
         details::rate(&self.runtime, details::next_rating(current.as_ref(), like));
     }
 
+    /// The library pair's first cell: out of the library it adds the title, in it it removes it.
+    fn toggle_library(&self) {
+        details::toggle_library(&self.runtime);
+    }
+
+    /// The library pair's second cell: marks the title watched, or not.
+    fn toggle_watched(&self) {
+        details::toggle_watched(&self.runtime);
+    }
+
     /// The share button: works out the link web would offer and opens the dialog that offers it.
     fn share(&self) {
         let Ok(model) = self.runtime.model() else {
@@ -1359,6 +1369,16 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
     {
         let wiring = wiring.clone();
         window.on_rate_love(move || wiring.rate(false));
+    }
+    {
+        let wiring = wiring.clone();
+        let _ = &wiring;
+        window.on_details_toggle_library(move || wiring.toggle_library());
+    }
+    {
+        let wiring = wiring.clone();
+        let _ = &wiring;
+        window.on_details_toggle_watched(move || wiring.toggle_watched());
     }
     {
         let wiring = wiring.clone();

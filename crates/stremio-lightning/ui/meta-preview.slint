@@ -61,6 +61,10 @@ export struct PreviewData {
     // stored already blurred, because Slint cannot blur what is drawn under an element.
     panel-backdrop: image,
     has-panel-backdrop: bool,
+    /// Web: `inLibrary` -- the glyph and the action the first cell of the library pair offers.
+    in-library: bool,
+    /// Web: `watched` -- whether the second cell offers to mark the title watched or not.
+    watched: bool,
 }
 
 // Web: .link-container inside MetaLinks.
@@ -253,6 +257,9 @@ export component MetaPreview inherits Rectangle {
     callback share;
     callback rate-like;
     callback rate-love;
+    /// The library pair: add the title or take it out, and mark it watched or not.
+    callback toggle-library;
+    callback toggle-watched;
     /// The compact panel's Show pill: web navigates to the title's details route.
     callback show;
 
@@ -448,29 +455,71 @@ export component MetaPreview inherits Rectangle {
                 tooltip: !root.on-page;
                 rem-size: root.rem-size;
             }
-            group-container := Rectangle {
+            // Web: `ActionsGroup` -- the library pair, two 4rem cells in one 8rem stadium. The
+            // first glyph IS the state: a title already in the library offers `remove-from-library`,
+            // one that is not offers `add-to-library`. The eye does the same for the watched bit.
+            // Both were painted pictures until now: no target, no state, nothing to press.
+            if root.on-page && root.has-preview: group-container := Rectangle {
                 width: 8 * root.rem-size;
                 height: 4 * root.rem-size;
                 border-radius: 4 * root.rem-size;
                 background: Theme.overlay;
 
-                Image {
-                    source: @image-url("icons/add-to-library.svg");
-                    colorize: Theme.text;
-                    opacity: 0.9;
-                    x: (4 * root.rem-size - self.width) / 2;
-                    y: (parent.height - self.height) / 2;
-                    width: 1.75 * root.rem-size;
-                    height: 1.75 * root.rem-size;
+                Rectangle {
+                    x: 0px;
+                    y: 0px;
+                    width: 4 * root.rem-size;
+                    height: 4 * root.rem-size;
+                    border-radius: 2 * root.rem-size;
+                    background: library-touch.has-hover ? #ffffff1a : transparent;
+
+                    Image {
+                        source: root.preview.in-library ? @image-url("icons/remove-from-library.svg") : @image-url("icons/add-to-library.svg");
+                        colorize: Theme.text;
+                        opacity: library-touch.has-hover ? 1.0 : 0.7;
+                        x: (4 * root.rem-size - self.width) / 2;
+                        y: (parent.height - self.height) / 2;
+                        width: 1.75 * root.rem-size;
+                        height: 1.75 * root.rem-size;
+                    }
+                    library-touch := TouchArea {
+                        x: 0px;
+                        y: 0px;
+                        width: 4 * root.rem-size;
+                        height: 4 * root.rem-size;
+                        mouse-cursor: pointer;
+                        clicked => {
+                            root.toggle-library();
+                        }
+                    }
                 }
-                Image {
-                    source: @image-url("icons/eye.svg");
-                    colorize: Theme.text;
-                    opacity: 0.9;
-                    x: 4 * root.rem-size + (4 * root.rem-size - self.width) / 2;
-                    y: (parent.height - self.height) / 2;
-                    width: 1.75 * root.rem-size;
-                    height: 1.75 * root.rem-size;
+                Rectangle {
+                    x: 4 * root.rem-size;
+                    y: 0px;
+                    width: 4 * root.rem-size;
+                    height: 4 * root.rem-size;
+                    border-radius: 2 * root.rem-size;
+                    background: watched-touch.has-hover ? #ffffff1a : transparent;
+
+                    Image {
+                        source: root.preview.watched ? @image-url("icons/eye-off.svg") : @image-url("icons/eye.svg");
+                        colorize: Theme.text;
+                        opacity: watched-touch.has-hover ? 1.0 : 0.7;
+                        x: (4 * root.rem-size - self.width) / 2;
+                        y: (parent.height - self.height) / 2;
+                        width: 1.75 * root.rem-size;
+                        height: 1.75 * root.rem-size;
+                    }
+                    watched-touch := TouchArea {
+                        x: 0px;
+                        y: 0px;
+                        width: 4 * root.rem-size;
+                        height: 4 * root.rem-size;
+                        mouse-cursor: pointer;
+                        clicked => {
+                            root.toggle-watched();
+                        }
+                    }
                 }
             }
             // Web: `Ratings` — a like and a love in one pill, each filled while it is set and dim
