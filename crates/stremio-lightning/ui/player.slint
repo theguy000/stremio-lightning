@@ -512,8 +512,36 @@ export component PlayerScreen inherits Rectangle {
     property <bool> can-seek: root.seekable && root.duration > 0 && root.loaded;
     property <bool> next-open: root.has-next && !root.next-dismissed && root.remaining > 0 && root.remaining <= root.next-notice;
     property <bool> controls-visible: root.idle < 6 || root.menu != "" || root.drawer-open || !root.loaded || root.error != "";
-    // The panel's own height: a title row, then a row per choice, then the steppers.
-    property <length> menu-height: root.menu == "speed" ? 14 * root.rem-size : root.menu == "audio" ? (4 * root.rem-size + root.audio-tracks.length * 3.5 * root.rem-size) : root.menu == "subtitles" ? (4 * root.rem-size + (root.subtitle-tracks.length + 1) * 3.5 * root.rem-size + 7 * root.rem-size) : root.menu == "options" ? (2 * root.rem-size + root.options.length * 3.5 * root.rem-size) : 0px;
+    // The panel's own height, built from the very numbers its rows use: 1rem of padding top and
+    // bottom, a 3rem title, a 3.5rem row per choice, a 3.5rem block per stepper, and 0.25rem
+    // between any two of them. The web caps the whole panel at 25rem and scrolls the list inside
+    // it (SubtitlesMenu.less `height: 25rem`, AudioMenu.less `max-height: 25rem`, both with an
+    // `overflow-y: auto` list), which is what stops a long track list from running off the panel.
+    property <length> menu-padding: 1 * root.rem-size;
+    property <length> menu-gap: 0.25 * root.rem-size;
+    property <length> menu-title: 3 * root.rem-size;
+    property <length> menu-row: 3.5 * root.rem-size;
+    property <length> menu-max: 25 * root.rem-size;
+    // What a list of `count` rows takes, gaps included.
+    pure function rows-height(count: int) -> length {
+        count <= 0 ? 0px : count * root.menu-row + (count - 1) * root.menu-gap
+    }
+    // The part of the panel a list may use, once the padding, the title and the steppers are paid
+    // for. Never negative: an empty menu still has to draw a sane box.
+    property <length> menu-list-room:
+        Math.max(0px, root.menu-max
+            - 2 * root.menu-padding
+            - (root.menu == "audio" || root.menu == "subtitles" ? root.menu-title + root.menu-gap : 0px)
+            - (root.menu == "subtitles" ? 2 * root.menu-row + 2 * root.menu-gap : 0px));
+    property <length> menu-list-height:
+        root.menu == "subtitles" ? root.menu-list-room
+        : Math.min(root.rows-height(root.menu == "audio" ? root.audio-tracks.length : root.options.length), root.menu-list-room);
+    property <length> menu-height:
+        root.menu == "speed" ? root.rem-size * 12.6
+        : root.menu == "subtitles" ? root.menu-max
+        : root.menu == "audio" ? 2 * root.menu-padding + root.menu-title + root.menu-gap + root.menu-list-height
+        : root.menu == "options" ? 2 * root.menu-padding + root.menu-list-height
+        : 0px;
 
     callback back();
     callback toggle-fullscreen();
@@ -1171,6 +1199,25 @@ export component PlayerScreen inherits Rectangle {
         }
     }
 
+    // A press anywhere above the control bar closes the panel instead of pausing the picture.
+    //
+    // Declared *before* the panel, because a sibling declared later paints and hit-tests above an
+    // earlier one: with the order the other way round this transparent sheet sat over the menu and
+    // swallowed every press meant for a row, so choosing a track or a speed only ever closed the
+    // panel.
+    if root.menu != "": Rectangle {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height - 7 * root.rem-size;
+        background: transparent;
+        close-touch := TouchArea {
+            clicked => {
+                root.menu = "";
+            }
+        }
+    }
+
     // --- the menus, all in the one panel the web puts them in ---
 
     if root.menu != "" && root.controls-visible: Rectangle {
@@ -1274,7 +1321,7 @@ export component PlayerScreen inherits Rectangle {
                     spacing: 0.25 * root.rem-size;
                     alignment: start;
                     Text {
-                        height: 3 * root.rem-size;
+                        height: root.menu-title;
                         text: "Audio tracks";
                         font-size: 1.1 * root.rem-size;
                         font-weight: 700;
@@ -1282,23 +1329,33 @@ export component PlayerScreen inherits Rectangle {
                         horizontal-alignment: center;
                         vertical-alignment: center;
                     }
-                    for track in root.audio-tracks: TrackRow {
-                        rem-size: root.rem-size;
-                        heading: track.title;
-                        label: track.language;
-                        selected: track.selected;
-                        clicked => {
-                            root.select-audio(track.id);
+                    Flickable {
+                        width: parent.width;
+                        height: root.menu-list-height;
+                        VerticalLayout {
+                            spacing: root.menu-gap;
+                            alignment: start;
+                            for track in root.audio-tracks: TrackRow {
+                                rem-size: root.rem-size;
+                                heading: track.title;
+                                label: track.language;
+                                selected: track.selected;
+                                clicked => {
+                                    root.select-audio(track.id);
+                                }
+                            }
                         }
                     }
                 }
 
-                // Web: SubtitlesMenu -- off, then a row per track, then the two steppers.
+                // Web: SubtitlesMenu -- off, then a row per track, then the two steppers. The
+                // rows scroll between the title and the steppers, so the steppers are always
+                // reachable no matter how many tracks the file carries.
                 if root.menu == "subtitles": VerticalLayout {
                     spacing: 0.25 * root.rem-size;
                     alignment: start;
                     Text {
-                        height: 3 * root.rem-size;
+                        height: root.menu-title;
                         text: "Subtitles";
                         font-size: 1.1 * root.rem-size;
                         font-weight: 700;
@@ -1306,22 +1363,30 @@ export component PlayerScreen inherits Rectangle {
                         horizontal-alignment: center;
                         vertical-alignment: center;
                     }
-                    TrackRow {
-                        rem-size: root.rem-size;
-                        heading: "Off";
-                        label: "No subtitles";
-                        selected: !root.subtitles-enabled;
-                        clicked => {
-                            root.toggle-subtitles();
-                        }
-                    }
-                    for track in root.subtitle-tracks: TrackRow {
-                        rem-size: root.rem-size;
-                        heading: track.title;
-                        label: track.language;
-                        selected: track.selected;
-                        clicked => {
-                            root.choose-subtitles(track.id);
+                    Flickable {
+                        width: parent.width;
+                        height: root.menu-list-height;
+                        VerticalLayout {
+                            spacing: root.menu-gap;
+                            alignment: start;
+                            TrackRow {
+                                rem-size: root.rem-size;
+                                heading: "Off";
+                                label: "No subtitles";
+                                selected: !root.subtitles-enabled;
+                                clicked => {
+                                    root.toggle-subtitles();
+                                }
+                            }
+                            for track in root.subtitle-tracks: TrackRow {
+                                rem-size: root.rem-size;
+                                heading: track.title;
+                                label: track.language;
+                                selected: track.selected;
+                                clicked => {
+                                    root.choose-subtitles(track.id);
+                                }
+                            }
                         }
                     }
                     PlayerStepper {
@@ -1348,28 +1413,22 @@ export component PlayerScreen inherits Rectangle {
                 if root.menu == "options": VerticalLayout {
                     spacing: 0.25 * root.rem-size;
                     alignment: start;
-                    for option in root.options: OptionRow {
-                        rem-size: root.rem-size;
-                        option: option;
-                        clicked => {
-                            root.choose-option(option.action);
+                    Flickable {
+                        width: parent.width;
+                        height: root.menu-list-height;
+                        VerticalLayout {
+                            spacing: root.menu-gap;
+                            alignment: start;
+                            for option in root.options: OptionRow {
+                                rem-size: root.rem-size;
+                                option: option;
+                                clicked => {
+                                    root.choose-option(option.action);
+                                }
+                            }
                         }
                     }
                 }
-            }
-        }
-    }
-
-    // A press anywhere above the control bar closes the panel instead of pausing the picture.
-    if root.menu != "": Rectangle {
-        x: 0;
-        y: 0;
-        width: root.width;
-        height: root.height - 7 * root.rem-size;
-        background: transparent;
-        close-touch := TouchArea {
-            clicked => {
-                root.menu = "";
             }
         }
     }
