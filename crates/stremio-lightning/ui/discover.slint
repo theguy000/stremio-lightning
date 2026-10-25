@@ -26,6 +26,15 @@ export component DiscoverContent inherits Rectangle {
     callback open-item(string, string, string);
     callback load-next-page();
     callback select-item(int);
+    /// The pointer came to rest on a card: its pictures can be fetched before it is opened.
+    callback hover-card(int);
+    // How much of the grid is on screen: the scrolled distance, the viewport's height, the height
+    // of one row of cards and how many cards are in a row. The shell works out which cards that is
+    // and asks for those pictures only, the way a browser's `loading="lazy"` does.
+    callback visible-range(length, length, length, int);
+    /// Where the grid is on the window, how big its viewport is and how tall its contents are. The
+    /// shell scrolls it (`wheel.rs`), so it needs all three to clamp one wheel notch.
+    callback grid-bounds(length, length, length, length, length);
     // (input index, option index): the user picked an option in the filter bar.
     callback select-option(int, int);
 
@@ -55,6 +64,50 @@ export component DiscoverContent inherits Rectangle {
         + (root.cell-width - 2 * root.rem-size) * root.poster-shape-ratio
         + 4 * root.rem-size;
     property <int> row-count: Math.ceil(root.cards.length / root.columns);
+    /// How far the grid is scrolled: zero at the top, negative further down. Nothing but the shell
+    /// and the scrollbar touch it -- this grid is not a `Flickable`, because a `Flickable` animates
+    /// every wheel notch over 180ms and redraws the whole window for each frame of that animation:
+    /// measured at ~200ms of a core per notch.
+    in-out property <length> scroll-offset: 0px;
+    /// How tall the whole grid is: what `scroll-offset` runs from zero down to.
+    property <length> grid-height-total: root.row-count * root.cell-height
+        + Math.max(root.row-count - 1, 0) * root.gap;
+    /// The height a page was last asked for at, so the end of a catalog does not ask on every notch.
+    property <length> page-asked-at: -1px;
+    /// The scrolled distance into the grid and how much of it is on screen. Both are read by the
+    /// `visible-range` report below.
+    property <length> grid-scroll: -root.scroll-offset;
+    property <length> grid-height: meta-items-container.height;
+    property <length> row-pitch: root.cell-height + root.gap;
+    /// The rows of cards that are on screen, plus one either side. Everything else is left out of
+    /// the drawing entirely.
+    property <float> first-shown-row: Math.max(0,
+        Math.floor(-root.scroll-offset / root.row-pitch) - 1);
+    property <float> last-shown-row: Math.floor(
+        (-root.scroll-offset + meta-items-container.height) / root.row-pitch) + 1;
+    changed grid-scroll => {
+        root.report-visible();
+    }
+    /// Counts how many times the shell has said the grid stopped moving. A count rather than a
+    /// flag, so two settles in a row are two changes: the next page is asked for once the scrolling
+    /// has stopped, not on every notch of a flick that would fly straight past it.
+    in property <int> settle-count: 0;
+    changed settle-count => {
+        root.check-end();
+    }
+    changed grid-height => {
+        root.report-visible();
+        root.report-bounds();
+    }
+    changed row-count => {
+        root.report-visible();
+        root.report-bounds();
+        root.check-end();
+    }
+    init => {
+        root.report-visible();
+        root.report-bounds();
+    }
     // Web: up to three inputs of 15rem that shrink together beside a 5rem filter button slot.
     property <int> input-count: Math.max(1, Math.min(root.inputs.length, 3));
     property <length> input-width: Math.min(15 * root.rem-size,
@@ -62,10 +115,37 @@ export component DiscoverContent inherits Rectangle {
             - (root.input-count - 1) * 1.5 * root.rem-size) / root.input-count);
 
     function check-end() {
-        if (-meta-items-container.content-y + meta-items-container.height
-            > meta-items-container.content-height - 400px) {
+        // Once per page: at the end of a catalog every notch asks again, and a page that has not
+        // arrived yet cannot be asked for twice. When one does arrive the grid grows, and the next
+        // call is allowed.
+        if (-root.scroll-offset + meta-items-container.height > root.grid-height-total - 400px
+            && root.grid-height-total != root.page-asked-at) {
+            root.page-asked-at = root.grid-height-total;
             root.load-next-page();
         }
+    }
+
+    /// Drags the grid to `position`, where zero is the top of the catalog and one is the end of it.
+    /// The scrollbar's drag calls this: the pointer's place down the viewport is the grid's place in
+    /// the catalog, so the bar follows the drag rather than the drag following the bar.
+    public function drag-scroll(position: float) {
+        root.scroll-offset = -Math.max(0.0, Math.min(1.0, position))
+            * Math.max(0px, root.grid-height-total - meta-items-container.height);
+        root.check-end();
+    }
+
+    /// Where the grid is and how tall its contents are, so the shell can clamp a wheel notch itself:
+    /// it owns `scroll-offset`, this only draws it. Nothing here moves when the grid scrolls, so it
+    /// is reported when the layout changes and not on every notch.
+    function report-bounds() {
+        root.grid-bounds(meta-items-container.absolute-position.x,
+            meta-items-container.absolute-position.y,
+            meta-items-container.width, meta-items-container.height,
+            root.grid-height-total);
+    }
+
+    function report-visible() {
+        root.visible-range(root.grid-scroll, root.grid-height, root.row-pitch, root.columns);
     }
 
     discover-content := Rectangle {
@@ -94,54 +174,88 @@ export component DiscoverContent inherits Rectangle {
                     select(option) => {
                         // A new catalog starts at the top with its first card selected.
                         root.selected-index = 0;
-                        meta-items-container.content-y = 0px;
+                        root.scroll-offset = 0px;
                         root.select-option(index, option);
                     }
                 }
             }
 
-            meta-items-container := Flickable {
+            // The grid's viewport, clipped. Plain rectangles rather than a `Flickable`: the shell
+            // moves `scroll-offset`, this only draws it, so a wheel notch is one frame.
+            meta-items-container := Rectangle {
                 x: 0px;
                 y: 6 * root.rem-size;
                 width: root.catalog-width - root.grid-right-margin;
                 height: parent.height - 6 * root.rem-size;
-                content-width: self.width;
-                content-height: root.row-count * root.cell-height + Math.max(root.row-count - 1, 0) * root.gap;
-                changed content-y => {
-                    root.check-end();
-                }
-                changed content-height => {
-                    root.check-end();
-                }
+                // Needed even though the rows below are culled to what is on screen: the edge rows
+                // are drawn whole and would otherwise show above the filter bar and below the grid.
+                clip: true;
 
-                for card[index] in root.cards: MetaItem {
-                    x: 1.5 * root.rem-size + Math.mod(index, root.columns) * (root.cell-width + root.gap);
-                    y: Math.floor(index / root.columns) * (root.cell-height + root.gap);
-                    width: root.cell-width;
-                    height: root.cell-height;
-                    card: card;
-                    selected: index == root.selected-index;
-                    rem-size: root.rem-size;
-                    poster-shape-ratio: root.poster-shape-ratio;
-                    // Web: a click on a card that is not selected selects it, a second click opens it.
-                    clicked => {
-                        if (index == root.selected-index || !root.preview-visible) {
-                            root.open-item(card.item-id, card.kind, card.title);
-                        } else {
-                            root.selected-index = index;
-                            root.select-item(index);
+                grid := Rectangle {
+                    x: 0px;
+                    y: root.scroll-offset;
+                    width: parent.width;
+                    height: root.grid-height-total;
+
+                    // Only the rows on screen are drawn, and the viewport does not clip: a clip is a
+                    // stencil pass for the whole frame, and forty-nine cards of which sixteen are
+                    // visible cost more to draw than sixteen.
+                    for card[index] in root.cards: MetaItem {
+                        visible: Math.floor(index / root.columns) >= root.first-shown-row
+                            && Math.floor(index / root.columns) <= root.last-shown-row;
+                        x: 1.5 * root.rem-size + Math.mod(index, root.columns) * (root.cell-width + root.gap);
+                        y: Math.floor(index / root.columns) * (root.cell-height + root.gap);
+                        width: root.cell-width;
+                        height: root.cell-height;
+                        card: card;
+                        selected: index == root.selected-index;
+                        rem-size: root.rem-size;
+                        poster-shape-ratio: root.poster-shape-ratio;
+                        hovered => {
+                            root.hover-card(index);
+                        }
+                        // Web: a click on a card that is not selected selects it, a second click opens it.
+                        clicked => {
+                            if (index == root.selected-index || !root.preview-visible) {
+                                root.open-item(card.item-id, card.kind, card.title);
+                            } else {
+                                root.selected-index = index;
+                                root.select-item(index);
+                            }
                         }
                     }
                 }
-            }
 
-            ScrollBar {
-                x: meta-items-container.x + meta-items-container.width - self.width;
-                y: meta-items-container.y;
-                height: meta-items-container.height;
-                view-height: meta-items-container.height;
-                content-height: meta-items-container.content-height;
-                offset <=> meta-items-container.content-y;
+                // Drawn from the same offset and nothing else. It shows where the grid is; it does
+                // not own the position, so it cannot fight the shell over it.
+                ScrollBar {
+                    x: parent.width - self.width;
+                    y: 0px;
+                    height: parent.height;
+                    view-height: parent.height;
+                    content-height: root.grid-height-total;
+                    // `scroll-offset` is already in the bar's own convention: zero at the top,
+                    // negative further down. Negating it here pinned the handle at the top.
+                    offset: root.scroll-offset;
+                }
+
+                // Dragging the bar moves the grid: the pointer's height down the viewport is the
+                // grid's position, so the bar follows the finger instead of the other way round.
+                // A wider strip than the bar itself -- web's is four pixels, which is not a target.
+                scroll-drag := TouchArea {
+                    x: parent.width - 1 * root.rem-size;
+                    y: 0px;
+                    width: 1 * root.rem-size;
+                    height: parent.height;
+                    // `moved` does not arrive while the button is held; the pointer events do, and
+                    // the area holds the pointer from the press until the release.
+                    pointer-event(event) => {
+                        if (event.kind == PointerEventKind.down
+                            || (event.kind == PointerEventKind.move && self.pressed)) {
+                            root.drag-scroll(self.mouse-y / self.height);
+                        }
+                    }
+                }
             }
         }
 
@@ -154,6 +268,12 @@ export component DiscoverContent inherits Rectangle {
             has-preview: root.has-preview;
             preview: root.preview;
             rem-size: root.rem-size;
+            // Web: the Show pill is a link to the title's details route, like a second click.
+            show => {
+                if (root.cards.length > root.selected-index) {
+                    root.open-item(root.cards[root.selected-index].item-id, root.cards[root.selected-index].kind, root.cards[root.selected-index].title);
+                }
+            }
         }
     }
 }

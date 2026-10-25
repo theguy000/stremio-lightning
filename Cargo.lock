@@ -4991,6 +4991,7 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "futures-core",
+ "h2",
  "http",
  "http-body",
  "http-body-util",
@@ -5953,6 +5954,7 @@ dependencies = [
  "futures",
  "getrandom 0.3.4",
  "i-slint-backend-testing",
+ "i-slint-backend-winit",
  "image",
  "libmpv2",
  "reqwest 0.12.28",
@@ -5966,6 +5968,7 @@ dependencies = [
  "tokio",
  "url",
  "windows",
+ "winit",
 ]
 
 [[package]]

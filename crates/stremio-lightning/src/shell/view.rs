@@ -7,12 +7,14 @@ use slint::{ModelRc, SharedString, VecModel, Weak};
 
 use crate::app::Snapshot;
 use crate::plumbing::images::Images;
+use crate::screens::player::Data as PlayerData;
 use crate::screens::settings::Data as SettingsData;
 use crate::screens::Preview;
 use crate::screens::{Card, Input};
 use crate::{
-    AddonData, CatalogRow, LinkGroup, MainWindow, PosterData, PreviewData, SelectInputData,
-    SelectOption, SettingsViewData, StreamData, VideoRow,
+    AddonData, CatalogRow, LibraryCard, LibrarySort, LinkGroup, MainWindow, PlayerEpisode,
+    PlayerOption, PlayerTrack, PosterData, PreviewData, SelectInputData, SelectOption,
+    SettingsViewData, StreamData, VideoRow,
 };
 
 /// Copies everything a snapshot describes onto the window. Runs on the window's thread.
@@ -21,7 +23,7 @@ pub(crate) fn show(weak: &Weak<MainWindow>, snapshot: Snapshot, images: &Images)
     let _ = weak.upgrade_in_event_loop(move |window| apply(&window, &snapshot, &images));
 }
 
-fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
+pub(crate) fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
     window.set_status(snapshot.status.clone().into());
     window.set_rows(ModelRc::new(VecModel::from(
         snapshot
@@ -30,6 +32,7 @@ fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
             .map(|row| CatalogRow {
                 title: row.title.clone().into(),
                 shape: row.shape.into(),
+                menu: row.menu,
                 cards: ModelRc::new(VecModel::from(
                     row.cards
                         .iter()
@@ -59,6 +62,62 @@ fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
             .collect::<Vec<_>>(),
     )));
 
+    let library = &snapshot.library;
+    window.set_library_type_title(library.type_title.clone().into());
+    window.set_library_type_index(
+        i32::try_from(
+            library
+                .type_options
+                .iter()
+                .position(|(_, selected)| *selected)
+                .unwrap_or(0),
+        )
+        .unwrap_or_default(),
+    );
+    window.set_library_types(ModelRc::new(VecModel::from(
+        library
+            .type_options
+            .iter()
+            .map(|(label, selected)| SelectOption {
+                label: label.clone().into(),
+                selected: *selected,
+            })
+            .collect::<Vec<_>>(),
+    )));
+    window.set_library_sorts(ModelRc::new(VecModel::from(
+        library
+            .sorts
+            .iter()
+            .map(|sort| LibrarySort {
+                label: sort.label.clone().into(),
+                selected: sort.selected,
+            })
+            .collect::<Vec<_>>(),
+    )));
+    window.set_library_cards(ModelRc::new(VecModel::from(
+        library
+            .cards
+            .iter()
+            .map(|card| {
+                let poster = images.get(&card.poster);
+                LibraryCard {
+                    item_id: card.id.clone().into(),
+                    kind: card.kind.clone().into(),
+                    title: card.title.clone().into(),
+                    has_poster: poster.is_some(),
+                    poster: poster.unwrap_or_default(),
+                    shape: card.shape.into(),
+                    progress: card.progress as f32,
+                    watched: card.watched,
+                    new_videos: i32::try_from(card.new_videos).unwrap_or(i32::MAX),
+                }
+            })
+            .collect::<Vec<_>>(),
+    )));
+    window.set_library_message(library.message.clone().into());
+    window.set_library_has_more(library.has_more);
+    window.set_library_grid_key(library.grid_key.clone().into());
+
     window.set_addons(ModelRc::new(VecModel::from(
         crate::screens::addons::visible(&snapshot.addons.cards, &window.get_addons_query())
             .into_iter()
@@ -79,11 +138,23 @@ fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
     window.set_addons_message(snapshot.addons.message.clone().into());
 
     window.set_settings(settings_view(&snapshot.settings));
+    player_view(window, &snapshot.player, images);
 
     let details = &snapshot.details;
     window.set_details_has_preview(details.preview.is_some());
     if let Some(preview) = &details.preview {
-        window.set_details_preview(preview_data(preview, images));
+        let mut data = preview_data(preview, images);
+        // Web: the column on the right has `backdrop-filter: blur(15px)`, so it paints the artwork
+        // behind it blurred under its own 0.4 wash. Slint has no backdrop filter; the column draws
+        // this copy instead, lined up with the page's layer.
+        let backdrop = preview
+            .background
+            .as_ref()
+            .map(|key| crate::plumbing::images::backdrop_key(key));
+        let backdrop = images.get(&backdrop);
+        data.has_panel_backdrop = backdrop.is_some();
+        data.panel_backdrop = backdrop.unwrap_or_default();
+        window.set_details_preview(data);
     }
     window.set_streams(ModelRc::new(VecModel::from(
         details
@@ -159,6 +230,8 @@ fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
                     has_thumbnail: thumbnail.is_some(),
                     thumbnail: thumbnail.unwrap_or_default(),
                     selected: details.picked.as_deref() == Some(episode.id.as_str()),
+                    watched: episode.watched,
+                    progress: episode.progress as f32,
                 }
             })
             .collect::<Vec<_>>(),
@@ -196,6 +269,8 @@ fn preview_data(preview: &Preview, images: &Images) -> PreviewData {
         logo: logo.unwrap_or_default(),
         has_background: background.is_some(),
         background: background.unwrap_or_default(),
+        has_panel_backdrop: false,
+        panel_backdrop: Default::default(),
     }
 }
 
@@ -207,6 +282,8 @@ fn poster_data(card: &Card, images: &Images) -> PosterData {
         title: card.title.clone().into(),
         has_poster: poster.is_some(),
         poster: poster.unwrap_or_default(),
+        progress: card.progress as f32,
+        watched: card.watched,
     }
 }
 
@@ -249,4 +326,85 @@ pub(crate) fn settings_view(data: &SettingsData) -> SettingsViewData {
         torrent_profile: select(data.torrent_profile.clone()),
         transcoding_profile: select(data.transcoding_profile.clone()),
     }
+}
+
+/// Everything the player screen draws that the core decided. The values mpv decides -- where the
+/// play head is, the tracks, the volume -- are set by the wiring as they change, so they are left
+/// alone here and do not flicker back to their defaults on every core event.
+fn player_view(window: &MainWindow, data: &PlayerData, images: &Images) {
+    window.set_playing(data.open);
+    window.set_player_title(data.title.clone().into());
+    window.set_player_error(data.error.clone().into());
+    let logo = images.get(&data.logo);
+    window.set_player_has_logo(logo.is_some());
+    window.set_player_logo(logo.unwrap_or_default());
+    let backdrop = images.get(&data.background);
+    window.set_player_has_backdrop(backdrop.is_some());
+    window.set_player_backdrop(backdrop.unwrap_or_default());
+    window.set_player_options(ModelRc::new(VecModel::from(
+        data.options
+            .iter()
+            .map(|option| PlayerOption {
+                label: option.label.clone().into(),
+                action: option.action.into(),
+            })
+            .collect::<Vec<_>>(),
+    )));
+    window.set_player_episodes(ModelRc::new(VecModel::from(
+        data.episodes
+            .iter()
+            .map(|episode| PlayerEpisode {
+                id: episode.id.clone().into(),
+                label: episode.label.clone().into(),
+                title: episode.title.clone().into(),
+                selected: episode.picked,
+                watched: episode.watched,
+                progress: episode.progress as f32,
+                released: episode.released.clone().into(),
+                thumbnail: images.get(&episode.thumbnail).unwrap_or_default(),
+            })
+            .collect::<Vec<_>>(),
+    )));
+    window.set_player_seasons(ModelRc::new(VecModel::from(
+        data.seasons
+            .iter()
+            .enumerate()
+            .map(|(index, (label, _))| SelectOption {
+                label: label.clone().into(),
+                selected: index == data.season,
+            })
+            .collect::<Vec<_>>(),
+    )));
+    window.set_player_season_index(i32::try_from(data.season).unwrap_or_default());
+    window.set_player_season_title(
+        data.seasons
+            .get(data.season)
+            .map(|(label, _)| label.clone())
+            .unwrap_or_default()
+            .into(),
+    );
+    window.set_player_has_episodes(data.seasons.len() > 1 || !data.episodes.is_empty());
+    window.set_player_has_preview(data.preview.is_some());
+    if let Some(preview) = &data.preview {
+        window.set_player_preview(preview_data(preview, images));
+    }
+    window.set_player_next_label(data.next_label.clone().into());
+    window.set_player_has_next(data.has_next);
+    window.set_player_next_notice(data.next_notice as f32);
+    window.set_player_scale(data.scale.into());
+}
+
+/// The tracks mpv offers, as the menus draw them.
+pub(crate) fn tracks(tracks: &[crate::plumbing::player::Track]) -> ModelRc<PlayerTrack> {
+    ModelRc::new(VecModel::from(
+        tracks
+            .iter()
+            .map(|track| PlayerTrack {
+                id: track.id.clone().into(),
+                title: track.title.clone().into(),
+                language: track.language.clone().into(),
+                selected: track.selected,
+            })
+            .collect::<Vec<_>>(),
+    ))
 }

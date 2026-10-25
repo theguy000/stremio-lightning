@@ -1,0 +1,70 @@
+// Based on stremio-web (https://github.com/Stremio/stremio-web), Copyright (C) 2017-2026 Smart code 203358507.
+// Numbers from src/components/Video/styles.less: `.watched-container` (1.6rem, 0.3rem corners,
+// `--tertiary-accent-color`, `--secondary-foreground-color` ink) and `.progress-bar` over
+// `.progress-bar-background` (0.4rem, half its height as the radius, foreground at 20%).
+// Licence basis: ../THIRD_PARTY_NOTICES.md.
+//
+// Both marks answer different questions and are drawn from different fields:
+//   `watched`  -- the library's watched bitfield: had this Video been watched?
+//   `progress` -- how far into it the viewer is, as a percentage the core keeps for the single
+//                 Video a title is sitting on. Zero means "no number", which draws no bar.
+import { Theme } from "theme.slint";
+
+/// The yellow pill a watched row carries: an eye and `WATCHED` on the ink the web puts on a
+/// bright chip. Both children carry the pill's height, or a layout puts the eye above the label.
+export component WatchedChip inherits Rectangle {
+    in property <length> rem-size;
+
+    height: 1.6 * root.rem-size;
+    width: chip.preferred-width + 1 * root.rem-size;
+    border-radius: 0.3 * root.rem-size;
+    background: Theme.accent-yellow;
+
+    chip := HorizontalLayout {
+        x: 0.5 * root.rem-size;
+        y: 0;
+        width: parent.width - 1 * root.rem-size;
+        height: parent.height;
+        spacing: 0.25 * root.rem-size;
+        alignment: center;
+
+        Rectangle {
+            width: 1.15 * root.rem-size;
+            height: 1.6 * root.rem-size;
+
+            Image {
+                y: (parent.height - self.height) / 2;
+                width: 1.15 * root.rem-size;
+                height: 1.15 * root.rem-size;
+                source: @image-url("icons/eye.svg");
+                colorize: Theme.on-accent;
+            }
+        }
+        Text {
+            height: 1.6 * root.rem-size;
+            text: "WATCHED";
+            font-size: 0.8 * root.rem-size;
+            font-weight: 800;
+            color: Theme.on-accent;
+            vertical-alignment: center;
+        }
+    }
+}
+
+/// The bar over a thumbnail: the foreground at 20% for the whole width, the accent for the part
+/// that has been played. Nothing at all while there is no percentage to show.
+export component EpisodeProgress inherits Rectangle {
+    in property <float> progress;
+    in property <length> rem-size;
+
+    height: 0.4 * root.rem-size;
+    background: #ffffff33;
+    border-radius: self.height / 2;
+
+    Rectangle {
+        width: parent.width * Math.min(Math.max(root.progress, 0), 100) / 100;
+        height: parent.height;
+        border-radius: parent.height / 2;
+        background: Theme.accent;
+    }
+}

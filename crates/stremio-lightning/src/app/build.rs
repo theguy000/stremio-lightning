@@ -4,11 +4,16 @@
 use futures::channel::mpsc::Receiver;
 use stremio_core::models::catalog_with_filters::CatalogWithFilters;
 use stremio_core::models::catalogs_with_extra::Selected;
+use stremio_core::models::continue_watching_preview::ContinueWatchingPreview;
 use stremio_core::models::ctx::Ctx;
 use stremio_core::models::installed_addons_with_filters::{
     InstalledAddonsRequest, InstalledAddonsWithFilters, Selected as InstalledSelected,
 };
-use stremio_core::runtime::msg::{Action, ActionCatalogsWithExtra, ActionLoad};
+use stremio_core::models::library_with_filters::{
+    LibraryRequest, LibraryRequestPage, LibraryWithFilters, NotRemovedFilter,
+    Selected as LibrarySelected,
+};
+use stremio_core::runtime::msg::{Action, ActionCatalogsWithExtra, ActionCtx, ActionLoad};
 use stremio_core::runtime::{RuntimeAction, RuntimeEvent};
 use stremio_core::types::events::DismissedEventsBucket;
 use stremio_core::types::library::LibraryBucket;
@@ -29,20 +34,33 @@ pub fn runtime(profile: Profile) -> (AppRuntime, Receiver<RuntimeEvent<AppEnv, A
     // `default()` has nothing to pick from, so a `Load` with no selection would select nothing.
     let (discover, discover_effects) = CatalogWithFilters::<MetaItemPreview>::new(&profile);
     let (installed_addons, installed_effects) = InstalledAddonsWithFilters::new(&profile);
+    let library = LibraryBucket::new(uid.clone(), vec![]);
+    let notifications = NotificationsBucket::new::<AppEnv>(uid.clone(), vec![]);
+    // The preview is built from the buckets rather than defaulted, so a library that came back
+    // with the stored session has its row on the first frame. After that the core keeps it in
+    // step with the library by itself: it is stremio-core's model, not a second copy of it.
+    let (continue_watching_preview, _) = ContinueWatchingPreview::new(&library, &notifications);
+    // Web: `useLibrary` dispatches a `Load` with the route's request on mount. There is no route
+    // here, so the Library opens on the core's default request -- everything, last watched first.
+    let (library_with_filters, library_effects) =
+        LibraryWithFilters::<NotRemovedFilter>::new(&library, &notifications);
     let model = AppModel {
         ctx: Ctx::new(
             profile,
-            LibraryBucket::new(uid.clone(), vec![]),
+            library,
             StreamsBucket::new(uid.clone()),
             ServerUrlsBucket::new::<AppEnv>(uid.clone()),
-            NotificationsBucket::new::<AppEnv>(uid.clone(), vec![]),
+            notifications,
             SearchHistoryBucket::new(uid.clone()),
             DismissedEventsBucket::new(uid),
         ),
         board: Default::default(),
+        continue_watching_preview,
         discover,
+        library: library_with_filters,
         installed_addons,
         meta_details: Default::default(),
+        player: Default::default(),
     };
 
     AppRuntime::new(
@@ -50,6 +68,7 @@ pub fn runtime(profile: Profile) -> (AppRuntime, Receiver<RuntimeEvent<AppEnv, A
         discover_effects
             .into_iter()
             .chain(installed_effects)
+            .chain(library_effects)
             .collect(),
         1000,
     )
@@ -77,5 +96,40 @@ pub fn load_everything(runtime: &AppRuntime) {
         action: Action::Load(ActionLoad::InstalledAddonsWithFilters(InstalledSelected {
             request: InstalledAddonsRequest { r#type: None },
         })),
+    });
+    runtime.dispatch(RuntimeAction {
+        field: None,
+        action: Action::Load(ActionLoad::LibraryWithFilters(LibrarySelected {
+            request: LibraryRequest {
+                r#type: None,
+                sort: Default::default(),
+                page: LibraryRequestPage::default(),
+            },
+        })),
+    });
+}
+
+/// Re-reads the parts of the account another client may have changed: the library (which carries
+/// every `watched` mark and the one watch position per title), the user's profile, the installed
+/// addons and the notifications.
+///
+/// Web: `src/App/App.js` dispatches exactly these four on mount and again on every window focus,
+/// which is how a mark made in the browser shows up in another client.
+pub fn pull_from_api(runtime: &AppRuntime) {
+    runtime.dispatch(RuntimeAction {
+        field: None,
+        action: Action::Ctx(ActionCtx::PullAddonsFromAPI),
+    });
+    runtime.dispatch(RuntimeAction {
+        field: None,
+        action: Action::Ctx(ActionCtx::PullUserFromAPI { token: None }),
+    });
+    runtime.dispatch(RuntimeAction {
+        field: None,
+        action: Action::Ctx(ActionCtx::SyncLibraryWithAPI),
+    });
+    runtime.dispatch(RuntimeAction {
+        field: None,
+        action: Action::Ctx(ActionCtx::PullNotifications),
     });
 }

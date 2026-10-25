@@ -31,3 +31,8 @@ dist/
 nul
 
 plan.md
+
+# Local scratch: UI probes, screenshots and helper scripts
+.scratch/
+_*.ps1
+info.txt

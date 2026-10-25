@@ -5,12 +5,15 @@ import { BoardContent, CatalogRow, PosterData } from "board.slint";
 import { AddonData, AddonsContent } from "addons.slint";
 import { DiscoverContent, SelectInputData } from "discover.slint";
 import { LoggedOutPlaceholder } from "logged-out-placeholder.slint";
+import { LibraryCard, LibraryContent, LibrarySort } from "library.slint";
 import { SettingsContent, SettingsViewData } from "settings.slint";
 import { SelectOption } from "multiselect-menu.slint";
 import { LinkGroup, PreviewData } from "meta-preview.slint";
 import { DetailsScreen, StreamData } from "details-screen.slint";
+import { PlayerScreen, PlayerEpisode, PlayerOption, PlayerTrack } from "player.slint";
+export { PlayerEpisode, PlayerOption, PlayerTrack }
 import { VideoRow } from "videos-list.slint";
-export { AddonData, LinkGroup, PreviewData, SelectInputData, SelectOption, SettingsViewData, StreamData, VideoRow }
+export { AddonData, LibraryCard, LibrarySort, LinkGroup, PreviewData, SelectInputData, SelectOption, SettingsViewData, StreamData, VideoRow }
 import { ClassStyle, ClassStyles } from "class-styles.slint";
 import { IntroContent } from "intro.slint";
 import { ShareModal } from "share-modal.slint";
@@ -22,7 +25,10 @@ export component MainWindow inherits Window {
     default-font-family: Theme.font-family;
     preferred-width: 1100px;
     preferred-height: 720px;
-    background: Theme.page-background;
+    // The player draws mpv's frames *under* this window's items, so while it is open the
+    // background must not paint over them: the screen's own layers paint the black around the
+    // picture, and mpv clears the rest.
+    background: root.playing ? transparent : Theme.page-background;
 
     in property <string> status: "Loading...";
     in property <string> server-status: "Stream server: starting...";
@@ -31,6 +37,19 @@ export component MainWindow inherits Window {
     in property <string> discover-shape: "poster";
     in property <[SelectInputData]> discover-inputs: [];
     in property <[PreviewData]> discover-previews: [];
+    in property <[LibraryCard]> library-cards: [];
+    in property <string> library-type-title: "All";
+    in property <[SelectOption]> library-types: [];
+    in property <int> library-type-index: 0;
+    in property <[LibrarySort]> library-sorts: [];
+    in property <bool> library-has-more: false;
+    in property <string> library-grid-key;
+    in property <string> library-message;
+    callback select-library-type(int);
+    callback select-library-sort(int);
+    callback load-more-library();
+    callback library-item-action(string, string);
+    callback board-item-action(string, string);
     in property <[AddonData]> addons: [];
     in property <[SelectInputData]> addon-inputs: [];
     in property <string> addons-message;
@@ -68,6 +87,42 @@ export component MainWindow inherits Window {
     in property <string> details-picked-label;
     in property <bool> details-has-next-episode: false;
     in-out property <bool> playing: false;
+    // The player's own state. The core's model fills the title, the drawer and the options; mpv
+    // fills everything about where the picture is.
+    in property <string> player-title;
+    in property <string> player-error;
+    in property <image> player-backdrop;
+    in property <bool> player-has-backdrop: false;
+    in property <image> player-logo;
+    in property <bool> player-has-logo: false;
+    in property <bool> player-loaded: false;
+    in property <bool> player-buffering: false;
+    in property <float> player-time: 0;
+    in property <float> player-duration: 0;
+    in property <float> player-buffered: 0;
+    in property <bool> player-paused: true;
+    in property <bool> player-seekable: false;
+    in property <float> player-volume: 100;
+    in property <bool> player-muted: false;
+    in property <float> player-speed: 1;
+    in property <string> player-scale: "contain";
+    in property <[PlayerTrack]> player-audio-tracks: [];
+    in property <[PlayerTrack]> player-subtitle-tracks: [];
+    in property <bool> player-subtitles-enabled: false;
+    in property <float> player-subtitles-size: 100;
+    in property <float> player-subtitles-offset: 0;
+    in property <bool> player-fullscreen: false;
+    in property <[PlayerOption]> player-options: [];
+    in property <[PlayerEpisode]> player-episodes: [];
+    in property <[SelectOption]> player-seasons: [];
+    in property <int> player-season-index: 0;
+    in property <string> player-season-title;
+    in property <PreviewData> player-preview;
+    in property <bool> player-has-preview: false;
+    in property <bool> player-has-episodes: false;
+    in property <string> player-next-label;
+    in property <bool> player-has-next: false;
+    in property <float> player-next-notice: 35;
     in-out property <Section> section: Section.board;
     in-out property <bool> auth-open: false;
     in-out property <string> auth-error: "";
@@ -90,9 +145,27 @@ export component MainWindow inherits Window {
     in-out property <bool> share-open: false;
     in property <string> share-link;
 
+    /// Asks the shell whether this window has just come back to the front -- Web: the library,
+    /// profile, addons and notifications are re-read on every window focus, which is how a mark
+    /// made in another client shows up here. The shell owns the focus flag, since the window
+    /// element has none.
+    callback check-focus();
     callback open-item(string, string, string);
     callback load-next-page();
     callback select-preview(int);
+    callback hover-card(int);
+    /// How much of the Discover grid is on screen: scrolled distance, viewport height, row height,
+    /// cards in a row.
+    callback visible-range(length, length, length, int);
+    /// Where the Discover grid is, how big its viewport is and how tall its contents are, so the
+    /// shell can clamp a wheel notch before it moves `discover-scroll`.
+    callback grid-bounds(length, length, length, length, length);
+    /// How many times the shell has said the Discover grid stopped moving, so it only asks for the
+    /// next page once the scrolling has stopped.
+    in-out property <int> grid-settle-count: 0;
+    /// How far the Discover grid is scrolled, in pixels: zero at the top, negative below it. The
+    /// shell moves it for the wheel; the grid draws it.
+    in-out property <length> discover-scroll: 0px;
     callback select-input-option(int, int);
     callback select-addon-input-option(int, int);
     callback search-addons(string);
@@ -117,7 +190,24 @@ export component MainWindow inherits Window {
     callback share-copy();
     callback share-to(string);
     callback next-episode();
-    callback stop-playback();
+    callback player-back();
+    callback player-toggle-fullscreen();
+    callback player-play-pause();
+    callback player-play-next();
+    callback player-seek(float);
+    callback player-seek-by(float);
+    callback player-set-volume(float);
+    callback player-toggle-muted();
+    callback player-set-speed(float);
+    callback player-cycle-scale();
+    callback player-select-audio(string);
+    callback player-choose-subtitles(string);
+    callback player-toggle-subtitles();
+    callback player-step-subtitles-offset(int);
+    callback player-step-subtitles-size(int);
+    callback player-select-episode(string);
+    callback player-select-season(int);
+    callback player-choose-option(string);
     callback submit-auth-login(string, string);
     callback submit-auth-register(string, string, bool, bool, bool);
     callback auth-guest-login();
@@ -137,6 +227,14 @@ export component MainWindow inherits Window {
             root.details-open = true;
             root.open-item(id, kind, title);
         }
+        item-action(id, action) => {
+            // The list's Details is the route a click on the tile takes, so it has to put the
+            // details screen up the way a click does. The other options change the row in place.
+            if (action == "details") {
+                root.details-open = true;
+            }
+            root.board-item-action(id, action);
+        }
     }
 
     if root.section == Section.discover && !root.details-open && !root.playing: DiscoverContent {
@@ -155,6 +253,17 @@ export component MainWindow inherits Window {
         select-item(index) => {
             root.select-preview(index);
         }
+        hover-card(index) => {
+            root.hover-card(index);
+        }
+        visible-range(scroll, height, pitch, columns) => {
+            root.visible-range(scroll, height, pitch, columns);
+        }
+        grid-bounds(x, y, width, viewport, content) => {
+            root.grid-bounds(x, y, width, viewport, content);
+        }
+        settle-count: root.grid-settle-count;
+        scroll-offset <=> root.discover-scroll;
         open-item(id, kind, title) => {
             root.details-open = true;
             root.open-item(id, kind, title);
@@ -243,6 +352,117 @@ export component MainWindow inherits Window {
         }
     }
 
+    // The player sits over every screen, under the share dialog and the toast, so a copy made
+    // from its options menu still says so.
+    if root.playing: PlayerScreen {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+        rem-size: root.rem-size;
+        title: root.player-title;
+        backdrop: root.player-backdrop;
+        has-backdrop: root.player-has-backdrop;
+        logo: root.player-logo;
+        has-logo: root.player-has-logo;
+        loaded: root.player-loaded;
+        buffering: root.player-buffering;
+        time: root.player-time;
+        duration: root.player-duration;
+        buffered: root.player-buffered;
+        paused: root.player-paused;
+        seekable: root.player-seekable;
+        volume: root.player-volume;
+        muted: root.player-muted;
+        speed: root.player-speed;
+        scale: root.player-scale;
+        audio-tracks: root.player-audio-tracks;
+        subtitle-tracks: root.player-subtitle-tracks;
+        subtitles-enabled: root.player-subtitles-enabled;
+        error: root.player-error;
+        subtitles-size: root.player-subtitles-size;
+        subtitles-offset: root.player-subtitles-offset;
+        fullscreen: root.player-fullscreen;
+        options: root.player-options;
+        episodes: root.player-episodes;
+        seasons: root.player-seasons;
+        season-index: root.player-season-index;
+        season-title: root.player-season-title;
+        preview: root.player-preview;
+        has-preview: root.player-has-preview;
+        has-episodes: root.player-has-episodes;
+        next-label: root.player-next-label;
+        has-next: root.player-has-next;
+        next-notice: root.player-next-notice;
+        init => {
+            self.focus-player();
+        }
+        back => {
+            root.player-back();
+        }
+        toggle-fullscreen => {
+            root.player-toggle-fullscreen();
+        }
+        play-pause => {
+            root.player-play-pause();
+        }
+        play-next => {
+            root.player-play-next();
+        }
+        seek(time) => {
+            root.player-seek(time);
+        }
+        seek-by(offset) => {
+            root.player-seek-by(offset);
+        }
+        set-volume(value) => {
+            root.player-set-volume(value);
+        }
+        toggle-muted => {
+            root.player-toggle-muted();
+        }
+        set-speed(value) => {
+            root.player-set-speed(value);
+        }
+        cycle-scale => {
+            root.player-cycle-scale();
+        }
+        select-audio(id) => {
+            root.player-select-audio(id);
+        }
+        choose-subtitles(id) => {
+            root.player-choose-subtitles(id);
+        }
+        toggle-subtitles => {
+            root.player-toggle-subtitles();
+        }
+        step-subtitles-offset(delta) => {
+            root.player-step-subtitles-offset(delta);
+        }
+        step-subtitles-size(delta) => {
+            root.player-step-subtitles-size(delta);
+        }
+        select-episode(id) => {
+            root.player-select-episode(id);
+        }
+        select-season(index) => {
+            root.player-select-season(index);
+        }
+        choose-option(action) => {
+            root.player-choose-option(action);
+        }
+    }
+
+    // Web: the same four pulls on every window focus. The timer only asks; the shell decides,
+    // because Slint's `Window` carries no focus flag to watch.
+    focus-watch := Timer {
+        interval: 700ms;
+        running: true;
+        triggered => {
+            root.check-focus();
+        }
+    }
+
     // The share dialog sits over everything, including the bar and the toast.
     if root.share-open: ShareModal {
         width: 100%;
@@ -315,9 +535,9 @@ export component MainWindow inherits Window {
         }
     }
 
-    // The logged-in Library and Calendar screens are not built yet, so both always
-    // show the logged-out placeholder for now.
-    if root.section == Section.library && !root.details-open && !root.playing: LoggedOutPlaceholder {
+    // Web: the Library route shows the Placeholder only while `profile.auth` is null; a signed-in
+    // account gets the grid of its own titles.
+    if root.section == Section.library && !root.settings.logged-in && !root.details-open && !root.playing: LoggedOutPlaceholder {
         x: root.nav-width;
         y: root.bar-height;
         width: parent.width - root.nav-width;
@@ -332,6 +552,44 @@ export component MainWindow inherits Window {
         log-in => { root.auth-open = true; }
     }
 
+    if root.section == Section.library && root.settings.logged-in && !root.details-open && !root.playing: LibraryContent {
+        x: root.nav-width;
+        y: root.bar-height;
+        width: parent.width - root.nav-width;
+        height: parent.height - root.bar-height;
+        viewport-width: root.width;
+        cards: root.library-cards;
+        type-title: root.library-type-title;
+        type-options: root.library-types;
+        type-index: root.library-type-index;
+        sorts: root.library-sorts;
+        message: root.library-message;
+        has-more: root.library-has-more;
+        grid-key: root.library-grid-key;
+        select-type(index) => {
+            root.select-library-type(index);
+        }
+        select-sort(index) => {
+            root.select-library-sort(index);
+        }
+        load-more => {
+            root.load-more-library();
+        }
+        open-item(id, kind, title) => {
+            root.details-open = true;
+            root.open-item(id, kind, title);
+        }
+        item-action(id, action) => {
+            // The list's Details is the route a click on the tile takes, so it has to put the
+            // details screen up the way a click does. The other options change the grid in place.
+            if (action == "details") {
+                root.details-open = true;
+            }
+            root.library-item-action(id, action);
+        }
+    }
+
+    // The logged-in Calendar screen is not built yet, so it still shows the placeholder.
     if root.section == Section.calendar && !root.details-open && !root.playing: LoggedOutPlaceholder {
         x: root.nav-width;
         y: root.bar-height;
@@ -402,23 +660,6 @@ export component MainWindow inherits Window {
             text: "This screen is not built yet.";
             color: #9d9bb0;
             font-size: 14px;
-        }
-    }
-
-    if root.playing: VerticalLayout {
-        width: parent.width;
-        height: parent.height;
-        padding: 24px;
-        alignment: start;
-
-        HorizontalLayout {
-            alignment: start;
-            Button {
-                text: "< Back";
-                clicked => {
-                    root.stop-playback();
-                }
-            }
         }
     }
 

@@ -9,4 +9,4 @@ pub(crate) mod events;
 pub mod model;
 
 pub(crate) use model::Snapshot;
-pub use model::{AppModel, AppRuntime};
+pub use model::{AppModel, AppModelField, AppRuntime};

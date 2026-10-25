@@ -12,20 +12,123 @@ export struct PosterData {
     title: string,
     poster: image,
     has-poster: bool,
+    /// How far into the title the viewer is, as a percentage. Zero draws no bar, which is every
+    /// card but the Continue Watching row's.
+    progress: float,
+    /// Whether the account has watched this title: the web's MetaItem draws a check mark in the
+    /// poster's top-left corner for one, whichever row the card is in.
+    watched: bool,
 }
 
 export struct CatalogRow {
     title: string,
     shape: string,
     cards: [PosterData],
+    /// Whether the row's cards carry the action list. The web offers it in the Continue Watching
+    /// row, whose cards are library items; an addon catalog's cards do not.
+    menu: bool,
+}
+
+// Web: one option row of the MetaItem's Multiselect menu. `padding: 1rem 1.5rem` around a 1rem
+// line box, which lands at 46px in a 14px rem -- and, at the menu's 9rem width, wraps the longer
+// "Mark as ..." label onto a second line, so the row height comes from the text, not a constant.
+component CardMenuOption inherits Rectangle {
+    in property <string> label;
+    in property <string> action;
+    in property <length> rem-size;
+    callback picked(string);
+
+    height: label-text.preferred-height + 2 * root.rem-size;
+    background: touch.has-hover ? #ffffff26 : transparent;
+
+    label-text := Text {
+        x: 21 * root.rem-size / 14;
+        width: parent.width - 42 * root.rem-size / 14;
+        y: 1 * root.rem-size;
+        height: parent.height - 2 * root.rem-size;
+        text: root.label;
+        vertical-alignment: center;
+        wrap: word-wrap;
+        font-size: 1 * root.rem-size;
+        color: Theme.text;
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.picked(root.action);
+        }
+    }
 }
 
 export component MetaItem inherits Rectangle {
     in property <PosterData> card;
     in property <bool> selected;
+    /// Library only: new Videos the addons reported, drawn as the layered "+N" badge.
+    in property <int> new-videos: 0;
     in property <float> poster-shape-ratio;
     in property <length> rem-size;
+    /// Set by a card that draws its link larger than this one, such as the Library tile.
+    in property <bool> hovered-by-owner: false;
+    /// Whether the pointer is on the card, for the action-menu button and the ring.
+    out property <bool> is-hovered: root.hovered-by-owner || card-touch.has-hover;
     callback clicked();
+    /// The pointer came to rest on this card. The Discover panel asks for the card's pictures
+    /// then, so opening it does not have to wait for a download.
+    callback hovered();
+
+    // Web: the action list is part of `<MetaItem>`, so the Library grid and the Board's Continue
+    // Watching row draw the same one. The window's box is passed in for the list's own sake: a
+    // popup is drawn inside the window, so a list past its edge would be clipped.
+    in property <bool> menu-enabled: false;
+    in property <length> viewport-width;
+    in property <length> viewport-height;
+    out property <bool> menu-open: menu.is-open;
+    /// True while the button is up: the pointer is on it, or the list is open.
+    out property <bool> menu-active: menu-touch.has-hover || root.menu-open;
+    /// One option of the list: "details", "dismiss", "watched" or "remove".
+    callback item-action(string);
+    /// Web: `LibItem` builds the list and then filters it, and the two entries below are only
+    /// there when the caller asks for them -- the Library does, the Board's Continue Watching row
+    /// does not, so that card's list is Details and Dismiss only.
+    in property <bool> menu-offers-watched: false;
+    in property <bool> menu-offers-remove: false;
+    /// Web: 9rem wide. A right-click opens the list at the pointer, so the two ways to open it are
+    /// kept apart by this flag.
+    property <length> menu-width: 126 * root.rem-size / 14;
+    property <bool> menu-at-pointer: false;
+    property <length> pointer-x: 0px;
+    property <length> pointer-y: 0px;
+
+    /// Escape closes the list, the way the web's menus do. Slint's popup close policies only
+    /// cover clicks, so the card holds the keyboard itself -- but only while the list is open, or
+    /// one of these would swallow the key on every card in the row.
+    menu-keys := FocusScope {
+        key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                menu.close();
+                return accept;
+            }
+            return reject;
+        }
+    }
+
+    public function open-menu-at(x: length, y: length) {
+        if (!root.menu-enabled) {
+            return;
+        }
+        root.pointer-x = x;
+        root.pointer-y = y;
+        root.menu-at-pointer = true;
+        menu.show();
+        menu-keys.focus();
+    }
+
+    // The button opens the same list; both ways take the keyboard, and Escape gives it back.
+    changed menu-open => {
+        if (root.menu-open) {
+            menu-keys.focus();
+        }
+    }
 
     meta-item-link := Rectangle {
         x: root.rem-size;
@@ -45,7 +148,7 @@ export component MetaItem inherits Rectangle {
             border-radius: 0.95 * root.rem-size;
             border-width: 0.2 * root.rem-size;
             border-color: white;
-            visible: root.selected || card-touch.has-hover;
+            visible: root.selected || root.is-hovered;
         }
 
         poster-container := Rectangle {
@@ -66,8 +169,117 @@ export component MetaItem inherits Rectangle {
                 image-fit: cover;
                 opacity: ClassStyles.opacity-or(ClassStyles.poster-image, 0.9);
                 // Web: .poster-image-layer scales to 1.05 while the card is selected or hovered.
-                transform-scale: (root.selected || card-touch.has-hover) ? 1.05 : 1.0;
+                transform-scale: (root.selected || root.is-hovered) ? 1.05 : 1.0;
                 visible: !ClassStyles.poster-image.hidden;
+            }
+
+            // Web: `.progress-bar-layer` -- 1rem in from the poster's left, right and bottom,
+            // 0.45rem tall with half its height as the radius. The played part is the foreground
+            // colour and the rest is the same colour at 30%, which is what `.progress-bar` over
+            // `.progress-bar-background` composites to.
+            if root.card.progress > 0: progress-bar-layer := Rectangle {
+                x: 1 * root.rem-size;
+                y: parent.height - self.height - 1 * root.rem-size;
+                width: parent.width - 2 * root.rem-size;
+                height: 0.45 * root.rem-size;
+                border-radius: self.height / 2;
+                clip: true;
+
+                Rectangle {
+                    width: parent.width * Math.min(Math.max(root.card.progress, 0), 100) / 100;
+                    height: parent.height;
+                    background: Theme.text;
+                }
+                Rectangle {
+                    width: parent.width;
+                    height: parent.height;
+                    background: Theme.text;
+                    opacity: 0.3;
+                }
+            }
+
+            // Web: `.watched-icon-layer` -- a 1.5rem accent circle 0.5rem in from the top-left,
+            // with a white checkmark at half its size.
+            if root.card.watched: Rectangle {
+                x: 0.5 * root.rem-size;
+                y: 0.5 * root.rem-size;
+                width: 1.5 * root.rem-size;
+                height: self.width;
+                border-radius: self.width / 2;
+                background: Theme.accent;
+
+                Path {
+                    x: 0.35 * root.rem-size;
+                    y: 0.35 * root.rem-size;
+                    width: parent.width - 0.7 * root.rem-size;
+                    height: parent.height - 0.7 * root.rem-size;
+                    viewbox-width: 512;
+                    viewbox-height: 512;
+                    commands: "M421 128 L197 384 L101 288";
+                    fill: transparent;
+                    stroke: Theme.text;
+                    stroke-width: 0.12 * root.rem-size;
+                }
+            }
+
+            // Web: `.new-videos` -- three stacked 2.25x1.25rem labels stepping in from the top
+            // right; the front one carries the add icon and the count in the accent colour.
+            if root.new-videos > 0: Rectangle {
+                x: 0px;
+                y: 0px;
+                width: parent.width;
+                height: parent.height;
+
+                Rectangle {
+                    x: parent.width - 2.25 * root.rem-size - 0.5 * root.rem-size;
+                    y: 0.5 * root.rem-size;
+                    width: 2.25 * root.rem-size;
+                    height: 1.25 * root.rem-size;
+                    border-radius: 0.25 * root.rem-size;
+                    background: Theme.text;
+                    opacity: 0.4;
+                }
+                Rectangle {
+                    x: parent.width - 2.25 * root.rem-size - 0.75 * root.rem-size;
+                    y: 0.75 * root.rem-size;
+                    width: 2.25 * root.rem-size;
+                    height: 1.25 * root.rem-size;
+                    border-radius: 0.25 * root.rem-size;
+                    background: Theme.text;
+                    opacity: 0.6;
+                }
+                Rectangle {
+                    x: parent.width - 2.25 * root.rem-size - 1 * root.rem-size;
+                    y: 1 * root.rem-size;
+                    width: 2.25 * root.rem-size;
+                    height: 1.25 * root.rem-size;
+                    border-radius: 0.25 * root.rem-size;
+                    background: Theme.text;
+
+                    Path {
+                        x: 0.35 * root.rem-size;
+                        y: (parent.height - self.height) / 2;
+                        width: 0.8 * root.rem-size;
+                        height: self.width;
+                        viewbox-width: 512;
+                        viewbox-height: 512;
+                        commands: "M256 112 L256 400 M112 256 L400 256";
+                        fill: transparent;
+                        stroke: Theme.accent;
+                        stroke-width: 0.08 * root.rem-size;
+                    }
+                    Text {
+                        x: 1.15 * root.rem-size;
+                        width: parent.width - 1.3 * root.rem-size;
+                        height: parent.height;
+                        text: "+\\{root.new-videos}";
+                        vertical-alignment: center;
+                        horizontal-alignment: center;
+                        font-size: 0.8 * root.rem-size;
+                        font-weight: 600;
+                        color: Theme.accent;
+                    }
+                }
             }
         }
 
@@ -110,8 +322,147 @@ export component MetaItem inherits Rectangle {
 
         card-touch := TouchArea {
             mouse-cursor: pointer;
+            changed has-hover => {
+                if (self.has-hover) {
+                    root.hovered();
+                }
+            }
+            // The right button never reaches `clicked`; it arrives here as a press and a release,
+            // and the list opens from the release. Opening on the press instead left the next
+            // right-click closing the list without reopening it, because a press outside a popup
+            // is also what dismisses it.
+            pointer-event(event) => {
+                if (root.menu-enabled && event.button == PointerEventButton.right
+                        && event.kind == PointerEventKind.up) {
+                    // This area sits 1rem inside the card, and the popup's coordinates start at
+                    // the card's edge, so the gutter goes back on here.
+                    root.open-menu-at(self.mouse-x + root.rem-size, self.mouse-y + root.rem-size);
+                }
+            }
             clicked => {
                 root.clicked();
+            }
+        }
+    }
+
+    // Drawn on every card and switched on where the web offers the list, rather than put
+    // behind an `if`: an id inside a conditional is out of reach from the rest of the card,
+    // and the list has to be opened from a public function.
+    menu-button := Rectangle {
+        out property <bool> is-hovered: menu-touch.has-hover;
+        visible: root.menu-enabled;
+        // Web: `.menu-label-container` -- 1rem in from the right and bottom, a 1.5rem glyph at 0.6
+        // opacity, and `opacity: 0` until the card is hovered. The web dims the button rather than
+        // hiding it, so the corner is still pressed while the glyph is invisible; Slint skips
+        // hit-testing below `opacity: 0`, so the glyph carries the fade and the button stays
+        // pressable.
+        //
+        // `right: 1rem` is measured from the card's outer edge, which puts the button a
+        // gutter-width outside the title column rather than inside it.
+        x: parent.width - 1.5 * root.rem-size;
+        y: parent.height - 5 * root.rem-size;
+        width: 1.5 * root.rem-size;
+        height: 4 * root.rem-size;
+
+        Image {
+            x: 0px;
+            // Web: `padding: 1rem 0` on a 4rem box leaves a 1.5rem square slot in the middle, and
+            // the square is what keeps the dots round: a 1.5rem x 2rem box stretches them into
+            // little ovals.
+            y: 1.25 * root.rem-size;
+            width: 1.5 * root.rem-size;
+            height: 1.5 * root.rem-size;
+            // Web: `more-vertical`. Turning `more-horizontal` a quarter turn at run time did
+            // nothing here -- the same three dots came out horizontal, stretched to the box -- so
+            // the dots are turned in the asset instead.
+            source: @image-url("icons/more-vertical.svg");
+            colorize: Theme.text;
+            opacity: (root.is-hovered || root.menu-active) ? 0.6 : 0.0;
+        }
+        menu-touch := TouchArea {
+            mouse-cursor: pointer;
+            clicked => {
+                if (root.menu-open) {
+                    menu.close();
+                } else {
+                    // The button always opens from its own corner, even after a right-click moved
+                    // the list somewhere else.
+                    root.menu-at-pointer = false;
+                    menu.show();
+                }
+            }
+        }
+    }
+
+    menu := PopupWindow {
+        // Web: 9rem wide, opening from the button's left edge and from its bottom, so the list
+        // hangs off the card's bottom-right corner instead of sitting inside the card.
+        //
+        // A right-click opens the same list at the pointer instead: pulled back when it would run
+        // off the window's right edge, and flipped above the pointer when it would run past the
+        // bottom one. The popup is drawn inside the window, so a list past either edge is clipped.
+        // Its coordinates start at the card's own box, so the window's edges are the card's
+        // position taken back off again.
+        x: root.menu-at-pointer
+            ? Math.max(-root.absolute-position.x, Math.min(root.pointer-x,
+                root.viewport-width - root.absolute-position.x - root.menu-width))
+            : Math.max(0px, root.width - 21 * root.rem-size / 14);
+        y: root.menu-at-pointer
+            ? (root.pointer-y + options-layout.preferred-height
+                    > root.viewport-height - root.absolute-position.y
+                ? Math.max(-root.absolute-position.y, root.pointer-y - options-layout.preferred-height)
+                : root.pointer-y)
+            : root.height - 1 * root.rem-size;
+        width: root.menu-width;
+        height: options-layout.preferred-height;
+        close-policy: PopupClosePolicy.close-on-click-outside;
+
+        Rectangle {
+            width: parent.width;
+            height: parent.height;
+            border-radius: 0.75 * root.rem-size;
+            background: Theme.modal-background;
+            drop-shadow-blur: 15px;
+            drop-shadow-color: #7b5bf55e;
+            clip: true;
+
+            options-layout := VerticalLayout {
+                CardMenuOption {
+                    label: "Details";
+                    action: "details";
+                    rem-size: root.rem-size;
+                    picked(action) => {
+                        menu.close();
+                        root.item-action(action);
+                    }
+                }
+                if root.card.progress > 0: CardMenuOption {
+                    label: "Dismiss";
+                    action: "dismiss";
+                    rem-size: root.rem-size;
+                    picked(action) => {
+                        menu.close();
+                        root.item-action(action);
+                    }
+                }
+                if root.menu-offers-watched: CardMenuOption {
+                    label: root.card.watched ? "Mark as unwatched" : "Mark as watched";
+                    action: "watched";
+                    rem-size: root.rem-size;
+                    picked(action) => {
+                        menu.close();
+                        root.item-action(action);
+                    }
+                }
+                if root.menu-offers-remove: CardMenuOption {
+                    label: "Remove";
+                    action: "remove";
+                    rem-size: root.rem-size;
+                    picked(action) => {
+                        menu.close();
+                        root.item-action(action);
+                    }
+                }
             }
         }
     }
@@ -121,7 +472,11 @@ component MetaRow inherits Rectangle {
     in property <CatalogRow> catalog;
     in property <length> rem-size;
     in property <int> visible-items;
+    /// The window's box, for a card's action list.
+    in property <length> viewport-width;
+    in property <length> viewport-height;
     callback open-item(string, string, string);
+    callback item-action(string, string);
 
     property <float> poster-shape-ratio: root.catalog.shape == "square" ? 1.0
         : root.catalog.shape == "landscape" ? 0.5625 : 1.464;
@@ -204,8 +559,14 @@ component MetaRow inherits Rectangle {
             card: card;
             rem-size: root.rem-size;
             poster-shape-ratio: root.poster-shape-ratio;
+            menu-enabled: root.catalog.menu;
+            viewport-width: root.viewport-width;
+            viewport-height: root.viewport-height;
             clicked => {
                 root.open-item(card.item-id, card.kind, card.title);
+            }
+            item-action(action) => {
+                root.item-action(card.item-id, action);
             }
         }
     }
@@ -215,8 +576,12 @@ export component BoardContent inherits Rectangle {
     in property <[CatalogRow]> rows;
     in property <length> viewport-width;
     callback open-item(string, string, string);
+    callback item-action(string, string);
 
     property <length> rem-size: Theme.rem-size(root.viewport-width);
+    /// The window's height, as the Library content derives it: this box reaches the window's bottom
+    /// edge, so its own corner plus its height is the window's.
+    property <length> viewport-height: root.absolute-position.y + root.height;
     property <int> poster-items: root.viewport-width <= 800px ? 4
         : root.viewport-width <= 1000px ? 5
         : root.viewport-width <= 1300px ? 6
@@ -246,8 +611,13 @@ export component BoardContent inherits Rectangle {
                 rem-size: root.rem-size;
                 visible-items: entry.shape == "landscape" && root.poster-items < 10
                     ? root.poster-items - 1 : root.poster-items;
+                viewport-width: root.viewport-width;
+                viewport-height: root.viewport-height;
                 open-item(id, kind, title) => {
                     root.open-item(id, kind, title);
+                }
+                item-action(id, action) => {
+                    root.item-action(id, action);
                 }
             }
         }

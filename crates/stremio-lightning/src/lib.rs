@@ -77,15 +77,22 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let (runtime, events) = app::build::runtime(profile);
     let runtime = Arc::new(runtime);
 
-    let images = plumbing::images::Images::default();
+    // Inside the runtime: `Images` keeps its handle, because a repaint asks for pictures from the
+    // window's thread, where `tokio::spawn` has no runtime to reach for.
+    let images = tokio.block_on(async { plumbing::images::Images::default() });
     let local_extras = Arc::new(Mutex::new(screens::settings::LocalExtras::load(&data_dir)));
     let latest: Arc<Mutex<app::Snapshot>> = Default::default();
     let selected = Arc::new(AtomicUsize::new(0));
+    // The Discover cards on screen, until the grid says otherwise. A screenful and a bit, so the
+    // first frame of a catalog is never empty while the grid works its own range out.
+    let visible = Arc::new(Mutex::new((0, 24)));
     let season = Arc::new(AtomicUsize::new(screens::details::NO_SEASON));
     let picked: Arc<Mutex<Option<String>>> = Default::default();
     let video_query: Arc<Mutex<String>> = Default::default();
     let moved: Arc<Mutex<Option<(u32, u32)>>> = Default::default();
     let said: Arc<AtomicU64> = Default::default();
+    let player_season = Arc::new(AtomicUsize::new(screens::player::NO_SEASON));
+    let playback_error: Arc<Mutex<String>> = Default::default();
 
     let wiring = shell::wiring::Wiring {
         window: window.as_weak(),
@@ -94,6 +101,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         images: images.clone(),
         latest: latest.clone(),
         selected: selected.clone(),
+        visible: visible.clone(),
         season: season.clone(),
         picked: picked.clone(),
         video_query: video_query.clone(),
@@ -104,8 +112,26 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         server: server.clone(),
         auth: Default::default(),
         handle: tokio.handle().clone(),
+        player_season: player_season.clone(),
+        player_loaded: Default::default(),
+        playback_error: playback_error.clone(),
+        playback: Default::default(),
+        player_sync: Default::default(),
+        // Fires once the Discover grid has stopped moving, to fetch the row of cards either side of
+        // the screen. Started and restarted by the grid itself.
+        settle: Default::default(),
     };
     shell::wire(&window, wiring.clone());
+    // The wheel is taken from the window itself: left to a Slint Flickable it costs a whole
+    // animation, and a whole animation is a core.
+    shell::wheel::wire(&window);
+    // Playback news goes to the wiring, which is the only thing that knows both mpv and the
+    // core: it moves the window, tells the core where the play head is, and moves on to the
+    // next Video when a stream ends.
+    {
+        let wiring = wiring.clone();
+        video.listen(move |status| wiring.playback_changed(status));
+    }
 
     // The settings screen and the player start from whatever the profile already holds.
     if let Ok(model) = runtime.model() {
@@ -133,11 +159,14 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             images,
             latest,
             selected,
+            visible,
             season,
+            player_season,
             picked,
             video_query,
             moved,
             local_extras,
+            playback_error,
             auth: wiring.auth.clone(),
             repaint,
         },
@@ -145,6 +174,9 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     wiring.report_server_state(server.start());
     app::build::load_everything(&runtime);
+    // The same pulls the window repeats whenever it comes back to the front: the web does this
+    // once on mount too, so a mark made elsewhere is there before the first frame settles.
+    app::build::pull_from_api(&runtime);
     window.run()?;
     Ok(())
 }

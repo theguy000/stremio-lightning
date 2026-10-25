@@ -16,12 +16,14 @@ export struct LinkGroup {
     links: [string],
 }
 
-// Web: `.background-image` — `object-fit: cover` with `object-position: right`. Slint's own
-// `cover` crops evenly around the centre, which slides a wide artwork sideways by half the
-// overflow, so the scaled image is placed by hand with its right edge on the box's right edge.
+// Web: `.background-image` — `object-fit: cover`, with `object-position: right` on the details
+// route and `50% 50%` in the Discover panel. Slint's own `cover` crops evenly around the centre,
+// which slides a wide artwork sideways by half the overflow, so the scaled image is placed by hand.
 export component CoverRightImage inherits Rectangle {
     in property <image> source;
     in property <float> image-opacity: 0.3;
+    /// Web's `object-position: right` (the details page); the panel centres its picture instead.
+    in property <bool> align-right: true;
     clip: true;
 
     property <length> source-width: root.source.width * 1px;
@@ -33,7 +35,7 @@ export component CoverRightImage inherits Rectangle {
     property <length> drawn-height: root.source-height * root.fill-scale;
 
     if root.source-width > 0px && root.source-height > 0px: Image {
-        x: parent.width - root.drawn-width;
+        x: root.align-right ? parent.width - root.drawn-width : (parent.width - root.drawn-width) / 2;
         y: (parent.height - root.drawn-height) / 2;
         width: root.drawn-width;
         height: root.drawn-height;
@@ -55,6 +57,10 @@ export struct PreviewData {
     has-logo: bool,
     background: image,
     has-background: bool,
+    // Web: the details column's `backdrop-filter: blur(15px)`: the artwork behind the column,
+    // stored already blurred, because Slint cannot blur what is drawn under an element.
+    panel-backdrop: image,
+    has-panel-backdrop: bool,
 }
 
 // Web: .link-container inside MetaLinks.
@@ -158,16 +164,27 @@ component ImdbButton inherits Rectangle {
     }
 }
 
-// Web: .action-button-container, round (4rem) or wide with a label.
+// Web: .action-button-container, round (4rem) or wide with a label. Hovering empties the fill and
+// draws the web's 2px `--primary-foreground-color` outline; the Show button turns the secondary
+// accent instead of emptying.
 component ActionButton inherits Rectangle {
     in property <image> icon;
     in property <string> label;
+    /// Web: `tooltip={compact}` -- the label floats above the button and the button stays round.
+    in property <bool> tooltip: false;
+    /// Web: `.show-button:hover { background-color: var(--secondary-accent-color) }`.
+    in property <bool> accent-hover: false;
     in property <length> rem-size;
+    callback clicked;
+
     height: 4 * root.rem-size;
-    width: root.label == "" ? 4 * root.rem-size
+    width: root.label == "" || root.tooltip ? 4 * root.rem-size
         : 4 * root.rem-size + 1.75 * root.rem-size + root.rem-size + text.preferred-width + 0.4 * root.rem-size;
     border-radius: 4 * root.rem-size;
-    background: Theme.overlay;
+    background: !action-touch.has-hover ? Theme.overlay
+        : root.accent-hover ? Theme.accent-green : transparent;
+    border-width: action-touch.has-hover ? 2px : 0px;
+    border-color: Theme.text;
 
     icon-container := Image {
         source: root.icon;
@@ -175,11 +192,11 @@ component ActionButton inherits Rectangle {
         opacity: 0.9;
         width: 1.75 * root.rem-size;
         height: 1.75 * root.rem-size;
-        x: root.label == "" ? (parent.width - self.width) / 2 : 2 * root.rem-size;
+        x: root.label == "" || root.tooltip ? (parent.width - self.width) / 2 : 2 * root.rem-size;
         y: (parent.height - self.height) / 2;
     }
     text := Text {
-        visible: root.label != "";
+        visible: root.label != "" && !root.tooltip;
         x: 2 * root.rem-size + 1.75 * root.rem-size + root.rem-size + 0.2 * root.rem-size;
         height: parent.height;
         text: root.label;
@@ -188,6 +205,35 @@ component ActionButton inherits Rectangle {
         font-weight: 500;
         color: Theme.text;
         opacity: 0.9;
+    }
+
+    // Web's Tooltip at the top: a 2.5rem bubble in the modal colour, 0.75rem round with a faint
+    // glow of the accent, 1rem above the button and centred on it. Measured on web.stremio.com.
+    if root.tooltip && action-touch.has-hover: tooltip-bubble := Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: -3.5 * root.rem-size;
+        width: tooltip-label.preferred-width + 3 * root.rem-size;
+        height: 2.5 * root.rem-size;
+        border-radius: 0.75 * root.rem-size;
+        background: Theme.modal-background;
+        drop-shadow-color: #7b5bf55e;
+        drop-shadow-blur: 15px;
+
+        tooltip-label := Text {
+            x: 1.5 * root.rem-size;
+            height: parent.height;
+            vertical-alignment: center;
+            text: root.label;
+            font-size: root.rem-size;
+            color: Theme.text;
+        }
+    }
+
+    action-touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
     }
 }
 
@@ -207,6 +253,8 @@ export component MetaPreview inherits Rectangle {
     callback share;
     callback rate-like;
     callback rate-love;
+    /// The compact panel's Show pill: web navigates to the title's details route.
+    callback show;
 
     meta-preview-container := Rectangle {
         width: parent.width;
@@ -216,7 +264,10 @@ export component MetaPreview inherits Rectangle {
         border-bottom-left-radius: root.on-page ? 0px : 0.75 * root.rem-size;
         clip: true;
 
-        // Web: blurred at 10px. Slint has no blur, so the image is fetched tiny and scaled up smoothly.
+        // Web: `.background-image-layer` at -10px all round, its picture blurred at 10px and drawn
+        // at 0.3. The blur itself is made in the image cache (Slint has no filter), so the layer
+        // only has to scale it: the same picture at a tenth of the size was what made the panel
+        // look like a smear instead of artwork.
         if root.has-preview && root.preview.has-background && !root.on-page: background-image-layer := Rectangle {
             x: -10px;
             y: -10px;
@@ -227,6 +278,7 @@ export component MetaPreview inherits Rectangle {
                 width: parent.width;
                 height: parent.height;
                 source: root.preview.background;
+                align-right: false;
             }
         }
 
@@ -264,8 +316,9 @@ export component MetaPreview inherits Rectangle {
                             height: root.on-page ? parent.height : 6 * root.rem-size;
                             source: root.preview.logo;
                             image-fit: contain;
-                            // Web's logo sits at the content's left edge; `contain` alone centres it.
-                            horizontal-alignment: left;
+                            // The page keeps its logo on the content's left edge; the panel centres
+                            // the title, which is the only thing at its top.
+                            horizontal-alignment: root.on-page ? left : center;
                             vertical-alignment: root.on-page ? center : top;
                         }
                     }
@@ -277,6 +330,7 @@ export component MetaPreview inherits Rectangle {
                         color: Theme.text;
                         opacity: 0.9;
                         wrap: word-wrap;
+                        horizontal-alignment: root.on-page ? left : center;
                     }
                     // Web: `.logo { margin-bottom: 2rem }`.
                     Rectangle {
@@ -371,21 +425,27 @@ export component MetaPreview inherits Rectangle {
         // Web: `.action-buttons-container` — 3.5rem of padding over the 4rem buttons, and 1rem
         // under them. The row is pinned to the panel's bottom on the details route and to the
         // 2.5rem/2rem box in a floating preview.
+        //
+        // The two rows are not the same row. A compact panel has three buttons -- a round Trailer,
+        // the library pair and the wide Show pill -- spread across it (`justify-content:
+        // space-between`); the details route lays out from the start, 1rem apart, and adds the
+        // Ratings pair and Share, which a floating preview does not have. Painting the compact row
+        // as the details one put Share in it and pushed Show past the panel's edge, out of sight.
         if root.has-preview: action-buttons-container := HorizontalLayout {
             x: root.on-page ? 0px : 2.5 * root.rem-size;
             y: root.on-page ? parent.height - 8.5 * root.rem-size : parent.height - 7 * root.rem-size;
             width: root.on-page ? parent.width : parent.width - 5 * root.rem-size;
             height: root.on-page ? 8.5 * root.rem-size : 4 * root.rem-size;
             padding-top: root.on-page ? 3.5 * root.rem-size : 0px;
-            // Web groups these at the start of the row with a fixed gap; spreading them across
-            // the width is what made them read as three loose buttons.
-            alignment: start;
-            spacing: 1 * root.rem-size;
+            alignment: root.on-page ? start : space-between;
+            spacing: root.on-page ? 1 * root.rem-size : 0px;
 
             if root.preview.has-trailer: action-button-container := ActionButton {
                 icon: @image-url("icons/trailer.svg");
-                // Web labels this one; the rest of the row is icon-only.
+                // Web labels this one on the details route; a compact panel keeps the round button
+                // and floats the word above it on hover.
                 label: "Trailer";
+                tooltip: !root.on-page;
                 rem-size: root.rem-size;
             }
             group-container := Rectangle {
@@ -414,12 +474,12 @@ export component MetaPreview inherits Rectangle {
                 }
             }
             // Web: `Ratings` — a like and a love in one pill, each filled while it is set and dim
-            // until the core has said which (if either) the title carries.
+            // until the core has said which (if either) the title carries. The details route only.
             //
             // Two 4rem cells, at 0 and at 4rem: the hover circle, the glyph and the target of a
             // half all measure from their own cell, never from the pill. Measuring from the pill
             // is what put the like's circle in the middle of it, under the gap between the two.
-            if root.rate-visible: rate-container := Rectangle {
+            if root.rate-visible && root.on-page: rate-container := Rectangle {
                 width: 8 * root.rem-size;
                 height: 4 * root.rem-size;
                 // A stadium: the radius is half the height, so the ends are true semicircles.
@@ -486,7 +546,9 @@ export component MetaPreview inherits Rectangle {
                     }
                 }
             }
-            share-button := Rectangle {
+            // Web: Share is `!compact` only -- a floating preview has no share button, and the
+            // circle it used to draw here is one of the two that pushed Show out of the panel.
+            if root.on-page: share-button := Rectangle {
                 width: 4 * root.rem-size;
                 height: 4 * root.rem-size;
                 border-radius: 2 * root.rem-size;
@@ -514,7 +576,11 @@ export component MetaPreview inherits Rectangle {
             if !root.on-page: show-button := ActionButton {
                 icon: @image-url("icons/play.svg");
                 label: "Show";
+                accent-hover: true;
                 rem-size: root.rem-size;
+                clicked => {
+                    root.show();
+                }
             }
         }
     }
