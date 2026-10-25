@@ -117,6 +117,9 @@ pub(crate) struct Wiring {
     /// Restarted by the Discover grid every time it moves; fires when it has stopped, which is when
     /// the row of cards either side of the screen is fetched.
     pub(crate) settle: Arc<Timer>,
+    /// What the library looked like when the Calendar last loaded: how many items, and the
+    /// newest of them. A visit with the same signature reuses the month already in the model.
+    pub(crate) calendar_library: Arc<Mutex<Option<calendar::LibrarySignature>>>,
 }
 
 /// Where the picture is, as the player last heard it. The core is told about the play head once
@@ -852,18 +855,25 @@ impl Wiring {
         }
     }
 
-    /// Web: `useCalendar` loads the month when the route mounts. Nothing is loaded at startup,
-    /// because the library the core reads for it may not have synced yet and the request is only
-    /// ever made once -- an empty library would leave the Calendar empty for good.
+    /// Web: `useCalendar` loads the month when the route mounts, and it does so every time --
+    /// the library it reads may have grown since the last visit, and a Calendar built before a
+    /// title arrived would never show that title's Episodes. Asking every addon again on a visit
+    /// where nothing has changed would be wasted work, so the month is re-loaded only when the
+    /// library is not the one the current month was built from.
     fn calendar_shown(&self) {
         let Ok(model) = self.runtime.model() else {
             return;
         };
-        let empty = model.calendar.meta_items.is_empty();
+        let signature = calendar::library_signature(&model);
+        let loaded = *self.calendar_library.lock().unwrap();
+        let stale = calendar::needs_load(loaded, signature, model.calendar.meta_items.is_empty());
+        let selected = model.calendar.selected.clone();
         drop(model);
-        if empty {
-            calendar::load(&self.runtime, None);
+        if !stale {
+            return;
         }
+        *self.calendar_library.lock().unwrap() = Some(signature);
+        calendar::load(&self.runtime, selected.map(|held| (held.year, held.month)));
     }
 
     /// One press of the selector's arrows.

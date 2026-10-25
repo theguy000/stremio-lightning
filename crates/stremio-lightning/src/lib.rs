@@ -120,6 +120,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         // Fires once the Discover grid has stopped moving, to fetch the row of cards either side of
         // the screen. Started and restarted by the grid itself.
         settle: Default::default(),
+        calendar_library: Default::default(),
     };
     shell::wire(&window, wiring.clone());
     // The wheel is taken from the window itself: left to a Slint Flickable it costs a whole
