@@ -29,6 +29,8 @@ component ShareTarget inherits Rectangle {
         image-fit: contain;
     }
     touch := TouchArea {
+        width: 100%;
+        height: 100%;
         mouse-cursor: pointer;
         clicked => {
             root.clicked();
@@ -43,8 +45,21 @@ export component ShareModal inherits Rectangle {
     callback copied;
     callback opened(string);
 
-    // Web: `.modal-container` — the whole window, 0.4 black, whatever is under it stays put.
-    background: #00000066;
+    // Web: `.modal-container` — the whole window, `@color-background-dark5-40`: the app's own
+    // background at 40%, so what is under it dims rather than turning to soot.
+    background: #0c0b1166;
+
+    // Web: `ModalDialog` closes on a mousedown on `.modal-container` -- anywhere but the dialog.
+    // This is that target, and it does a second job the web gets for free: a Slint `TouchArea`
+    // only takes what it covers, so without it a press beside the dialog fell straight through to
+    // the addon card underneath and opened *its* dialog the moment this one closed.
+    backdrop-touch := TouchArea {
+        width: 100%;
+        height: 100%;
+        clicked => {
+            root.closed();
+        }
+    }
 
     // Web: `.modal-dialog-container` — 0.75rem radius, the modal background, 2rem of side padding.
     // Its height is the sum of what is inside it: the 4.5rem title, the body's 2rem padding top and
@@ -55,8 +70,13 @@ export component ShareModal inherits Rectangle {
         height: 18.4 * root.rem-size;
         x: (parent.width - self.width) / 2;
         y: (parent.height - self.height) / 2;
-        background: Theme.modal-background;
+        background: #0f0d20;
         border-radius: 0.75 * root.rem-size;
+        // Web: `.modal-dialog-container`'s `box-shadow: var(--outer-glow)` -- `0 0 15px
+        // rgba(123, 91, 245, 0.37)`. Without it the panel is a dark navy rectangle on a dark navy
+        // page and reads as a hole in the screen rather than as a dialog over it.
+        drop-shadow-color: #7b5bf55e;
+        drop-shadow-blur: 15px;
 
         // Web: `.title-container` — 4.5rem tall, 1.2rem, medium.
         Text {
@@ -89,6 +109,8 @@ export component ShareModal inherits Rectangle {
                 opacity: close-touch.has-hover ? 1 : 0.4;
             }
             close-touch := TouchArea {
+                width: 100%;
+                height: 100%;
                 mouse-cursor: pointer;
                 clicked => {
                     root.closed();
@@ -155,6 +177,8 @@ export component ShareModal inherits Rectangle {
                 vertical-alignment: center;
             }
             TouchArea {
+                width: parent.width - 8 * root.rem-size;
+                height: parent.height;
                 clicked => {
                     // Taking the link is all this does: the end is beyond the text, so the whole
                     // link is selected whatever its length. Copying stays with the button beside
@@ -198,6 +222,8 @@ export component ShareModal inherits Rectangle {
                     }
                 }
                 copy-touch := TouchArea {
+                    width: 100%;
+                    height: 100%;
                     mouse-cursor: pointer;
                     clicked => {
                         root.copied();
