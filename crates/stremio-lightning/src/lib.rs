@@ -114,6 +114,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         handle: tokio.handle().clone(),
         player_season: player_season.clone(),
         player_loaded: Default::default(),
+        player_attempted: Default::default(),
         playback_error: playback_error.clone(),
         playback: Default::default(),
         player_sync: Default::default(),

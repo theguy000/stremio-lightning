@@ -170,6 +170,9 @@ struct Player {
     render: RenderContext,
     mpv: Mpv,
     gl: Gl,
+    /// Where a freshly loaded stream should jump to once it is really open. A seek sent before
+    /// the file opens is refused by mpv, so the resume position is held here until `FileLoaded`.
+    pending_resume: Option<f64>,
 }
 
 impl Player {
@@ -228,6 +231,7 @@ impl Player {
             render,
             mpv,
             gl: Gl::new(lookup),
+            pending_resume: None,
         })
     }
 
@@ -476,13 +480,18 @@ impl VideoPlayer {
                 ..Status::default()
             };
         }
-        self.command("loadfile", &[url, "replace"])?;
-        // A stream always starts playing, whatever pause a previous one was left in.
-        self.set_paused(false)?;
-        // The seek queues behind the load, so mpv lands on the right second once the file opens.
-        if resume_at > 0.0 {
-            self.seek(resume_at)?;
+        // The resume position is held until mpv says the file is open, not sent as a seek straight
+        // after the load: a seek while the stream is still opening is refused with
+        // MPV_ERROR_LOADING_FAILED -- "the stream could not be opened", about a stream that is
+        // perfectly fine. That phantom failure used to send the caller round its retry loop, which
+        // reloaded the stream every 200ms, each load cancelling the one before it.
+        if let Some(player) = self.player.borrow_mut().as_mut() {
+            player.pending_resume = (resume_at > 0.0).then_some(resume_at);
         }
+        self.command("loadfile", &[url, "replace"])?;
+        // A stream always starts playing, whatever pause a previous one was left in. Not worth
+        // failing the load over: at worst the first picture waits for a press.
+        let _ = self.set_paused(false);
         Ok(())
     }
 
@@ -492,7 +501,10 @@ impl VideoPlayer {
     }
 
     pub(crate) fn set_paused(&self, paused: bool) -> Result<(), String> {
-        self.with(|mpv| mpv.set_property("pause", paused).map_err(|e| e.to_string()))
+        self.with(|mpv| {
+            mpv.set_property("pause", paused)
+                .map_err(|e| e.to_string())
+        })
     }
 
     /// Moves the play head. mpv seeks to an absolute second and lands exactly there.
@@ -631,6 +643,12 @@ fn drain_events(player: &mut Player, status: &mut Status) {
             Event::FileLoaded => {
                 status.loaded = true;
                 status.error.clear();
+                // The tab is open now, so the resume seek can land: this is the first moment mpv
+                // will take one.
+                if let Some(at) = player.pending_resume.take() {
+                    let seconds = format!("{at:.3}");
+                    let _ = player.mpv.command("seek", &[&seconds, "absolute+exact"]);
+                }
                 // Autoplay, once the file is really open: a press that starts the load and a
                 // release that lands on the new screen must not leave the picture paused.
                 let _ = player.mpv.set_property("pause", false);
@@ -658,5 +676,41 @@ fn drain_events(player: &mut Player, status: &mut Status) {
             }
             _ => {}
         }
+    }
+}
+
+/// Whether a stream still needs handing to mpv. A stream already open needs nothing done, and one
+/// that has already been refused must not be loaded again: every reload cancels the attempt already
+/// in flight, so retrying on a timer guarantees the failure it is reacting to.
+pub(crate) fn should_open(key: &str, loaded: &str, attempted: Option<&str>) -> bool {
+    key != loaded && Some(key) != attempted
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_open;
+
+    #[test]
+    fn a_stream_already_open_is_left_alone() {
+        assert!(!should_open("a", "a", None));
+    }
+
+    #[test]
+    fn a_stream_that_failed_is_not_retried() {
+        // The timer fires five times a second; retrying here would reload the address and abort
+        // the open that is still in flight.
+        assert!(!should_open("a", "", Some("a")));
+    }
+
+    #[test]
+    fn another_stream_is_opened() {
+        assert!(should_open("b", "a", Some("a")));
+    }
+
+    #[test]
+    fn closing_the_player_allows_the_same_stream_again() {
+        // The shell clears what it attempted when the player closes, so pressing Play again is a
+        // fresh request rather than a repeat of the failure.
+        assert!(should_open("a", "", None));
     }
 }

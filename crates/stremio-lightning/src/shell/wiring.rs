@@ -111,6 +111,10 @@ pub(crate) struct Wiring {
     /// and how far through it is.
     pub(crate) player_season: Arc<AtomicUsize>,
     pub(crate) player_loaded: Arc<Mutex<String>>,
+    /// The stream mpv was last asked for and refused. Without it the sync timer reads a failed
+    /// play as "not loaded yet" and reloads the same address five times a second, each load
+    /// cancelling the one before it -- so a stream that needed a moment to open never got one.
+    pub(crate) player_attempted: Arc<Mutex<Option<String>>>,
     pub(crate) playback_error: Arc<Mutex<String>>,
     pub(crate) playback: Arc<Mutex<Playback>>,
     pub(crate) player_sync: Arc<Timer>,
@@ -1167,6 +1171,7 @@ pub(crate) fn start_player_sync(wiring: &Wiring) {
     );
     let runtime = wiring.runtime.clone();
     let loaded = wiring.player_loaded.clone();
+    let attempted = wiring.player_attempted.clone();
     let playback = wiring.playback.clone();
     let error = wiring.playback_error.clone();
     wiring.player_sync.start(
@@ -1176,9 +1181,15 @@ pub(crate) fn start_player_sync(wiring: &Wiring) {
             let data = latest.lock().unwrap().player.clone();
             if !data.open {
                 video.show(false);
+                // Closed: the next Play is a fresh request, even for the stream that just failed.
+                *attempted.lock().unwrap() = None;
                 return;
             }
-            if data.key == *loaded.lock().unwrap() {
+            if !crate::plumbing::player::should_open(
+                &data.key,
+                &loaded.lock().unwrap(),
+                attempted.lock().unwrap().as_deref(),
+            ) {
                 return;
             }
             let Some(url) = data.url.clone() else {
@@ -1221,6 +1232,9 @@ pub(crate) fn start_player_sync(wiring: &Wiring) {
                     });
                 }
                 Err(message) => {
+                    // One attempt per address. The stream may well have opened a moment later,
+                    // but reloading it five times a second guarantees it never does.
+                    *attempted.lock().unwrap() = Some(data.key.clone());
                     let _ = window.upgrade_in_event_loop(move |window| {
                         window.set_player_error(format!("Can't play this stream: {message}").into())
                     });
