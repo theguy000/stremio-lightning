@@ -617,6 +617,10 @@ export component PlayerScreen inherits Rectangle {
     in property <[string]> subtitle-languages;
     /// The language of the track that is playing, for the dot in the Languages column.
     in property <string> subtitle-language;
+    /// The tracks of the language the Variants column is showing, filtered by the shell: a row
+    /// that is merely hidden would still hold its place and leave a gap.
+    in property <[PlayerTrack]> subtitle-variants;
+    callback browse-subtitles(string);
     /// The language whose variants the middle column is showing. Set when the menu opens.
     property <string> browse-language;
     in property <bool> fullscreen;
@@ -1298,6 +1302,7 @@ export component PlayerScreen inherits Rectangle {
                 clicked => {
                     root.menu = root.menu == "subtitles" ? "" : "subtitles";
                     root.browse-language = root.subtitle-language;
+                    root.browse-subtitles(root.subtitle-language);
                     root.drawer-open = false;
                 }
             }
@@ -1520,7 +1525,6 @@ export component PlayerScreen inherits Rectangle {
                                 label: "Off";
                                 selected: !root.subtitles-enabled;
                                 clicked => {
-                                    root.browse-language = "";
                                     root.toggle-subtitles();
                                 }
                             }
@@ -1530,6 +1534,7 @@ export component PlayerScreen inherits Rectangle {
                                 selected: root.subtitles-enabled && language == root.subtitle-language;
                                 clicked => {
                                     root.browse-language = language;
+                                    root.browse-subtitles(language);
                                 }
                             }
                         }
@@ -1552,9 +1557,8 @@ export component PlayerScreen inherits Rectangle {
                             padding-right: 1 * root.rem-size;
                             padding-bottom: 1 * root.rem-size;
                             alignment: start;
-                            for track in root.subtitle-tracks: VariantRow {
+                            for track in root.subtitle-variants: VariantRow {
                                 rem-size: root.rem-size;
-                                visible: track.language == root.browse-language;
                                 title: track.title;
                                 origin: track.external ? "External" : "Embedded";
                                 selected: track.selected;
@@ -2211,6 +2215,7 @@ export component PlayerScreen inherits Rectangle {
             activated => {
                 root.menu = root.menu == "subtitles" ? "" : "subtitles";
                 root.browse-language = root.subtitle-language;
+                root.browse-subtitles(root.subtitle-language);
                 root.drawer-open = false;
             }
         }

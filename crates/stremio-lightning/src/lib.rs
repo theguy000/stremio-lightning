@@ -123,6 +123,10 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         settle: Default::default(),
         calendar_library: Default::default(),
         board_catalogs: Default::default(),
+        shown_tracks: Default::default(),
+        subtitle_choice: Default::default(),
+        subtitle_browse: Default::default(),
+        subtitle_auto: Default::default(),
     };
     shell::wire(&window, wiring.clone());
     // The wheel is taken from the window itself: left to a Slint Flickable it costs a whole

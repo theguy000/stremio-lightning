@@ -672,10 +672,176 @@ pub(crate) fn download_link(player: &Player) -> Option<String> {
     }
 }
 
+/// What the viewer has said about subtitles in this player session. The web keeps the same thing
+/// in the core's `SubtitlePreference` (`enabled`, `source`, `language`) and gives it priority over
+/// the profile's preferred language until the player closes.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SubtitleChoice {
+    /// The viewer has picked a track or switched subtitles off themselves, so auto-selection must
+    /// not overrule them.
+    pub chosen: bool,
+    pub enabled: bool,
+    /// The picked track came from a file beside the video rather than from inside it.
+    pub external: bool,
+    pub language: Option<String>,
+}
+
+impl SubtitleChoice {
+    /// The web's `disableSubtitles`: remember that they are off, and which language and side they
+    /// were on, so switching them back on returns to the same place.
+    pub fn off(self) -> Self {
+        Self {
+            chosen: true,
+            enabled: false,
+            ..self
+        }
+    }
+
+    /// The web's `rememberTrack`.
+    pub fn picked(language: &str, external: bool) -> Self {
+        Self {
+            chosen: true,
+            enabled: true,
+            external,
+            language: Some(language.to_owned()).filter(|language| !language.is_empty()),
+        }
+    }
+}
+
+/// One subtitle track as mpv describes it, in the two facts the choice is made from.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SubtitleTrackFacts {
+    pub id: String,
+    pub language: String,
+    pub external: bool,
+}
+
+/// Which subtitle track to start on, following stremio-web's `useSubtitles`:
+/// `buildCandidates` orders the languages it will accept -- the session's language, then the
+/// profile's preferred language, then English -- and, within each language, prefers the side the
+/// viewer last used (embedded unless they picked an external track); `resolveBestCandidate` takes
+/// the first of those that a track actually exists for. No match means no subtitles, which is what
+/// the web does too: it leaves both track ids null rather than guessing.
+pub fn auto_subtitle(
+    tracks: &[SubtitleTrackFacts],
+    choice: &SubtitleChoice,
+    preferred_language: &str,
+) -> Option<String> {
+    if choice.chosen && !choice.enabled {
+        return None;
+    }
+    let mut languages: Vec<String> = Vec::new();
+    let mut push = |language: Option<&str>| {
+        if let Some(language) = language.map(str::trim).filter(|language| !language.is_empty()) {
+            if !languages.iter().any(|seen| same_language(seen, language)) {
+                languages.push(language.to_owned());
+            }
+        }
+    };
+    if choice.chosen {
+        push(choice.language.as_deref());
+    }
+    push(Some(preferred_language));
+    if choice.chosen {
+        // CONSTANTS.DEFAULT_SUBTITLES_LANGUAGE.
+        push(Some("eng"));
+    }
+    let sources = if choice.chosen && choice.external {
+        [true, false]
+    } else {
+        [false, true]
+    };
+    for language in &languages {
+        for external in sources {
+            if let Some(track) = tracks
+                .iter()
+                .find(|track| track.external == external && same_language(&track.language, language))
+            {
+                return Some(track.id.clone());
+            }
+        }
+    }
+    None
+}
+
+/// mpv reports `eng` where the profile may hold `en` (and the other way round), so a two-letter
+/// code matches the three-letter one it is the prefix of. Anything else has to match outright.
+fn same_language(left: &str, right: &str) -> bool {
+    let left = left.trim().to_ascii_lowercase();
+    let right = right.trim().to_ascii_lowercase();
+    if left.is_empty() || right.is_empty() {
+        return false;
+    }
+    left == right
+        || (left.len() == 2 && right.starts_with(&left))
+        || (right.len() == 2 && left.starts_with(&right))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use stremio_core::types::resource::Stream;
+
+    fn track(id: &str, language: &str, external: bool) -> SubtitleTrackFacts {
+        SubtitleTrackFacts {
+            id: id.to_owned(),
+            language: language.to_owned(),
+            external,
+        }
+    }
+
+    #[test]
+    fn the_profile_language_is_chosen_before_english() {
+        let tracks = [track("1", "ger", false), track("2", "eng", false)];
+        let choice = SubtitleChoice::default();
+        assert_eq!(auto_subtitle(&tracks, &choice, "ger").as_deref(), Some("1"));
+    }
+
+    #[test]
+    fn embedded_wins_over_an_extra_file_in_the_same_language() {
+        let tracks = [track("7", "eng", true), track("3", "eng", false)];
+        let choice = SubtitleChoice::default();
+        assert_eq!(auto_subtitle(&tracks, &choice, "eng").as_deref(), Some("3"));
+    }
+
+    #[test]
+    fn the_viewers_own_pick_outranks_the_profile() {
+        // They chose German earlier in this session; the profile still says English.
+        let tracks = [track("1", "eng", false), track("2", "ger", false)];
+        let choice = SubtitleChoice::picked("ger", false);
+        assert_eq!(auto_subtitle(&tracks, &choice, "eng").as_deref(), Some("2"));
+    }
+
+    #[test]
+    fn a_pick_from_an_extra_file_is_found_again() {
+        let tracks = [track("5", "eng", false), track("9", "eng", true)];
+        let choice = SubtitleChoice::picked("eng", true);
+        assert_eq!(auto_subtitle(&tracks, &choice, "eng").as_deref(), Some("9"));
+    }
+
+    #[test]
+    fn switching_them_off_leaves_them_off() {
+        let tracks = [track("1", "eng", false)];
+        let choice = SubtitleChoice::picked("eng", false).off();
+        assert_eq!(auto_subtitle(&tracks, &choice, "eng"), None);
+    }
+
+    #[test]
+    fn english_is_the_last_resort_only_when_the_viewer_chose() {
+        let tracks = [track("1", "eng", false)];
+        // Nothing in the profile, nothing chosen: the web sets no track at all.
+        assert_eq!(auto_subtitle(&tracks, &SubtitleChoice::default(), ""), None);
+        // With a pick on record, English is tried after the picked language.
+        let choice = SubtitleChoice::picked("ger", false);
+        assert_eq!(auto_subtitle(&tracks, &choice, "").as_deref(), Some("1"));
+    }
+
+    #[test]
+    fn a_two_letter_code_matches_the_three_letter_track() {
+        let tracks = [track("1", "eng", false)];
+        let choice = SubtitleChoice::default();
+        assert_eq!(auto_subtitle(&tracks, &choice, "en").as_deref(), Some("1"));
+    }
 
     #[test]
     fn a_request_for_another_video_keeps_the_addon_and_the_type() {
