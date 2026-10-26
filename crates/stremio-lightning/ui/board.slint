@@ -73,7 +73,13 @@ export component MetaItem inherits Rectangle {
     /// Set by a card that draws its link larger than this one, such as the Library tile.
     in property <bool> hovered-by-owner: false;
     /// Whether the pointer is on the card, for the action-menu button and the ring.
-    out property <bool> is-hovered: root.hovered-by-owner || card-touch.has-hover;
+    /// The web keeps one `hovered` class on the whole `.meta-item-container`, set from a pointer
+    /// listener on that container, so the card stays hovered while the pointer is on any of its own
+    /// controls. Here the controls are separate touch areas drawn over the card -- each one takes
+    /// the hover from the card's own -- so each is named too, or the poster's outline and the ✕
+    /// would flicker off the moment the pointer reached them.
+    out property <bool> is-hovered: root.hovered-by-owner || card-touch.has-hover
+        || play-touch.has-hover || dismiss-touch.has-hover || menu-touch.has-hover;
     callback clicked();
     /// The pointer came to rest on this card. The Discover panel asks for the card's pictures
     /// then, so opening it does not have to wait for a download.
@@ -358,7 +364,8 @@ export component MetaItem inherits Rectangle {
     // whenever the title has a Stream at hand. Its ring is the foreground colour inset by 0.15rem;
     // under the pointer the ring turns transparent and the circle fills with the accent colour,
     // and the poster behind it scales to 1.05 (which it already does for any hovered card).
-    if root.card.playable: play-button := Rectangle {
+    play-button := Rectangle {
+        visible: root.card.playable;
         x: root.rem-size + (root.width - 2 * root.rem-size) / 2 - 2 * root.rem-size;
         y: root.rem-size + (root.width - 2 * root.rem-size) * root.poster-shape-ratio / 2
             - 2 * root.rem-size;
@@ -400,20 +407,24 @@ export component MetaItem inherits Rectangle {
     // Web: `<MetaItem>`'s `.dismiss-icon-layer` -- a 1.5rem circle 0.5rem in from the poster's
     // top-left, `opacity: 0` and out of reach until the card is hovered. Only the Continue
     // Watching item passes `onDismissClick`, so only its cards draw one.
-    if root.dismissable: dismiss-button := Rectangle {
+    dismiss-button := Rectangle {
+        visible: root.dismissable;
         x: root.rem-size + 0.5 * root.rem-size;
         y: root.rem-size + 0.5 * root.rem-size;
         width: 1.5 * root.rem-size;
         height: self.width;
         opacity: root.is-hovered ? 1.0 : 0.0;
 
-        // `.dismiss-icon-backdrop`: the page colour at 0.6 behind a white glyph at 0.8.
+        // `.dismiss-icon-backdrop`: the page colour at 0.6 behind a white glyph at 0.8. Under the
+        // pointer the disc goes more solid and the glyph to full white -- the web never brightens
+        // either, but the ✕ is one control among a poster's worth of them and it should read as
+        // one, and as the one that is about to be pressed.
         Rectangle {
             width: parent.width;
             height: parent.height;
             border-radius: self.width / 2;
             background: Theme.background;
-            opacity: 0.6;
+            opacity: dismiss-touch.has-hover ? 0.85 : 0.6;
         }
 
         Image {
@@ -423,7 +434,7 @@ export component MetaItem inherits Rectangle {
             height: self.width;
             source: @image-url("icons/close.svg");
             colorize: Theme.text;
-            opacity: 0.8;
+            opacity: dismiss-touch.has-hover ? 1.0 : 0.8;
         }
 
         dismiss-touch := TouchArea {
