@@ -570,14 +570,7 @@ impl VideoPlayer {
         title: &str,
         language: &str,
     ) -> Result<(), String> {
-        let mut arguments = vec!["file", url, "select"];
-        if !title.is_empty() || !language.is_empty() {
-            arguments.push(title);
-        }
-        if !language.is_empty() {
-            arguments.push(language);
-        }
-        self.command("sub-add", &arguments)
+        self.command("sub-add", &sub_add_arguments(url, title, language))
     }
 
     pub(crate) fn set_subtitles_scale(&self, scale: f64) -> Result<(), String> {
@@ -722,9 +715,25 @@ pub(crate) fn should_open(key: &str, loaded: &str, attempted: Option<&str>) -> b
     key != loaded && Some(key) != attempted
 }
 
+/// mpv's `sub-add <url> [<flags> [<title> [<lang>]]]`: `select` as the flags so the new track is
+/// the one playing, then the name and language the addon declared, so the row that appears
+/// afterwards is the one the viewer pressed. Anything else in front of the URL is read *as* the
+/// flags and the command is refused -- "argument flags can't be parsed" -- which is how every
+/// addon subtitle went missing while a stray `file` sat there.
+pub(crate) fn sub_add_arguments<'a>(url: &'a str, title: &'a str, language: &'a str) -> Vec<&'a str> {
+    let mut arguments = vec![url, "select"];
+    if !title.is_empty() || !language.is_empty() {
+        arguments.push(title);
+    }
+    if !language.is_empty() {
+        arguments.push(language);
+    }
+    arguments
+}
+
 #[cfg(test)]
 mod tests {
-    use super::should_open;
+    use super::{should_open, sub_add_arguments};
 
     #[test]
     fn a_stream_already_open_is_left_alone() {
@@ -748,5 +757,30 @@ mod tests {
         // The shell clears what it attempted when the player closes, so pressing Play again is a
         // fresh request rather than a repeat of the failure.
         assert!(should_open("a", "", None));
+    }
+
+    #[test]
+    fn an_added_subtitle_is_named_and_language_tagged() {
+        assert_eq!(
+            sub_add_arguments("https://example.com/1.srt", "Deutsch", "ger"),
+            vec!["https://example.com/1.srt", "select", "Deutsch", "ger"]
+        );
+    }
+
+    #[test]
+    fn a_subtitle_with_only_a_language_carries_a_blank_title() {
+        assert_eq!(
+            sub_add_arguments("https://example.com/1.srt", "", "ger"),
+            vec!["https://example.com/1.srt", "select", "", "ger"]
+        );
+    }
+
+    #[test]
+    fn the_flags_come_straight_after_the_url() {
+        // mpv reads the argument after the URL as its flags and refuses anything but select,
+        // auto or cached; a word there used to cost every addon subtitle its load.
+        let arguments = sub_add_arguments("https://example.com/1.srt", "Deutsch", "ger");
+        assert_eq!(arguments[1], "select");
+        assert!(!arguments.contains(&"file"));
     }
 }
