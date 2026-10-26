@@ -303,6 +303,7 @@ fn addon_pending(
         has_logo: logo.is_some(),
         logo: logo.unwrap_or_default(),
         ready: pending.ready,
+        configuration_required: pending.configuration_required,
         installed: pending.installed,
         error: pending.error.clone().into(),
     }

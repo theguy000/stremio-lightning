@@ -677,6 +677,11 @@ export component MainWindow inherits Window {
         add-install => {
             root.addon-add-install();
         }
+        add-configure(url) => {
+            // An addon that must be set up first has no manifest to add yet: pressing Configure
+            // opens its own page, exactly as the same card's Configure pill does.
+            root.addon-configure(url);
+        }
         add-close => {
             root.addon-add-close();
         }

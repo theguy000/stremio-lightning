@@ -141,16 +141,24 @@ fn community_addons(booted: &stremio_lightning::Booted) -> Result<Vec<Offered>, 
         .collect())
 }
 
-/// The dialog's one button while a manifest is in hand, whether it offers to install it or to
-/// put it back. Whose addon it names is left out on purpose: an addon may answer with a manifest
-/// whose name is not the one the catalog listed it under.
-fn dialog_install_label(window: &MainWindow) -> Result<String, String> {
+/// The dialog's one button, by what it currently offers. The addon's name is left out on purpose:
+/// an addon may answer with a manifest whose name is not the one the catalog listed it under.
+fn dialog_button(window: &MainWindow, offers: &str) -> Result<String, String> {
     ui_driver::labels(window)
         .into_iter()
-        .find(|label| {
-            label.starts_with("Install the addon: ") || label.starts_with("Reinstall the addon: ")
-        })
-        .ok_or_else(|| "the dialog is not offering an install".to_owned())
+        .find(|label| label.starts_with(offers))
+        .ok_or_else(|| format!("the dialog is not offering {offers:?}"))
+}
+
+/// The button that takes the addon -- Install, or Reinstall once the account already has it.
+fn dialog_install_label(window: &MainWindow) -> Result<String, String> {
+    dialog_button(window, "Install the addon: ")
+        .or_else(|_| dialog_button(window, "Reinstall the addon: "))
+}
+
+/// Where an addon that has to be configured keeps its page: the web opens this, not an install.
+fn configure_page(transport_url: &str) -> String {
+    transport_url.replace("manifest.json", "configure")
 }
 
 /// Whether an addon's manifest answers, and with what.
@@ -296,6 +304,12 @@ fn the_community_list_installs_and_every_addon_answers() {
     }
 
     // ---- press Add addon, paste the URL, press Install ---------------------------------------
+    // Nothing on the machine running this opens: the app's one door for a web page is watched.
+    static OPENED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+    stremio_lightning::links::watch(Some(Box::new(|url| {
+        OPENED.lock().unwrap().push(url.to_owned())
+    })));
+
     let mut steps: Vec<Step> = Vec::new();
     let mut previous = String::new();
     for addon in &live {
@@ -328,35 +342,63 @@ fn the_community_list_installs_and_every_addon_answers() {
             }),
         });
         let reads = name.clone();
-        steps.push(Step::Wait {
-            what: "the manifest arrives and the dialog offers Install",
-            budget: Duration::from_secs(40),
-            check: Box::new(move |window: &MainWindow| match dialog_install_label(window) {
-                Ok(label) => Ok(format!("{reads} reads as {label:?}")),
-                Err(error) => Err(error),
-            }),
-        });
-        steps.push(Step::ClickLabel(
-            "the dialog's Install is pressed",
-            Box::new(dialog_install_label),
-        ));
-        let written = name.clone();
         let url_for_check = url.clone();
+        let written = name.clone();
         if addon.configuration_required {
-            // The web never installs one of these either: its card reads Configure and opens the
-            // addon's own page. The core refuses the install, so the profile must not grow.
-            steps.push(Step::Pause(1500));
+            // Web: `Addon.js` offers Configure, not Install, for an addon that asks to be set up
+            // first -- and pressing it opens the addon's own page, where the settings and the
+            // install link are. Nothing joins the account from here.
+            steps.push(Step::Wait {
+                what: "the dialog offers Configure, not Install",
+                budget: Duration::from_secs(40),
+                check: Box::new(move |window: &MainWindow| {
+                    match dialog_button(window, "Configure the addon: ") {
+                        Ok(label) => Ok(format!("{reads} reads as {label:?}")),
+                        Err(error) => Err(error),
+                    }
+                }),
+            });
+            steps.push(Step::ClickLabel(
+                "the dialog's Configure is pressed",
+                Box::new(|window: &MainWindow| dialog_button(window, "Configure the addon: ")),
+            ));
+            let page = configure_page(&url);
+            steps.push(Step::Pause(400));
             steps.push(Step::Expect(
-                "an addon that must be configured is not installed",
+                "its own page opens, where it is set up",
+                Box::new(move |_: &MainWindow| {
+                    if OPENED.lock().unwrap().iter().any(|opened| *opened == page) {
+                        Ok(page.clone())
+                    } else {
+                        Err(format!("nothing opened {page}"))
+                    }
+                }),
+            ));
+            steps.push(Step::Expect(
+                "it is not added to the account unconfigured",
                 Box::new(move |_: &MainWindow| {
                     if installed_on_disk(&folder).contains(&url_for_check) {
-                        Err(format!("{written} was installed unconfigured"))
+                        Err(format!("{written} was installed anyway"))
                     } else {
-                        Ok("refused, as the core does".to_owned())
+                        Ok("not installed, as the web does".to_owned())
                     }
                 }),
             ));
         } else {
+            steps.push(Step::Wait {
+                what: "the manifest arrives and the dialog offers Install",
+                budget: Duration::from_secs(40),
+                check: Box::new(move |window: &MainWindow| {
+                    match dialog_install_label(window) {
+                        Ok(label) => Ok(format!("{reads} reads as {label:?}")),
+                        Err(error) => Err(error),
+                    }
+                }),
+            });
+            steps.push(Step::ClickLabel(
+                "the dialog's Install is pressed",
+                Box::new(dialog_install_label),
+            ));
             steps.push(Step::Wait {
                 what: "the addon joins the profile on disk",
                 budget: Duration::from_secs(40),
@@ -379,6 +421,7 @@ fn the_community_list_installs_and_every_addon_answers() {
     } else {
         outcomes.extend(ui_driver::run(window, steps));
     }
+    stremio_lightning::links::watch(None);
 
     // ---- what the app wrote down -------------------------------------------------------------
     let after = installed_on_disk(&folder);
@@ -400,8 +443,11 @@ fn the_community_list_installs_and_every_addon_answers() {
             },
             ok: Some(held != addon.configuration_required),
             detail: if addon.configuration_required {
-                if held { "it was installed anyway" } else { "the core refused it, as the web does" }
-                    .to_owned()
+                if held {
+                    "it was installed anyway".to_owned()
+                } else {
+                    "the dialog offered its configuration page instead".to_owned()
+                }
             } else if held {
                 url.clone()
             } else {

@@ -41,6 +41,10 @@ export struct AddonPendingData {
     has-logo: bool,
     /// Whether the manifest has arrived, which is when Install can be pressed.
     ready: bool,
+    /// Whether the addon has to be set up on its own page before it can be installed at all
+    /// (`behaviorHints.configurationRequired`). The dialog offers Configure for these, as the
+    /// marketplace card does, instead of pressing Install at an addon the core will refuse.
+    configuration-required: bool,
     /// Whether the account already has this addon.
     installed: bool,
     error: string,
@@ -437,6 +441,8 @@ export component AddonsContent inherits Rectangle {
     callback add-addon();
     callback add-submit(string);
     callback add-install();
+    /// The addon has to be configured first: its own page opens, as the card's Configure does.
+    callback add-configure(string);
     callback add-close();
     /// A card's own buttons, each naming the addon by its manifest URL.
     callback uninstall(string);
@@ -832,7 +838,9 @@ export component AddonsContent inherits Rectangle {
                 Text {
                     width: parent.width;
                     height: parent.height;
-                    text: root.pending.ready ? (root.pending.installed ? "Reinstall" : "Install") : "Add";
+                    text: !root.pending.ready ? "Add"
+                        : root.pending.configuration-required ? "Configure"
+                        : root.pending.installed ? "Reinstall" : "Install";
                     horizontal-alignment: center;
                     vertical-alignment: center;
                     font-size: root.rem-size;
@@ -849,14 +857,22 @@ export component AddonsContent inherits Rectangle {
                     accessible-role: button;
                     // Named after what it will do and to which addon: the dialog keeps the last
                     // manifest it read, so "Install the addon" alone would not say whose.
-                    accessible-label: root.pending.ready
-                        ? (root.pending.installed
+                    accessible-label: !root.pending.ready ? "Read the addon's url"
+                        : root.pending.configuration-required
+                            ? "Configure the addon: " + root.pending.name
+                        : root.pending.installed
                             ? "Reinstall the addon: " + root.pending.name
-                            : "Install the addon: " + root.pending.name)
-                        : "Read the addon's url";
+                            : "Install the addon: " + root.pending.name;
                     clicked => {
                         if (root.add-submitted && root.pending.ready) {
-                            root.add-install();
+                            if (root.pending.configuration-required) {
+                                // Web: `Addon.js` offers Configure, not Install, for an addon whose
+                                // manifest asks to be set up first -- its own page, where its
+                                // settings and the install link are.
+                                root.add-configure(root.pending.transport-url);
+                            } else {
+                                root.add-install();
+                            }
                             root.add-open = false;
                         } else {
                             root.add-submitted = true;

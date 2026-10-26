@@ -79,6 +79,9 @@ pub struct Pending {
     pub logo: Option<String>,
     /// Whether the manifest has arrived, so the Install button can be pressed.
     pub ready: bool,
+    /// Whether the addon has to be set up on its own page before it can be installed at all
+    /// (`behaviorHints.configurationRequired`).
+    pub configuration_required: bool,
     /// Whether the account already has this addon.
     pub installed: bool,
     /// What went wrong, empty while nothing has.
@@ -339,6 +342,7 @@ fn pending(details: &stremio_core::models::addon_details::AddonDetails) -> Optio
             pending.types = types_label(&manifest.types);
             pending.description = manifest.description.clone().unwrap_or_default();
             pending.logo = manifest.logo.as_ref().map(|url| url.to_string());
+            pending.configuration_required = manifest.behavior_hints.configuration_required;
             pending.ready = true;
         }
         Some(Loadable::Err(error)) => pending.error = format!("{error}"),
