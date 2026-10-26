@@ -140,6 +140,9 @@ export component MainWindow inherits Window {
     in property <bool> player-subtitles-enabled: false;
     in property <float> player-subtitles-size: 100;
     in property <float> player-subtitles-offset: 0;
+    in property <float> player-subtitles-position: 100;
+    in property <[string]> player-subtitle-languages: [];
+    in property <string> player-subtitle-language;
     in property <bool> player-fullscreen: false;
     in property <[PlayerOption]> player-options: [];
     in property <[PlayerEpisode]> player-episodes: [];
@@ -236,6 +239,7 @@ export component MainWindow inherits Window {
     callback player-toggle-subtitles();
     callback player-step-subtitles-offset(int);
     callback player-step-subtitles-size(int);
+    callback player-step-subtitles-position(int);
     callback player-select-episode(string);
     callback player-select-season(int);
     callback player-choose-option(string);
@@ -422,6 +426,9 @@ export component MainWindow inherits Window {
         error: root.player-error;
         subtitles-size: root.player-subtitles-size;
         subtitles-offset: root.player-subtitles-offset;
+        subtitles-position: root.player-subtitles-position;
+        subtitle-languages: root.player-subtitle-languages;
+        subtitle-language: root.player-subtitle-language;
         fullscreen: root.player-fullscreen;
         options: root.player-options;
         episodes: root.player-episodes;
@@ -472,6 +479,9 @@ export component MainWindow inherits Window {
         }
         choose-subtitles(id) => {
             root.player-choose-subtitles(id);
+        }
+        step-subtitles-position(step) => {
+            root.player-step-subtitles-position(step);
         }
         toggle-subtitles => {
             root.player-toggle-subtitles();

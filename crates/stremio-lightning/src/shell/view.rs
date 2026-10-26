@@ -473,6 +473,20 @@ fn player_view(window: &MainWindow, data: &PlayerData, images: &Images) {
 }
 
 /// The tracks mpv offers, as the menus draw them.
+/// The distinct languages a file's tracks offer, in the order mpv lists them. The Subtitles menu
+/// has one row per language, then the variants of whichever one is picked (web: `SubtitlesMenu`,
+/// which builds `subtitlesLanguages` the same way).
+pub(crate) fn languages(tracks: &[crate::plumbing::player::Track]) -> Vec<slint::SharedString> {
+    let mut seen: Vec<&str> = Vec::new();
+    for track in tracks {
+        let language = track.language.trim();
+        if !language.is_empty() && !seen.contains(&language) {
+            seen.push(language);
+        }
+    }
+    seen.into_iter().map(Into::into).collect()
+}
+
 pub(crate) fn tracks(tracks: &[crate::plumbing::player::Track]) -> ModelRc<PlayerTrack> {
     ModelRc::new(VecModel::from(
         tracks
@@ -482,6 +496,7 @@ pub(crate) fn tracks(tracks: &[crate::plumbing::player::Track]) -> ModelRc<Playe
                 title: track.title.clone().into(),
                 language: track.language.clone().into(),
                 selected: track.selected,
+                external: track.external,
             })
             .collect::<Vec<_>>(),
     ))

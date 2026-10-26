@@ -23,6 +23,9 @@ export struct PlayerTrack {
     title: string,
     language: string,
     selected: bool,
+    /// A file added beside the video rather than a track inside it -- the Variants column says
+    /// which of the two a row is.
+    external: bool,
 }
 
 /// One Video of the title, as the player's side drawer lists it.
@@ -271,11 +274,33 @@ component PlayerMenu inherits Rectangle {
     drop-shadow-offset-y: 1.35 * root.rem-size;
     drop-shadow-color: #00000066;
 }
-
-// Web: SubtitlesMenu rows -- a language over the track's own label, with a tick for the one playing.
-component TrackRow inherits Rectangle {
+// Web: the menus' `.header` -- 1.5rem of padding above and below, 2rem at the sides, bold, one
+// line. It sits in a fixed 4.5rem block so every column lines up with the others.
+component MenuHeader inherits Rectangle {
     in property <length> rem-size;
-    in property <string> heading;
+    in property <string> title;
+
+    height: 4.5 * root.rem-size;
+    HorizontalLayout {
+        padding: 1.5 * root.rem-size;
+        padding-left: 2 * root.rem-size;
+        padding-right: 2 * root.rem-size;
+        alignment: start;
+        Text {
+            text: root.title;
+            horizontal-stretch: 1;
+            font-size: 1 * root.rem-size;
+            font-weight: 700;
+            color: Theme.text;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+}
+
+// Web: SubtitlesMenu language row -- `language-option`, 3.5rem tall, a 0.5rem dot when playing.
+component LanguageRow inherits Rectangle {
+    in property <length> rem-size;
     in property <string> label;
     in property <bool> selected;
     callback clicked;
@@ -285,17 +310,122 @@ component TrackRow inherits Rectangle {
     background: touch.has-hover ? Theme.overlay : (root.selected ? Theme.overlay : transparent);
 
     HorizontalLayout {
-        padding-left: 1 * root.rem-size;
-        padding-right: 1 * root.rem-size;
-        spacing: 0.5 * root.rem-size;
+        padding-left: 1.5 * root.rem-size;
+        padding-right: 1.5 * root.rem-size;
+        spacing: 1 * root.rem-size;
+        alignment: start;
+        Text {
+            text: root.label;
+            horizontal-stretch: 1;
+            font-size: 1.1 * root.rem-size;
+            color: Theme.text;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        Rectangle {
+            width: 0.5 * root.rem-size;
+            height: 0.5 * root.rem-size;
+            border-radius: 0.25 * root.rem-size;
+            background: transparent;
+            visible: root.selected;
+            Rectangle {
+                width: 0.5 * root.rem-size;
+                height: 0.5 * root.rem-size;
+                border-radius: 0.25 * root.rem-size;
+                background: Theme.accent-green;
+            }
+        }
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// Web: SubtitleVariant -- `variant-option`, 4rem tall: the variant's own label over where it came
+// from, and the same dot when it is the one playing.
+component VariantRow inherits Rectangle {
+    in property <length> rem-size;
+    in property <string> title;
+    in property <string> origin;
+    in property <bool> selected;
+    callback clicked;
+
+    height: 4 * root.rem-size;
+    border-radius: 0.75 * root.rem-size;
+    background: touch.has-hover ? Theme.overlay : (root.selected ? Theme.overlay : transparent);
+
+    HorizontalLayout {
+        padding-left: 1.5 * root.rem-size;
+        padding-right: 1.5 * root.rem-size;
+        spacing: 1 * root.rem-size;
         alignment: start;
         VerticalLayout {
             alignment: center;
             horizontal-stretch: 1;
+            spacing: 0.25 * root.rem-size;
             Text {
-                text: root.heading;
+                text: root.title;
                 font-size: 1.1 * root.rem-size;
-                font-weight: 600;
+                color: Theme.text;
+                overflow: elide;
+            }
+            Text {
+                text: root.origin;
+                font-size: 0.9 * root.rem-size;
+                color: Theme.text;
+                opacity: 0.6;
+                overflow: elide;
+            }
+        }
+        Rectangle {
+            width: 0.5 * root.rem-size;
+            height: 0.5 * root.rem-size;
+            border-radius: 0.25 * root.rem-size;
+            background: transparent;
+            visible: root.selected;
+            Rectangle {
+                width: 0.5 * root.rem-size;
+                height: 0.5 * root.rem-size;
+                border-radius: 0.25 * root.rem-size;
+                background: Theme.accent-green;
+            }
+        }
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// Web: AudioMenu option -- `option`, 4rem tall: the language over the track's own label.
+component AudioRow inherits Rectangle {
+    in property <length> rem-size;
+    in property <string> language;
+    in property <string> label;
+    in property <bool> selected;
+    callback clicked;
+
+    height: 4 * root.rem-size;
+    border-radius: 0.75 * root.rem-size;
+    background: touch.has-hover ? Theme.overlay : (root.selected ? Theme.overlay : transparent);
+
+    HorizontalLayout {
+        padding-left: 1.5 * root.rem-size;
+        padding-right: 1.5 * root.rem-size;
+        spacing: 1 * root.rem-size;
+        alignment: start;
+        VerticalLayout {
+            alignment: center;
+            horizontal-stretch: 1;
+            spacing: 0.25 * root.rem-size;
+            Text {
+                text: root.language;
+                font-size: 1.1 * root.rem-size;
                 color: Theme.text;
                 overflow: elide;
             }
@@ -308,14 +438,17 @@ component TrackRow inherits Rectangle {
                 visible: root.label != "";
             }
         }
-        VerticalLayout {
-            alignment: center;
-            Text {
-                text: "✓";
-                font-size: 1.1 * root.rem-size;
-                color: Theme.accent;
-                visible: root.selected;
-                vertical-alignment: center;
+        Rectangle {
+            width: 0.5 * root.rem-size;
+            height: 0.5 * root.rem-size;
+            border-radius: 0.25 * root.rem-size;
+            background: transparent;
+            visible: root.selected;
+            Rectangle {
+                width: 0.5 * root.rem-size;
+                height: 0.5 * root.rem-size;
+                border-radius: 0.25 * root.rem-size;
+                background: Theme.accent-green;
             }
         }
     }
@@ -323,6 +456,86 @@ component TrackRow inherits Rectangle {
         mouse-cursor: pointer;
         clicked => {
             root.clicked();
+        }
+    }
+}
+
+// Web: SubtitlesMenu/Stepper -- a small dimmed heading, then a pill: a round minus, the value, a
+// round plus (`Stepper.less`).
+component SettingsStepper inherits VerticalLayout {
+    in property <length> rem-size;
+    in property <string> heading;
+    in property <string> value;
+    in property <bool> enabled: true;
+    callback stepped(int);
+
+    spacing: 0.5 * root.rem-size;
+    alignment: start;
+    Text {
+        text: root.heading;
+        font-size: 1 * root.rem-size;
+        color: Theme.text;
+        opacity: 0.6;
+        overflow: elide;
+    }
+    Rectangle {
+        height: 3.5 * root.rem-size;
+        border-radius: 1.75 * root.rem-size;
+        background: Theme.overlay;
+        opacity: root.enabled ? 1 : 0.4;
+
+        HorizontalLayout {
+            spacing: 0;
+            alignment: start;
+            Rectangle {
+                width: 3.5 * root.rem-size;
+                height: 3.5 * root.rem-size;
+                border-radius: 1.75 * root.rem-size;
+                background: minus.has-hover && root.enabled ? Theme.overlay : transparent;
+                Text {
+                    text: "-";
+                    font-size: 1.3 * root.rem-size;
+                    color: Theme.text;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                minus := TouchArea {
+                    enabled: root.enabled;
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.stepped(-1);
+                    }
+                }
+            }
+            Text {
+                text: root.value;
+                horizontal-stretch: 1;
+                font-size: 1 * root.rem-size;
+                font-weight: 500;
+                color: Theme.text;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+            Rectangle {
+                width: 3.5 * root.rem-size;
+                height: 3.5 * root.rem-size;
+                border-radius: 1.75 * root.rem-size;
+                background: plus.has-hover && root.enabled ? Theme.overlay : transparent;
+                Text {
+                    text: "+";
+                    font-size: 1.3 * root.rem-size;
+                    color: Theme.text;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                plus := TouchArea {
+                    enabled: root.enabled;
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.stepped(1);
+                    }
+                }
+            }
         }
     }
 }
@@ -369,83 +582,6 @@ component OptionRow inherits Rectangle {
         }
     }
 }
-
-// Web: SubtitlesMenu/Stepper -- a label, a value between two buttons, and the unit it moves in.
-component PlayerStepper inherits Rectangle {
-    in property <length> rem-size;
-    in property <string> heading;
-    in property <string> value;
-    in property <bool> enabled;
-    callback stepped(int);
-
-    height: 3.5 * root.rem-size;
-    opacity: root.enabled ? 1 : 0.4;
-
-    HorizontalLayout {
-        padding-left: 1 * root.rem-size;
-        padding-right: 1 * root.rem-size;
-        spacing: 0.5 * root.rem-size;
-        alignment: start;
-        Text {
-            text: root.heading;
-            font-size: 1 * root.rem-size;
-            color: Theme.text;
-            vertical-alignment: center;
-            horizontal-stretch: 1;
-            overflow: elide;
-        }
-        Rectangle {
-            width: 2.5 * root.rem-size;
-            height: 2.5 * root.rem-size;
-            border-radius: 0.5 * root.rem-size;
-            background: minus-touch.has-hover ? Theme.overlay : transparent;
-            Text {
-                text: "-";
-                font-size: 1.2 * root.rem-size;
-                color: Theme.text;
-                horizontal-alignment: center;
-                vertical-alignment: center;
-            }
-            minus-touch := TouchArea {
-                enabled: root.enabled;
-                mouse-cursor: pointer;
-                clicked => {
-                    root.stepped(-1);
-                }
-            }
-        }
-        Text {
-            text: root.value;
-            width: 4.5 * root.rem-size;
-            font-size: 1 * root.rem-size;
-            color: Theme.text;
-            horizontal-alignment: center;
-            vertical-alignment: center;
-            overflow: elide;
-        }
-        Rectangle {
-            width: 2.5 * root.rem-size;
-            height: 2.5 * root.rem-size;
-            border-radius: 0.5 * root.rem-size;
-            background: plus-touch.has-hover ? Theme.overlay : transparent;
-            Text {
-                text: "+";
-                font-size: 1.2 * root.rem-size;
-                color: Theme.text;
-                horizontal-alignment: center;
-                vertical-alignment: center;
-            }
-            plus-touch := TouchArea {
-                enabled: root.enabled;
-                mouse-cursor: pointer;
-                clicked => {
-                    root.stepped(1);
-                }
-            }
-        }
-    }
-}
-
 export component PlayerScreen inherits Rectangle {
     in property <length> rem-size: Theme.rem-size(root.width);
 
@@ -475,6 +611,14 @@ export component PlayerScreen inherits Rectangle {
     in property <string> error;
     in property <float> subtitles-size: 100;
     in property <float> subtitles-offset: 0;
+    /// Where the subtitles sit vertically, in percent -- mpv's `sub-pos`.
+    in property <float> subtitles-position: 100;
+    /// The languages the file's subtitle tracks are in, in the order mpv lists them.
+    in property <[string]> subtitle-languages;
+    /// The language of the track that is playing, for the dot in the Languages column.
+    in property <string> subtitle-language;
+    /// The language whose variants the middle column is showing. Set when the menu opens.
+    property <string> browse-language;
     in property <bool> fullscreen;
 
     // --- the title behind the player ---
@@ -506,42 +650,42 @@ export component PlayerScreen inherits Rectangle {
     /// The volume glyph the web's thresholds pick.
     property <image> volume-glyph: root.muted || root.volume <= 0 ? @image-url("icons/volume-mute.svg") : (root.volume < 30 ? @image-url("icons/volume-low.svg") : (root.volume < 70 ? @image-url("icons/volume-medium.svg") : @image-url("icons/volume-high.svg")));
     property <image> scale-glyph: root.scale == "cover" ? @image-url("icons/video-scale-crop.svg") : (root.scale == "fill" ? @image-url("icons/video-scale-stretch.svg") : @image-url("icons/video-scale-fit.svg"));
-    /// The scale in the words the button uses, so the tooltip and the indicator agree.
-    property <string> scale-words: root.scale == "cover" ? "Crop to fill" : (root.scale == "fill" ? "Stretch to fill" : "Fit to screen");
+    /// The scale in the words the web's button uses (PLAYER_SCALE_FIT/CROP/STRETCH). Its tooltip
+    /// is that label and nothing else, and the indicator says the same.
+    property <string> scale-words: root.scale == "cover" ? "Crop" : (root.scale == "fill" ? "Stretch" : "Fit");
     property <float> remaining: root.duration - root.shown-time;
     property <bool> can-seek: root.seekable && root.duration > 0 && root.loaded;
     property <bool> next-open: root.has-next && !root.next-dismissed && root.remaining > 0 && root.remaining <= root.next-notice;
     property <bool> controls-visible: root.idle < 6 || root.menu != "" || root.drawer-open || !root.loaded || root.error != "";
-    // The panel's own height, built from the very numbers its rows use: 1rem of padding top and
-    // bottom, a 3rem title, a 3.5rem row per choice, a 3.5rem block per stepper, and 0.25rem
-    // between any two of them. The web caps the whole panel at 25rem and scrolls the list inside
-    // it (SubtitlesMenu.less `height: 25rem`, AudioMenu.less `max-height: 25rem`, both with an
-    // `overflow-y: auto` list), which is what stops a long track list from running off the panel.
+    // The panel's own box, built from the very numbers its rows use. Web: 25rem of column height
+    // for the subtitles and audio menus (they scroll inside it), 30rem of width for the speed
+    // menu, 16rem for the audio column, and the subtitles' three columns adding up to 49rem.
     property <length> menu-padding: 1 * root.rem-size;
     property <length> menu-gap: 0.25 * root.rem-size;
-    property <length> menu-title: 3 * root.rem-size;
-    property <length> menu-row: 3.5 * root.rem-size;
+    property <length> menu-header: 4.5 * root.rem-size;
+    property <length> menu-row: 4 * root.rem-size;
     property <length> menu-max: 25 * root.rem-size;
-    // What a list of `count` rows takes, gaps included.
+    property <length> menu-width:
+        root.menu == "speed" ? 30 * root.rem-size
+        : root.menu == "subtitles" ? 49 * root.rem-size
+        : root.menu == "audio" ? 16 * root.rem-size
+        : 22 * root.rem-size;
+    // What a list of `count` rows takes: 4rem each, 0.5rem apart, 1rem of air underneath.
     pure function rows-height(count: int) -> length {
-        count <= 0 ? 0px : count * root.menu-row + (count - 1) * root.menu-gap
+        count <= 0 ? root.rem-size : count * root.menu-row + (count - 1) * 0.5 * root.rem-size + root.rem-size
     }
-    // The part of the panel a list may use, once the padding, the title and the steppers are paid
-    // for. Never negative: an empty menu still has to draw a sane box.
     property <length> menu-list-room:
-        Math.max(0px, root.menu-max
-            - 2 * root.menu-padding
-            - (root.menu == "audio" || root.menu == "subtitles" ? root.menu-title + root.menu-gap : 0px)
-            - (root.menu == "subtitles" ? 2 * root.menu-row + 2 * root.menu-gap : 0px));
+        Math.max(0px, root.menu-max - root.menu-header);
     property <length> menu-list-height:
-        root.menu == "subtitles" ? root.menu-list-room
-        : Math.min(root.rows-height(root.menu == "audio" ? root.audio-tracks.length : root.options.length), root.menu-list-room);
+        root.menu == "options"
+        ? Math.min(root.rows-height(root.options.length), Math.max(0px, root.menu-max - 2 * root.menu-padding))
+        : root.menu-list-room;
     property <length> menu-height:
         root.menu == "speed" ? root.rem-size * 12.6
         : root.menu == "subtitles" ? root.menu-max
-        : root.menu == "audio" ? 2 * root.menu-padding + root.menu-title + root.menu-gap + root.menu-list-height
-        : root.menu == "options" ? 2 * root.menu-padding + root.menu-list-height
-        : 0px;
+        : root.menu == "audio"
+        ? Math.min(root.menu-header + root.rows-height(root.audio-tracks.length), root.menu-max)
+        : 2 * root.menu-padding + Math.min(root.rows-height(root.options.length), root.menu-list-room);
 
     callback back();
     callback toggle-fullscreen();
@@ -558,6 +702,7 @@ export component PlayerScreen inherits Rectangle {
     callback toggle-subtitles();
     callback step-subtitles-offset(int);
     callback step-subtitles-size(int);
+    callback step-subtitles-position(int);
     callback select-episode(string);
     callback select-season(int);
     callback choose-option(string);
@@ -629,7 +774,7 @@ export component PlayerScreen inherits Rectangle {
         root.show-indicator("Playback speed " + (Math.round(root.speed * 100) / 100) + "x");
     }
     changed scale => {
-        root.show-indicator("Video scale: " + root.scale-words);
+        root.show-indicator(root.scale-words);
     }
     changed subtitles-size => {
         root.show-indicator("Subtitles size " + Math.round(root.subtitles-size) + "%");
@@ -1152,6 +1297,7 @@ export component PlayerScreen inherits Rectangle {
                 lit: root.menu == "subtitles";
                 clicked => {
                     root.menu = root.menu == "subtitles" ? "" : "subtitles";
+                    root.browse-language = root.subtitle-language;
                     root.drawer-open = false;
                 }
             }
@@ -1180,7 +1326,7 @@ export component PlayerScreen inherits Rectangle {
                 x: bar.last - bar.step;
                 rem-size: root.rem-size;
                 glyph: root.scale-glyph;
-                says: "Video scale: " + root.scale-words;
+                says: root.scale-words;
                 clicked => {
                     root.cycle-scale();
                 }
@@ -1219,9 +1365,14 @@ export component PlayerScreen inherits Rectangle {
     }
 
     // --- the menus, all in the one panel the web puts them in ---
-
+    //
+    // Sizes and rhythm are the web's own: `SubtitlesMenu.less` is a 25rem box of three columns
+    // (16rem languages, 16rem variants, 17rem settings), `AudioMenu.less` a column of at most
+    // 25rem, `SpeedMenu.less` 30rem wide. A list that outgrows its column scrolls inside it -- the
+    // rows used to be drawn outside the panel's background, which is what made the last stepper
+    // read as text floating over the control bar.
     if root.menu != "" && root.controls-visible: Rectangle {
-        width: root.menu == "speed" ? 30 * root.rem-size : (root.menu == "options" ? 22 * root.rem-size : 28 * root.rem-size);
+        width: root.menu-width;
         height: root.menu-height;
         x: root.width - self.width - 4 * root.rem-size;
         y: root.height - self.height - 7.5 * root.rem-size;
@@ -1239,15 +1390,13 @@ export component PlayerScreen inherits Rectangle {
             height: parent.height;
             rem-size: root.rem-size;
 
-            VerticalLayout {
+            // Web: SpeedMenu -- the title, the rate over a slider, then the presets.
+            if root.menu == "speed": VerticalLayout {
                 padding: 1 * root.rem-size;
                 spacing: 0.25 * root.rem-size;
                 alignment: start;
 
-                // Web: SpeedMenu -- the title, the rate over a slider, then the presets. The
-                // menu's own rhythm: 1rem around the title, a 3rem block for the rate and the
-                // track, then a row of chips 0.25rem apart, each at least 3rem wide.
-                if root.menu == "speed": VerticalLayout {
+                VerticalLayout {
                     spacing: 0;
                     alignment: start;
                     Text {
@@ -1285,103 +1434,129 @@ export component PlayerScreen inherits Rectangle {
                             slid(value) => {
                                 root.set-speed(Math.round(value * 20) / 20);
                             }
-                            done(value) => {
-                                root.set-speed(Math.round(value * 20) / 20);
-                            }
                         }
-                    }
-                    HorizontalLayout {
-                        height: 1.8 * root.rem-size;
-                        spacing: 0.25 * root.rem-size;
-                        for rate in [0.5, 1, 1.25, 1.5, 1.75, 2, 4]: Rectangle {
-                            horizontal-stretch: 1;
-                            min-width: 3 * root.rem-size;
+                        HorizontalLayout {
                             height: 1.8 * root.rem-size;
-                            border-radius: 0.75 * root.rem-size;
-                            background: Math.abs(rate - root.speed) < 0.01 ? Theme.overlay : (rate-touch.has-hover ? Theme.overlay : transparent);
-                            Text {
-                                text: rate + "x";
-                                font-size: 0.9 * root.rem-size;
-                                color: Math.abs(rate - root.speed) < 0.01 ? Theme.accent-soft : Theme.text;
-                                horizontal-alignment: center;
-                                vertical-alignment: center;
-                            }
-                            rate-touch := TouchArea {
-                                mouse-cursor: pointer;
-                                clicked => {
-                                    root.set-speed(rate);
+                            spacing: 0.25 * root.rem-size;
+                            for rate in [0.5, 1, 1.25, 1.5, 1.75, 2, 4]: Rectangle {
+                                horizontal-stretch: 1;
+                                min-width: 3 * root.rem-size;
+                                height: 1.8 * root.rem-size;
+                                border-radius: 0.75 * root.rem-size;
+                                background: Math.abs(rate - root.speed) < 0.01 ? Theme.overlay : (rate-touch.has-hover ? Theme.overlay : transparent);
+                                Text {
+                                    text: rate + "x";
+                                    font-size: 0.9 * root.rem-size;
+                                    color: Math.abs(rate - root.speed) < 0.01 ? Theme.accent-soft : Theme.text;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                                rate-touch := TouchArea {
+                                    mouse-cursor: pointer;
+                                    clicked => {
+                                        root.set-speed(rate);
+                                    }
                                 }
                             }
                         }
                     }
                 }
+            }
 
-                // Web: AudioMenu -- one row per track the file carries.
-                if root.menu == "audio": VerticalLayout {
-                    spacing: 0.25 * root.rem-size;
-                    alignment: start;
-                    Text {
-                        height: root.menu-title;
-                        text: "Audio tracks";
-                        font-size: 1.1 * root.rem-size;
-                        font-weight: 700;
-                        color: Theme.text;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
-                    }
-                    Flickable {
-                        width: parent.width;
-                        height: root.menu-list-height;
-                        VerticalLayout {
-                            spacing: root.menu-gap;
-                            alignment: start;
-                            for track in root.audio-tracks: TrackRow {
-                                rem-size: root.rem-size;
-                                heading: track.title;
-                                label: track.language;
-                                selected: track.selected;
-                                clicked => {
-                                    root.select-audio(track.id);
-                                }
+            // Web: AudioMenu -- a "Audio Tracks" header over the tracks the file carries, one per
+            // row: the language over the track's own label, a dot on the one playing.
+            if root.menu == "audio": VerticalLayout {
+                spacing: 0;
+                alignment: start;
+                MenuHeader {
+                    rem-size: root.rem-size;
+                    title: "Audio Tracks";
+                }
+                Flickable {
+                    width: parent.width;
+                    height: root.menu-list-height;
+                    VerticalLayout {
+                        spacing: 0.5 * root.rem-size;
+                        padding-left: 1 * root.rem-size;
+                        padding-right: 1 * root.rem-size;
+                        padding-bottom: 1 * root.rem-size;
+                        alignment: start;
+                        for track in root.audio-tracks: AudioRow {
+                            rem-size: root.rem-size;
+                            language: track.language;
+                            label: track.title;
+                            selected: track.selected;
+                            clicked => {
+                                root.select-audio(track.id);
                             }
                         }
                     }
                 }
+            }
 
-                // Web: SubtitlesMenu -- off, then a row per track, then the two steppers. The
-                // rows scroll between the title and the steppers, so the steppers are always
-                // reachable no matter how many tracks the file carries.
-                if root.menu == "subtitles": VerticalLayout {
-                    spacing: 0.25 * root.rem-size;
+            // Web: SubtitlesMenu -- three columns: the languages, the variants of the one picked,
+            // and the settings. The language and variant lists scroll; the settings stay put.
+            if root.menu == "subtitles": HorizontalLayout {
+                alignment: start;
+                VerticalLayout {
+                    width: 16 * root.rem-size;
+                    spacing: 0;
                     alignment: start;
-                    Text {
-                        height: root.menu-title;
-                        text: "Subtitles";
-                        font-size: 1.1 * root.rem-size;
-                        font-weight: 700;
-                        color: Theme.text;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
+                    MenuHeader {
+                        rem-size: root.rem-size;
+                        title: "Subtitles Languages";
                     }
                     Flickable {
                         width: parent.width;
                         height: root.menu-list-height;
                         VerticalLayout {
-                            spacing: root.menu-gap;
+                            spacing: 0.5 * root.rem-size;
+                            padding-left: 1 * root.rem-size;
+                            padding-right: 1 * root.rem-size;
+                            padding-bottom: 1 * root.rem-size;
                             alignment: start;
-                            TrackRow {
+                            LanguageRow {
                                 rem-size: root.rem-size;
-                                heading: "Off";
-                                label: "No subtitles";
+                                label: "Off";
                                 selected: !root.subtitles-enabled;
                                 clicked => {
+                                    root.browse-language = "";
                                     root.toggle-subtitles();
                                 }
                             }
-                            for track in root.subtitle-tracks: TrackRow {
+                            for language in root.subtitle-languages: LanguageRow {
                                 rem-size: root.rem-size;
-                                heading: track.title;
-                                label: track.language;
+                                label: language;
+                                selected: root.subtitles-enabled && language == root.subtitle-language;
+                                clicked => {
+                                    root.browse-language = language;
+                                }
+                            }
+                        }
+                    }
+                }
+                VerticalLayout {
+                    width: 16 * root.rem-size;
+                    spacing: 0;
+                    alignment: start;
+                    MenuHeader {
+                        rem-size: root.rem-size;
+                        title: "Subtitles Variants";
+                    }
+                    Flickable {
+                        width: parent.width;
+                        height: root.menu-list-height;
+                        VerticalLayout {
+                            spacing: 0.5 * root.rem-size;
+                            padding-left: 1 * root.rem-size;
+                            padding-right: 1 * root.rem-size;
+                            padding-bottom: 1 * root.rem-size;
+                            alignment: start;
+                            for track in root.subtitle-tracks: VariantRow {
+                                rem-size: root.rem-size;
+                                visible: track.language == root.browse-language;
+                                title: track.title;
+                                origin: track.external ? "External" : "Embedded";
                                 selected: track.selected;
                                 clicked => {
                                     root.choose-subtitles(track.id);
@@ -1389,42 +1564,64 @@ export component PlayerScreen inherits Rectangle {
                             }
                         }
                     }
-                    PlayerStepper {
+                }
+                VerticalLayout {
+                    width: 17 * root.rem-size;
+                    spacing: 0.5 * root.rem-size;
+                    padding-left: 1.5 * root.rem-size;
+                    padding-right: 1.5 * root.rem-size;
+                    padding-bottom: 1 * root.rem-size;
+                    alignment: start;
+                    MenuHeader {
                         rem-size: root.rem-size;
-                        heading: "Subtitles size";
-                        value: Math.round(root.subtitles-size) + "%";
-                        enabled: root.subtitles-enabled;
-                        stepped(delta) => {
-                            root.step-subtitles-size(delta);
-                        }
+                        title: "Subtitles Settings";
                     }
-                    PlayerStepper {
+                    SettingsStepper {
                         rem-size: root.rem-size;
-                        heading: "Subtitles delay";
-                        value: (Math.round(root.subtitles-offset) / 1000).to-fixed(2) + "s";
+                        heading: "Delay";
+                        value: (Math.round(root.subtitles-offset) / 1000).to-fixed(2) + " s";
                         enabled: root.subtitles-enabled;
                         stepped(delta) => {
                             root.step-subtitles-offset(delta);
                         }
                     }
+                    SettingsStepper {
+                        rem-size: root.rem-size;
+                        heading: "Size";
+                        value: Math.round(root.subtitles-size) + " %";
+                        enabled: root.subtitles-enabled;
+                        stepped(delta) => {
+                            root.step-subtitles-size(delta);
+                        }
+                    }
+                    SettingsStepper {
+                        rem-size: root.rem-size;
+                        heading: "Vertical Position";
+                        value: Math.round(root.subtitles-position) + " %";
+                        enabled: root.subtitles-enabled;
+                        stepped(delta) => {
+                            root.step-subtitles-position(delta);
+                        }
+                    }
                 }
+            }
 
-                // Web: OptionsMenu -- the stream's own links, one row each.
-                if root.menu == "options": VerticalLayout {
-                    spacing: 0.25 * root.rem-size;
-                    alignment: start;
-                    Flickable {
-                        width: parent.width;
-                        height: root.menu-list-height;
-                        VerticalLayout {
-                            spacing: root.menu-gap;
-                            alignment: start;
-                            for option in root.options: OptionRow {
-                                rem-size: root.rem-size;
-                                option: option;
-                                clicked => {
-                                    root.choose-option(option.action);
-                                }
+            // Web: OptionsMenu -- the stream's own links, one row each.
+            if root.menu == "options": VerticalLayout {
+                spacing: 0.25 * root.rem-size;
+                padding: 1 * root.rem-size;
+                alignment: start;
+                Flickable {
+                    width: parent.width;
+                    height: root.menu-list-height;
+                    VerticalLayout {
+                        spacing: root.menu-gap;
+                        alignment: start;
+                        for option in root.options: OptionRow {
+                            rem-size: root.rem-size;
+                            option: option;
+                            clicked => {
+                                root.choose-option(option.action);
                             }
                         }
                     }
@@ -2013,6 +2210,7 @@ export component PlayerScreen inherits Rectangle {
             keys: @keys("s");
             activated => {
                 root.menu = root.menu == "subtitles" ? "" : "subtitles";
+                root.browse-language = root.subtitle-language;
                 root.drawer-open = false;
             }
         }

@@ -6,7 +6,7 @@
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use slint::{ComponentHandle, ModelRc, Timer, Weak};
+use slint::{ComponentHandle, ModelRc, Timer, VecModel, Weak};
 use stremio_core::models::catalog_with_filters::Selected as CatalogSelected;
 use stremio_core::models::library_with_filters::Selected as LibrarySelected;
 use stremio_core::runtime::msg::{
@@ -482,6 +482,19 @@ impl Wiring {
         window.set_player_subtitles_enabled(status.subtitles.iter().any(|track| track.selected));
         window.set_player_subtitles_size((status.subtitles_scale * 100.0) as f32);
         window.set_player_subtitles_offset((status.subtitles_delay * 1000.0) as f32);
+        window.set_player_subtitles_position(status.subtitles_position as f32);
+        window.set_player_subtitle_languages(ModelRc::new(VecModel::from(
+            shell::view::languages(&status.subtitles),
+        )));
+        window.set_player_subtitle_language(
+            status
+                .subtitles
+                .iter()
+                .find(|track| track.selected)
+                .map(|track| track.language.clone())
+                .unwrap_or_default()
+                .into(),
+        );
 
         if status.error.is_empty() {
             // A file that is open has no error, whatever the one before it said.
@@ -655,6 +668,12 @@ impl Wiring {
         let current = self.video.status().subtitles_scale;
         let next = (current + f64::from(step) * 0.1).clamp(0.2, 3.0);
         let _ = self.video.set_subtitles_scale(next);
+    }
+
+    fn player_step_subtitles_position(&self, step: i32) {
+        let current = self.video.status().subtitles_position;
+        let next = (current + f64::from(step)).clamp(0.0, 100.0);
+        let _ = self.video.set_subtitles_position(next);
     }
 
     fn player_step_subtitles_offset(&self, step: i32) {
@@ -1318,6 +1337,12 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
         let wiring = wiring.clone();
         window
             .on_player_step_subtitles_offset(move |step| wiring.player_step_subtitles_offset(step));
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_player_step_subtitles_position(move |step| {
+            wiring.player_step_subtitles_position(step)
+        });
     }
     {
         let wiring = wiring.clone();

@@ -65,6 +65,8 @@ pub struct Status {
     pub subtitles_scale: f64,
     /// Subtitle timing in seconds; positive shows subtitles later.
     pub subtitles_delay: f64,
+    /// How far down the screen the subtitles sit, in percent -- mpv's `sub-pos`.
+    pub subtitles_position: f64,
     /// Why the last load failed, when it did. Cleared by the next load.
     pub error: String,
     pub width: u32,
@@ -309,6 +311,7 @@ impl Player {
             subtitles: self.tracks("sub"),
             subtitles_scale: self.number("sub-scale").unwrap_or(1.0),
             subtitles_delay: self.number("sub-delay").unwrap_or(0.0),
+            subtitles_position: self.number("sub-pos").unwrap_or(100.0),
             width: self.number("width").unwrap_or(0.0).max(0.0) as u32,
             height: self.number("height").unwrap_or(0.0).max(0.0) as u32,
             error: String::new(),
@@ -480,11 +483,25 @@ impl VideoPlayer {
                 ..Status::default()
             };
         }
-        // The resume position is held until mpv says the file is open, not sent as a seek straight
-        // after the load: a seek while the stream is still opening is refused with
-        // MPV_ERROR_LOADING_FAILED -- "the stream could not be opened", about a stream that is
-        // perfectly fine. That phantom failure used to send the caller round its retry loop, which
-        // reloaded the stream every 200ms, each load cancelling the one before it.
+        // The resume position travels *with* the load, as mpv's own `start` option, so the file
+        // opens onto that second and the first frame is already the right one -- no seek, and no
+        // flash of the opening shot. (Web: `initialTime` on the player, the same idea.)
+        //
+        // It is set on every load, `0` included, because `start` is a per-file option: left at a
+        // previous value it would drag the *next* stream to the same second.
+        //
+        // Held as well, for the case where this mpv ignores the option: the held position is
+        // applied when mpv reports `FileLoaded`, which is the first moment it accepts a seek. What
+        // must never happen -- and did -- is a seek sent while the file is still opening: mpv
+        // refuses those with MPV_ERROR_LOADING_FAILED ("the stream could not be opened", about a
+        // stream that is fine), and the caller's retry loop then reloaded the address every 200ms,
+        // each load cancelling the one before it.
+        let start = if resume_at > 0.0 {
+            format!("{resume_at:.3}")
+        } else {
+            "0".to_owned()
+        };
+        let _ = self.with(|mpv| mpv.set_property("start", start.as_str()).map_err(describe));
         if let Some(player) = self.player.borrow_mut().as_mut() {
             player.pending_resume = (resume_at > 0.0).then_some(resume_at);
         }
@@ -555,6 +572,14 @@ impl VideoPlayer {
     pub(crate) fn set_subtitles_scale(&self, scale: f64) -> Result<(), String> {
         self.with(|mpv| {
             mpv.set_property("sub-scale", scale)
+                .map_err(|e| e.to_string())
+        })
+    }
+
+    /// Where the subtitles sit vertically, in percent of the screen height (mpv's `sub-pos`).
+    pub(crate) fn set_subtitles_position(&self, position: f64) -> Result<(), String> {
+        self.with(|mpv| {
+            mpv.set_property("sub-pos", position)
                 .map_err(|e| e.to_string())
         })
     }
