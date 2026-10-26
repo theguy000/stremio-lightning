@@ -31,6 +31,14 @@ export struct PlayerTrack {
     external: bool,
 }
 
+/// One language the Subtitles menu offers: the code the shell filters and requests by, and the
+/// name the language calls itself, which is what the row shows.
+export struct LanguageOption {
+    code: string,
+    label: string,
+    selected: bool,
+}
+
 /// One Video of the title, as the player's side drawer lists it.
 export struct PlayerEpisode {
     id: string,
@@ -313,10 +321,12 @@ component LanguageRow inherits Rectangle {
     background: touch.has-hover ? Theme.overlay : (root.selected ? Theme.overlay : transparent);
 
     HorizontalLayout {
+        width: parent.width;
+        height: parent.height;
         padding-left: 1.5 * root.rem-size;
         padding-right: 1.5 * root.rem-size;
         spacing: 1 * root.rem-size;
-        alignment: start;
+        alignment: space-between;
         Text {
             text: root.label;
             horizontal-stretch: 1;
@@ -359,10 +369,12 @@ component VariantRow inherits Rectangle {
     background: touch.has-hover ? Theme.overlay : (root.selected ? Theme.overlay : transparent);
 
     HorizontalLayout {
+        width: parent.width;
+        height: parent.height;
         padding-left: 1.5 * root.rem-size;
         padding-right: 1.5 * root.rem-size;
         spacing: 1 * root.rem-size;
-        alignment: start;
+        alignment: space-between;
         VerticalLayout {
             alignment: center;
             horizontal-stretch: 1;
@@ -414,10 +426,12 @@ component AudioRow inherits Rectangle {
     background: touch.has-hover ? Theme.overlay : (root.selected ? Theme.overlay : transparent);
 
     HorizontalLayout {
+        width: parent.width;
+        height: parent.height;
         padding-left: 1.5 * root.rem-size;
         padding-right: 1.5 * root.rem-size;
         spacing: 1 * root.rem-size;
-        alignment: start;
+        alignment: space-between;
         VerticalLayout {
             alignment: center;
             horizontal-stretch: 1;
@@ -623,15 +637,14 @@ export component PlayerScreen inherits Rectangle {
     /// Where the subtitles sit vertically, in percent -- mpv's `sub-pos`.
     in property <float> subtitles-position: 100;
     /// The languages the file's subtitle tracks are in, in the order mpv lists them.
-    in property <[string]> subtitle-languages;
+    in property <[LanguageOption]> subtitle-languages;
     /// The language of the track that is playing, for the dot in the Languages column.
     in property <string> subtitle-language;
     /// The tracks of the language the Variants column is showing, filtered by the shell: a row
     /// that is merely hidden would still hold its place and leave a gap.
     in property <[PlayerTrack]> subtitle-variants;
-    callback browse-subtitles(string);
-    /// The language whose variants the middle column is showing. Set when the menu opens.
-    property <string> browse-language;
+    /// A language row was pressed: play the best track of that language, as the web does.
+    callback choose-language(string);
     in property <bool> fullscreen;
 
     // --- the title behind the player ---
@@ -1306,12 +1319,10 @@ export component PlayerScreen inherits Rectangle {
                 x: bar.last - (root.has-episodes ? 4 : 3) * bar.step;
                 rem-size: root.rem-size;
                 glyph: @image-url("icons/subtitles.svg");
-                enabled: root.subtitle-tracks.length > 0;
+                enabled: root.subtitle-languages.length > 0;
                 lit: root.menu == "subtitles";
                 clicked => {
                     root.menu = root.menu == "subtitles" ? "" : "subtitles";
-                    root.browse-language = root.subtitle-language;
-                    root.browse-subtitles(root.subtitle-language);
                     root.drawer-open = false;
                 }
             }
@@ -1531,19 +1542,19 @@ export component PlayerScreen inherits Rectangle {
                             alignment: start;
                             LanguageRow {
                                 rem-size: root.rem-size;
-                                label: "Off";
-                                selected: !root.subtitles-enabled;
+                                label: "OFF";
+                                // Dotted when nothing is playing, as the web's row with no language.
+                                selected: root.subtitle-language == "";
                                 clicked => {
-                                    root.toggle-subtitles();
+                                    root.choose-language("");
                                 }
                             }
                             for language in root.subtitle-languages: LanguageRow {
                                 rem-size: root.rem-size;
-                                label: language;
-                                selected: root.subtitles-enabled && language == root.subtitle-language;
+                                label: language.label;
+                                selected: language.selected;
                                 clicked => {
-                                    root.browse-language = language;
-                                    root.browse-subtitles(language);
+                                    root.choose-language(language.code);
                                 }
                             }
                         }
@@ -1557,7 +1568,7 @@ export component PlayerScreen inherits Rectangle {
                         rem-size: root.rem-size;
                         title: "Subtitles Variants";
                     }
-                    Flickable {
+                    if root.subtitle-variants.length > 0: Flickable {
                         width: parent.width;
                         height: root.menu-list-height;
                         VerticalLayout {
@@ -1575,6 +1586,21 @@ export component PlayerScreen inherits Rectangle {
                                     root.choose-subtitles(track.id);
                                 }
                             }
+                        }
+                    }
+                    // Web: `.no-variants-container` -- what the empty column says.
+                    if root.subtitle-variants.length == 0: VerticalLayout {
+                        height: root.menu-list-height;
+                        padding: 1 * root.rem-size;
+                        alignment: start;
+                        Text {
+                            text: "Subtitles are disabled";
+                            width: parent.width - 2 * root.rem-size;
+                            font-size: 1 * root.rem-size;
+                            font-weight: 500;
+                            color: Theme.text;
+                            wrap: word-wrap;
+                            max-height: 4.8 * root.rem-size;
                         }
                     }
                 }
@@ -2223,8 +2249,6 @@ export component PlayerScreen inherits Rectangle {
             keys: @keys("s");
             activated => {
                 root.menu = root.menu == "subtitles" ? "" : "subtitles";
-                root.browse-language = root.subtitle-language;
-                root.browse-subtitles(root.subtitle-language);
                 root.drawer-open = false;
             }
         }

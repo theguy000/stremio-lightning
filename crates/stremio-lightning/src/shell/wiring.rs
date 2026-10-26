@@ -136,8 +136,6 @@ pub(crate) struct Wiring {
     /// are on, which side the track came from, and in which language. It outranks the profile's
     /// preferred language until the player closes.
     pub(crate) subtitle_choice: Arc<Mutex<SubtitleChoice>>,
-    /// The language whose variants the Subtitles menu is showing while it is open.
-    pub(crate) subtitle_browse: Arc<Mutex<String>>,
     /// Whether this stream has already been auto-selected for. Once per load, as the web does it
     /// (`appliedTrack`), so a track the viewer picks is never overruled a moment later.
     pub(crate) subtitle_auto: Arc<Mutex<bool>>,
@@ -151,7 +149,7 @@ pub(crate) struct ShownTracks {
     /// The subtitle files the addons offered for this stream. They are rows in the menu before
     /// they are tracks in mpv: picking one is what adds the file.
     candidates: Vec<crate::screens::player::Subtitle>,
-    languages: Vec<String>,
+    languages: Vec<(String, String)>,
     active_language: String,
 }
 
@@ -512,7 +510,14 @@ impl Wiring {
             audio: status.audio.clone(),
             subtitles: status.subtitles.clone(),
             candidates: candidates.clone(),
-            languages: crate::screens::player::subtitle_languages(&status.subtitles, &candidates),
+            languages: crate::screens::player::subtitle_languages(
+                &status.subtitles,
+                &candidates,
+                &[
+                    self.subtitles_language().as_str(),
+                    self.interface_language().as_str(),
+                ],
+            ),
             active_language: status
                 .subtitles
                 .iter()
@@ -532,12 +537,21 @@ impl Wiring {
         if let Some(shown) = changed {
             window.set_player_audio_tracks(shell::view::tracks(&shown.audio));
             window.set_player_subtitle_tracks(shell::view::tracks(&shown.subtitles));
+            // Each language under its own name -- `languages.label` in the web -- with the code the
+            // filtering and the addon requests work in kept beside it.
             window.set_player_subtitle_languages(ModelRc::new(VecModel::from(
                 shown
                     .languages
                     .iter()
-                    .map(|language| language.as_str().into())
-                    .collect::<Vec<slint::SharedString>>(),
+                    .map(|(code, label)| crate::LanguageOption {
+                        code: code.as_str().into(),
+                        label: label.as_str().into(),
+                        selected: crate::screens::player::same_language(
+                            code,
+                            &shown.active_language,
+                        ),
+                    })
+                    .collect::<Vec<_>>(),
             )));
             window.set_player_subtitle_language(shown.active_language.as_str().into());
             window.set_player_subtitle_variants(ModelRc::new(VecModel::from(self.variants(&shown))));
@@ -715,22 +729,15 @@ impl Wiring {
         let _ = self.video.select_audio(&id);
     }
 
-    /// The subtitle tracks of one language, for the Variants column. Filtering here rather than in
-    /// the window keeps a hidden row from leaving its gap behind: a row that is merely invisible
-    /// still holds its place in a layout.
+    /// The subtitle tracks of the language that is playing, for the Variants column. Filtering here
+    /// rather than in the window keeps a hidden row from leaving its gap behind: a row that is
+    /// merely invisible still holds its place in a layout.
     fn variants(&self, shown: &ShownTracks) -> Vec<crate::PlayerTrack> {
-        let language = self.subtitle_browse.lock().unwrap().clone();
-        let language = if language.is_empty() {
-            self.subtitle_choice
-                .lock()
-                .unwrap()
-                .language
-                .clone()
-                .unwrap_or_default()
-        } else {
-            language
-        };
-        crate::screens::player::subtitle_rows(&shown.subtitles, &shown.candidates, &language)
+        crate::screens::player::subtitle_rows(
+            &shown.subtitles,
+            &shown.candidates,
+            &shown.active_language,
+        )
     }
 
     /// The profile's preferred subtitle language, as the settings screen writes it.
@@ -747,13 +754,44 @@ impl Wiring {
             .unwrap_or_default()
     }
 
-    /// A language row in the Subtitles menu: show the variants of that language beside it.
-    fn player_browse_subtitles(&self, language: String) {
-        *self.subtitle_browse.lock().unwrap() = language;
+    /// The interface's language, which the web ranks just under the viewer's own when it orders
+    /// the Languages column.
+    fn interface_language(&self) -> String {
+        let Ok(model) = self.runtime.model() else {
+            return String::new();
+        };
+        model.ctx.profile.settings.interface_language.clone()
+    }
+
+    /// A language row in the Subtitles menu. The web plays the best track of that language at once
+    /// (`subtitlesLanguageOnClick`), keeping the picture's own track ahead of the addons' offers,
+    /// and clears the subtitles when that language has nothing to play.
+    fn player_choose_language(&self, language: String) {
+        if language.is_empty() {
+            let _ = self.video.select_subtitles(None);
+            return;
+        }
         let shown = self.shown_tracks.lock().unwrap().clone();
-        let variants = self.variants(&shown);
-        if let Some(window) = self.window.upgrade() {
-            window.set_player_subtitle_variants(ModelRc::new(VecModel::from(variants)));
+        let in_language = |track: &&crate::plumbing::player::Track| {
+            crate::screens::player::same_language(&track.language, &language)
+        };
+        let chosen = shown
+            .subtitles
+            .iter()
+            .filter(in_language)
+            .find(|track| !track.external)
+            .or_else(|| shown.subtitles.iter().find(in_language));
+        if let Some(track) = chosen
+        {
+            self.player_choose_subtitles(track.id.clone());
+            return;
+        }
+        if let Some(candidate) = shown
+            .candidates
+            .iter()
+            .find(|candidate| crate::screens::player::same_language(&candidate.language, &language))
+        {
+            self.player_choose_subtitles(candidate.id.clone());
         }
     }
 
@@ -773,7 +811,7 @@ impl Wiring {
             *self.subtitle_choice.lock().unwrap() = SubtitleChoice::picked(&candidate.language, true);
             let _ = self.video.add_subtitles(
                 &candidate.url,
-                &candidate.title,
+                &crate::screens::player::variant_label(candidate),
                 &candidate.language,
             );
             return;
@@ -1360,7 +1398,6 @@ pub(crate) fn start_player_sync(wiring: &Wiring) {
     let loaded = wiring.player_loaded.clone();
     let attempted = wiring.player_attempted.clone();
     let auto = wiring.subtitle_auto.clone();
-    let browse = wiring.subtitle_browse.clone();
     let playback = wiring.playback.clone();
     let error = wiring.playback_error.clone();
     wiring.player_sync.start(
@@ -1389,7 +1426,6 @@ pub(crate) fn start_player_sync(wiring: &Wiring) {
                     *loaded.lock().unwrap() = data.key.clone();
                     // A new stream: its subtitles are chosen afresh.
                     *auto.lock().unwrap() = false;
-                    *browse.lock().unwrap() = String::new();
                     *error.lock().unwrap() = String::new();
                     if let Ok(mut playing) = playback.lock() {
                         playing.sent_time = data.resume_at;
@@ -1513,8 +1549,8 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
     }
     {
         let wiring = wiring.clone();
-        window.on_player_browse_subtitles(move |language| {
-            wiring.player_browse_subtitles(language.to_string())
+        window.on_player_choose_language(move |language| {
+            wiring.player_choose_language(language.to_string())
         });
     }
     {

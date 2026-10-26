@@ -11,10 +11,10 @@ import { SettingsContent, SettingsViewData } from "settings.slint";
 import { SelectOption } from "multiselect-menu.slint";
 import { LinkGroup, PreviewData } from "meta-preview.slint";
 import { DetailsScreen, StreamData } from "details-screen.slint";
-import { PlayerScreen, PlayerEpisode, PlayerOption, PlayerTrack } from "player.slint";
+import { LanguageOption, PlayerScreen, PlayerEpisode, PlayerOption, PlayerTrack } from "player.slint";
 export { PlayerEpisode, PlayerOption, PlayerTrack }
 import { VideoRow } from "videos-list.slint";
-export { AddonData, LibraryCard, LibrarySort, LinkGroup, PreviewData, SelectInputData, SelectOption, SettingsViewData, StreamData, VideoRow }
+export { AddonData, LanguageOption, LibraryCard, LibrarySort, LinkGroup, PreviewData, SelectInputData, SelectOption, SettingsViewData, StreamData, VideoRow }
 import { ClassStyle, ClassStyles } from "class-styles.slint";
 import { IntroContent } from "intro.slint";
 import { ShareModal } from "share-modal.slint";
@@ -143,7 +143,7 @@ export component MainWindow inherits Window {
     in property <float> player-subtitles-size: 100;
     in property <float> player-subtitles-offset: 0;
     in property <float> player-subtitles-position: 100;
-    in property <[string]> player-subtitle-languages: [];
+    in property <[LanguageOption]> player-subtitle-languages: [];
     in property <string> player-subtitle-language;
     in property <bool> player-fullscreen: false;
     in property <[PlayerOption]> player-options: [];
@@ -242,7 +242,7 @@ export component MainWindow inherits Window {
     callback player-step-subtitles-offset(int);
     callback player-step-subtitles-size(int);
     callback player-step-subtitles-position(int);
-    callback player-browse-subtitles(string);
+    callback player-choose-language(string);
     callback player-select-episode(string);
     callback player-select-season(int);
     callback player-choose-option(string);
@@ -484,8 +484,8 @@ export component MainWindow inherits Window {
         choose-subtitles(id) => {
             root.player-choose-subtitles(id);
         }
-        browse-subtitles(language) => {
-            root.player-browse-subtitles(language);
+        choose-language(language) => {
+            root.player-choose-language(language);
         }
         step-subtitles-position(step) => {
             root.player-step-subtitles-position(step);

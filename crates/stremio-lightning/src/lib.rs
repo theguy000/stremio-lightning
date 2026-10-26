@@ -125,7 +125,6 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         board_catalogs: Default::default(),
         shown_tracks: Default::default(),
         subtitle_choice: Default::default(),
-        subtitle_browse: Default::default(),
         subtitle_auto: Default::default(),
     };
     shell::wire(&window, wiring.clone());

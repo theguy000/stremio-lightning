@@ -479,7 +479,9 @@ pub(crate) fn tracks(tracks: &[crate::plumbing::player::Track]) -> ModelRc<Playe
             .map(|track| PlayerTrack {
                 id: track.id.clone().into(),
                 title: track.title.clone().into(),
-                language: track.language.clone().into(),
+                // The Audio menu's first line is the language's own name, as in the web
+                // (`languages.label(lang)`); the code stays in the model for the rest of the shell.
+                language: crate::screens::language_names::label_or_code(&track.language).into(),
                 selected: track.selected,
                 external: track.external,
                 origin: Default::default(),
