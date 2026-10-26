@@ -560,13 +560,24 @@ impl VideoPlayer {
 
     /// Adds a subtitle file beside the video and selects it: what a stream's own subtitles and
     /// every addon's are, since neither lives inside the file.
-    pub(crate) fn add_subtitles(&self, url: &str, language: &str) -> Result<(), String> {
-        let arguments = ["file", url, "select"];
-        let loaded = self.command("sub-add", &arguments);
-        if loaded.is_ok() && !language.is_empty() {
-            let _ = self.command("set", &["sub-lang", language]);
+    ///
+    /// `sub-add <url> <flags> <title> <lang>` gives the new track the name and language the addon
+    /// declared, so the row that appears afterwards in the Variants column is the same one the
+    /// viewer pressed, in the right language, and not a file name under an empty language.
+    pub(crate) fn add_subtitles(
+        &self,
+        url: &str,
+        title: &str,
+        language: &str,
+    ) -> Result<(), String> {
+        let mut arguments = vec!["file", url, "select"];
+        if !title.is_empty() || !language.is_empty() {
+            arguments.push(title);
         }
-        loaded
+        if !language.is_empty() {
+            arguments.push(language);
+        }
+        self.command("sub-add", &arguments)
     }
 
     pub(crate) fn set_subtitles_scale(&self, scale: f64) -> Result<(), String> {

@@ -23,6 +23,9 @@ export struct PlayerTrack {
     title: string,
     language: string,
     selected: bool,
+    /// Where the track came from, when that is known: an addon's name. Empty for a track inside
+    /// the file, which the row then calls "Embedded".
+    origin: string,
     /// A file added beside the video rather than a track inside it -- the Variants column says
     /// which of the two a row is.
     external: bool,
@@ -322,17 +325,15 @@ component LanguageRow inherits Rectangle {
             vertical-alignment: center;
             overflow: elide;
         }
-        Rectangle {
-            width: 0.5 * root.rem-size;
-            height: 0.5 * root.rem-size;
-            border-radius: 0.25 * root.rem-size;
-            background: transparent;
-            visible: root.selected;
+        // A HorizontalLayout stretches every child to the row's height, so a dot placed directly
+        // in it hangs from the top edge. This box centres it on the row instead.
+        VerticalLayout {
+            alignment: center;
             Rectangle {
                 width: 0.5 * root.rem-size;
                 height: 0.5 * root.rem-size;
                 border-radius: 0.25 * root.rem-size;
-                background: Theme.accent-green;
+                background: root.selected ? Theme.accent-green : transparent;
             }
         }
     }
@@ -380,17 +381,15 @@ component VariantRow inherits Rectangle {
                 overflow: elide;
             }
         }
-        Rectangle {
-            width: 0.5 * root.rem-size;
-            height: 0.5 * root.rem-size;
-            border-radius: 0.25 * root.rem-size;
-            background: transparent;
-            visible: root.selected;
+        // A HorizontalLayout stretches every child to the row's height, so a dot placed directly
+        // in it hangs from the top edge. This box centres it on the row instead.
+        VerticalLayout {
+            alignment: center;
             Rectangle {
                 width: 0.5 * root.rem-size;
                 height: 0.5 * root.rem-size;
                 border-radius: 0.25 * root.rem-size;
-                background: Theme.accent-green;
+                background: root.selected ? Theme.accent-green : transparent;
             }
         }
     }
@@ -438,17 +437,15 @@ component AudioRow inherits Rectangle {
                 visible: root.label != "";
             }
         }
-        Rectangle {
-            width: 0.5 * root.rem-size;
-            height: 0.5 * root.rem-size;
-            border-radius: 0.25 * root.rem-size;
-            background: transparent;
-            visible: root.selected;
+        // A HorizontalLayout stretches every child to the row's height, so a dot placed directly
+        // in it hangs from the top edge. This box centres it on the row instead.
+        VerticalLayout {
+            alignment: center;
             Rectangle {
                 width: 0.5 * root.rem-size;
                 height: 0.5 * root.rem-size;
                 border-radius: 0.25 * root.rem-size;
-                background: Theme.accent-green;
+                background: root.selected ? Theme.accent-green : transparent;
             }
         }
     }
@@ -492,8 +489,14 @@ component SettingsStepper inherits VerticalLayout {
                 height: 3.5 * root.rem-size;
                 border-radius: 1.75 * root.rem-size;
                 background: minus.has-hover && root.enabled ? Theme.overlay : transparent;
+                // A Text is only as big as its own text, so the alignments above do nothing
+                // until it is told to fill the button.
                 Text {
                     text: "-";
+                    x: 0;
+                    y: 0;
+                    width: parent.width;
+                    height: parent.height;
                     font-size: 1.3 * root.rem-size;
                     color: Theme.text;
                     horizontal-alignment: center;
@@ -521,8 +524,14 @@ component SettingsStepper inherits VerticalLayout {
                 height: 3.5 * root.rem-size;
                 border-radius: 1.75 * root.rem-size;
                 background: plus.has-hover && root.enabled ? Theme.overlay : transparent;
+                // A Text is only as big as its own text, so the alignments above do nothing
+                // until it is told to fill the button.
                 Text {
                     text: "+";
+                    x: 0;
+                    y: 0;
+                    width: parent.width;
+                    height: parent.height;
                     font-size: 1.3 * root.rem-size;
                     color: Theme.text;
                     horizontal-alignment: center;
@@ -1560,7 +1569,7 @@ export component PlayerScreen inherits Rectangle {
                             for track in root.subtitle-variants: VariantRow {
                                 rem-size: root.rem-size;
                                 title: track.title;
-                                origin: track.external ? "External" : "Embedded";
+                                origin: track.origin != "" ? track.origin : (track.external ? "External" : "Embedded");
                                 selected: track.selected;
                                 clicked => {
                                     root.choose-subtitles(track.id);

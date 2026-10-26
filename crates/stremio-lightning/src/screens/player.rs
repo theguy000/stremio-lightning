@@ -43,8 +43,12 @@ pub struct Episode {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Subtitle {
     pub id: String,
+    /// What the row says: the addon's own label for the track, or the stream's.
     pub title: String,
+    /// The language code the track is in, as the addon declared it ("eng", "ger").
     pub language: String,
+    /// Where it came from -- an addon's name, or "Stream" for one the stream carried itself.
+    pub origin: String,
     pub url: String,
 }
 
@@ -95,11 +99,14 @@ impl Data {
         let mut rows: Vec<Subtitle> = Vec::new();
         let mut push = |source: &str, subtitles: &[Subtitles]| {
             for subtitle in subtitles {
+                let url = subtitle.url.to_string();
                 rows.push(Subtitle {
                     id: format!("{source}:{}", subtitle.id),
-                    title: subtitle.lang.clone(),
-                    language: source.to_owned(),
-                    url: subtitle.url.to_string(),
+                    // The file's own name is what the web puts on the row, under the addon's name.
+                    title: file_name(&url).unwrap_or_else(|| subtitle.lang.clone()),
+                    language: subtitle.lang.clone(),
+                    origin: source.to_owned(),
+                    url,
                 });
             }
         };
@@ -114,6 +121,21 @@ impl Data {
         }
         rows
     }
+}
+
+/// The last segment of a subtitle's address, without its query or its awkward characters -- the
+/// name the row shows under the addon it came from.
+fn file_name(url: &str) -> Option<String> {
+    let path = url.split(['?', '#']).next().unwrap_or(url);
+    let last = path.rsplit('/').next()?.trim();
+    let last = last.rsplit_once('.').map_or(last, |(stem, _)| stem);
+    let decoded = url::form_urlencoded::parse(last.as_bytes())
+        .map(|(key, _)| key.to_string())
+        .collect::<Vec<_>>()
+        .join(" ");
+    let decoded = decoded.replace('+', " ");
+    let decoded = decoded.trim();
+    (!decoded.is_empty()).then(|| decoded.to_owned())
 }
 
 /// The addon a request goes to, by the name its manifest gives: the subtitles menu labels a
@@ -763,10 +785,75 @@ pub fn auto_subtitle(
     }
     None
 }
+/// The rows the Variants column shows for one language: the tracks inside the file first, then the
+/// files the addons offer. An addon row already loaded beside the video is dropped -- mpv lists it
+/// too, and offering one file twice would be two rows for the same subtitle.
+pub(crate) fn subtitle_rows(
+    tracks: &[crate::plumbing::player::Track],
+    candidates: &[Subtitle],
+    language: &str,
+) -> Vec<crate::PlayerTrack> {
+    let mut rows: Vec<crate::PlayerTrack> = tracks
+        .iter()
+        .filter(|track| same_language(&track.language, language))
+        .map(|track| crate::PlayerTrack {
+            id: track.id.clone().into(),
+            title: track.title.clone().into(),
+            language: track.language.clone().into(),
+            selected: track.selected,
+            external: track.external,
+            origin: Default::default(),
+        })
+        .collect();
+    rows.extend(
+        candidates
+            .iter()
+            .filter(|candidate| same_language(&candidate.language, language))
+            .filter(|candidate| {
+                !tracks.iter().any(|track| {
+                    track.external
+                        && same_language(&track.language, &candidate.language)
+                        && track.title == candidate.title
+                })
+            })
+            .map(|candidate| crate::PlayerTrack {
+                id: candidate.id.clone().into(),
+                title: candidate.title.clone().into(),
+                language: candidate.language.clone().into(),
+                selected: false,
+                external: true,
+                origin: candidate.origin.clone().into(),
+            }),
+    );
+    rows
+}
+
+/// The languages the Subtitles menu offers: the ones inside the file, then the ones the addons
+/// offer for it. The web's `subtitlesLanguages` does the same union of both track lists.
+pub(crate) fn subtitle_languages(
+    tracks: &[crate::plumbing::player::Track],
+    candidates: &[Subtitle],
+) -> Vec<String> {
+    let mut languages: Vec<String> = Vec::new();
+    let mut push = |language: &str| {
+        let language = language.trim();
+        if !language.is_empty() && !languages.iter().any(|seen| same_language(seen, language)) {
+            languages.push(language.to_owned());
+        }
+    };
+    for track in tracks {
+        push(&track.language);
+    }
+    for candidate in candidates {
+        push(&candidate.language);
+    }
+    languages
+}
+
 
 /// mpv reports `eng` where the profile may hold `en` (and the other way round), so a two-letter
 /// code matches the three-letter one it is the prefix of. Anything else has to match outright.
-fn same_language(left: &str, right: &str) -> bool {
+pub(crate) fn same_language(left: &str, right: &str) -> bool {
     let left = left.trim().to_ascii_lowercase();
     let right = right.trim().to_ascii_lowercase();
     if left.is_empty() || right.is_empty() {
@@ -788,6 +875,66 @@ mod tests {
             language: language.to_owned(),
             external,
         }
+    }
+
+    fn file_track(id: &str, language: &str, external: bool, title: &str) -> crate::plumbing::player::Track {
+        crate::plumbing::player::Track {
+            id: id.to_owned(),
+            title: title.to_owned(),
+            language: language.to_owned(),
+            selected: false,
+            external,
+        }
+    }
+
+    fn offered(language: &str, title: &str, origin: &str) -> Subtitle {
+        Subtitle {
+            id: format!("{origin}:{title}"),
+            title: title.to_owned(),
+            language: language.to_owned(),
+            origin: origin.to_owned(),
+            url: format!("https://example.com/{title}.srt"),
+        }
+    }
+
+    #[test]
+    fn the_variants_column_shows_the_addons_offers_too() {
+        // Nothing inside the file; an addon offers two English files and a German one.
+        let candidates = [
+            offered("eng", "OpenSubtitles", "OpenSubtitles v3"),
+            offered("eng", "Community", "Stremio Community Subtitles"),
+            offered("ger", "Untertitel", "OpenSubtitles v3"),
+        ];
+        let rows = subtitle_rows(&[], &candidates, "eng");
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].origin.as_str(), "OpenSubtitles v3");
+        assert!(rows.iter().all(|row| row.external));
+    }
+
+    #[test]
+    fn a_language_with_only_an_addon_offer_still_gets_a_row() {
+        let candidates = [offered("ger", "Untertitel", "OpenSubtitles v3")];
+        let languages = subtitle_languages(&[], &candidates);
+        assert_eq!(languages, vec!["ger".to_owned()]);
+    }
+
+    #[test]
+    fn languages_inside_the_file_come_before_the_offers() {
+        let tracks = [file_track("1", "eng", false, "English")];
+        let candidates = [offered("ger", "Untertitel", "OpenSubtitles v3")];
+        assert_eq!(
+            subtitle_languages(&tracks, &candidates),
+            vec!["eng".to_owned(), "ger".to_owned()]
+        );
+    }
+
+    #[test]
+    fn an_offer_already_beside_the_video_is_not_listed_twice() {
+        let beside = file_track("9", "eng", true, "OpenSubtitles");
+        let candidates = [offered("eng", "OpenSubtitles", "OpenSubtitles v3")];
+        let rows = subtitle_rows(&[beside], &candidates, "eng");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id.as_str(), "9");
     }
 
     #[test]

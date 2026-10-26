@@ -148,6 +148,9 @@ pub(crate) struct Wiring {
 pub(crate) struct ShownTracks {
     audio: Vec<crate::plumbing::player::Track>,
     subtitles: Vec<crate::plumbing::player::Track>,
+    /// The subtitle files the addons offered for this stream. They are rows in the menu before
+    /// they are tracks in mpv: picking one is what adds the file.
+    candidates: Vec<crate::screens::player::Subtitle>,
     languages: Vec<String>,
     active_language: String,
 }
@@ -504,13 +507,12 @@ impl Wiring {
         // second, and handing the window a fresh model each time rebuilds the rows -- which threw
         // away the row under the pointer mid-press, so a click on a subtitle did nothing, and made
         // the selected dot flicker.
+        let candidates = self.latest.lock().unwrap().player.subtitles.clone();
         let shown = ShownTracks {
             audio: status.audio.clone(),
             subtitles: status.subtitles.clone(),
-            languages: shell::view::languages(&status.subtitles)
-                .into_iter()
-                .map(String::from)
-                .collect(),
+            candidates: candidates.clone(),
+            languages: crate::screens::player::subtitle_languages(&status.subtitles, &candidates),
             active_language: status
                 .subtitles
                 .iter()
@@ -538,7 +540,7 @@ impl Wiring {
                     .collect::<Vec<slint::SharedString>>(),
             )));
             window.set_player_subtitle_language(shown.active_language.as_str().into());
-            window.set_player_subtitle_variants(shell::view::tracks(&self.variants(&shown.subtitles)));
+            window.set_player_subtitle_variants(ModelRc::new(VecModel::from(self.variants(&shown))));
         }
         window.set_player_subtitles_enabled(status.subtitles.iter().any(|track| track.selected));
         window.set_player_subtitles_size((status.subtitles_scale * 100.0) as f32);
@@ -713,13 +715,10 @@ impl Wiring {
         let _ = self.video.select_audio(&id);
     }
 
-    /// One of the subtitle rows. An id from the list is either an mpv track already inside the
-    /// file or a subtitle file the stream or an addon offered, which has to be added first.
-
     /// The subtitle tracks of one language, for the Variants column. Filtering here rather than in
     /// the window keeps a hidden row from leaving its gap behind: a row that is merely invisible
     /// still holds its place in a layout.
-    fn variants(&self, tracks: &[crate::plumbing::player::Track]) -> Vec<crate::plumbing::player::Track> {
+    fn variants(&self, shown: &ShownTracks) -> Vec<crate::PlayerTrack> {
         let language = self.subtitle_browse.lock().unwrap().clone();
         let language = if language.is_empty() {
             self.subtitle_choice
@@ -731,11 +730,7 @@ impl Wiring {
         } else {
             language
         };
-        tracks
-            .iter()
-            .filter(|track| track.language.eq_ignore_ascii_case(&language))
-            .cloned()
-            .collect()
+        crate::screens::player::subtitle_rows(&shown.subtitles, &shown.candidates, &language)
     }
 
     /// The profile's preferred subtitle language, as the settings screen writes it.
@@ -755,17 +750,17 @@ impl Wiring {
     /// A language row in the Subtitles menu: show the variants of that language beside it.
     fn player_browse_subtitles(&self, language: String) {
         *self.subtitle_browse.lock().unwrap() = language;
-        let tracks = self.shown_tracks.lock().unwrap().subtitles.clone();
-        let variants = self.variants(&tracks);
+        let shown = self.shown_tracks.lock().unwrap().clone();
+        let variants = self.variants(&shown);
         if let Some(window) = self.window.upgrade() {
-            window.set_player_subtitle_variants(shell::view::tracks(&variants));
+            window.set_player_subtitle_variants(ModelRc::new(VecModel::from(variants)));
         }
     }
 
     fn player_choose_subtitles(&self, id: String) {
         // What the row the viewer pressed actually is: a track mpv already has, or a subtitle file
-        // an addon offered that has to be added beside the video first.
-        let found = self
+        // an addon (or the stream itself) offered, which has to be added beside the video first.
+        let candidate = self
             .latest
             .lock()
             .unwrap()
@@ -773,7 +768,16 @@ impl Wiring {
             .subtitles
             .iter()
             .find(|subtitle| subtitle.id == id)
-            .map(|subtitle| (subtitle.url.clone(), subtitle.title.clone()));
+            .cloned();
+        if let Some(candidate) = &candidate {
+            *self.subtitle_choice.lock().unwrap() = SubtitleChoice::picked(&candidate.language, true);
+            let _ = self.video.add_subtitles(
+                &candidate.url,
+                &candidate.title,
+                &candidate.language,
+            );
+            return;
+        }
         let track = self
             .shown_tracks
             .lock()
@@ -786,14 +790,7 @@ impl Wiring {
             *self.subtitle_choice.lock().unwrap() =
                 SubtitleChoice::picked(&track.language, track.external);
         }
-        match found {
-            Some((url, language)) => {
-                let _ = self.video.add_subtitles(&url, &language);
-            }
-            None => {
-                let _ = self.video.select_subtitles(Some(&id));
-            }
-        }
+        let _ = self.video.select_subtitles(Some(&id));
     }
 
     fn player_toggle_subtitles(&self) {
