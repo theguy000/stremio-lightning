@@ -269,7 +269,10 @@ impl Player {
             if track_kind != kind {
                 continue;
             }
-            let mut title = self
+            // The title is the container's own, left empty when the container has none: the menu
+            // falls back to the language's own name from there, the way the web does, rather than
+            // printing the code ("eng") -- which is what filling this in with `lang` produced.
+            let title = self
                 .mpv
                 .get_property::<String>(&at("title"))
                 .unwrap_or_default();
@@ -277,9 +280,6 @@ impl Player {
                 .mpv
                 .get_property::<String>(&at("lang"))
                 .unwrap_or_default();
-            if title.is_empty() {
-                title = language.clone();
-            }
             tracks.push(Track {
                 id: self
                     .mpv

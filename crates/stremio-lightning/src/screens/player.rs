@@ -978,6 +978,15 @@ mod tests {
     }
 
     #[test]
+    fn a_track_with_no_name_of_its_own_reads_as_its_language_own_name() {
+        // An embedded track whose container names it nothing: "English", never "eng".
+        let tracks = [file_track("1", "eng", false, "")];
+        let rows = subtitle_rows(&tracks, &[], "eng");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].title.as_str(), "English");
+    }
+
+    #[test]
     fn a_variant_without_a_label_reads_as_its_language_own_name() {
         let candidates = [offered("fre", "", "OpenSubtitles v3")];
         let rows = subtitle_rows(&[], &candidates, "fre");
