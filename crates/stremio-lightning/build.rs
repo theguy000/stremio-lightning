@@ -1,5 +1,10 @@
 fn main() {
-    slint_build::compile("ui/main.slint").expect("failed to compile Slint UI");
+    // Debug info in the generated code is what lets `i-slint-backend-testing` find an element by
+    // its id or its accessible label, which is how the UI tests drive the window. It is on for
+    // dev and test builds and off for release, where it would only be weight.
+    let config = slint_build::CompilerConfiguration::new()
+        .with_debug_info(cfg!(debug_assertions));
+    slint_build::compile_with_config("ui/main.slint", config).expect("failed to compile Slint UI");
 
     // Watching the whole UI folder, not just `main.slint`: a build script that names any
     // `rerun-if-changed` path is no longer rerun for every file in the crate, and a screen that is

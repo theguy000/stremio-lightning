@@ -93,10 +93,12 @@ pub fn load_everything(runtime: &AppRuntime) {
         field: None,
         action: Action::CatalogsWithExtra(ActionCatalogsWithExtra::LoadRange(0..8)),
     });
-    runtime.dispatch(RuntimeAction {
-        field: None,
-        action: Action::Load(ActionLoad::CatalogWithFilters(None)),
-    });
+
+    // The marketplace is *not* loaded here. Web: `useRemoteAddons` in the Addons route dispatches
+    // `Unload` unless the URL names a marketplace catalog, so `/addons` opens on the account's own
+    // list. Loading the catalog model at startup selects its first catalog -- Cinemeta's "Official"
+    // -- which drew the marketplace in place of the account's addons, and left an addon installed a
+    // moment ago missing from the list under it.
     runtime.dispatch(RuntimeAction {
         field: None,
         action: Action::Load(ActionLoad::InstalledAddonsWithFilters(InstalledSelected {

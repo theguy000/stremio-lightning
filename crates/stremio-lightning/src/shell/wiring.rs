@@ -17,7 +17,7 @@ use stremio_core::types::profile::GDPRConsent;
 
 use crate::app::events::BoardCatalogRange;
 use crate::screens::player::{auto_subtitle, SubtitleChoice, SubtitleTrackFacts};
-use crate::app::{AppModel, AppRuntime, Snapshot};
+use crate::app::{AppModel, AppModelField, AppRuntime, Snapshot};
 use crate::plumbing::clipboard;
 use crate::plumbing::images::Images;
 use crate::plumbing::links;
@@ -1299,7 +1299,21 @@ impl Wiring {
     /// A marketplace card's Install button: the descriptor the catalog answered with goes to the
     /// core's own install action, the same one the pasted-URL dialog uses.
     fn install_market_addon(&self, transport_url: &str) {
-        addons::install_from_market(&self.runtime, transport_url);
+        // The card the press came from, off the same list the user is looking at: the live model
+        // may be reloading the catalog at this instant, and the web's card carries its own
+        // descriptor for exactly that reason.
+        let card = self
+            .latest
+            .lock()
+            .unwrap()
+            .addons
+            .cards
+            .iter()
+            .find(|card| card.transport_url == transport_url)
+            .cloned();
+        if let Some(card) = card {
+            addons::install_card(&self.runtime, &card);
+        }
     }
 
     /// A setting changed: write it, tell the core, and let the player and the screen catch up.
@@ -1763,6 +1777,13 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
     {
         let wiring = wiring.clone();
         window.on_addon_add(move || {
+            // The dialog is opened to read a new URL, so whatever addon it was last shown is
+            // forgotten with it. Otherwise its one button still holds the old manifest as ready
+            // and pressing it would install that addon instead of reading the URL just pasted.
+            wiring.runtime.dispatch(RuntimeAction {
+                field: Some(AppModelField::AddonDetails),
+                action: Action::Unload,
+            });
             if let Some(window) = wiring.window.upgrade() {
                 window.set_addon_add_error("".into());
             }
@@ -1835,6 +1856,9 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
         let wiring = wiring.clone();
         window.on_addon_install_market(move |url| wiring.install_market_addon(&url));
     }
+    // Web: the Configure pill on a card, and the icon one beside Uninstall, both open the addon's
+    // own configuration page.
+    window.on_addon_configure(move |url| addons::configure(&url));
     {
         let wiring = wiring.clone();
         window.on_select_setting_option(move |key, option| {

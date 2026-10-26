@@ -71,6 +71,9 @@ export component MainWindow inherits Window {
     callback addon-uninstall(string);
     /// A marketplace card's Install button.
     callback addon-install-market(string);
+    /// A card's Configure button, and the icon one beside Uninstall: the addon's own
+    /// configuration page, opened in the browser.
+    callback addon-configure(string);
     callback addon-share(string);
     callback addon-open(string);
     /// The Calendar's month, its days and the days with something on them, as the core holds them.
@@ -682,6 +685,9 @@ export component MainWindow inherits Window {
         }
         install(url) => {
             root.addon-install-market(url);
+        }
+        configure(url) => {
+            root.addon-configure(url);
         }
         share(url) => {
             root.addon-share(url);

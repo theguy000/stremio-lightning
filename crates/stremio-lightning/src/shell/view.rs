@@ -133,6 +133,8 @@ pub(crate) fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
                     has_logo: logo.is_some(),
                     logo: logo.unwrap_or_default(),
                     installed: card.installed,
+                    configuration_required: card.configuration_required,
+                    configurable: card.configurable,
                 }
             })
             .collect::<Vec<_>>(),

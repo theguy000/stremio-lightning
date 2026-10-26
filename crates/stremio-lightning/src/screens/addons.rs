@@ -15,9 +15,9 @@ use stremio_core::types::addon::{Descriptor, ResourceRequest};
 use url::Url;
 
 use super::{capitalise, AppModel, Input};
-use crate::app::AppRuntime;
+use crate::app::{AppModelField, AppRuntime};
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct AddonCard {
     /// What identifies this addon when its buttons are pressed: `Descriptor::transport_url`.
     pub transport_url: String,
@@ -29,6 +29,17 @@ pub struct AddonCard {
     /// Web: `Addon.js` shows Uninstall on an addon the account has and Install on one it does not
     /// -- which is every card in the marketplace list.
     pub installed: bool,
+    /// `manifest.behaviorHints.configurationRequired`: the addon only works once the user has
+    /// configured it on its own page, so `Addon.js` offers Configure in place of Install.
+    pub configuration_required: bool,
+    /// `manifest.behaviorHints.configurable`: an installed addon that keeps a settings page, which
+    /// `Addon.js` offers as a second, icon-only button beside Uninstall.
+    pub configurable: bool,
+    /// The descriptor this card was drawn from. The web hangs it on the card element and installs
+    /// from there, so a press is never at the mercy of the list reloading underneath it -- which is
+    /// exactly what happens here when one install makes the catalog reload and the next press
+    /// arrives while it is empty.
+    pub descriptor: Descriptor,
 }
 
 /// What picking an option in one of the screen's two menus loads. The web carries that in the route
@@ -100,6 +111,9 @@ fn card_of(addon: &Descriptor, installed: bool) -> AddonCard {
         description: manifest.description.clone().unwrap_or_default(),
         logo: manifest.logo.as_ref().map(|url| url.to_string()),
         installed,
+        configuration_required: manifest.behavior_hints.configuration_required,
+        configurable: manifest.behavior_hints.configurable,
+        descriptor: addon.clone(),
     }
 }
 
@@ -263,6 +277,12 @@ pub fn data(model: &AppModel) -> Data {
 pub(crate) fn select(runtime: &AppRuntime, choice: &Choice) {
     let action = match choice {
         Choice::Installed(request) => {
+            // Web: `useRemoteAddons` unloads the marketplace whenever no marketplace catalog is
+            // named, which is what puts the account's own list back on the screen.
+            runtime.dispatch(RuntimeAction {
+                field: Some(AppModelField::RemoteAddons),
+                action: Action::Unload,
+            });
             Action::Load(ActionLoad::InstalledAddonsWithFilters(InstalledSelected {
                 request: request.clone(),
             }))
@@ -279,34 +299,20 @@ pub(crate) fn select(runtime: &AppRuntime, choice: &Choice) {
     });
 }
 
-/// Web: `onAddonInstall` for a marketplace card -- the descriptor the catalog answered with is
-/// exactly what `InstallAddon` takes.
-pub(crate) fn install_from_market(runtime: &AppRuntime, transport_url: &str) {
-    let Ok(model) = runtime.model() else {
+/// Web: `onAddonInstall` for a marketplace card -- the descriptor the card was drawn from is
+/// exactly what `InstallAddon` takes, and an addon that has to be configured first opens its own
+/// page instead.
+pub(crate) fn install_card(runtime: &AppRuntime, card: &AddonCard) {
+    if card.installed {
         return;
-    };
-    let addon = market_addons(&model)
-        .into_iter()
-        .find(|addon| addon.transport_url.as_str() == transport_url)
-        .cloned();
-    let already = model
-        .ctx
-        .profile
-        .addons
-        .iter()
-        .any(|installed| installed.transport_url.as_str() == transport_url);
-    drop(model);
-    let Some(addon) = addon else {
+    }
+    if card.configuration_required {
+        configure(&card.transport_url);
         return;
-    };
-    let action = if already {
-        ActionCtx::UninstallAddon(addon)
-    } else {
-        ActionCtx::InstallAddon(addon)
-    };
+    }
     runtime.dispatch(RuntimeAction {
         field: None,
-        action: Action::Ctx(action),
+        action: Action::Ctx(ActionCtx::InstallAddon(card.descriptor.clone())),
     });
 }
 
@@ -442,10 +448,30 @@ mod tests {
     use super::*;
 
     fn card(name: &str, description: &str) -> AddonCard {
+        let manifest: stremio_core::types::addon::Manifest = serde_json::from_value(serde_json::json!({
+            "id": "example",
+            "version": "1.0.0",
+            "name": name,
+            "description": description,
+            "resources": ["catalog"],
+            "types": ["movie"],
+        }))
+        .expect("a manifest");
         AddonCard {
+            transport_url: "https://example.com/manifest.json".to_owned(),
             name: name.to_owned(),
+            version: String::new(),
+            types: String::new(),
             description: description.to_owned(),
-            ..AddonCard::default()
+            logo: None,
+            installed: false,
+            configuration_required: false,
+            configurable: false,
+            descriptor: Descriptor {
+                transport_url: Url::parse("https://example.com/manifest.json").expect("a url"),
+                manifest,
+                flags: Default::default(),
+            },
         }
     }
 

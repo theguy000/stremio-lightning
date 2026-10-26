@@ -334,6 +334,9 @@ export component MetaItem inherits Rectangle {
 
         card-touch := TouchArea {
             mouse-cursor: pointer;
+            // The card's own name: what opens a title is the title.
+            accessible-role: button;
+            accessible-label: root.card.title;
             changed has-hover => {
                 if (self.has-hover) {
                     root.hovered();

@@ -58,6 +58,11 @@ component NavTabButton inherits Rectangle {
 
         touch := TouchArea {
             mouse-cursor: pointer;
+            // The tab's own name, so a screen reader -- or a test driving the window -- can find it.
+            accessible-role: button;
+            accessible-label: root.tab-label;
+            accessible-checkable: true;
+            accessible-checked: root.selected;
             clicked => {
                 root.clicked();
             }
