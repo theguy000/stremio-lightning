@@ -139,6 +139,11 @@ pub(crate) struct Wiring {
     /// Whether this stream has already been auto-selected for. Once per load, as the web does it
     /// (`appliedTrack`), so a track the viewer picks is never overruled a moment later.
     pub(crate) subtitle_auto: Arc<Mutex<bool>>,
+    /// The subtitle language the menu's Variants column is showing. Pressing a language row only
+    /// looks -- it never touches the picture -- so this is the one piece of the menu that is the
+    /// window's own state and not mpv's. Empty means "whichever language is playing", so a fresh
+    /// player starts out following the track auto-selection chose.
+    pub(crate) browsed_language: Arc<Mutex<String>>,
 }
 
 /// The track lists the window was last given, so the same list is not handed over again and again.
@@ -151,6 +156,9 @@ pub(crate) struct ShownTracks {
     candidates: Vec<crate::screens::player::Subtitle>,
     languages: Vec<(String, String)>,
     active_language: String,
+    /// Whose variants the next column lists: the language being browsed, or the playing one when
+    /// nothing has been browsed yet.
+    browsed_language: String,
 }
 
 /// Where the picture is, as the player last heard it. The core is told about the play head once
@@ -506,6 +514,12 @@ impl Wiring {
         // away the row under the pointer mid-press, so a click on a subtitle did nothing, and made
         // the selected dot flicker.
         let candidates = self.latest.lock().unwrap().player.subtitles.clone();
+        let active_language = status
+            .subtitles
+            .iter()
+            .find(|track| track.selected)
+            .map(|track| track.language.clone())
+            .unwrap_or_default();
         let shown = ShownTracks {
             audio: status.audio.clone(),
             subtitles: status.subtitles.clone(),
@@ -518,12 +532,11 @@ impl Wiring {
                     self.interface_language().as_str(),
                 ],
             ),
-            active_language: status
-                .subtitles
-                .iter()
-                .find(|track| track.selected)
-                .map(|track| track.language.clone())
-                .unwrap_or_default(),
+            active_language: active_language.clone(),
+            browsed_language: browsed_language(
+                self.browsed_language.lock().unwrap().as_str(),
+                &active_language,
+            ),
         };
         let changed = {
             let mut last = self.shown_tracks.lock().unwrap();
@@ -535,26 +548,7 @@ impl Wiring {
             }
         };
         if let Some(shown) = changed {
-            window.set_player_audio_tracks(shell::view::tracks(&shown.audio));
-            window.set_player_subtitle_tracks(shell::view::tracks(&shown.subtitles));
-            // Each language under its own name -- `languages.label` in the web -- with the code the
-            // filtering and the addon requests work in kept beside it.
-            window.set_player_subtitle_languages(ModelRc::new(VecModel::from(
-                shown
-                    .languages
-                    .iter()
-                    .map(|(code, label)| crate::LanguageOption {
-                        code: code.as_str().into(),
-                        label: label.as_str().into(),
-                        selected: crate::screens::player::same_language(
-                            code,
-                            &shown.active_language,
-                        ),
-                    })
-                    .collect::<Vec<_>>(),
-            )));
-            window.set_player_subtitle_language(shown.active_language.as_str().into());
-            window.set_player_subtitle_variants(ModelRc::new(VecModel::from(self.variants(&shown))));
+            self.emit_tracks(&shown);
         }
         window.set_player_subtitles_enabled(status.subtitles.iter().any(|track| track.selected));
         window.set_player_subtitles_size((status.subtitles_scale * 100.0) as f32);
@@ -653,6 +647,7 @@ impl Wiring {
     }
 
     fn player_back(&self) {
+        *self.browsed_language.lock().unwrap() = String::new();
         self.video.stop();
         self.video.show(false);
         *self.player_loaded.lock().unwrap() = String::new();
@@ -729,14 +724,60 @@ impl Wiring {
         let _ = self.video.select_audio(&id);
     }
 
-    /// The subtitle tracks of the language that is playing, for the Variants column. Filtering here
+    /// The track lists of the menu, handed to the window in one piece: what mpv has, and which
+    /// language's variants the next column lists.
+    fn emit_tracks(&self, shown: &ShownTracks) {
+        let Some(window) = self.window.upgrade() else {
+            return;
+        };
+        window.set_player_audio_tracks(shell::view::tracks(&shown.audio));
+        window.set_player_subtitle_tracks(shell::view::tracks(&shown.subtitles));
+        // Each language under its own name -- `languages.label` in the web -- with the code the
+        // filtering and the addon requests work in kept beside it.
+        window.set_player_subtitle_languages(ModelRc::new(VecModel::from(
+            shown
+                .languages
+                .iter()
+                .map(|(code, label)| crate::LanguageOption {
+                    code: code.as_str().into(),
+                    label: label.as_str().into(),
+                    selected: crate::screens::player::same_language(code, &shown.active_language),
+                })
+                .collect::<Vec<_>>(),
+        )));
+        window.set_player_subtitle_language(shown.active_language.as_str().into());
+        window.set_player_subtitle_variants(ModelRc::new(VecModel::from(self.variants(shown))));
+    }
+
+    /// The Variants column after a language row was pressed: the same lists re-cut for the language
+    /// being browsed. Nothing is asked of mpv -- the picture keeps the track it has -- and nothing
+    /// else in the menu is handed over again, so the row just pressed is not rebuilt under the
+    /// pointer.
+    fn browse_language(&self, language: String) {
+        *self.browsed_language.lock().unwrap() = language;
+        let last = self.shown_tracks.lock().unwrap().clone();
+        let shown = ShownTracks {
+            browsed_language: browsed_language(
+                self.browsed_language.lock().unwrap().as_str(),
+                &last.active_language,
+            ),
+            ..last
+        };
+        *self.shown_tracks.lock().unwrap() = shown.clone();
+        let Some(window) = self.window.upgrade() else {
+            return;
+        };
+        window.set_player_subtitle_variants(ModelRc::new(VecModel::from(self.variants(&shown))));
+    }
+
+    /// The subtitle tracks of the language being browsed, for the Variants column. Filtering here
     /// rather than in the window keeps a hidden row from leaving its gap behind: a row that is
     /// merely invisible still holds its place in a layout.
     fn variants(&self, shown: &ShownTracks) -> Vec<crate::PlayerTrack> {
         crate::screens::player::subtitle_rows(
             &shown.subtitles,
             &shown.candidates,
-            &shown.active_language,
+            &shown.browsed_language,
         )
     }
 
@@ -763,36 +804,18 @@ impl Wiring {
         model.ctx.profile.settings.interface_language.clone()
     }
 
-    /// A language row in the Subtitles menu. The web plays the best track of that language at once
-    /// (`subtitlesLanguageOnClick`), keeping the picture's own track ahead of the addons' offers,
-    /// and clears the subtitles when that language has nothing to play.
+    /// A language row in the Subtitles menu. Pressing one only brings that language's variants into
+    /// the next column: the picture keeps the track it is playing, and it is a variant row that
+    /// switches. (The web plays the language's best track here, `subtitlesLanguageOnClick`; this is
+    /// the one place the shell is deliberately quieter than it.) OFF is not a language -- it is how
+    /// the subtitles are turned off, so it still clears them.
     fn player_choose_language(&self, language: String) {
         if language.is_empty() {
+            let choice = self.subtitle_choice.lock().unwrap().clone();
+            *self.subtitle_choice.lock().unwrap() = choice.off();
             let _ = self.video.select_subtitles(None);
-            return;
         }
-        let shown = self.shown_tracks.lock().unwrap().clone();
-        let in_language = |track: &&crate::plumbing::player::Track| {
-            crate::screens::player::same_language(&track.language, &language)
-        };
-        let chosen = shown
-            .subtitles
-            .iter()
-            .filter(in_language)
-            .find(|track| !track.external)
-            .or_else(|| shown.subtitles.iter().find(in_language));
-        if let Some(track) = chosen
-        {
-            self.player_choose_subtitles(track.id.clone());
-            return;
-        }
-        if let Some(candidate) = shown
-            .candidates
-            .iter()
-            .find(|candidate| crate::screens::player::same_language(&candidate.language, &language))
-        {
-            self.player_choose_subtitles(candidate.id.clone());
-        }
+        self.browse_language(language);
     }
 
     fn player_choose_subtitles(&self, id: String) {
@@ -1385,6 +1408,16 @@ impl Wiring {
     }
 }
 
+/// Whose variants the Variants column lists: the language whose row was pressed, or, until one is,
+/// the language that is playing.
+fn browsed_language(pressed: &str, active: &str) -> String {
+    if pressed.is_empty() {
+        active.to_owned()
+    } else {
+        pressed.to_owned()
+    }
+}
+
 /// Watches for the address the core resolved and hands it to mpv once. A timer rather than a
 /// callback because the address arrives with a core event on another thread, and the player
 /// cannot leave this one; a fifth of a second is well under the time anyone notices.
@@ -1398,6 +1431,7 @@ pub(crate) fn start_player_sync(wiring: &Wiring) {
     let loaded = wiring.player_loaded.clone();
     let attempted = wiring.player_attempted.clone();
     let auto = wiring.subtitle_auto.clone();
+    let browsed = wiring.browsed_language.clone();
     let playback = wiring.playback.clone();
     let error = wiring.playback_error.clone();
     wiring.player_sync.start(
@@ -1424,8 +1458,10 @@ pub(crate) fn start_player_sync(wiring: &Wiring) {
             match video.play(&url, data.resume_at) {
                 Ok(()) => {
                     *loaded.lock().unwrap() = data.key.clone();
-                    // A new stream: its subtitles are chosen afresh.
+                    // A new stream: its subtitles are chosen afresh, and the menu starts out
+                    // looking at whichever language is playing.
                     *auto.lock().unwrap() = false;
+                    *browsed.lock().unwrap() = String::new();
                     *error.lock().unwrap() = String::new();
                     if let Ok(mut playing) = playback.lock() {
                         playing.sent_time = data.resume_at;
@@ -1911,5 +1947,26 @@ fn window_is_in_front() -> bool {
     #[cfg(not(windows))]
     {
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::browsed_language;
+
+    #[test]
+    fn the_variants_column_starts_out_on_the_language_that_plays() {
+        assert_eq!(browsed_language("", "eng"), "eng");
+    }
+
+    #[test]
+    fn a_pressed_language_holds_the_column_there() {
+        // Pressing a language row only looks at it; the track that plays is another matter.
+        assert_eq!(browsed_language("spa", "eng"), "spa");
+    }
+
+    #[test]
+    fn turning_subtitles_off_leaves_no_language_to_look_at() {
+        assert_eq!(browsed_language("", ""), "");
     }
 }
