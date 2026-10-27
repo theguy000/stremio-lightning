@@ -16,7 +16,6 @@
 import { SelectOption } from "multiselect-menu.slint";
 import { CoverRightImage, MetaPreview, PreviewData } from "meta-preview.slint";
 import { ScrollBar } from "scroll-bar.slint";
-import { SmoothShimmer } from "shimmer.slint";
 import { Theme } from "theme.slint";
 import { VideoRow, VideosList } from "videos-list.slint";
 
@@ -151,24 +150,27 @@ component StreamPlaceholder inherits Rectangle {
         // needs a column of its own to be centred in, level with the bars beside it.
         VerticalLayout {
             alignment: center;
-            SmoothShimmer {
+            Rectangle {
                 width: 5 * root.rem-size;
                 height: 2 * root.rem-size;
                 border-radius: 0.75 * root.rem-size;
+                background: Theme.placeholder-background;
             }
         }
         VerticalLayout {
             alignment: center;
             spacing: 0.5 * root.rem-size;
-            SmoothShimmer {
+            Rectangle {
                 height: 1.2 * root.rem-size;
                 width: 80%;
                 border-radius: 0.75 * root.rem-size;
+                background: Theme.placeholder-background;
             }
-            SmoothShimmer {
+            Rectangle {
                 height: 1.2 * root.rem-size;
                 width: 40%;
                 border-radius: 0.75 * root.rem-size;
+                background: Theme.placeholder-background;
             }
         }
 
