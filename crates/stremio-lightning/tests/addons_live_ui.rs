@@ -156,6 +156,19 @@ fn dialog_install_label(window: &MainWindow) -> Result<String, String> {
         .or_else(|_| dialog_button(window, "Reinstall the addon: "))
 }
 
+/// Waits until the dialog is holding the manifest for `url` -- the window's own `pending`, not a
+/// label, because a label can flip between the moment a press lands and the moment it is read.
+fn read_for(window: &MainWindow, url: &str) -> Result<(), String> {
+    let pending = window.get_addon_pending();
+    if !pending.ready {
+        return Err(format!("still reading {:?}", pending.transport_url));
+    }
+    if pending.transport_url != url {
+        return Err(format!("the dialog holds {:?}", pending.transport_url));
+    }
+    Ok(())
+}
+
 /// Where an addon that has to be configured keeps its page: the web opens this, not an install.
 fn configure_page(transport_url: &str) -> String {
     transport_url.replace("manifest.json", "configure")
@@ -171,6 +184,148 @@ fn manifest_of(booted: &stremio_lightning::Booted, url: &str) -> Result<String, 
         .and_then(|id| id.as_str())
         .map(|id| format!("{} bytes, id {id:?}", body.len()))
         .ok_or_else(|| format!("{} bytes with no id", body.len()))
+}
+
+
+/// One request to an addon, built the way `AddonHTTPTransport` builds it: the manifest path is
+/// replaced by `/<resource>/<type>/<id>.json`, and any extra becomes the query string.
+fn resource_url(
+    transport_url: &str,
+    resource: &str,
+    kind: &str,
+    id: &str,
+    extra: &[(String, String)],
+) -> Option<String> {
+    // A legacy `/stremio/v1` transport speaks a different protocol than these paths.
+    let base = transport_url.strip_suffix("manifest.json")?;
+    let mut url = format!("{base}{resource}/{kind}/{id}.json");
+    if !extra.is_empty() {
+        let query: Vec<String> = extra
+            .iter()
+            .map(|(name, value)| format!("{name}={value}"))
+            .collect();
+        url.push('?');
+        url.push_str(&query.join("&"));
+    }
+    Some(url)
+}
+
+/// What an addon answered, and how long it took to say it.
+fn fetch_json(
+    booted: &stremio_lightning::Booted,
+    url: &str,
+) -> Result<(serde_json::Value, u128), String> {
+    let started = std::time::Instant::now();
+    let body = fetch_text(booted, url)?;
+    let took = started.elapsed().as_millis();
+    let value: serde_json::Value =
+        serde_json::from_str(&body).map_err(|error| format!("not JSON: {error}"))?;
+    Ok((value, took))
+}
+
+/// The content a resource was asked for, and how much of it there is.
+fn counted(value: &serde_json::Value, key: &str) -> Option<usize> {
+    match value.get(key)? {
+        serde_json::Value::Array(items) => Some(items.len()),
+        serde_json::Value::Null => Some(0),
+        _ => Some(1),
+    }
+}
+
+/// One resource a manifest declares: its name, the types it serves, and the id prefixes it
+/// accepts (a resource's own, or the manifest's, or none at all, which means any id will do).
+struct Declared {
+    name: String,
+    types: Vec<String>,
+    prefixes: Vec<String>,
+}
+
+impl Declared {
+    /// Whether this resource would be asked for an id at all. A kitsu catalog has never heard of
+    /// a `tt` id, and asking a music addon about a film gets an answer of 500.
+    fn accepts(&self, id: &str) -> bool {
+        self.prefixes.is_empty() || self.prefixes.iter().any(|prefix| id.starts_with(prefix))
+    }
+}
+
+fn strings(value: Option<&serde_json::Value>) -> Vec<String> {
+    value
+        .and_then(|value| value.as_array())
+        .map(|items| items.iter().filter_map(|item| item.as_str().map(str::to_owned)).collect())
+        .unwrap_or_default()
+}
+
+/// Every resource a manifest declares, as `resources` writes them: strings, or objects carrying
+/// their own `types` and `idPrefixes`.
+fn declared_resources(manifest: &serde_json::Value) -> Vec<Declared> {
+    let manifest_types = strings(manifest.get("types"));
+    let manifest_prefixes = strings(manifest.get("idPrefixes"));
+    manifest
+        .get("resources")
+        .and_then(|resources| resources.as_array())
+        .map(|resources| {
+            resources
+                .iter()
+                .filter_map(|resource| match resource {
+                    serde_json::Value::String(name) => Some(Declared {
+                        name: name.clone(),
+                        types: manifest_types.clone(),
+                        prefixes: manifest_prefixes.clone(),
+                    }),
+                    serde_json::Value::Object(fields) => {
+                        let name = fields.get("name")?.as_str()?.to_owned();
+                        let types = strings(fields.get("types"));
+                        let prefixes = strings(fields.get("idPrefixes"));
+                        Some(Declared {
+                            name,
+                            types: if types.is_empty() { manifest_types.clone() } else { types },
+                            prefixes: if prefixes.is_empty() {
+                                manifest_prefixes.clone()
+                            } else {
+                                prefixes
+                            },
+                        })
+                    }
+                    _ => None,
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The extras a catalog declares, each set to its first option: what a screen sends when nobody
+/// has picked one.
+fn catalog_extra(catalog: &serde_json::Value) -> Vec<(String, String)> {
+    catalog
+        .get("extra")
+        .and_then(|extra| extra.as_array())
+        .map(|extra| {
+            extra
+                .iter()
+                .filter_map(|one| {
+                    let name = one.get("name")?.as_str()?;
+                    let value = one
+                        .get("options")
+                        .and_then(|options| options.as_array())
+                        .and_then(|options| options.first())
+                        .and_then(|option| option.as_str())
+                        .or_else(|| one.get("default").and_then(|default| default.as_str()))?;
+                    Some((name.to_owned(), value.to_owned()))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// One title to ask an addon about, by the type it serves. `meta` takes a title's own id, while
+/// streams and subtitles take a video's: a series is `tt…:season:episode` there.
+fn title_for(kind: &str, video: bool) -> Option<&'static str> {
+    match (kind, video) {
+        ("movie", _) => Some("tt0111161"),
+        ("series", true) => Some("tt0944947:1:1"),
+        ("series", false) => Some("tt0944947"),
+        _ => None,
+    }
 }
 
 #[test]
@@ -325,24 +480,9 @@ fn the_community_list_installs_and_every_addon_answers() {
         previous = url.clone();
         steps.push(Step::Type(url.clone()));
         steps.push(Step::Click("Read the addon's url".to_owned()));
-        // The dialog is cleared of the last addon's manifest before this one is read, so waiting
-        // for that state first is what tells the two apart.
-        steps.push(Step::Wait {
-            what: "the dialog starts reading the url",
-            budget: Duration::from_secs(20),
-            check: Box::new(|window: &MainWindow| {
-                if ui_driver::labels(window)
-                    .iter()
-                    .any(|label| label == "Read the addon's url")
-                {
-                    Ok("reading".to_owned())
-                } else {
-                    Err("the last addon is still in the dialog".to_owned())
-                }
-            }),
-        });
         let reads = name.clone();
         let url_for_check = url.clone();
+        let wanted_url = url.clone();
         let written = name.clone();
         if addon.configuration_required {
             // Web: `Addon.js` offers Configure, not Install, for an addon that asks to be set up
@@ -352,6 +492,8 @@ fn the_community_list_installs_and_every_addon_answers() {
                 what: "the dialog offers Configure, not Install",
                 budget: Duration::from_secs(40),
                 check: Box::new(move |window: &MainWindow| {
+                    let asked = wanted_url.clone();
+                    read_for(window, &asked)?;
                     match dialog_button(window, "Configure the addon: ") {
                         Ok(label) => Ok(format!("{reads} reads as {label:?}")),
                         Err(error) => Err(error),
@@ -389,6 +531,8 @@ fn the_community_list_installs_and_every_addon_answers() {
                 what: "the manifest arrives and the dialog offers Install",
                 budget: Duration::from_secs(40),
                 check: Box::new(move |window: &MainWindow| {
+                    let asked = wanted_url.clone();
+                    read_for(window, &asked)?;
                     match dialog_install_label(window) {
                         Ok(label) => Ok(format!("{reads} reads as {label:?}")),
                         Err(error) => Err(error),
@@ -472,6 +616,305 @@ fn the_community_list_installs_and_every_addon_answers() {
                 }),
             }],
         ));
+    }
+
+    // ---- ask the installed addons for the thing they exist for ---------------------------------
+    // An addon that answers its manifest but not its own resources is no use, and the shapes
+    // differ enough that only asking finds out. Only the addons that actually joined the account
+    // are asked: an addon that had to be configured first is not part of what the app does, and
+    // its own server's state is not the app's business -- so this sweep prints what each addon
+    // does and never counts against the app. What the app must get right is above it: the list,
+    // the install, the dialog, and the card that then says Uninstall.
+    //
+    // Each request is built the way `AddonHTTPTransport` builds it -- the manifest path becomes
+    // `/<resource>/<type>/<id>.json` -- and is only made when the manifest says it can be
+    // answered: the type has to be one the resource serves, and the id has to start with one of
+    // its `idPrefixes` (a kitsu catalog has never heard of a `tt` id, and a music addon answers
+    // 500 to a film).
+    let installed_urls: Vec<String> = after.clone();
+    // The ids the catalogs hand over, by type: the ones a type nothing here knows is asked with
+    // (kitsu, tv, music).
+    let mut known: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
+    // The names of the catalogs those addons declare, which is what the Board's rows are called.
+    let mut drawn_catalogs: Vec<String> = Vec::new();
+    for addon in live
+        .iter()
+        .filter(|addon| installed_urls.contains(&addon.transport_url))
+    {
+        let name = addon.name.clone();
+        let transport_url = addon.transport_url.clone();
+        let manifest = match fetch_json(&booted, &transport_url) {
+            Ok((manifest, _)) => manifest,
+            Err(error) => {
+                outcomes.push(Outcome {
+                    what: format!("{name} answers its manifest again"),
+                    ok: Some(false),
+                    detail: error,
+                });
+                continue;
+            }
+        };
+        let resources = declared_resources(&manifest);
+
+        // A catalog first: it is the only way to learn the ids of the types nobody here knows
+        // (kitsu, tv, music), and those ids are what everything else is asked for.
+        if let Some(catalog_resource) = resources.iter().find(|resource| resource.name == "catalog") {
+            let first = manifest
+                .get("catalogs")
+                .and_then(|catalogs| catalogs.as_array())
+                .and_then(|catalogs| catalogs.first());
+            match first {
+                None => outcomes.push(Outcome {
+                    what: format!("{name} serves a catalog"),
+                    ok: None,
+                    detail: "it declares the resource but no catalog".to_owned(),
+                }),
+                Some(catalog) => {
+                    let kind = catalog.get("type").and_then(|one| one.as_str()).unwrap_or("");
+                    let id = catalog.get("id").and_then(|one| one.as_str()).unwrap_or("");
+                    // Extras the catalog declares are filled with their first option, which is
+                    // what a screen sends when nobody has picked one.
+                    let extra = catalog_extra(catalog);
+                    let label = format!("{name} serves catalog {kind}/{id}");
+                    match resource_url(&transport_url, "catalog", kind, id, &extra) {
+                        None => outcomes.push(Outcome {
+                            what: label,
+                            ok: None,
+                            detail: "a legacy transport, not these paths".to_owned(),
+                        }),
+                        Some(url) => match fetch_json(&booted, &url) {
+                            Ok((value, took)) => {
+                                if let Some(metas) = value.get("metas").and_then(|metas| metas.as_array()) {
+                                    for meta in metas {
+                                        if let (Some(one), Some(kind)) = (
+                                            meta.get("id").and_then(|one| one.as_str()),
+                                            meta.get("type").and_then(|one| one.as_str()),
+                                        ) {
+                                            known.entry(kind.to_owned()).or_insert_with(|| one.to_owned());
+                                        }
+                                    }
+                                }
+                                if let Some(named) = catalog.get("name").and_then(|one| one.as_str()) {
+                                    drawn_catalogs.push(named.to_owned());
+                                }
+                                let count = counted(&value, "metas");
+                                outcomes.push(Outcome {
+                                    what: label,
+                                    ok: None,
+                                    detail: match count {
+                                        Some(count) => format!(
+                                            "{count} titles, {took} ms{}",
+                                            if extra.is_empty() {
+                                                String::new()
+                                            } else {
+                                                format!(", asked with {extra:?}")
+                                            }
+                                        ),
+                                        None => format!("no metas, {took} ms"),
+                                    },
+                                });
+                            }
+                            Err(error) if !extra.is_empty() => outcomes.push(Outcome {
+                                what: label,
+                                ok: None,
+                                detail: format!("{error}; the app sends the extra this probe guessed"),
+                            }),
+                            Err(error) => outcomes.push(Outcome {
+                                what: label,
+                                ok: None,
+                                detail: format!("its own server said {error}"),
+                            }),
+                        },
+                    }
+                }
+            }
+            let _ = catalog_resource;
+        }
+
+        for resource in ["meta", "stream", "subtitles"] {
+            let Some(declared) = resources.iter().find(|one| one.name == resource) else {
+                continue;
+            };
+            let video = resource != "meta";
+            let asked: Vec<(String, String)> = declared
+                .types
+                .iter()
+                .filter_map(|kind| {
+                    // A known title of that type first, then the id this addon's own catalog
+                    // handed over -- whichever of them this resource accepts.
+                    let candidates = [
+                        title_for(kind, video).map(str::to_owned),
+                        known.get(kind).cloned(),
+                    ];
+                    let id = candidates
+                        .into_iter()
+                        .flatten()
+                        .find(|id| declared.accepts(id))?;
+                    Some((kind.clone(), id))
+                })
+                .collect();
+            if asked.is_empty() {
+                outcomes.push(Outcome {
+                    what: format!("{name} serves {resource}"),
+                    ok: None,
+                    detail: format!(
+                        "no title of a type it serves ({:?}) and prefix it accepts ({:?}) is at hand",
+                        declared.types, declared.prefixes
+                    ),
+                });
+                continue;
+            }
+            for (kind, id) in asked {
+                let answer = match resource {
+                    "meta" => "meta",
+                    "stream" => "streams",
+                    _ => "subtitles",
+                };
+                let label = format!("{name} serves {resource} for {id}");
+                let Some(url) = resource_url(&transport_url, resource, &kind, &id, &[]) else {
+                    outcomes.push(Outcome {
+                        what: label,
+                        ok: None,
+                        detail: "a legacy transport, not these paths".to_owned(),
+                    });
+                    continue;
+                };
+                match fetch_json(&booted, &url) {
+                    Ok((value, took)) => {
+                        let count = counted(&value, answer);
+                        outcomes.push(Outcome {
+                            what: label,
+                            ok: None,
+                            detail: match count {
+                                Some(count) => format!("{count} for {kind}, {took} ms"),
+                                None => format!("answered without {answer:?}, {took} ms"),
+                            },
+                        });
+                    }
+                    Err(error) => outcomes.push(Outcome {
+                        what: label,
+                        ok: None,
+                        detail: format!("its own server said {error}"),
+                    }),
+                }
+            }
+        }
+    }
+
+    // ---- the Board draws what the new catalogs answer, and one card opens -------------------
+    // The sweep above proves the addons answer. This is the half that proves the app copes: the
+    // Board asks every installed addon's catalogs, draws them as rows, and opening one of their
+    // cards lands on a Details screen that the addon's own metadata fills.
+    //
+    // A Board row is named by its catalog and the type it serves -- "Kitsu Trending - Anime" -- so
+    // the row is found by the catalog name it starts with.
+    drawn_catalogs.sort();
+    drawn_catalogs.dedup();
+    let wanted_rows = drawn_catalogs.clone();
+    outcomes.extend(ui_driver::run(
+        window,
+        vec![
+            Step::Click("Board".to_owned()),
+            Step::Wait {
+                what: "the Board asks every installed addon for its catalogs",
+                budget: Duration::from_secs(90),
+                check: Box::new({
+                    let wanted = wanted_rows.clone();
+                    move |window: &MainWindow| {
+                        let rows = window.get_rows();
+                        let titled: Vec<(String, usize)> = (0..rows.row_count())
+                            .filter_map(|index| rows.row_data(index))
+                            .map(|row| (row.title.to_string(), row.cards.row_count()))
+                            .collect();
+                        match titled.iter().find(|(title, _)| {
+                            wanted
+                                .iter()
+                                .any(|catalog| title.starts_with(&format!("{catalog} - ")))
+                        }) {
+                            Some((title, cards)) if *cards > 0 => {
+                                Ok(format!("{title:?} with {cards} cards"))
+                            }
+                            Some((title, _)) => Err(format!("{title:?} drew no cards")),
+                            None => Err(format!(
+                                "no row of {wanted:?} among {:?}",
+                                titled.iter().map(|(title, _)| title).collect::<Vec<_>>()
+                            )),
+                        }
+                    }
+                }),
+            },
+        ],
+    ));
+
+    // A card is pressed from a row that is on the screen, because that is what a person can press:
+    // the Board is a `Flickable`, and Slint only builds the rows near the viewport. The wheel
+    // cannot be turned from here -- this shell reads it from winit, which the testing backend
+    // never speaks -- so the run takes the first row, and the first card of it, that the window is
+    // drawing. The rows the addons just added are on screen further down; what they prove is the
+    // row above, which is their data arriving at the Board.
+    let drawn = ui_driver::labels(window);
+    let rows = window.get_rows();
+    let picked: Option<(String, String)> = (0..rows.row_count())
+        .filter_map(|index| rows.row_data(index))
+        .filter(|row| drawn.iter().any(|label| label == row.title.as_str()))
+        .find_map(|row| {
+            let cards = (0..row.cards.row_count())
+                .filter_map(|index| row.cards.row_data(index))
+                .find(|card| drawn.iter().any(|label| label == card.title.as_str()))?;
+            Some((row.title.to_string(), cards.title.to_string()))
+        });
+    match picked {
+        None => outcomes.push(Outcome {
+            what: "a card on the Board".to_owned(),
+            ok: None,
+            detail: "no drawn row had a drawn card".to_owned(),
+        }),
+        Some((row_title, card_title)) => {
+            let opened = card_title.clone();
+            let which = row_title.clone();
+            outcomes.extend(ui_driver::run(
+                window,
+                vec![
+                    Step::Click(card_title.clone()),
+                    Step::Wait {
+                        what: "that card opens the Details screen",
+                        budget: Duration::from_secs(60),
+                        check: Box::new(move |window: &MainWindow| {
+                            if !window.get_details_open() {
+                                return Err("the Details screen is not open".to_owned());
+                            }
+                            let preview = window.get_details_preview();
+                            if preview.title.is_empty() {
+                                Err("the panel has no title yet".to_owned())
+                            } else if preview.title != opened {
+                                Err(format!("the panel says {:?}", preview.title))
+                            } else {
+                                Ok(format!("{:?}", preview.title))
+                            }
+                        }),
+                    },
+                    Step::Wait {
+                        what: "the streams for that card settle",
+                        budget: Duration::from_secs(60),
+                        check: Box::new(move |window: &MainWindow| {
+                            if !window.get_details_open() {
+                                return Err("the Details screen closed".to_owned());
+                            }
+                            if window.get_streams_loading() > 0 {
+                                return Err(format!(
+                                    "{} addon(s) still answering",
+                                    window.get_streams_loading()
+                                ));
+                            }
+                            Ok(format!(
+                                "{} stream(s) for a card of {which:?}",
+                                window.get_streams().row_count()
+                            ))
+                        }),
+                    },
+                ],
+            ));
+        }
     }
 
     let held = ui_driver::report(&outcomes);
