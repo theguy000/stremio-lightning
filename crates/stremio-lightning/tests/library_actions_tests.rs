@@ -63,6 +63,7 @@ fn model_with_library(items: Vec<LibraryItem>) -> app::AppModel {
         discover,
         library: library_with_filters,
         installed_addons,
+        remote_addons: Default::default(),
         addon_details: Default::default(),
         meta_details: Default::default(),
         player: Default::default(),

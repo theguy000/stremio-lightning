@@ -132,6 +132,9 @@ pub(crate) fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
                     description: card.description.clone().into(),
                     has_logo: logo.is_some(),
                     logo: logo.unwrap_or_default(),
+                    installed: card.installed,
+                    configuration_required: card.configuration_required,
+                    configurable: card.configurable,
                 }
             })
             .collect::<Vec<_>>(),
@@ -300,6 +303,7 @@ fn addon_pending(
         has_logo: logo.is_some(),
         logo: logo.unwrap_or_default(),
         ready: pending.ready,
+        configuration_required: pending.configuration_required,
         installed: pending.installed,
         error: pending.error.clone().into(),
     }
@@ -471,7 +475,6 @@ fn player_view(window: &MainWindow, data: &PlayerData, images: &Images) {
     window.set_player_scale(data.scale.into());
 }
 
-/// The tracks mpv offers, as the menus draw them.
 pub(crate) fn tracks(tracks: &[crate::plumbing::player::Track]) -> ModelRc<PlayerTrack> {
     ModelRc::new(VecModel::from(
         tracks
@@ -479,8 +482,12 @@ pub(crate) fn tracks(tracks: &[crate::plumbing::player::Track]) -> ModelRc<Playe
             .map(|track| PlayerTrack {
                 id: track.id.clone().into(),
                 title: track.title.clone().into(),
-                language: track.language.clone().into(),
+                // The Audio menu's first line is the language's own name, as in the web
+                // (`languages.label(lang)`); the code stays in the model for the rest of the shell.
+                language: crate::screens::language_names::label_or_code(&track.language).into(),
                 selected: track.selected,
+                external: track.external,
+                origin: Default::default(),
             })
             .collect::<Vec<_>>(),
     ))

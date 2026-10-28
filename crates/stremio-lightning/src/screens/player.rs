@@ -43,8 +43,12 @@ pub struct Episode {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Subtitle {
     pub id: String,
+    /// What the row says: the addon's own label for the track, or the stream's.
     pub title: String,
+    /// The language code the track is in, as the addon declared it ("eng", "ger").
     pub language: String,
+    /// Where it came from -- an addon's name, or "Stream" for one the stream carried itself.
+    pub origin: String,
     pub url: String,
 }
 
@@ -95,11 +99,21 @@ impl Data {
         let mut rows: Vec<Subtitle> = Vec::new();
         let mut push = |source: &str, subtitles: &[Subtitles]| {
             for subtitle in subtitles {
+                let url = subtitle.url.to_string();
                 rows.push(Subtitle {
                     id: format!("{source}:{}", subtitle.id),
-                    title: subtitle.lang.clone(),
-                    language: source.to_owned(),
-                    url: subtitle.url.to_string(),
+                    // `label` only when the addon gave a real one: the web throws away anything
+                    // that starts with "http" and falls back to the language's own name.
+                    title: subtitle
+                        .label
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|label| !label.is_empty() && !label.starts_with("http"))
+                        .map(str::to_owned)
+                        .unwrap_or_default(),
+                    language: subtitle.lang.clone(),
+                    origin: source.to_owned(),
+                    url,
                 });
             }
         };
@@ -672,10 +686,383 @@ pub(crate) fn download_link(player: &Player) -> Option<String> {
     }
 }
 
+/// What the viewer has said about subtitles in this player session. The web keeps the same thing
+/// in the core's `SubtitlePreference` (`enabled`, `source`, `language`) and gives it priority over
+/// the profile's preferred language until the player closes.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SubtitleChoice {
+    /// The viewer has picked a track or switched subtitles off themselves, so auto-selection must
+    /// not overrule them.
+    pub chosen: bool,
+    pub enabled: bool,
+    /// The picked track came from a file beside the video rather than from inside it.
+    pub external: bool,
+    pub language: Option<String>,
+}
+
+impl SubtitleChoice {
+    /// The web's `disableSubtitles`: remember that they are off, and which language and side they
+    /// were on, so switching them back on returns to the same place.
+    pub fn off(self) -> Self {
+        Self {
+            chosen: true,
+            enabled: false,
+            ..self
+        }
+    }
+
+    /// The web's `rememberTrack`.
+    pub fn picked(language: &str, external: bool) -> Self {
+        Self {
+            chosen: true,
+            enabled: true,
+            external,
+            language: Some(language.to_owned()).filter(|language| !language.is_empty()),
+        }
+    }
+}
+
+/// One subtitle track as mpv describes it, in the two facts the choice is made from.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SubtitleTrackFacts {
+    pub id: String,
+    pub language: String,
+    pub external: bool,
+}
+
+/// Which subtitle track to start on, following stremio-web's `useSubtitles`:
+/// `buildCandidates` orders the languages it will accept -- the session's language, then the
+/// profile's preferred language, then English -- and, within each language, prefers the side the
+/// viewer last used (embedded unless they picked an external track); `resolveBestCandidate` takes
+/// the first of those that a track actually exists for. No match means no subtitles, which is what
+/// the web does too: it leaves both track ids null rather than guessing.
+pub fn auto_subtitle(
+    tracks: &[SubtitleTrackFacts],
+    choice: &SubtitleChoice,
+    preferred_language: &str,
+) -> Option<String> {
+    if choice.chosen && !choice.enabled {
+        return None;
+    }
+    let mut languages: Vec<String> = Vec::new();
+    let mut push = |language: Option<&str>| {
+        if let Some(language) = language.map(str::trim).filter(|language| !language.is_empty()) {
+            if !languages.iter().any(|seen| same_language(seen, language)) {
+                languages.push(language.to_owned());
+            }
+        }
+    };
+    if choice.chosen {
+        push(choice.language.as_deref());
+    }
+    push(Some(preferred_language));
+    if choice.chosen {
+        // CONSTANTS.DEFAULT_SUBTITLES_LANGUAGE.
+        push(Some("eng"));
+    }
+    let sources = if choice.chosen && choice.external {
+        [true, false]
+    } else {
+        [false, true]
+    };
+    for language in &languages {
+        for external in sources {
+            if let Some(track) = tracks
+                .iter()
+                .find(|track| track.external == external && same_language(&track.language, language))
+            {
+                return Some(track.id.clone());
+            }
+        }
+    }
+    None
+}
+/// The rows the Variants column shows for one language: the tracks inside the file first, then the
+/// files the addons offer. An addon row already loaded beside the video is dropped -- mpv lists it
+/// too, and offering one file twice would be two rows for the same subtitle.
+pub(crate) fn subtitle_rows(
+    tracks: &[crate::plumbing::player::Track],
+    candidates: &[Subtitle],
+    language: &str,
+) -> Vec<crate::PlayerTrack> {
+    let language_label = super::language_names::label_or_code(language);
+    let mut rows: Vec<crate::PlayerTrack> = tracks
+        .iter()
+        .filter(|track| same_language(&track.language, language))
+        .map(|track| crate::PlayerTrack {
+            id: track.id.clone().into(),
+            title: if track.title.trim().is_empty() {
+                language_label.clone().into()
+            } else {
+                track.title.clone().into()
+            },
+            language: track.language.clone().into(),
+            selected: track.selected,
+            external: track.external,
+            origin: Default::default(),
+        })
+        .collect();
+    rows.extend(
+        candidates
+            .iter()
+            .filter(|candidate| same_language(&candidate.language, language))
+            // An offer that is already beside the video is the same row twice: `sub-add` names the
+            // track with the label the row would have shown, so the labels match.
+            .filter(|candidate| {
+                let label = variant_label(candidate);
+                !tracks
+                    .iter()
+                    .any(|track| track.external && track.title == label)
+            })
+            .map(|candidate| crate::PlayerTrack {
+                id: candidate.id.clone().into(),
+                title: variant_label(candidate).into(),
+                language: candidate.language.clone().into(),
+                selected: false,
+                external: true,
+                origin: candidate.origin.clone().into(),
+            }),
+    );
+    rows
+}
+
+/// What a variant row reads: the addon's own label when it gave a usable one, and the language's
+/// own name otherwise -- the web's `hasValidLabel(track.label) ? track.label : languages.label(lang)`.
+/// The same string names the track when it is added to mpv, so the offer's row and the loaded
+/// track's row are recognisably the same thing.
+pub(crate) fn variant_label(candidate: &Subtitle) -> String {
+    let label = candidate.title.trim();
+    if label.is_empty() {
+        super::language_names::label_or_code(&candidate.language)
+    } else {
+        label.to_owned()
+    }
+}
+
+/// The languages the Subtitles menu offers: the ones inside the file, then the ones the addons
+/// offer for it. The web's `subtitlesLanguages` does the same union of both track lists.
+pub(crate) fn subtitle_languages(
+    tracks: &[crate::plumbing::player::Track],
+    candidates: &[Subtitle],
+    priorities: &[&str],
+) -> Vec<(String, String)> {
+    let mut codes: Vec<String> = Vec::new();
+    let mut collect = |language: &str| {
+        let language = language.trim();
+        if !language.is_empty() && !codes.iter().any(|code| same_language(code, language)) {
+            codes.push(language.to_owned());
+        }
+    };
+    for track in tracks {
+        collect(&track.language);
+    }
+    for candidate in candidates {
+        collect(&candidate.language);
+    }
+    // The web sorts the codes alphabetically and then pulls the ones that matter to the top, in
+    // order: the viewer's own language, then the interface's (`sortByValues` in SubtitlesMenu.js).
+    codes.sort();
+    let mut ordered: Vec<String> = Vec::new();
+    for priority in priorities {
+        if priority.is_empty() {
+            continue;
+        }
+        if let Some(position) = codes
+            .iter()
+            .position(|code| same_language(code, priority))
+        {
+            ordered.push(codes.remove(position));
+        }
+    }
+    ordered.extend(codes);
+    ordered
+        .into_iter()
+        .map(|code| {
+            let label = super::language_names::label_or_code(&code);
+            (code, label)
+        })
+        .collect()
+}
+
+pub(crate) fn same_language(left: &str, right: &str) -> bool {
+    let left = left.trim().to_ascii_lowercase();
+    let right = right.trim().to_ascii_lowercase();
+    if left.is_empty() || right.is_empty() {
+        return false;
+    }
+    left == right
+        || (left.len() == 2 && right.starts_with(&left))
+        || (right.len() == 2 && left.starts_with(&right))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use stremio_core::types::resource::Stream;
+
+    fn track(id: &str, language: &str, external: bool) -> SubtitleTrackFacts {
+        SubtitleTrackFacts {
+            id: id.to_owned(),
+            language: language.to_owned(),
+            external,
+        }
+    }
+
+    fn file_track(id: &str, language: &str, external: bool, title: &str) -> crate::plumbing::player::Track {
+        crate::plumbing::player::Track {
+            id: id.to_owned(),
+            title: title.to_owned(),
+            language: language.to_owned(),
+            selected: false,
+            external,
+        }
+    }
+
+    fn offered(language: &str, title: &str, origin: &str) -> Subtitle {
+        Subtitle {
+            id: format!("{origin}:{title}"),
+            title: title.to_owned(),
+            language: language.to_owned(),
+            origin: origin.to_owned(),
+            url: format!("https://example.com/{title}.srt"),
+        }
+    }
+
+    #[test]
+    fn the_variants_column_shows_the_addons_offers_too() {
+        // Nothing inside the file; an addon offers two English files and a German one.
+        let candidates = [
+            offered("eng", "OpenSubtitles", "OpenSubtitles v3"),
+            offered("eng", "Community", "Stremio Community Subtitles"),
+            offered("ger", "Untertitel", "OpenSubtitles v3"),
+        ];
+        let rows = subtitle_rows(&[], &candidates, "eng");
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].origin.as_str(), "OpenSubtitles v3");
+        assert!(rows.iter().all(|row| row.external));
+    }
+
+    #[test]
+    fn a_language_with_only_an_addon_offer_still_gets_a_row() {
+        let candidates = [offered("ger", "Untertitel", "OpenSubtitles v3")];
+        let languages = subtitle_languages(&[], &candidates, &[]);
+        assert_eq!(languages, vec![("ger".to_owned(), "Deutsch".to_owned())]);
+    }
+
+    #[test]
+    fn languages_inside_the_file_come_before_the_offers() {
+        let tracks = [file_track("1", "eng", false, "English")];
+        let candidates = [offered("ger", "Untertitel", "OpenSubtitles v3")];
+        assert_eq!(
+            subtitle_languages(&tracks, &candidates, &[]),
+            vec![
+                ("eng".to_owned(), "English".to_owned()),
+                ("ger".to_owned(), "Deutsch".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_viewers_language_comes_first_then_the_interface_one_then_the_rest() {
+        let candidates = [
+            offered("spa", "", "OpenSubtitles v3"),
+            offered("fre", "", "OpenSubtitles v3"),
+            offered("eng", "", "OpenSubtitles v3"),
+            offered("ger", "", "OpenSubtitles v3"),
+        ];
+        let codes: Vec<String> = subtitle_languages(&[], &candidates, &["ger", "en"])
+            .into_iter()
+            .map(|(code, _)| code)
+            .collect();
+        assert_eq!(codes, vec!["ger", "eng", "fre", "spa"]);
+    }
+
+    #[test]
+    fn a_track_with_no_name_of_its_own_reads_as_its_language_own_name() {
+        // An embedded track whose container names it nothing: "English", never "eng".
+        let tracks = [file_track("1", "eng", false, "")];
+        let rows = subtitle_rows(&tracks, &[], "eng");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].title.as_str(), "English");
+    }
+
+    #[test]
+    fn a_variant_without_a_label_reads_as_its_language_own_name() {
+        let candidates = [offered("fre", "", "OpenSubtitles v3")];
+        let rows = subtitle_rows(&[], &candidates, "fre");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].title.as_str(), "Français");
+        assert_eq!(rows[0].origin.as_str(), "OpenSubtitles v3");
+    }
+
+    #[test]
+    fn a_variant_labelled_by_its_addon_keeps_that_label() {
+        let candidates = [offered("eng", "SDH", "OpenSubtitles v3")];
+        let rows = subtitle_rows(&[], &candidates, "eng");
+        assert_eq!(rows[0].title.as_str(), "SDH");
+    }
+
+    #[test]
+    fn an_offer_already_beside_the_video_is_not_listed_twice() {
+        let beside = file_track("9", "eng", true, "OpenSubtitles");
+        let candidates = [offered("eng", "OpenSubtitles", "OpenSubtitles v3")];
+        let rows = subtitle_rows(&[beside], &candidates, "eng");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id.as_str(), "9");
+    }
+
+    #[test]
+    fn the_profile_language_is_chosen_before_english() {
+        let tracks = [track("1", "ger", false), track("2", "eng", false)];
+        let choice = SubtitleChoice::default();
+        assert_eq!(auto_subtitle(&tracks, &choice, "ger").as_deref(), Some("1"));
+    }
+
+    #[test]
+    fn embedded_wins_over_an_extra_file_in_the_same_language() {
+        let tracks = [track("7", "eng", true), track("3", "eng", false)];
+        let choice = SubtitleChoice::default();
+        assert_eq!(auto_subtitle(&tracks, &choice, "eng").as_deref(), Some("3"));
+    }
+
+    #[test]
+    fn the_viewers_own_pick_outranks_the_profile() {
+        // They chose German earlier in this session; the profile still says English.
+        let tracks = [track("1", "eng", false), track("2", "ger", false)];
+        let choice = SubtitleChoice::picked("ger", false);
+        assert_eq!(auto_subtitle(&tracks, &choice, "eng").as_deref(), Some("2"));
+    }
+
+    #[test]
+    fn a_pick_from_an_extra_file_is_found_again() {
+        let tracks = [track("5", "eng", false), track("9", "eng", true)];
+        let choice = SubtitleChoice::picked("eng", true);
+        assert_eq!(auto_subtitle(&tracks, &choice, "eng").as_deref(), Some("9"));
+    }
+
+    #[test]
+    fn switching_them_off_leaves_them_off() {
+        let tracks = [track("1", "eng", false)];
+        let choice = SubtitleChoice::picked("eng", false).off();
+        assert_eq!(auto_subtitle(&tracks, &choice, "eng"), None);
+    }
+
+    #[test]
+    fn english_is_the_last_resort_only_when_the_viewer_chose() {
+        let tracks = [track("1", "eng", false)];
+        // Nothing in the profile, nothing chosen: the web sets no track at all.
+        assert_eq!(auto_subtitle(&tracks, &SubtitleChoice::default(), ""), None);
+        // With a pick on record, English is tried after the picked language.
+        let choice = SubtitleChoice::picked("ger", false);
+        assert_eq!(auto_subtitle(&tracks, &choice, "").as_deref(), Some("1"));
+    }
+
+    #[test]
+    fn a_two_letter_code_matches_the_three_letter_track() {
+        let tracks = [track("1", "eng", false)];
+        let choice = SubtitleChoice::default();
+        assert_eq!(auto_subtitle(&tracks, &choice, "en").as_deref(), Some("1"));
+    }
 
     #[test]
     fn a_request_for_another_video_keeps_the_addon_and_the_type() {

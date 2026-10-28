@@ -1,18 +1,23 @@
-// What the Addons screen shows: the installed addons from stremio-core's `InstalledAddonsWithFilters`.
-// Based on stremio-web src/routes/Addons (Addons.js, Addon/Addon.js, useSelectableInputs.js).
+// What the Addons screen shows: the installed addons from stremio-core's `InstalledAddonsWithFilters`,
+// and the marketplace list the route's second section reads from `CatalogWithFilters<Descriptor>`.
+// Based on stremio-web src/routes/Addons (Addons.js, Addon/Addon.js, useRemoteAddons.js,
+// useSelectableInputs.js).
 // Licence basis: ../../THIRD_PARTY_NOTICES.md.
 use stremio_core::models::addon_details::Selected as AddonDetailsSelected;
+use stremio_core::models::catalog_with_filters::Selected as CatalogSelected;
 use stremio_core::models::common::Loadable;
-use stremio_core::models::installed_addons_with_filters::{InstalledAddonsRequest, SelectableType};
+use stremio_core::models::installed_addons_with_filters::{
+    InstalledAddonsRequest, SelectableType, Selected as InstalledSelected,
+};
 use stremio_core::runtime::msg::{Action, ActionCtx, ActionLoad};
 use stremio_core::runtime::RuntimeAction;
-use stremio_core::types::addon::Descriptor;
+use stremio_core::types::addon::{Descriptor, ResourceRequest};
 use url::Url;
 
 use super::{capitalise, AppModel, Input};
-use crate::app::AppRuntime;
+use crate::app::{AppModelField, AppRuntime};
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct AddonCard {
     /// What identifies this addon when its buttons are pressed: `Descriptor::transport_url`.
     pub transport_url: String,
@@ -21,15 +26,42 @@ pub struct AddonCard {
     pub types: String,
     pub description: String,
     pub logo: Option<String>,
+    /// Web: `Addon.js` shows Uninstall on an addon the account has and Install on one it does not
+    /// -- which is every card in the marketplace list.
+    pub installed: bool,
+    /// `manifest.behaviorHints.configurationRequired`: the addon only works once the user has
+    /// configured it on its own page, so `Addon.js` offers Configure in place of Install.
+    pub configuration_required: bool,
+    /// `manifest.behaviorHints.configurable`: an installed addon that keeps a settings page, which
+    /// `Addon.js` offers as a second, icon-only button beside Uninstall.
+    pub configurable: bool,
+    /// The descriptor this card was drawn from. The web hangs it on the card element and installs
+    /// from there, so a press is never at the mercy of the list reloading underneath it -- which is
+    /// exactly what happens here when one install makes the catalog reload and the next press
+    /// arrives while it is empty.
+    pub descriptor: Descriptor,
+}
+
+/// What picking an option in one of the screen's two menus loads. The web carries that in the route
+/// (`/addons/{type}/{transportUrl}/{catalogId}`); here it is an action.
+#[derive(Clone)]
+pub enum Choice {
+    Installed(InstalledAddonsRequest),
+    Remote(ResourceRequest),
 }
 
 #[derive(Clone, Default)]
 pub struct Data {
-    /// The catalog menu ("Installed") and the type menu ("All", "Movie", ...).
+    /// The catalog menu ("Installed", then every addon catalog an installed addon declares) and
+    /// the type menu ("All", "Movie", ...).
     pub inputs: Vec<Input>,
-    /// What each option of the type menu loads, in the menu's order.
-    pub type_requests: Vec<InstalledAddonsRequest>,
+    /// What each option of each menu loads, menu by menu, in the menus' order.
+    pub choices: Vec<Vec<Choice>>,
     pub cards: Vec<AddonCard>,
+    /// Whether the list on screen is a marketplace catalog rather than the installed addons.
+    pub remote: bool,
+    /// Whether the marketplace is still being read, so the empty message waits for it.
+    pub loading: bool,
     pub message: String,
     /// The addon the user pasted a URL for, while its manifest is being fetched or shown.
     pub pending: Option<Pending>,
@@ -47,6 +79,9 @@ pub struct Pending {
     pub logo: Option<String>,
     /// Whether the manifest has arrived, so the Install button can be pressed.
     pub ready: bool,
+    /// Whether the addon has to be set up on its own page before it can be installed at all
+    /// (`behaviorHints.configurationRequired`).
+    pub configuration_required: bool,
     /// Whether the account already has this addon.
     pub installed: bool,
     /// What went wrong, empty while nothing has.
@@ -65,7 +100,7 @@ fn types_label(types: &[String]) -> String {
     }
 }
 
-fn card_of(addon: &Descriptor) -> AddonCard {
+fn card_of(addon: &Descriptor, installed: bool) -> AddonCard {
     let manifest = &addon.manifest;
     AddonCard {
         transport_url: addon.transport_url.to_string(),
@@ -78,7 +113,36 @@ fn card_of(addon: &Descriptor) -> AddonCard {
         types: types_label(&manifest.types),
         description: manifest.description.clone().unwrap_or_default(),
         logo: manifest.logo.as_ref().map(|url| url.to_string()),
+        installed,
+        configuration_required: manifest.behavior_hints.configuration_required,
+        configurable: manifest.behavior_hints.configurable,
+        descriptor: addon.clone(),
     }
+}
+
+/// Web: `Addons.js` keeps the `installed` flag on every remote card so the same card can offer
+/// Install or Uninstall; it asks the account's addon list, by transport URL.
+fn is_installed(model: &AppModel, addon: &Descriptor) -> bool {
+    model
+        .ctx
+        .profile
+        .addons
+        .iter()
+        .any(|installed| installed.transport_url == addon.transport_url)
+}
+
+/// Every addon a marketplace catalog has answered with, across the pages the core fetched.
+fn market_addons(model: &AppModel) -> Vec<&Descriptor> {
+    model
+        .remote_addons
+        .catalog
+        .iter()
+        .filter_map(|page| match &page.content {
+            Some(Loadable::Ready(addons)) => Some(addons.iter()),
+            _ => None,
+        })
+        .flatten()
+        .collect()
 }
 
 fn type_label(item: &SelectableType) -> String {
@@ -89,39 +153,170 @@ fn type_label(item: &SelectableType) -> String {
 
 pub fn data(model: &AppModel) -> Data {
     let installed = &model.installed_addons;
-    let types = &installed.selectable.types;
-    let selected = types.iter().position(|item| item.selected).unwrap_or(0);
-    let title = types
-        .get(selected)
-        .map_or_else(|| "All".to_owned(), type_label);
+    let remote = &model.remote_addons;
+    let remote_selected = remote.selected.is_some();
+
+    // Menu 0: "Installed", then one entry per addon catalog the installed addons declare. Cinemeta
+    // declares "Official", "Community" and "Podcasts" once per type; the menu shows each name once,
+    // and its option loads the catalog for the type the next menu is on.
+    let mut catalog_options = vec![("Installed".to_owned(), !remote_selected)];
+    let mut catalog_choices = vec![Choice::Installed(InstalledAddonsRequest { r#type: None })];
+    let mut seen: Vec<(String, String)> = Vec::new();
+    for selectable in &remote.selectable.catalogs {
+        let key = (
+            selectable.request.base.to_string(),
+            selectable.request.path.id.clone(),
+        );
+        if seen.contains(&key) {
+            continue;
+        }
+        seen.push(key);
+        catalog_options.push((selectable.catalog.clone(), selectable.selected));
+        catalog_choices.push(Choice::Remote(selectable.request.clone()));
+    }
     let catalog = Input {
-        title: "Installed".to_owned(),
-        selected: 0,
-        options: vec![("Installed".to_owned(), true)],
+        title: catalog_options
+            .iter()
+            .find(|(_, selected)| *selected)
+            .map_or_else(|| "Installed".to_owned(), |(label, _)| label.clone()),
+        selected: catalog_options
+            .iter()
+            .position(|(_, selected)| *selected)
+            .unwrap_or(0),
+        options: catalog_options,
         requests: vec![],
+    };
+
+    // Menu 1: the types of whichever list is on screen.
+    let (type_options, type_choices, type_title) = if remote_selected {
+        let types = &remote.selectable.types;
+        let selected = types.iter().position(|item| item.selected).unwrap_or(0);
+        (
+            types
+                .iter()
+                .map(|item| (capitalise(&item.r#type), item.selected))
+                .collect::<Vec<_>>(),
+            types
+                .iter()
+                .map(|item| Choice::Remote(item.request.clone()))
+                .collect::<Vec<_>>(),
+            types
+                .get(selected)
+                .map_or_else(String::new, |item| capitalise(&item.r#type)),
+        )
+    } else {
+        let types = &installed.selectable.types;
+        let selected = types.iter().position(|item| item.selected).unwrap_or(0);
+        (
+            types
+                .iter()
+                .map(|item| (type_label(item), item.selected))
+                .collect::<Vec<_>>(),
+            types
+                .iter()
+                .map(|item| Choice::Installed(item.request.clone()))
+                .collect::<Vec<_>>(),
+            types
+                .get(selected)
+                .map_or_else(|| "All".to_owned(), type_label),
+        )
     };
     let kinds = Input {
-        title,
-        selected,
-        options: types
+        title: type_title,
+        selected: type_options
             .iter()
-            .map(|item| (type_label(item), item.selected))
-            .collect(),
+            .position(|(_, selected)| *selected)
+            .unwrap_or(0),
+        options: type_options,
         requests: vec![],
     };
-    // stremio-web's NO_ADDONS_FOR_TYPE. The translated text is not available here, so this wording is a stand-in.
-    let message = if installed.selected.is_some() && installed.catalog.is_empty() {
+
+    let loading = remote_selected
+        && remote.catalog.iter().any(|page| {
+            !matches!(
+                page.content,
+                Some(Loadable::Ready(_)) | Some(Loadable::Err(_))
+            )
+        });
+    let cards = if remote_selected {
+        let mut cards: Vec<AddonCard> = Vec::new();
+        for addon in market_addons(model) {
+            if cards
+                .iter()
+                .any(|card| card.transport_url == addon.transport_url.as_str())
+            {
+                continue;
+            }
+            cards.push(card_of(addon, is_installed(model, addon)));
+        }
+        cards
+    } else {
+        installed
+            .catalog
+            .iter()
+            .map(|addon| card_of(addon, true))
+            .collect()
+    };
+    // stremio-web's NO_ADDONS_FOR_TYPE, shown only once the list has actually answered. The
+    // translated text is not available here, so this wording is a stand-in.
+    let message = if cards.is_empty() && !loading {
         "No addons for this type.".to_owned()
     } else {
         String::new()
     };
     Data {
         inputs: vec![catalog, kinds],
-        type_requests: types.iter().map(|item| item.request.clone()).collect(),
-        cards: installed.catalog.iter().map(card_of).collect(),
+        choices: vec![catalog_choices, type_choices],
+        cards,
+        remote: remote_selected,
+        loading,
         message,
         pending: pending(&model.addon_details),
     }
+}
+
+/// Web: picking an option in either menu navigates, which loads that list. Installed addons and a
+/// marketplace catalog are two different models.
+pub(crate) fn select(runtime: &AppRuntime, choice: &Choice) {
+    let action = match choice {
+        Choice::Installed(request) => {
+            // Web: `useRemoteAddons` unloads the marketplace whenever no marketplace catalog is
+            // named, which is what puts the account's own list back on the screen.
+            runtime.dispatch(RuntimeAction {
+                field: Some(AppModelField::RemoteAddons),
+                action: Action::Unload,
+            });
+            Action::Load(ActionLoad::InstalledAddonsWithFilters(InstalledSelected {
+                request: request.clone(),
+            }))
+        }
+        Choice::Remote(request) => {
+            Action::Load(ActionLoad::CatalogWithFilters(Some(CatalogSelected {
+                request: request.clone(),
+            })))
+        }
+    };
+    runtime.dispatch(RuntimeAction {
+        field: None,
+        action,
+    });
+}
+
+/// Web: `onAddonInstall` for a marketplace card -- the descriptor the card was drawn from is
+/// exactly what `InstallAddon` takes, and an addon that has to be configured first opens its own
+/// page instead.
+pub(crate) fn install_card(runtime: &AppRuntime, card: &AddonCard) {
+    if card.installed {
+        return;
+    }
+    if card.configuration_required {
+        configure(&card.transport_url);
+        return;
+    }
+    runtime.dispatch(RuntimeAction {
+        field: None,
+        action: Action::Ctx(ActionCtx::InstallAddon(card.descriptor.clone())),
+    });
 }
 
 /// Web: `AddonDetailsModal` -- the manifest behind the pasted URL, its Install button, and the
@@ -147,6 +342,7 @@ fn pending(details: &stremio_core::models::addon_details::AddonDetails) -> Optio
             pending.types = types_label(&manifest.types);
             pending.description = manifest.description.clone().unwrap_or_default();
             pending.logo = manifest.logo.as_ref().map(|url| url.to_string());
+            pending.configuration_required = manifest.behavior_hints.configuration_required;
             pending.ready = true;
         }
         Some(Loadable::Err(error)) => pending.error = format!("{error}"),
@@ -256,10 +452,30 @@ mod tests {
     use super::*;
 
     fn card(name: &str, description: &str) -> AddonCard {
+        let manifest: stremio_core::types::addon::Manifest = serde_json::from_value(serde_json::json!({
+            "id": "example",
+            "version": "1.0.0",
+            "name": name,
+            "description": description,
+            "resources": ["catalog"],
+            "types": ["movie"],
+        }))
+        .expect("a manifest");
         AddonCard {
+            transport_url: "https://example.com/manifest.json".to_owned(),
             name: name.to_owned(),
+            version: String::new(),
+            types: String::new(),
             description: description.to_owned(),
-            ..AddonCard::default()
+            logo: None,
+            installed: false,
+            configuration_required: false,
+            configurable: false,
+            descriptor: Descriptor {
+                transport_url: Url::parse("https://example.com/manifest.json").expect("a url"),
+                manifest,
+                flags: Default::default(),
+            },
         }
     }
 

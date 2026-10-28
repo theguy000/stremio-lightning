@@ -65,6 +65,8 @@ pub struct Status {
     pub subtitles_scale: f64,
     /// Subtitle timing in seconds; positive shows subtitles later.
     pub subtitles_delay: f64,
+    /// How far down the screen the subtitles sit, in percent -- mpv's `sub-pos`.
+    pub subtitles_position: f64,
     /// Why the last load failed, when it did. Cleared by the next load.
     pub error: String,
     pub width: u32,
@@ -170,6 +172,9 @@ struct Player {
     render: RenderContext,
     mpv: Mpv,
     gl: Gl,
+    /// Where a freshly loaded stream should jump to once it is really open. A seek sent before
+    /// the file opens is refused by mpv, so the resume position is held here until `FileLoaded`.
+    pending_resume: Option<f64>,
 }
 
 impl Player {
@@ -228,6 +233,7 @@ impl Player {
             render,
             mpv,
             gl: Gl::new(lookup),
+            pending_resume: None,
         })
     }
 
@@ -263,7 +269,10 @@ impl Player {
             if track_kind != kind {
                 continue;
             }
-            let mut title = self
+            // The title is the container's own, left empty when the container has none: the menu
+            // falls back to the language's own name from there, the way the web does, rather than
+            // printing the code ("eng") -- which is what filling this in with `lang` produced.
+            let title = self
                 .mpv
                 .get_property::<String>(&at("title"))
                 .unwrap_or_default();
@@ -271,9 +280,6 @@ impl Player {
                 .mpv
                 .get_property::<String>(&at("lang"))
                 .unwrap_or_default();
-            if title.is_empty() {
-                title = language.clone();
-            }
             tracks.push(Track {
                 id: self
                     .mpv
@@ -305,6 +311,7 @@ impl Player {
             subtitles: self.tracks("sub"),
             subtitles_scale: self.number("sub-scale").unwrap_or(1.0),
             subtitles_delay: self.number("sub-delay").unwrap_or(0.0),
+            subtitles_position: self.number("sub-pos").unwrap_or(100.0),
             width: self.number("width").unwrap_or(0.0).max(0.0) as u32,
             height: self.number("height").unwrap_or(0.0).max(0.0) as u32,
             error: String::new(),
@@ -476,13 +483,32 @@ impl VideoPlayer {
                 ..Status::default()
             };
         }
-        self.command("loadfile", &[url, "replace"])?;
-        // A stream always starts playing, whatever pause a previous one was left in.
-        self.set_paused(false)?;
-        // The seek queues behind the load, so mpv lands on the right second once the file opens.
-        if resume_at > 0.0 {
-            self.seek(resume_at)?;
+        // The resume position travels *with* the load, as mpv's own `start` option, so the file
+        // opens onto that second and the first frame is already the right one -- no seek, and no
+        // flash of the opening shot. (Web: `initialTime` on the player, the same idea.)
+        //
+        // It is set on every load, `0` included, because `start` is a per-file option: left at a
+        // previous value it would drag the *next* stream to the same second.
+        //
+        // Held as well, for the case where this mpv ignores the option: the held position is
+        // applied when mpv reports `FileLoaded`, which is the first moment it accepts a seek. What
+        // must never happen -- and did -- is a seek sent while the file is still opening: mpv
+        // refuses those with MPV_ERROR_LOADING_FAILED ("the stream could not be opened", about a
+        // stream that is fine), and the caller's retry loop then reloaded the address every 200ms,
+        // each load cancelling the one before it.
+        let start = if resume_at > 0.0 {
+            format!("{resume_at:.3}")
+        } else {
+            "0".to_owned()
+        };
+        let _ = self.with(|mpv| mpv.set_property("start", start.as_str()).map_err(describe));
+        if let Some(player) = self.player.borrow_mut().as_mut() {
+            player.pending_resume = (resume_at > 0.0).then_some(resume_at);
         }
+        self.command("loadfile", &[url, "replace"])?;
+        // A stream always starts playing, whatever pause a previous one was left in. Not worth
+        // failing the load over: at worst the first picture waits for a press.
+        let _ = self.set_paused(false);
         Ok(())
     }
 
@@ -492,7 +518,10 @@ impl VideoPlayer {
     }
 
     pub(crate) fn set_paused(&self, paused: bool) -> Result<(), String> {
-        self.with(|mpv| mpv.set_property("pause", paused).map_err(|e| e.to_string()))
+        self.with(|mpv| {
+            mpv.set_property("pause", paused)
+                .map_err(|e| e.to_string())
+        })
     }
 
     /// Moves the play head. mpv seeks to an absolute second and lands exactly there.
@@ -531,18 +560,30 @@ impl VideoPlayer {
 
     /// Adds a subtitle file beside the video and selects it: what a stream's own subtitles and
     /// every addon's are, since neither lives inside the file.
-    pub(crate) fn add_subtitles(&self, url: &str, language: &str) -> Result<(), String> {
-        let arguments = ["file", url, "select"];
-        let loaded = self.command("sub-add", &arguments);
-        if loaded.is_ok() && !language.is_empty() {
-            let _ = self.command("set", &["sub-lang", language]);
-        }
-        loaded
+    ///
+    /// `sub-add <url> <flags> <title> <lang>` gives the new track the name and language the addon
+    /// declared, so the row that appears afterwards in the Variants column is the same one the
+    /// viewer pressed, in the right language, and not a file name under an empty language.
+    pub(crate) fn add_subtitles(
+        &self,
+        url: &str,
+        title: &str,
+        language: &str,
+    ) -> Result<(), String> {
+        self.command("sub-add", &sub_add_arguments(url, title, language))
     }
 
     pub(crate) fn set_subtitles_scale(&self, scale: f64) -> Result<(), String> {
         self.with(|mpv| {
             mpv.set_property("sub-scale", scale)
+                .map_err(|e| e.to_string())
+        })
+    }
+
+    /// Where the subtitles sit vertically, in percent of the screen height (mpv's `sub-pos`).
+    pub(crate) fn set_subtitles_position(&self, position: f64) -> Result<(), String> {
+        self.with(|mpv| {
+            mpv.set_property("sub-pos", position)
                 .map_err(|e| e.to_string())
         })
     }
@@ -631,6 +672,12 @@ fn drain_events(player: &mut Player, status: &mut Status) {
             Event::FileLoaded => {
                 status.loaded = true;
                 status.error.clear();
+                // The tab is open now, so the resume seek can land: this is the first moment mpv
+                // will take one.
+                if let Some(at) = player.pending_resume.take() {
+                    let seconds = format!("{at:.3}");
+                    let _ = player.mpv.command("seek", &[&seconds, "absolute+exact"]);
+                }
                 // Autoplay, once the file is really open: a press that starts the load and a
                 // release that lands on the new screen must not leave the picture paused.
                 let _ = player.mpv.set_property("pause", false);
@@ -658,5 +705,82 @@ fn drain_events(player: &mut Player, status: &mut Status) {
             }
             _ => {}
         }
+    }
+}
+
+/// Whether a stream still needs handing to mpv. A stream already open needs nothing done, and one
+/// that has already been refused must not be loaded again: every reload cancels the attempt already
+/// in flight, so retrying on a timer guarantees the failure it is reacting to.
+pub(crate) fn should_open(key: &str, loaded: &str, attempted: Option<&str>) -> bool {
+    key != loaded && Some(key) != attempted
+}
+
+/// mpv's `sub-add <url> [<flags> [<title> [<lang>]]]`: `select` as the flags so the new track is
+/// the one playing, then the name and language the addon declared, so the row that appears
+/// afterwards is the one the viewer pressed. Anything else in front of the URL is read *as* the
+/// flags and the command is refused -- "argument flags can't be parsed" -- which is how every
+/// addon subtitle went missing while a stray `file` sat there.
+pub(crate) fn sub_add_arguments<'a>(url: &'a str, title: &'a str, language: &'a str) -> Vec<&'a str> {
+    let mut arguments = vec![url, "select"];
+    if !title.is_empty() || !language.is_empty() {
+        arguments.push(title);
+    }
+    if !language.is_empty() {
+        arguments.push(language);
+    }
+    arguments
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{should_open, sub_add_arguments};
+
+    #[test]
+    fn a_stream_already_open_is_left_alone() {
+        assert!(!should_open("a", "a", None));
+    }
+
+    #[test]
+    fn a_stream_that_failed_is_not_retried() {
+        // The timer fires five times a second; retrying here would reload the address and abort
+        // the open that is still in flight.
+        assert!(!should_open("a", "", Some("a")));
+    }
+
+    #[test]
+    fn another_stream_is_opened() {
+        assert!(should_open("b", "a", Some("a")));
+    }
+
+    #[test]
+    fn closing_the_player_allows_the_same_stream_again() {
+        // The shell clears what it attempted when the player closes, so pressing Play again is a
+        // fresh request rather than a repeat of the failure.
+        assert!(should_open("a", "", None));
+    }
+
+    #[test]
+    fn an_added_subtitle_is_named_and_language_tagged() {
+        assert_eq!(
+            sub_add_arguments("https://example.com/1.srt", "Deutsch", "ger"),
+            vec!["https://example.com/1.srt", "select", "Deutsch", "ger"]
+        );
+    }
+
+    #[test]
+    fn a_subtitle_with_only_a_language_carries_a_blank_title() {
+        assert_eq!(
+            sub_add_arguments("https://example.com/1.srt", "", "ger"),
+            vec!["https://example.com/1.srt", "select", "", "ger"]
+        );
+    }
+
+    #[test]
+    fn the_flags_come_straight_after_the_url() {
+        // mpv reads the argument after the URL as its flags and refuses anything but select,
+        // auto or cached; a word there used to cost every addon subtitle its load.
+        let arguments = sub_add_arguments("https://example.com/1.srt", "Deutsch", "ger");
+        assert_eq!(arguments[1], "select");
+        assert!(!arguments.contains(&"file"));
     }
 }
