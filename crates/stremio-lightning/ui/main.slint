@@ -1,0 +1,827 @@
+import { Button } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+import { CalendarContent, CalendarData } from "calendar.slint";
+import { HorizontalNavBar, Section, VerticalNavBar } from "shell.slint";
+import { BoardContent, CatalogRow, PosterData } from "board.slint";
+import { AddonData, AddonPendingData, AddonsContent } from "addons.slint";
+import { DiscoverContent, SelectInputData } from "discover.slint";
+import { LoggedOutPlaceholder } from "logged-out-placeholder.slint";
+import { LibraryCard, LibraryContent, LibrarySort } from "library.slint";
+import { SettingsContent, SettingsViewData } from "settings.slint";
+import { SelectOption } from "multiselect-menu.slint";
+import { LinkGroup, PreviewData } from "meta-preview.slint";
+import { DetailsScreen, StreamData } from "details-screen.slint";
+import { LanguageOption, PlayerScreen, PlayerEpisode, PlayerOption, PlayerTrack } from "player.slint";
+export { PlayerEpisode, PlayerOption, PlayerTrack }
+import { VideoRow } from "videos-list.slint";
+export { AddonData, LanguageOption, LibraryCard, LibrarySort, LinkGroup, PreviewData, SelectInputData, SelectOption, SettingsViewData, StreamData, VideoRow }
+import { ClassStyle, ClassStyles } from "class-styles.slint";
+import { IntroContent } from "intro.slint";
+import { ShareModal } from "share-modal.slint";
+
+export { CatalogRow, ClassStyle, ClassStyles, PosterData }
+
+export component MainWindow inherits Window {
+    title: "Stremio Lightning";
+    default-font-family: Theme.font-family;
+    preferred-width: 1100px;
+    preferred-height: 720px;
+    // The player draws mpv's frames *under* this window's items, so while it is open the
+    // background must not paint over them: the screen's own layers paint the black around the
+    // picture, and mpv clears the rest.
+    background: root.playing ? transparent : Theme.page-background;
+
+    in property <string> status: "Loading...";
+    in property <string> server-status: "Stream server: starting...";
+    in property <[CatalogRow]> rows: [];
+    in property <[PosterData]> discover-cards: [];
+    in property <string> discover-shape: "poster";
+    in property <[SelectInputData]> discover-inputs: [];
+    in property <[PreviewData]> discover-previews: [];
+    in property <[LibraryCard]> library-cards: [];
+    in property <string> library-type-title: "All";
+    in property <[SelectOption]> library-types: [];
+    in property <int> library-type-index: 0;
+    in property <[LibrarySort]> library-sorts: [];
+    in property <bool> library-has-more: false;
+    in property <string> library-grid-key;
+    in property <string> library-message;
+    callback select-library-type(int);
+    callback select-library-sort(int);
+    callback load-more-library();
+    callback library-item-action(string, string);
+    callback board-item-action(string, string);
+    in property <[AddonData]> addons: [];
+    in property <[SelectInputData]> addon-inputs: [];
+    in property <string> addons-message;
+    in-out property <string> addons-query;
+    /// The add-addon dialog: up or not, what was typed, and the manifest the URL answered with.
+    in-out property <bool> addon-add-open;
+    in-out property <string> addon-add-url;
+    /// Whether the pasted URL has been submitted, so a manifest the core already holds is not
+    /// shown before the dialog asks for one.
+    in-out property <bool> addon-add-submitted: false;
+    in property <AddonPendingData> addon-pending;
+    /// A URL the add-addon dialog could not parse, and nothing else.
+    in-out property <string> addon-add-error;
+    callback addon-add();
+    callback addon-add-submit(string);
+    callback addon-add-install();
+    callback addon-add-close();
+    callback addon-uninstall(string);
+    /// A marketplace card's Install button.
+    callback addon-install-market(string);
+    /// A card's Configure button, and the icon one beside Uninstall: the addon's own
+    /// configuration page, opened in the browser.
+    callback addon-configure(string);
+    callback addon-share(string);
+    callback addon-open(string);
+    /// The Calendar's month, its days and the days with something on them, as the core holds them.
+    in-out property <CalendarData> calendar;
+    /// The day the user clicked in the grid: a highlight, and nothing the core is told about.
+    in-out property <int> calendar-selected-day: -1;
+    callback calendar-prev-month();
+    callback calendar-next-month();
+    callback calendar-open-slot(string, string, string);
+    /// Fired when the Calendar is selected, so the month can be loaded the way the web loads it
+    /// on mount rather than at startup, when the library it reads may still be empty.
+    callback calendar-shown();
+    in property <string> app-version;
+    in property <string> build-version;
+    in property <SettingsViewData> settings;
+
+    in-out property <bool> details-open: false;
+    in property <PreviewData> details-preview;
+    in property <bool> details-has-preview: false;
+    // The no-Streams message's Season and Episode steppers.
+    in property <bool> details-has-steps: false;
+    in property <int> details-season-number: 0;
+    in property <int> details-episode-number: 0;
+    in property <bool> details-can-show-streams: false;
+    // Whether the Streams list wraps its descriptions; kept in the shell's own settings file.
+    in property <bool> details-wrap-streams: false;
+    in property <bool> details-rate-visible: false;
+    in property <bool> details-rate-enabled: false;
+    in property <bool> details-rated-liked: false;
+    in property <bool> details-rated-loved: false;
+    in property <[StreamData]> streams: [];
+    in property <int> streams-loading: 0;
+    // False when nothing is going to answer with Streams: no account, or no addon that serves
+    // them. The placeholder rows would be a wait for nothing.
+    in property <bool> details-waits-for-streams: false;
+    // The episode picker: shown instead of the Streams while no Episode has been picked.
+    in property <bool> details-show-picker: false;
+    in property <[SelectOption]> details-seasons: [];
+    in property <int> details-season-index: 0;
+    in property <string> details-season-title;
+    in property <[VideoRow]> details-episodes: [];
+    in-out property <string> details-video-query;
+    in property <string> details-picked-label;
+    in property <bool> details-has-next-episode: false;
+    in-out property <bool> playing: false;
+    // The player's own state. The core's model fills the title, the drawer and the options; mpv
+    // fills everything about where the picture is.
+    in property <string> player-title;
+    in property <string> player-error;
+    in property <image> player-backdrop;
+    in property <bool> player-has-backdrop: false;
+    in property <image> player-logo;
+    in property <bool> player-has-logo: false;
+    in property <bool> player-loaded: false;
+    in property <bool> player-buffering: false;
+    in property <float> player-time: 0;
+    in property <float> player-duration: 0;
+    in property <float> player-buffered: 0;
+    in property <bool> player-paused: true;
+    in property <bool> player-seekable: false;
+    in property <float> player-volume: 100;
+    in property <bool> player-muted: false;
+    in property <float> player-speed: 1;
+    in property <string> player-scale: "contain";
+    in property <[PlayerTrack]> player-audio-tracks: [];
+    in property <[PlayerTrack]> player-subtitle-tracks: [];
+    /// The subtitle tracks of the one language the Subtitles menu is showing.
+    in property <[PlayerTrack]> player-subtitle-variants: [];
+    in property <bool> player-subtitles-enabled: false;
+    in property <float> player-subtitles-size: 100;
+    in property <float> player-subtitles-offset: 0;
+    in property <float> player-subtitles-position: 100;
+    in property <[LanguageOption]> player-subtitle-languages: [];
+    in property <string> player-subtitle-language;
+    in property <bool> player-fullscreen: false;
+    in property <[PlayerOption]> player-options: [];
+    in property <[PlayerEpisode]> player-episodes: [];
+    in property <[SelectOption]> player-seasons: [];
+    in property <int> player-season-index: 0;
+    in property <string> player-season-title;
+    in property <PreviewData> player-preview;
+    in property <bool> player-has-preview: false;
+    in property <bool> player-has-episodes: false;
+    in property <string> player-next-label;
+    in property <bool> player-has-next: false;
+    in property <float> player-next-notice: 35;
+    in-out property <Section> section: Section.board;
+    in-out property <bool> auth-open: false;
+    in-out property <string> auth-error: "";
+    in-out property <bool> auth-loading: false;
+    in-out property <bool> auth-facebook-loading: false;
+    in-out property <bool> auth-apple-loading: false;
+    in-out property <bool> auth-is-signup: false;
+    property <length> rem-size: Theme.rem-size(root.width);
+    // Web: the details route has no nav rail, so neither the rail nor its gutter exists there.
+    property <length> nav-width: root.playing || root.details-open ? 0px : 6 * root.rem-size;
+    property <length> bar-height: root.playing ? 0px : 5.5 * root.rem-size;
+    property <string> section-title: root.section == Section.discover ? "Discover"
+        : root.section == Section.library ? "Library"
+        : root.section == Section.calendar ? "Calendar"
+        : root.section == Section.addons ? "Addons" : "Settings";
+    in property <string> play-message;
+    // One line at the bottom of the window, then gone: what the app says after a copy.
+    in property <string> toast;
+    // The share dialog, over everything else while it is open.
+    in-out property <bool> share-open: false;
+    in property <string> share-link;
+
+    /// Asks the shell whether this window has just come back to the front -- Web: the library,
+    /// profile, addons and notifications are re-read on every window focus, which is how a mark
+    /// made in another client shows up here. The shell owns the focus flag, since the window
+    /// element has none.
+    callback check-focus();
+    callback open-item(string, string, string);
+    callback load-next-page();
+    callback select-preview(int);
+    callback hover-card(int);
+    /// How much of the Discover grid is on screen: scrolled distance, viewport height, row height,
+    /// cards in a row.
+    callback visible-range(length, length, length, int);
+    /// Where the Discover grid is, how big its viewport is and how tall its contents are, so the
+    /// shell can clamp a wheel notch before it moves `discover-scroll`.
+    callback grid-bounds(length, length, length, length, length);
+    /// How many times the shell has said the Discover grid stopped moving, so it only asks for the
+    /// next page once the scrolling has stopped.
+    in-out property <int> grid-settle-count: 0;
+    /// How far the Discover grid is scrolled, in pixels: zero at the top, negative below it. The
+    /// shell moves it for the wheel; the grid draws it.
+    in-out property <length> discover-scroll: 0px;
+    callback select-input-option(int, int);
+    callback select-addon-input-option(int, int);
+    callback search-addons(string);
+    callback select-setting-option(string, int);
+    callback toggle-setting-option(string, bool);
+    callback open-settings-link(string);
+    callback reload-streaming-server();
+    callback logout-user();
+    callback play-stream(int);
+    callback select-season(int);
+    callback pick-video(string);
+    callback search-videos(string);
+    callback back-to-episodes();
+    callback step-season(int);
+    callback step-episode(int);
+    callback show-streams();
+    callback toggle-stream-wrap();
+    callback share();
+    callback rate-like();
+    callback rate-love();
+    callback details-toggle-library();
+    callback details-toggle-watched();
+    callback share-close();
+    callback share-copy();
+    callback share-to(string);
+    callback next-episode();
+    callback player-back();
+    callback player-toggle-fullscreen();
+    callback player-play-pause();
+    callback player-play-next();
+    callback player-seek(float);
+    callback player-seek-by(float);
+    callback player-set-volume(float);
+    callback player-toggle-muted();
+    callback player-set-speed(float);
+    callback player-cycle-scale();
+    callback player-select-audio(string);
+    callback player-choose-subtitles(string);
+    callback player-toggle-subtitles();
+    callback player-step-subtitles-offset(int);
+    callback player-step-subtitles-size(int);
+    callback player-step-subtitles-position(int);
+    callback player-choose-language(string);
+    callback player-select-episode(string);
+    callback player-select-season(int);
+    callback player-choose-option(string);
+    callback submit-auth-login(string, string);
+    callback submit-auth-register(string, string, bool, bool, bool);
+    callback auth-guest-login();
+    callback auth-facebook-login();
+    callback auth-apple-login();
+    callback auth-forgot-password(string);
+    callback auth-dismissed();
+
+    if root.section == Section.board && !root.details-open && !root.playing: BoardContent {
+        x: root.nav-width;
+        y: root.bar-height;
+        width: parent.width - root.nav-width;
+        height: parent.height - root.bar-height;
+        rows: root.rows;
+        viewport-width: root.width;
+        open-item(id, kind, title) => {
+            root.details-open = true;
+            root.open-item(id, kind, title);
+        }
+        item-action(id, action) => {
+            // The list's Details is the route a click on the tile takes, so it has to put the
+            // details screen up the way a click does. The other options change the row in place.
+            if (action == "details") {
+                root.details-open = true;
+            }
+            root.board-item-action(id, action);
+        }
+    }
+
+    if root.section == Section.discover && !root.details-open && !root.playing: DiscoverContent {
+        x: root.nav-width;
+        y: root.bar-height;
+        width: parent.width - root.nav-width;
+        height: parent.height - root.bar-height;
+        cards: root.discover-cards;
+        shape: root.discover-shape;
+        inputs: root.discover-inputs;
+        select-option(input, option) => {
+            root.select-input-option(input, option);
+        }
+        previews: root.discover-previews;
+        viewport-width: root.width;
+        select-item(index) => {
+            root.select-preview(index);
+        }
+        hover-card(index) => {
+            root.hover-card(index);
+        }
+        visible-range(scroll, height, pitch, columns) => {
+            root.visible-range(scroll, height, pitch, columns);
+        }
+        grid-bounds(x, y, width, viewport, content) => {
+            root.grid-bounds(x, y, width, viewport, content);
+        }
+        settle-count: root.grid-settle-count;
+        scroll-offset <=> root.discover-scroll;
+        open-item(id, kind, title) => {
+            root.details-open = true;
+            root.open-item(id, kind, title);
+        }
+        load-next-page => {
+            root.load-next-page();
+        }
+    }
+
+    // Web: the details route — MetaPreview beside a 30rem column of Episodes or Streams.
+    // Web: the details route starts at the very top — its artwork sits behind the nav bar — and
+    // pads its own content down past the bar.
+    if root.details-open && !root.playing: DetailsScreen {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
+        rem-size: root.rem-size;
+        preview: root.details-preview;
+        has-preview: root.details-has-preview;
+        episodes: root.details-episodes;
+        video-query: root.details-video-query;
+        bar-height: root.bar-height;
+        seasons: root.details-seasons;
+        season-index: root.details-season-index;
+        season-title: root.details-season-title;
+        picked-label: root.details-picked-label;
+        show-picker: root.details-show-picker;
+        streams: root.streams;
+        streams-loading: root.streams-loading;
+        waits-for-streams: root.details-waits-for-streams;
+        play-message: root.play-message;
+        has-steps: root.details-has-steps;
+        season-number: root.details-season-number;
+        episode-number: root.details-episode-number;
+        can-show-streams: root.details-can-show-streams;
+        wrap-streams: root.details-wrap-streams;
+        rate-visible: root.details-rate-visible;
+        rate-enabled: root.details-rate-enabled;
+        rated-liked: root.details-rated-liked;
+        rated-loved: root.details-rated-loved;
+        select-season(index) => {
+            root.select-season(index);
+        }
+        pick-video(id) => {
+            root.pick-video(id);
+        }
+        search-videos(text) => {
+            root.search-videos(text);
+        }
+        back-to-episodes => {
+            root.back-to-episodes();
+        }
+        play-stream(index) => {
+            root.play-stream(index);
+        }
+        step-season(delta) => {
+            root.step-season(delta);
+        }
+        step-episode(delta) => {
+            root.step-episode(delta);
+        }
+        show-streams => {
+            root.show-streams();
+        }
+        share => {
+            root.share();
+        }
+        rate-like => {
+            root.rate-like();
+        }
+        rate-love => {
+            root.rate-love();
+        }
+        toggle-library => {
+            root.details-toggle-library();
+        }
+        toggle-watched => {
+            root.details-toggle-watched();
+        }
+    }
+
+    if !root.playing && !root.details-open: VerticalNavBar {
+        rem-size: root.rem-size;
+        x: 0px;
+        y: root.bar-height;
+        height: parent.height - root.bar-height;
+        section: root.section;
+        select(target) => {
+            root.details-open = false;
+            root.section = target;
+            if (target == Section.calendar) {
+                root.calendar-shown();
+            }
+        }
+    }
+
+    // The player sits over every screen, under the share dialog and the toast, so a copy made
+    // from its options menu still says so.
+    if root.playing: PlayerScreen {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+        rem-size: root.rem-size;
+        title: root.player-title;
+        backdrop: root.player-backdrop;
+        has-backdrop: root.player-has-backdrop;
+        logo: root.player-logo;
+        has-logo: root.player-has-logo;
+        loaded: root.player-loaded;
+        buffering: root.player-buffering;
+        time: root.player-time;
+        duration: root.player-duration;
+        buffered: root.player-buffered;
+        paused: root.player-paused;
+        seekable: root.player-seekable;
+        volume: root.player-volume;
+        muted: root.player-muted;
+        speed: root.player-speed;
+        scale: root.player-scale;
+        audio-tracks: root.player-audio-tracks;
+        subtitle-tracks: root.player-subtitle-tracks;
+        subtitles-enabled: root.player-subtitles-enabled;
+        error: root.player-error;
+        subtitles-size: root.player-subtitles-size;
+        subtitles-offset: root.player-subtitles-offset;
+        subtitles-position: root.player-subtitles-position;
+        subtitle-languages: root.player-subtitle-languages;
+        subtitle-language: root.player-subtitle-language;
+        subtitle-variants: root.player-subtitle-variants;
+        fullscreen: root.player-fullscreen;
+        options: root.player-options;
+        episodes: root.player-episodes;
+        seasons: root.player-seasons;
+        season-index: root.player-season-index;
+        season-title: root.player-season-title;
+        preview: root.player-preview;
+        has-preview: root.player-has-preview;
+        has-episodes: root.player-has-episodes;
+        next-label: root.player-next-label;
+        has-next: root.player-has-next;
+        next-notice: root.player-next-notice;
+        init => {
+            self.focus-player();
+        }
+        back => {
+            root.player-back();
+        }
+        toggle-fullscreen => {
+            root.player-toggle-fullscreen();
+        }
+        play-pause => {
+            root.player-play-pause();
+        }
+        play-next => {
+            root.player-play-next();
+        }
+        seek(time) => {
+            root.player-seek(time);
+        }
+        seek-by(offset) => {
+            root.player-seek-by(offset);
+        }
+        set-volume(value) => {
+            root.player-set-volume(value);
+        }
+        toggle-muted => {
+            root.player-toggle-muted();
+        }
+        set-speed(value) => {
+            root.player-set-speed(value);
+        }
+        cycle-scale => {
+            root.player-cycle-scale();
+        }
+        select-audio(id) => {
+            root.player-select-audio(id);
+        }
+        choose-subtitles(id) => {
+            root.player-choose-subtitles(id);
+        }
+        choose-language(language) => {
+            root.player-choose-language(language);
+        }
+        step-subtitles-position(step) => {
+            root.player-step-subtitles-position(step);
+        }
+        toggle-subtitles => {
+            root.player-toggle-subtitles();
+        }
+        step-subtitles-offset(delta) => {
+            root.player-step-subtitles-offset(delta);
+        }
+        step-subtitles-size(delta) => {
+            root.player-step-subtitles-size(delta);
+        }
+        select-episode(id) => {
+            root.player-select-episode(id);
+        }
+        select-season(index) => {
+            root.player-select-season(index);
+        }
+        choose-option(action) => {
+            root.player-choose-option(action);
+        }
+    }
+
+    // Web: the same four pulls on every window focus. The timer only asks; the shell decides,
+    // because Slint's `Window` carries no focus flag to watch.
+    focus-watch := Timer {
+        interval: 700ms;
+        running: true;
+        triggered => {
+            root.check-focus();
+        }
+    }
+
+
+    if !root.playing: HorizontalNavBar {
+        rem-size: root.rem-size;
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        // Web: the details route has no search box in the bar either.
+        show-search: root.section != Section.addons && !root.details-open;
+        // Web: the details route turns the bar's first slot into the way back.
+        show-back: root.details-open;
+        // ...and the Streams wrap toggle rides beside the fullscreen button there.
+        show-wrap: root.details-open;
+        wrap-active: root.details-wrap-streams;
+        toggle-wrap => {
+            root.toggle-stream-wrap();
+        }
+        bare: root.details-open;
+        back-clicked => {
+            root.details-open = false;
+        }
+        toggle-fullscreen => {
+            root.full-screen = !root.full-screen;
+        }
+        user-avatar-clicked => {
+            // There is no logged-in header state yet, so the avatar only opens the
+            // login overlay and never navigates.
+            if (!root.settings.logged-in) {
+                root.auth-open = true;
+            }
+        }
+    }
+
+    // Web: the Library route shows the Placeholder only while `profile.auth` is null; a signed-in
+    // account gets the grid of its own titles.
+    if root.section == Section.library && !root.settings.logged-in && !root.details-open && !root.playing: LoggedOutPlaceholder {
+        x: root.nav-width;
+        y: root.bar-height;
+        width: parent.width - root.nav-width;
+        height: parent.height - root.bar-height;
+        viewport-width: root.width;
+        title-text: "Library is only available for logged in users";
+        picture: @image-url("images/library-placeholder.png");
+        first-glyph: @image-url("icons/cloud-library.svg");
+        first-label: "Access your favorite movies and TV shows anytime, anywhere";
+        second-glyph: @image-url("icons/actors.svg");
+        second-label: "Recommendations tailored to your viewing history";
+        log-in => { root.auth-open = true; }
+    }
+
+    if root.section == Section.library && root.settings.logged-in && !root.details-open && !root.playing: LibraryContent {
+        x: root.nav-width;
+        y: root.bar-height;
+        width: parent.width - root.nav-width;
+        height: parent.height - root.bar-height;
+        viewport-width: root.width;
+        cards: root.library-cards;
+        type-title: root.library-type-title;
+        type-options: root.library-types;
+        type-index: root.library-type-index;
+        sorts: root.library-sorts;
+        message: root.library-message;
+        has-more: root.library-has-more;
+        grid-key: root.library-grid-key;
+        select-type(index) => {
+            root.select-library-type(index);
+        }
+        select-sort(index) => {
+            root.select-library-sort(index);
+        }
+        load-more => {
+            root.load-more-library();
+        }
+        open-item(id, kind, title) => {
+            root.details-open = true;
+            root.open-item(id, kind, title);
+        }
+        item-action(id, action) => {
+            // The list's Details is the route a click on the tile takes, so it has to put the
+            // details screen up the way a click does. The other options change the grid in place.
+            if (action == "details") {
+                root.details-open = true;
+            }
+            root.library-item-action(id, action);
+        }
+    }
+
+    // Web: `Calendar.js` shows the Calendar to a signed-in account and the placeholder to one
+    // that is not, so the screen needs no session check of its own.
+    if root.section == Section.calendar && !root.details-open && !root.playing: CalendarContent {
+        x: root.nav-width;
+        y: root.bar-height;
+        width: parent.width - root.nav-width;
+        height: parent.height - root.bar-height;
+        rem-size: root.rem-size;
+        data: root.calendar;
+        selected-day: root.calendar-selected-day;
+        prev-month => {
+            root.calendar-prev-month();
+        }
+        next-month => {
+            root.calendar-next-month();
+        }
+        open-slot(meta-id, kind, video-id) => {
+            // Web: the calendar's entries are details links, so the details screen is what opens.
+            root.details-open = true;
+            root.calendar-open-slot(meta-id, kind, video-id);
+        }
+    }
+
+    if root.section == Section.calendar && !root.details-open && !root.playing && !root.calendar.signed-in: LoggedOutPlaceholder {
+        x: root.nav-width;
+        y: root.bar-height;
+        width: parent.width - root.nav-width;
+        height: parent.height - root.bar-height;
+        viewport-width: root.width;
+        title-text: "Calendar is only available for logged in users";
+        picture: @image-url("images/calendar-placeholder.png");
+        first-glyph: @image-url("icons/megaphone.svg");
+        first-label: "Never miss an episode again";
+        second-glyph: @image-url("icons/calendar-thin.svg");
+        second-label: "Schedule your personal watching calendar";
+        log-in => { root.auth-open = true; }
+    }
+
+    if root.section == Section.addons && !root.details-open && !root.playing: AddonsContent {
+        x: root.nav-width;
+        y: root.bar-height;
+        width: parent.width - root.nav-width;
+        height: parent.height - root.bar-height;
+        addons: root.addons;
+        inputs: root.addon-inputs;
+        message: root.addons-message;
+        viewport-width: root.width;
+        query <=> root.addons-query;
+        add-open <=> root.addon-add-open;
+        add-url <=> root.addon-add-url;
+        add-submitted <=> root.addon-add-submitted;
+        pending: root.addon-pending;
+        add-error: root.addon-add-error;
+        select-option(input, option) => {
+            root.select-addon-input-option(input, option);
+        }
+        search-changed(text) => {
+            root.search-addons(text);
+        }
+        add-addon => {
+            root.addon-add();
+        }
+        add-submit(text) => {
+            root.addon-add-submit(text);
+        }
+        add-install => {
+            root.addon-add-install();
+        }
+        add-configure(url) => {
+            // An addon that must be set up first has no manifest to add yet: pressing Configure
+            // opens its own page, exactly as the same card's Configure pill does.
+            root.addon-configure(url);
+        }
+        add-close => {
+            root.addon-add-close();
+        }
+        uninstall(url) => {
+            root.addon-uninstall(url);
+        }
+        install(url) => {
+            root.addon-install-market(url);
+        }
+        configure(url) => {
+            root.addon-configure(url);
+        }
+        share(url) => {
+            root.addon-share(url);
+        }
+        open(url) => {
+            // A card is not pressable while a dialog is over it: the press belongs to the dialog.
+            if !root.share-open && !root.addon-add-open {
+                root.addon-open(url);
+            }
+        }
+    }
+
+    if root.section == Section.settings && !root.details-open && !root.playing: SettingsContent {
+        x: root.nav-width;
+        y: root.bar-height;
+        width: parent.width - root.nav-width;
+        height: parent.height - root.bar-height;
+        viewport-width: root.width;
+        app-version: root.app-version;
+        build-version: root.build-version;
+        server-status: root.server-status;
+        data: root.settings;
+        log-in => { root.auth-open = true; }
+        log-out => { root.logout-user(); }
+        open-external-link(kind) => { root.open-settings-link(kind); }
+        select-setting-option(key, option) => { root.select-setting-option(key, option); }
+        toggle-setting-option(key, enabled) => { root.toggle-setting-option(key, enabled); }
+        reload-streaming-server => { root.reload-streaming-server(); }
+    }
+
+    if root.section != Section.board && root.section != Section.discover && root.section != Section.library && root.section != Section.calendar && !root.details-open && root.section != Section.addons && root.section != Section.settings && !root.playing: VerticalLayout {
+        x: root.nav-width;
+        y: root.bar-height;
+        width: parent.width - root.nav-width;
+        height: parent.height - root.bar-height;
+        padding: 24px;
+        spacing: 12px;
+        alignment: start;
+
+        Text {
+            text: root.section-title;
+            color: white;
+            font-size: 28px;
+            font-weight: 700;
+        }
+        Text {
+            text: "This screen is not built yet.";
+            color: #9d9bb0;
+            font-size: 14px;
+        }
+    }
+
+    if root.auth-open: IntroContent {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
+        rem-size: root.rem-size;
+        is-signup <=> root.auth-is-signup;
+        error-message: root.auth-error;
+        is-loading: root.auth-loading;
+        facebook-loading: root.auth-facebook-loading;
+        apple-loading: root.auth-apple-loading;
+        submit-login(email, password) => {
+            root.submit-auth-login(email, password);
+        }
+        submit-register(email, password, gdpr-tos, gdpr-privacy, gdpr-marketing) => {
+            root.submit-auth-register(email, password, gdpr-tos, gdpr-privacy, gdpr-marketing);
+        }
+        login-guest => {
+            root.auth-guest-login();
+        }
+        login-facebook => {
+            root.auth-facebook-login();
+        }
+        login-apple => {
+            root.auth-apple-login();
+        }
+        forgot-password(email) => {
+            root.auth-forgot-password(email);
+        }
+        // The controller owns the overlay state (src/main.rs on_auth_dismissed), as it
+        // does for guest login and auth success; the view only reports the intent.
+        dismiss => {
+            root.auth-dismissed();
+        }
+    }
+    // Both of these cover the whole window, so they are declared last: a later sibling is painted
+    // on top and takes the press first. Declared before the screens, they were *under* them -- the
+    // toast hidden, and the share dialog see-through and untappable, with presses falling through
+    // to the addon card behind it (which is what opened the add dialog and its 404).
+    // Web keeps its confirmations in a toast container over the bottom of the viewport. This app
+    // has one line to say, so it has one pill.
+    if root.toast != "": HorizontalLayout {
+        y: parent.height - 4 * root.rem-size;
+        height: 3 * root.rem-size;
+        alignment: center;
+        Rectangle {
+            height: 3 * root.rem-size;
+            border-radius: 0.75 * root.rem-size;
+            background: Theme.modal-background;
+            HorizontalLayout {
+                alignment: center;
+                padding-left: 1.5 * root.rem-size;
+                padding-right: 1.5 * root.rem-size;
+                Text {
+                    text: root.toast;
+                    color: Theme.text;
+                    font-size: 1 * root.rem-size;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+
+    // The share dialog sits over everything, including the bar and the toast.
+    if root.share-open: ShareModal {
+        width: 100%;
+        height: 100%;
+        link: root.share-link;
+        rem-size: root.rem-size;
+        closed => {
+            root.share-close();
+        }
+        copied => {
+            root.share-copy();
+        }
+        opened(network) => {
+            root.share-to(network);
+        }
+    }
+}

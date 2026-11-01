@@ -1,0 +1,180 @@
+// Based on stremio-web (https://github.com/Stremio/stremio-web), Copyright (C) 2017-2026 Smart code 203358507.
+// Numbers translated by hand from src/components/MultiselectMenu (MultiselectMenu.less, Label/Label.less,
+// Dropdown/Dropdown.less, Dropdown/Option/Option.less). Licence basis: ../THIRD_PARTY_NOTICES.md.
+import { ClassStyles } from "class-styles.slint";
+import { ScrollBar } from "scroll-bar.slint";
+import { Theme } from "theme.slint";
+
+export struct SelectOption {
+    label: string,
+    selected: bool,
+}
+
+// Web: Dropdown/Option. One row, 3rem high, a dot on the selected one.
+component MultiselectOption inherits Rectangle {
+    in property <string> label;
+    in property <bool> selected;
+    in property <length> rem-size;
+    callback clicked;
+
+    height: 3 * root.rem-size;
+    background: touch.has-hover ? #ffffff26 : ClassStyles.background-or(ClassStyles.option, transparent);
+
+    label-text := Text {
+        x: root.rem-size;
+        width: parent.width - 3.5 * root.rem-size;
+        height: parent.height;
+        text: root.label;
+        vertical-alignment: center;
+        overflow: elide;
+        font-size: root.rem-size;
+        color: ClassStyles.color-or(ClassStyles.option, Theme.text);
+    }
+    dot := Rectangle {
+        x: parent.width - root.rem-size - self.width;
+        y: (parent.height - self.height) / 2;
+        width: 0.5 * root.rem-size;
+        height: self.width;
+        border-radius: self.width / 2;
+        background: Theme.accent-green;
+        visible: root.selected;
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        // What the row says, so it can be found by name rather than by where it happens to sit.
+        accessible-role: button;
+        accessible-label: root.label;
+        accessible-checkable: true;
+        accessible-checked: root.selected;
+        clicked => {
+            debug("option pressed:", root.label);
+            root.clicked();
+        }
+    }
+}
+
+// Web: <MultiselectMenu className="select-input">. A pill that shows `title` and opens a list of
+// `options` under itself. Picking one calls `select(index)` and closes the list. The list is at most
+// seven rows high, then scrolls. Use it for any single-choice dropdown:
+//
+//     MultiselectMenu {
+//         width: 15 * rem;
+//         title: "Movie";
+//         options: [{ label: "Movie", selected: true }, { label: "Series", selected: false }];
+//         selected-index: 0;
+//         rem-size: rem;
+//         select(index) => { debug(index); }
+//     }
+export component MultiselectMenu inherits Rectangle {
+    in property <string> title;
+    in property <[SelectOption]> options;
+    // The list opens scrolled so this row is at the top, like the web.
+    in property <int> selected-index;
+    in property <length> rem-size;
+    /// The label's corners. The web's generic select is a 1.5rem pill; the Seasons bar in the
+    /// player overrides it to 2.75rem, so this is a property rather than a constant.
+    in property <length> radius: 1.5 * root.rem-size;
+    /// A label that carries no fill of its own until the pointer is on it, as the Seasons bar's
+    /// does over the drawer. A form select keeps its fill, which is the default.
+    in property <bool> quiet: false;
+    callback select(int);
+
+    property <length> item-height: 3 * root.rem-size;
+    property <length> list-height: root.options.length * root.item-height;
+    property <length> menu-height: Math.min(root.list-height, 7 * root.item-height);
+    // Whether the list was open when the last press started, so a press on the label closes it.
+    property <bool> was-open: false;
+
+    height: 3 * root.rem-size;
+    border-radius: root.radius;
+    background: root.quiet && !(label-touch.has-hover || popup.is-open) ? transparent : ClassStyles.background-or(ClassStyles.select-input, Theme.overlay);
+    opacity: ClassStyles.opacity-or(ClassStyles.select-input, 1.0);
+    visible: !(ClassStyles.select-input).hidden;
+
+    label_box := Text {
+        x: 1.5 * root.rem-size;
+        width: parent.width - 3.5 * root.rem-size - 1.5 * root.rem-size;
+        height: parent.height;
+        text: root.title;
+        vertical-alignment: center;
+        overflow: elide;
+        font-size: root.rem-size;
+        font-weight: 500;
+        color: Theme.text;
+    }
+    icon := Image {
+        // Web: the caret turns over while the menu is open. Turning it at run time with
+        // `transform-rotation` does nothing on a colorized image -- the same caret comes back in
+        // both states -- so the two ways round are two assets.
+        source: popup.is-open ? @image-url("icons/caret-up.svg") : @image-url("icons/caret-down.svg");
+        width: root.rem-size;
+        height: root.rem-size;
+        x: parent.width - 1.5 * root.rem-size - self.width;
+        y: (parent.height - self.height) / 2;
+        colorize: Theme.caret-icon;
+    }
+    label-touch := TouchArea {
+        mouse-cursor: pointer;
+        accessible-role: button;
+        accessible-label: root.title;
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down) {
+                root.was-open = popup.is-open;
+            }
+        }
+        clicked => {
+            debug("menu pressed:", root.title, "was-open:", root.was-open);
+            if (!root.was-open) {
+                popup.show();
+                debug("popup shown, open:", popup.is-open);
+            }
+        }
+    }
+
+    popup := PopupWindow {
+        x: 0px;
+        y: root.height;
+        width: root.width;
+        height: root.menu-height;
+        close-policy: PopupClosePolicy.close-on-click-outside;
+
+        dropdown := Rectangle {
+            width: parent.width;
+            height: parent.height;
+            border-radius: 0.75 * root.rem-size;
+            background: ClassStyles.background-or(ClassStyles.dropdown, Theme.modal-background);
+            // Web: --outer-glow
+            drop-shadow-blur: 15px;
+            drop-shadow-color: #7b5bf55e;
+            clip: true;
+
+            list := Flickable {
+                width: parent.width;
+                height: parent.height;
+                content-width: self.width;
+                content-height: root.list-height;
+                content-y: -Math.min(root.selected-index * root.item-height, Math.max(root.list-height - root.menu-height, 0px));
+
+                for option[index] in root.options: MultiselectOption {
+                    y: index * root.item-height;
+                    width: parent.width;
+                    label: option.label;
+                    selected: option.selected;
+                    rem-size: root.rem-size;
+                    clicked => {
+                        root.select(index);
+                        popup.close();
+                    }
+                }
+            }
+            ScrollBar {
+                x: parent.width - self.width;
+                y: 0px;
+                height: list.height;
+                view-height: list.height;
+                content-height: list.content-height;
+                offset <=> list.content-y;
+            }
+        }
+    }
+}

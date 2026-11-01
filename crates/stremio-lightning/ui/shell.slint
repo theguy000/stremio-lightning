@@ -1,0 +1,419 @@
+import { ClassStyles } from "class-styles.slint";
+import { Theme } from "theme.slint";
+
+export enum Section {
+    board,
+    discover,
+    library,
+    calendar,
+    addons,
+    settings,
+}
+
+// Web: <a class="nav-tab-button nav-tab-button-container [selected]">. `selected` is not themable yet.
+component NavTabButton inherits Rectangle {
+    in property <length> rem-size: 14px;
+    in property <image> tab-icon;
+    in property <bool> selected;
+    in property <string> tab-label;
+    callback clicked();
+    width: (67 * root.rem-size / 14);
+    height: (67 * root.rem-size / 14);
+
+    nav-tab-button-container := Rectangle {
+        width: parent.width;
+        height: parent.height;
+        border-radius: (10.5 * root.rem-size / 14);
+        // Web: `:hover` gives --overlay-color (measured: rgb(15,14,29) -> rgb(27,26,41)).
+        background: touch.has-hover ? Theme.overlay : ClassStyles.background-or(ClassStyles.nav-tab-button-container, transparent);
+        opacity: ClassStyles.opacity-or(ClassStyles.nav-tab-button-container, 1.0);
+        visible: !(ClassStyles.nav-tab-button-container).hidden;
+
+        icon := Image {
+            source: root.tab-icon;
+            x: (19 * root.rem-size / 14);
+            y: (8 * root.rem-size / 14);
+            width: (31 * root.rem-size / 14);
+            height: (31 * root.rem-size / 14);
+            colorize: root.selected ? Theme.accent : ClassStyles.color-or(ClassStyles.icon, Theme.icon-muted);
+            // The web dims unselected nav icons to 0.35. The default colour already includes that.
+            opacity: root.selected || !ClassStyles.icon.has-color ? 1.0 : 0.35;
+            visible: !ClassStyles.icon.hidden;
+        }
+
+        // Web: the label is invisible until the tab is hovered, then 0.6 (1 when selected).
+        label := Text {
+            x: 0px;
+            y: (46 * root.rem-size / 14);
+            width: parent.width;
+            text: root.tab-label;
+            horizontal-alignment: center;
+            font-size: (11.2 * root.rem-size / 14);
+            font-weight: 500;
+            letter-spacing: (0.14 * root.rem-size / 14);
+            color: root.selected ? Theme.accent : ClassStyles.color-or(ClassStyles.label, Theme.text);
+            opacity: touch.has-hover ? (root.selected ? 1.0 : 0.6) : 0.0;
+            visible: !ClassStyles.label.hidden;
+        }
+
+        touch := TouchArea {
+            mouse-cursor: pointer;
+            // The tab's own name, so a screen reader -- or a test driving the window -- can find it.
+            accessible-role: button;
+            accessible-label: root.tab-label;
+            accessible-checkable: true;
+            accessible-checked: root.selected;
+            clicked => {
+                root.clicked();
+            }
+        }
+    }
+}
+
+// Web: <nav class="vertical-nav-bar vertical-nav-bar-container">
+export component VerticalNavBar inherits Rectangle {
+    in property <length> rem-size: 14px;
+    in property <Section> section;
+    callback select(Section);
+    width: (84 * root.rem-size / 14);
+
+    vertical-nav-bar-container := Rectangle {
+        width: parent.width;
+        height: parent.height;
+        background: ClassStyles.background-or(ClassStyles.vertical-nav-bar-container, transparent);
+        opacity: ClassStyles.opacity-or(ClassStyles.vertical-nav-bar-container, 1.0);
+        visible: !(ClassStyles.vertical-nav-bar-container).hidden;
+
+        NavTabButton {
+            rem-size: root.rem-size;
+            x: (8 * root.rem-size / 14);
+            y: (14 * root.rem-size / 14);
+            tab-icon: root.section == Section.board ? @image-url("icons/home.svg") : @image-url("icons/home-outline.svg");
+            tab-label: "Board";
+            selected: root.section == Section.board;
+            clicked => {
+                root.select(Section.board);
+            }
+        }
+        NavTabButton {
+            rem-size: root.rem-size;
+            x: (8 * root.rem-size / 14);
+            y: (95.2 * root.rem-size / 14);
+            tab-icon: root.section == Section.discover ? @image-url("icons/discover.svg") : @image-url("icons/discover-outline.svg");
+            tab-label: "Discover";
+            selected: root.section == Section.discover;
+            clicked => {
+                root.select(Section.discover);
+            }
+        }
+        NavTabButton {
+            rem-size: root.rem-size;
+            x: (8 * root.rem-size / 14);
+            y: (176.4 * root.rem-size / 14);
+            tab-icon: root.section == Section.library ? @image-url("icons/library.svg") : @image-url("icons/library-outline.svg");
+            tab-label: "Library";
+            selected: root.section == Section.library;
+            clicked => {
+                root.select(Section.library);
+            }
+        }
+        NavTabButton {
+            rem-size: root.rem-size;
+            x: (8 * root.rem-size / 14);
+            y: (257 * root.rem-size / 14);
+            tab-icon: root.section == Section.calendar ? @image-url("icons/calendar.svg") : @image-url("icons/calendar-outline.svg");
+            tab-label: "Calendar";
+            selected: root.section == Section.calendar;
+            clicked => {
+                root.select(Section.calendar);
+            }
+        }
+        NavTabButton {
+            rem-size: root.rem-size;
+            x: (8 * root.rem-size / 14);
+            y: (338 * root.rem-size / 14);
+            tab-icon: root.section == Section.addons ? @image-url("icons/addons.svg") : @image-url("icons/addons-outline.svg");
+            tab-label: "Addons";
+            selected: root.section == Section.addons;
+            clicked => {
+                root.select(Section.addons);
+            }
+        }
+        NavTabButton {
+            rem-size: root.rem-size;
+            x: (8 * root.rem-size / 14);
+            y: (420 * root.rem-size / 14);
+            tab-icon: root.section == Section.settings ? @image-url("icons/settings.svg") : @image-url("icons/settings-outline.svg");
+            tab-label: "Settings";
+            selected: root.section == Section.settings;
+            clicked => {
+                root.select(Section.settings);
+            }
+        }
+    }
+}
+
+// Web: <div class="search-bar search-bar-container">
+component SearchBar inherits Rectangle {
+    in property <length> rem-size: 14px;
+    width: (420 * root.rem-size / 14);
+    height: (46 * root.rem-size / 14);
+
+    search-bar-container := Rectangle {
+        width: parent.width;
+        height: parent.height;
+        border-radius: (23 * root.rem-size / 14);
+        background: ClassStyles.background-or(ClassStyles.search-bar-container, Theme.overlay);
+        opacity: ClassStyles.opacity-or(ClassStyles.search-bar-container, 1.0);
+        visible: !(ClassStyles.search-bar-container).hidden;
+
+        search-input := TextInput {
+            x: (28 * root.rem-size / 14);
+            width: (326 * root.rem-size / 14);
+            height: parent.height;
+            single-line: true;
+            vertical-alignment: center;
+            font-size: (14 * root.rem-size / 14);
+            font-weight: 500;
+            color: ClassStyles.color-or(ClassStyles.search-input, Theme.text);
+        }
+        if search-input.text == "": placeholder-label := Text {
+            x: (28 * root.rem-size / 14);
+            height: parent.height;
+            text: "Search or paste link";
+            vertical-alignment: center;
+            font-size: (14 * root.rem-size / 14);
+            font-weight: 500;
+            color: ClassStyles.color-or(ClassStyles.placeholder-label, Theme.placeholder);
+        }
+        submit-button-container := Rectangle {
+            x: (354 * root.rem-size / 14);
+            width: (66 * root.rem-size / 14);
+            height: parent.height;
+            background: ClassStyles.background-or(ClassStyles.submit-button-container, transparent);
+            opacity: ClassStyles.opacity-or(ClassStyles.submit-button-container, 1.0);
+            visible: !(ClassStyles.submit-button-container).hidden;
+
+            icon := Image {
+                source: @image-url("icons/search.svg");
+                x: (21 * root.rem-size / 14);
+                y: (11 * root.rem-size / 14);
+                width: (24 * root.rem-size / 14);
+                height: (24 * root.rem-size / 14);
+                colorize: ClassStyles.color-or(ClassStyles.icon, Theme.search-icon);
+                // The web draws this icon at 0.6.
+                opacity: ClassStyles.icon.has-color ? 0.6 : 1.0;
+                visible: !ClassStyles.icon.hidden;
+            }
+        }
+    }
+}
+
+// Web: <div class="button-container"> with an icon, here the fullscreen button.
+component NavButton inherits Rectangle {
+    in property <length> rem-size: 14px;
+    in property <image> icon-source;
+    /// A button that stands for a setting, and shows when it is on.
+    in property <bool> active: false;
+    callback clicked();
+    width: (49 * root.rem-size / 14);
+    height: (49 * root.rem-size / 14);
+
+    button-container := Rectangle {
+        width: parent.width;
+        height: parent.height;
+        border-radius: (10.5 * root.rem-size / 14);
+        // Web: a hovered `.button-container` paints the overlay; a toggle that is on keeps it.
+        background: (root.active || touch.has-hover) ? Theme.overlay
+            : ClassStyles.background-or(ClassStyles.button-container, transparent);
+        opacity: ClassStyles.opacity-or(ClassStyles.button-container, 1.0);
+        visible: !(ClassStyles.button-container).hidden;
+
+        icon := Image {
+            source: root.icon-source;
+            x: (11 * root.rem-size / 14);
+            y: (11 * root.rem-size / 14);
+            width: (28 * root.rem-size / 14);
+            height: (28 * root.rem-size / 14);
+            // Web draws these white and lets a 0.6 container dim them. Over this app's artwork a
+            // solid grey reading of that turns to mush, so they stay white here: 0.5 at rest,
+            // 0.9 while hovered or on.
+            colorize: ClassStyles.color-or(ClassStyles.icon, Theme.text);
+            opacity: ClassStyles.icon.has-color ? 1.0
+                : ((root.active || touch.has-hover) ? 1.0 : 0.5);
+            visible: !ClassStyles.icon.hidden;
+        }
+        touch := TouchArea {
+            mouse-cursor: pointer;
+            clicked => {
+                root.clicked();
+            }
+        }
+    }
+}
+
+// Web: <nav class="horizontal-nav-bar horizontal-nav-bar-container">
+export component HorizontalNavBar inherits Rectangle {
+    in property <length> rem-size: 14px;
+    callback toggle-fullscreen();
+    callback user-avatar-clicked();
+    // Web: the top bar hides its search box on the Addons route.
+    in property <bool> show-search: true;
+    // Web: the details route turns the bar's first slot into a back button, hiding the logo.
+    in property <bool> show-back: false;
+    /// Nothing behind the bar at all: no fill, no theme override. The details route paints its
+    /// own artwork underneath and wants the bar to disappear into it.
+    in property <bool> bare: false;
+    /// The details route's Streams wrap toggle, and whether it is on.
+    in property <bool> show-wrap: false;
+    in property <bool> wrap-active: false;
+    callback toggle-wrap();
+    callback back-clicked();
+    height: (77 * root.rem-size / 14);
+
+    horizontal-nav-bar-container := Rectangle {
+        width: parent.width;
+        height: parent.height;
+        background: root.bare ? transparent : ClassStyles.background-or(ClassStyles.horizontal-nav-bar-container, transparent);
+        opacity: ClassStyles.opacity-or(ClassStyles.horizontal-nav-bar-container, 1.0);
+        visible: !(ClassStyles.horizontal-nav-bar-container).hidden;
+
+        logo-container := Rectangle {
+            x: 0px;
+            y: 0px;
+            width: (84 * root.rem-size / 14);
+            height: (77 * root.rem-size / 14);
+            background: ClassStyles.background-or(ClassStyles.logo-container, transparent);
+            opacity: ClassStyles.opacity-or(ClassStyles.logo-container, 1.0);
+            visible: !(ClassStyles.logo-container).hidden && !root.show-back;
+
+            // Stremio Lightning's own logo (assets/icons/128x128.png) in the web's logo slot: 35x35 in the 84x77 container.
+            logo := Image {
+                source: @image-url("images/stremio-lightning.png");
+                x: (25 * root.rem-size / 14);
+                y: (21 * root.rem-size / 14);
+                width: (35 * root.rem-size / 14);
+                height: (35 * root.rem-size / 14);
+                // Web: .logo { opacity: 0.9 }
+                opacity: ClassStyles.opacity-or(ClassStyles.logo, 0.9);
+                visible: !ClassStyles.logo.hidden;
+            }
+        }
+
+        // Web: .back-button-container — the chevron that leaves the details route, in the slot the
+        // logo would otherwise fill. It is a 49x49 pill 1rem in from both edges, and hovering it
+        // paints the same overlay the bar's other buttons use.
+        if root.show-back: back-button-container := Rectangle {
+            x: (14 * root.rem-size / 14);
+            y: (14 * root.rem-size / 14);
+            width: (49 * root.rem-size / 14);
+            height: (49 * root.rem-size / 14);
+            border-radius: (10.5 * root.rem-size / 14);
+            background: back-touch.has-hover ? Theme.overlay : transparent;
+
+            back-icon := Image {
+                source: @image-url("icons/chevron-back.svg");
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                width: (25 * root.rem-size / 14);
+                height: (25 * root.rem-size / 14);
+                colorize: Theme.text;
+                // Web: `.icon` is dim at rest and 0.8 once the button is hovered. The default sits
+                // a shade below the web's: over artwork the chevron is the only thing in this
+                // corner, and at the web's value it competes with the title.
+                opacity: back-touch.has-hover ? 1.0 : 0.45;
+            }
+            back-touch := TouchArea {
+                mouse-cursor: pointer;
+                clicked => {
+                    root.back-clicked();
+                }
+            }
+        }
+
+        search-bar := SearchBar {
+            visible: root.show-search;
+            rem-size: root.rem-size;
+            x: (84 * root.rem-size / 14) + (root.width - (14 * root.rem-size / 14) - (133 * root.rem-size / 14) - (84 * root.rem-size / 14) - self.width) / 2;
+            y: (16 * root.rem-size / 14);
+        }
+
+        buttons-container := Rectangle {
+            // The details route adds a fourth button, the Streams wrap toggle. The bar keeps its
+            // fullscreen button and avatar where the web puts them and grows to the left.
+            property <length> wrap-width: root.show-wrap ? (56 * root.rem-size / 14) : 0px;
+            x: parent.width - (147 * root.rem-size / 14) - self.wrap-width;
+            y: (14 * root.rem-size / 14);
+            width: (133 * root.rem-size / 14) + self.wrap-width;
+            height: (49 * root.rem-size / 14);
+            opacity: ClassStyles.opacity-or(ClassStyles.buttons-container, 1.0);
+            visible: !ClassStyles.buttons-container.hidden;
+
+            // The Streams' descriptions can run to several lines and the web never had a switch
+            // for it. This one cuts every row to a single line or lets them all wrap; the choice
+            // lives on the details route only, and is kept so it survives a restart.
+            if root.show-wrap: NavButton {
+                rem-size: root.rem-size;
+                x: 0px;
+                y: 0px;
+                icon-source: @image-url("icons/wrap-text.svg");
+                active: root.wrap-active;
+                clicked => {
+                    root.toggle-wrap();
+                }
+            }
+
+            NavButton {
+                rem-size: root.rem-size;
+                x: parent.wrap-width;
+                y: 0px;
+                icon-source: @image-url("icons/maximize.svg");
+                clicked => {
+                    root.toggle-fullscreen();
+                }
+            }
+            // Web: class="label-container nav-menu-popup-label menu-toggle menu-button-container button-container"
+            menu-toggle := Rectangle {
+                x: parent.wrap-width + (56 * root.rem-size / 14);
+                width: (77 * root.rem-size / 14);
+                height: (49 * root.rem-size / 14);
+                border-radius: (10.5 * root.rem-size / 14);
+                // Web: the popup's own toggle takes the same overlay on hover as the buttons
+                // beside it, and its caret goes from 0.6 to fully drawn.
+                background: menu-touch.has-hover ? Theme.overlay
+                    : ClassStyles.background-or(ClassStyles.menu-toggle, transparent);
+                opacity: ClassStyles.opacity-or(ClassStyles.menu-toggle, 1.0);
+                visible: !(ClassStyles.menu-toggle).hidden;
+
+                avatar := Rectangle {
+                    x: (11 * root.rem-size / 14);
+                    y: (11 * root.rem-size / 14);
+                    width: (28 * root.rem-size / 14);
+                    height: (28 * root.rem-size / 14);
+                    border-radius: (14 * root.rem-size / 14);
+                    background: ClassStyles.background-or(ClassStyles.avatar, Theme.avatar);
+                    opacity: ClassStyles.opacity-or(ClassStyles.avatar, 1.0);
+                    visible: !(ClassStyles.avatar).hidden;
+
+                }
+                caret-icon := Image {
+                    source: @image-url("icons/caret-down.svg");
+                    x: (53 * root.rem-size / 14);
+                    y: (18 * root.rem-size / 14);
+                    width: (14 * root.rem-size / 14);
+                    height: (14 * root.rem-size / 14);
+                    // White like the buttons beside it, at the same 0.5 the bar's icons rest at.
+                    colorize: Theme.text;
+                    opacity: menu-touch.has-hover ? 1.0 : 0.5;
+                }
+
+                menu-touch := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.user-avatar-clicked();
+                    }
+                }
+            }
+        }
+    }
+}

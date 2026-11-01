@@ -1,0 +1,235 @@
+// Based on stremio-web (https://github.com/Stremio/stremio-web),
+// Copyright (C) 2017-2025 Smart code 203358507.
+// Numbers translated by hand from src/components/Modal/styles.less and the SharePrompt styles in
+// src/components/Preview/.../styles.less. Licence basis: ../THIRD_PARTY_NOTICES.md. Element ids
+// reuse the web class names where one exists.
+//
+// Web: `.modal-container` — a 0.4 black cover over the whole viewport with a 34rem dialog in the
+// middle. The dialog's own `box-shadow` glow has no Slint equivalent and is left out.
+import { Theme } from "theme.slint";
+
+// Web: `.share-prompt .buttons-container .button-container` — one network, in its own colour.
+component ShareTarget inherits Rectangle {
+    in property <image> glyph;
+    in property <color> shade;
+    in property <length> rem-size;
+    callback clicked;
+
+    height: 3.5 * root.rem-size;
+    border-radius: 0.75 * root.rem-size;
+    background: root.shade;
+
+    Image {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: 1.5 * root.rem-size;
+        height: 1.5 * root.rem-size;
+        source: root.glyph;
+        colorize: Theme.text;
+        image-fit: contain;
+    }
+    touch := TouchArea {
+        width: 100%;
+        height: 100%;
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+export component ShareModal inherits Rectangle {
+    in property <string> link;
+    in property <length> rem-size: 14px;
+    callback closed;
+    callback copied;
+    callback opened(string);
+
+    // Web: `.modal-container` — the whole window, `@color-background-dark5-40`: the app's own
+    // background at 40%, so what is under it dims rather than turning to soot.
+    background: #0c0b1166;
+
+    // Web: `ModalDialog` closes on a mousedown on `.modal-container` -- anywhere but the dialog.
+    // This is that target, and it does a second job the web gets for free: a Slint `TouchArea`
+    // only takes what it covers, so without it a press beside the dialog fell straight through to
+    // the addon card underneath and opened *its* dialog the moment this one closed.
+    backdrop-touch := TouchArea {
+        width: 100%;
+        height: 100%;
+        clicked => {
+            root.closed();
+        }
+    }
+
+    // Web: `.modal-dialog-container` — 0.75rem radius, the modal background, 2rem of side padding.
+    // Its height is the sum of what is inside it: the 4.5rem title, the body's 2rem padding top and
+    // bottom, the 3.5rem network row, the 1rem gap, the 3.4rem link row, and the 2rem the body
+    // keeps under its last child.
+    dialog := Rectangle {
+        width: 34 * root.rem-size;
+        height: 18.4 * root.rem-size;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        background: #0f0d20;
+        border-radius: 0.75 * root.rem-size;
+        // Web: `.modal-dialog-container`'s `box-shadow: var(--outer-glow)` -- `0 0 15px
+        // rgba(123, 91, 245, 0.37)`. Without it the panel is a dark navy rectangle on a dark navy
+        // page and reads as a hole in the screen rather than as a dialog over it.
+        drop-shadow-color: #7b5bf55e;
+        drop-shadow-blur: 15px;
+
+        // Web: `.title-container` — 4.5rem tall, 1.2rem, medium.
+        Text {
+            x: 2 * root.rem-size;
+            y: 0px;
+            width: parent.width - 7 * root.rem-size;
+            height: 4.5 * root.rem-size;
+            text: "Share";
+            color: Theme.text;
+            font-size: 1.2 * root.rem-size;
+            font-weight: 500;
+            vertical-alignment: center;
+        }
+
+        // Web: `.close-button-container` — 3rem square, half a rem in from the top right corner.
+        Rectangle {
+            x: parent.width - 3.5 * root.rem-size;
+            y: 0.5 * root.rem-size;
+            width: 3 * root.rem-size;
+            height: 3 * root.rem-size;
+            border-radius: 0.75 * root.rem-size;
+            background: close-touch.has-hover ? Theme.overlay : transparent;
+            Image {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                width: 2 * root.rem-size;
+                height: 2 * root.rem-size;
+                source: @image-url("icons/close.svg");
+                colorize: Theme.text;
+                opacity: close-touch.has-hover ? 1 : 0.4;
+            }
+            close-touch := TouchArea {
+                width: 100%;
+                height: 100%;
+                mouse-cursor: pointer;
+                clicked => {
+                    root.closed();
+                }
+            }
+        }
+
+        // Web: `.body-container` — 2rem above and below, and 2rem more under its last child.
+        HorizontalLayout {
+            x: 2 * root.rem-size;
+            y: 4.5 * root.rem-size + 2 * root.rem-size;
+            width: parent.width - 4 * root.rem-size;
+            spacing: 1 * root.rem-size;
+
+            ShareTarget {
+                glyph: @image-url("icons/facebook.svg");
+                shade: Theme.facebook;
+                rem-size: root.rem-size;
+                clicked => {
+                    root.opened("facebook");
+                }
+            }
+            ShareTarget {
+                glyph: @image-url("icons/x.svg");
+                shade: Theme.x;
+                rem-size: root.rem-size;
+                clicked => {
+                    root.opened("x");
+                }
+            }
+            ShareTarget {
+                glyph: @image-url("icons/reddit.svg");
+                shade: Theme.reddit;
+                rem-size: root.rem-size;
+                clicked => {
+                    root.opened("reddit");
+                }
+            }
+        }
+
+        // Web: `.url-container` — the link over an overlay pill, with the copy button filling its
+        // right end, rounded on that side only.
+        url-row := Rectangle {
+            x: 2 * root.rem-size;
+            y: 4.5 * root.rem-size + 2 * root.rem-size + 3.5 * root.rem-size + 1 * root.rem-size;
+            width: parent.width - 4 * root.rem-size;
+            height: 3.4 * root.rem-size;
+            border-radius: 0.75 * root.rem-size;
+            background: Theme.overlay;
+
+            // Web: a read-only text input. Clicking it takes the whole link, so it can be copied
+            // by hand as well as with the button beside it, and the field never takes the keyboard:
+            // a caret in the middle of a link that cannot be edited is only a distraction.
+            link-input := TextInput {
+                x: 1 * root.rem-size;
+                width: parent.width - 9 * root.rem-size;
+                height: parent.height;
+                text: root.link;
+                read-only: true;
+                single-line: true;
+                color: Theme.text;
+                font-size: 1.1 * root.rem-size;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+            TouchArea {
+                width: parent.width - 8 * root.rem-size;
+                height: parent.height;
+                clicked => {
+                    // Taking the link is all this does: the end is beyond the text, so the whole
+                    // link is selected whatever its length. Copying stays with the button beside
+                    // it, and the field is not given the keyboard, because a caret in a field that
+                    // cannot be edited is only a distraction.
+                    link-input.set-selection-offsets(0, 1000);
+                }
+            }
+
+            Rectangle {
+                x: parent.width - 8 * root.rem-size;
+                width: 8 * root.rem-size;
+                height: parent.height;
+                border-top-right-radius: 0.75 * root.rem-size;
+                border-bottom-right-radius: 0.75 * root.rem-size;
+                // Web: the button empties on hover and keeps only a 0.15rem accent edge, so the
+                // hover reads as an outline rather than a lighter fill.
+                background: copy-touch.has-hover ? transparent : Theme.accent-green;
+                border-width: copy-touch.has-hover ? 0.15 * root.rem-size : 0px;
+                border-color: Theme.accent-green;
+
+                HorizontalLayout {
+                    alignment: center;
+                    spacing: 0.5 * root.rem-size;
+                    // A layout stretches its children across the axis, so the glyph gets a column
+                    // of its own to sit in the middle of, level with the word beside it.
+                    VerticalLayout {
+                        alignment: center;
+                        Image {
+                            width: 1.2 * root.rem-size;
+                            height: 1.2 * root.rem-size;
+                            source: @image-url("icons/link.svg");
+                            colorize: Theme.text;
+                        }
+                    }
+                    Text {
+                        text: "Copy";
+                        color: Theme.text;
+                        font-size: 1.1 * root.rem-size;
+                        vertical-alignment: center;
+                    }
+                }
+                copy-touch := TouchArea {
+                    width: 100%;
+                    height: 100%;
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.copied();
+                    }
+                }
+            }
+        }
+    }
+}
