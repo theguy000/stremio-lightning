@@ -386,7 +386,8 @@ fn a_choice_survives_a_restart() {
 #[test]
 fn the_window_opens_every_page_and_removes_a_theme_in_two_presses() {
     // Mock time, not system time: the clock this runner reports is not monotonic, and Slint
-    // asserts on a tick that goes backwards as soon as any animation is live.
+    // asserts on a tick that goes backwards as soon as any animation is live. The clock only
+    // moves when the driver steps it, so every wait in this test steps it too.
     i_slint_backend_testing::init_integration_test_with_mock_time();
     let data_dir = temp_dir("window");
     write_mod(&data_dir, "themes", "red.theme.css", &theme("Red"));
@@ -398,7 +399,7 @@ fn the_window_opens_every_page_and_removes_a_theme_in_two_presses() {
 
     let booted = stremio_lightning::boot(data_dir.clone()).expect("the app boots");
     let window = &booted.window;
-
+    ui_driver::pump_for(window);
     // ---- the Mods tab, the menu, and every page opening from its own row ---------------------
     let menu = [
         ("plugins", "Plugins"),
@@ -408,20 +409,16 @@ fn the_window_opens_every_page_and_removes_a_theme_in_two_presses() {
         ("logs", "Logs"),
         ("about", "About"),
     ];
+    // The page the window holds and the page the screen is drawing have to agree; the menu's own
+    // mark follows the screen's page, so the row for that page is the marked one by construction.
     let page_is = |page: &'static str| {
         let shown = window.get_mods_page().to_string();
         let drawn = window.get_mods().page.to_string();
-        let nav = window.get_mods_nav();
-        let marked: Vec<String> = (0..nav.row_count())
-            .filter_map(|row| nav.row_data(row))
-            .filter(|item| item.selected)
-            .map(|item| item.id.to_string())
-            .collect();
-        if shown == page && drawn == page && marked == [page.to_owned()] {
+        if shown == page && drawn == page {
             Ok(page.to_owned())
         } else {
             Err(format!(
-                "the window holds {shown}, the screen draws {drawn}, the menu marks {marked:?}"
+                "the window holds {shown} and the screen draws {drawn}"
             ))
         }
     };

@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 use i_slint_backend_testing::{ElementHandle, ElementRoot};
 use i_slint_core::items::PointerEventButton;
 use slint::platform::{Key, WindowEvent};
-use slint::{ComponentHandle, Timer, TimerMode};
+use slint::ComponentHandle;
 
 use stremio_lightning::MainWindow;
 
@@ -221,6 +221,7 @@ fn step_once(
 /// callback would be a mistake: a press makes Slint look at its timers again, and Slint refuses to
 /// do that while one is being called. Slices keep the presses outside.
 pub fn run(window: &MainWindow, steps: Vec<Step>) -> Vec<Outcome> {
+    pump_for(window);
     let mut outcomes: Vec<Outcome> = Vec::new();
     let mut at = 0usize;
     let mut deadline: Option<Instant> = None;
@@ -233,12 +234,33 @@ pub fn run(window: &MainWindow, steps: Vec<Step>) -> Vec<Outcome> {
 }
 
 /// Lets the event loop turn for `slice`, which is when queued updates from other threads land.
+///
+/// The window runs on the testing backend's mocked clock, and that clock only moves when it is
+/// told to: the backend's event loop fires no timer of its own, so a wall-clock timer would never
+/// come due and the loop would never end. Instead each slice asks the window to draw, which hands
+/// the loop an event, and the clock is stepped by the slice, which fires whatever timers and
+/// animations the window has due.
 pub fn pump(slice: Duration) {
-    let timer = Timer::default();
-    timer.start(TimerMode::SingleShot, slice, || {
-        slint::quit_event_loop().ok();
-    });
+    if let Some(window) = PUMPED.with(|pumped| pumped.borrow().clone()) {
+        if let Some(window) = window.upgrade() {
+            window.window().request_redraw();
+        }
+        i_slint_backend_testing::mock_elapsed_time(slice);
+    }
     slint::run_event_loop().expect("the event loop runs");
+    slint::quit_event_loop().ok();
+}
+
+thread_local! {
+    /// The window whose loop `pump` turns, set before a run so that every slice inside it -- the
+    /// steps' own, and the ones a test takes between them -- is a slice of that window.
+    static PUMPED: std::cell::RefCell<Option<slint::Weak<MainWindow>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Pumps `window`'s loop from now on, since `pump` takes no window of its own.
+pub fn pump_for(window: &MainWindow) {
+    PUMPED.with(|pumped| *pumped.borrow_mut() = Some(window.as_weak()));
 }
 
 /// Every label on screen, for when a press misses: a failure should say what was there instead.
