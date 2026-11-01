@@ -1342,12 +1342,15 @@ impl Wiring {
 
     /// The page the Mods menu is on, and the menu with it. Changing page takes back an armed
     /// Remove: the card it was on is no longer on screen, so the next press cannot be its second.
+    /// The folders are read again, so a file dropped in since the last core event has its card
+    /// by the time the page finishes drawing.
     fn select_mods_page(&self, id: String) {
         let page = mods::Page::from_id(&id);
         self.disarm_mods();
         *self.mods_page.lock().unwrap() = page.id().to_owned();
+        let data = mods::data(&self.data_dir).with_page(page);
         let mut snapshot = self.latest.lock().unwrap().clone();
-        snapshot.mods = snapshot.mods.with_page(page);
+        snapshot.mods = data.with_notice(snapshot.mods.notice.clone());
         self.repaint_with(snapshot);
     }
 
@@ -1449,16 +1452,28 @@ impl Wiring {
 
     /// Starts the five seconds an armed card waits before it is no longer armed.
     fn restart_disarm(&self) {
-        let armed = self.mods_armed.clone();
+        let (armed, window, latest, images) = (
+            self.mods_armed.clone(),
+            self.window.clone(),
+            self.latest.clone(),
+            self.images.clone(),
+        );
         self.mods_disarm.start(
             slint::TimerMode::SingleShot,
             std::time::Duration::from_millis(DISARM_MS),
             move || {
-                if let Ok(mut slot) = armed.lock() {
-                    if slot.take().is_some() {
-                        shell::view::arm(None);
-                    }
+                let still_armed = armed
+                    .lock()
+                    .map(|mut slot| slot.take().is_some())
+                    .unwrap_or(false);
+                if !still_armed {
+                    return;
                 }
+                // The outline on the card is part of what the window draws, so the arm going away
+                // is a repaint, not just a change of state the next press would reveal.
+                shell::view::arm(None);
+                let snapshot = latest.lock().unwrap().clone();
+                shell::show(&window, snapshot, &images);
             },
         );
     }
