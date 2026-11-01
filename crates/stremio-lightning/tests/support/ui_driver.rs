@@ -106,12 +106,20 @@ fn step_once(
                 Ok(()) => "pressed".to_owned(),
                 Err(error) => error.clone(),
             };
-            record(format!("press \u{201c}{label}\u{201d}"), Some(result.is_ok()), detail);
+            record(
+                format!("press \u{201c}{label}\u{201d}"),
+                Some(result.is_ok()),
+                detail,
+            );
             advance(at, deadline);
         }
         Step::ClickAt(x, y) => {
             press_at(window, *x, *y);
-            record(format!("press at ({x:.0}, {y:.0})"), Some(true), "pressed".to_owned());
+            record(
+                format!("press at ({x:.0}, {y:.0})"),
+                Some(true),
+                "pressed".to_owned(),
+            );
             advance(at, deadline);
         }
         Step::ClickLabel(what, label_of) => {
@@ -132,7 +140,11 @@ fn step_once(
             match spot_of(window) {
                 Ok((x, y)) => {
                     press_at(window, x, y);
-                    record((*what).to_owned(), Some(true), format!("pressed at ({x:.0}, {y:.0})"));
+                    record(
+                        (*what).to_owned(),
+                        Some(true),
+                        format!("pressed at ({x:.0}, {y:.0})"),
+                    );
                 }
                 Err(error) => record((*what).to_owned(), Some(false), error.clone()),
             }
@@ -140,7 +152,11 @@ fn step_once(
         }
         Step::Type(text) => {
             type_text(window, text);
-            record(format!("type \u{201c}{text}\u{201d}"), Some(true), "typed".to_owned());
+            record(
+                format!("type \u{201c}{text}\u{201d}"),
+                Some(true),
+                "typed".to_owned(),
+            );
             advance(at, deadline);
         }
         Step::Erase(count) => {
@@ -165,7 +181,11 @@ fn step_once(
             record((*what).to_owned(), Some(ok), detail);
             advance(at, deadline);
         }
-        Step::Wait { what, budget, check } => {
+        Step::Wait {
+            what,
+            budget,
+            check,
+        } => {
             let until = match *deadline {
                 Some(until) => until,
                 None => {
@@ -181,7 +201,11 @@ fn step_once(
                 }
                 Err(detail) => {
                     if Instant::now() >= until {
-                        record((*what).to_owned(), Some(false), format!("gave up: {detail}"));
+                        record(
+                            (*what).to_owned(),
+                            Some(false),
+                            format!("gave up: {detail}"),
+                        );
                         advance(at, deadline);
                     }
                 }
@@ -236,11 +260,19 @@ fn click(window: &MainWindow, label: &str) -> Result<(), String> {
     let found = ElementHandle::find_by_accessible_label(window, label).next();
     let Some(handle) = found else {
         let names = labels(window);
-        let near: Vec<&String> = names.iter().filter(|name| name.contains(label)).take(4).collect();
+        let near: Vec<&String> = names
+            .iter()
+            .filter(|name| name.contains(label))
+            .take(4)
+            .collect();
         return Err(format!(
             "nothing says this; on screen: {:?}{}",
             names.iter().take(12).collect::<Vec<_>>(),
-            if near.is_empty() { String::new() } else { format!(" (near: {near:?})") }
+            if near.is_empty() {
+                String::new()
+            } else {
+                format!(" (near: {near:?})")
+            }
         ));
     };
     let position = handle.absolute_position();
@@ -254,15 +286,19 @@ fn click(window: &MainWindow, label: &str) -> Result<(), String> {
         .window()
         .dispatch_event(WindowEvent::PointerMoved { position: centre });
     pump(Duration::from_millis(40));
-    window
-        .window()
-        .dispatch_event(WindowEvent::PointerPressed { position: centre, button: PointerEventButton::Left });
+    window.window().dispatch_event(WindowEvent::PointerPressed {
+        position: centre,
+        button: PointerEventButton::Left,
+    });
     // The pointer has to rest on the control long enough for its hover to show, the way a hand
     // does: a press that arrives in the same instant as the move is not what the screen sees.
     pump(Duration::from_millis(40));
     window
         .window()
-        .dispatch_event(WindowEvent::PointerReleased { position: centre, button: PointerEventButton::Left });
+        .dispatch_event(WindowEvent::PointerReleased {
+            position: centre,
+            button: PointerEventButton::Left,
+        });
     pump(Duration::from_millis(40));
     Ok(())
 }
@@ -274,12 +310,16 @@ fn press_at(window: &MainWindow, x: f32, y: f32) {
         .dispatch_event(WindowEvent::PointerMoved { position });
     // No pause between the two: a popup's row is pressed and let go the way `send_mouse_click`
     // does it, and holding the button down here was enough to lose the press.
+    window.window().dispatch_event(WindowEvent::PointerPressed {
+        position,
+        button: PointerEventButton::Left,
+    });
     window
         .window()
-        .dispatch_event(WindowEvent::PointerPressed { position, button: PointerEventButton::Left });
-    window
-        .window()
-        .dispatch_event(WindowEvent::PointerReleased { position, button: PointerEventButton::Left });
+        .dispatch_event(WindowEvent::PointerReleased {
+            position,
+            button: PointerEventButton::Left,
+        });
     pump(Duration::from_millis(60));
 }
 
@@ -300,15 +340,29 @@ pub fn report(outcomes: &[Outcome]) -> bool {
     for outcome in outcomes {
         println!("{}", outcome.line());
     }
-    let judged = outcomes.iter().filter(|outcome| outcome.ok.is_some()).count();
-    let failed = outcomes.iter().filter(|outcome| outcome.ok == Some(false)).count();
+    let judged = outcomes
+        .iter()
+        .filter(|outcome| outcome.ok.is_some())
+        .count();
+    let failed = outcomes
+        .iter()
+        .filter(|outcome| outcome.ok == Some(false))
+        .count();
     let skipped = outcomes.len() - judged;
     println!(
         "\n{} of {} expectations held{}{}",
         judged - failed,
         judged,
-        if skipped == 0 { String::new() } else { format!(", {skipped} not judged") },
-        if failed == 0 { String::new() } else { format!(", {failed} did not") }
+        if skipped == 0 {
+            String::new()
+        } else {
+            format!(", {skipped} not judged")
+        },
+        if failed == 0 {
+            String::new()
+        } else {
+            format!(", {failed} did not")
+        }
     );
     failed == 0
 }

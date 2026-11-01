@@ -16,13 +16,13 @@ use stremio_core::runtime::RuntimeAction;
 use stremio_core::types::profile::GDPRConsent;
 
 use crate::app::events::BoardCatalogRange;
-use crate::screens::player::{auto_subtitle, SubtitleChoice, SubtitleTrackFacts};
 use crate::app::{AppModel, AppModelField, AppRuntime, Snapshot};
 use crate::plumbing::clipboard;
 use crate::plumbing::images::Images;
 use crate::plumbing::links;
 use crate::plumbing::player::VideoPlayer;
 use crate::plumbing::stream_server::{self, Supervisor};
+use crate::screens::player::{auto_subtitle, SubtitleChoice, SubtitleTrackFacts};
 use crate::screens::{addons, auth, calendar, details, discover, player, settings};
 use crate::shell;
 use crate::MainWindow;
@@ -831,7 +831,8 @@ impl Wiring {
             .find(|subtitle| subtitle.id == id)
             .cloned();
         if let Some(candidate) = &candidate {
-            *self.subtitle_choice.lock().unwrap() = SubtitleChoice::picked(&candidate.language, true);
+            *self.subtitle_choice.lock().unwrap() =
+                SubtitleChoice::picked(&candidate.language, true);
             let _ = self.video.add_subtitles(
                 &candidate.url,
                 &crate::screens::player::variant_label(candidate),

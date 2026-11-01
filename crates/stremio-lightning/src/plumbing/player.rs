@@ -518,10 +518,7 @@ impl VideoPlayer {
     }
 
     pub(crate) fn set_paused(&self, paused: bool) -> Result<(), String> {
-        self.with(|mpv| {
-            mpv.set_property("pause", paused)
-                .map_err(|e| e.to_string())
-        })
+        self.with(|mpv| mpv.set_property("pause", paused).map_err(|e| e.to_string()))
     }
 
     /// Moves the play head. mpv seeks to an absolute second and lands exactly there.
@@ -720,7 +717,11 @@ pub(crate) fn should_open(key: &str, loaded: &str, attempted: Option<&str>) -> b
 /// afterwards is the one the viewer pressed. Anything else in front of the URL is read *as* the
 /// flags and the command is refused -- "argument flags can't be parsed" -- which is how every
 /// addon subtitle went missing while a stray `file` sat there.
-pub(crate) fn sub_add_arguments<'a>(url: &'a str, title: &'a str, language: &'a str) -> Vec<&'a str> {
+pub(crate) fn sub_add_arguments<'a>(
+    url: &'a str,
+    title: &'a str,
+    language: &'a str,
+) -> Vec<&'a str> {
     let mut arguments = vec![url, "select"];
     if !title.is_empty() || !language.is_empty() {
         arguments.push(title);

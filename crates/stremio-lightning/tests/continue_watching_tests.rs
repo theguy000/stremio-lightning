@@ -173,7 +173,7 @@ fn the_board_opens_with_what_the_account_left_unfinished() {
 }
 
 #[test]
-fn a_continued_title_watched_through_carries_the_mark() {
+fn a_continued_title_watched_through_keeps_no_mark_in_the_row() {
     let mut item = library_item(
         "tt1",
         "Watched Through",
@@ -187,7 +187,12 @@ fn a_continued_title_watched_through_carries_the_mark() {
 
     let (_, rows) = screens::board::data(&model);
     let card = rows[0].cards.first().expect("a continued title");
-    assert!(card.watched, "the item's own state says it was watched");
+    // `serialize_continue_watching_preview.rs` sends no `watched` field, so `LibItem` on the
+    // web gets `undefined` and draws no check mark here. Only the Library's serialiser sends it.
+    assert!(
+        !card.watched,
+        "a Continue Watching card has no watched mark, even after a full watch"
+    );
 }
 
 #[test]

@@ -186,7 +186,6 @@ fn manifest_of(booted: &stremio_lightning::Booted, url: &str) -> Result<String, 
         .ok_or_else(|| format!("{} bytes with no id", body.len()))
 }
 
-
 /// One request to an addon, built the way `AddonHTTPTransport` builds it: the manifest path is
 /// replaced by `/<resource>/<type>/<id>.json`, and any extra becomes the query string.
 fn resource_url(
@@ -251,7 +250,12 @@ impl Declared {
 fn strings(value: Option<&serde_json::Value>) -> Vec<String> {
     value
         .and_then(|value| value.as_array())
-        .map(|items| items.iter().filter_map(|item| item.as_str().map(str::to_owned)).collect())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str().map(str::to_owned))
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -278,7 +282,11 @@ fn declared_resources(manifest: &serde_json::Value) -> Vec<Declared> {
                         let prefixes = strings(fields.get("idPrefixes"));
                         Some(Declared {
                             name,
-                            types: if types.is_empty() { manifest_types.clone() } else { types },
+                            types: if types.is_empty() {
+                                manifest_types.clone()
+                            } else {
+                                types
+                            },
                             prefixes: if prefixes.is_empty() {
                                 manifest_prefixes.clone()
                             } else {
@@ -334,8 +342,10 @@ fn the_community_list_installs_and_every_addon_answers() {
     // The app posts its updates from tokio threads, so this backend needs a real event loop.
     i_slint_backend_testing::init_integration_test_with_system_time();
 
-    let folder: PathBuf =
-        std::env::temp_dir().join(format!("stremio-lightning-addons-ui-{}", std::process::id()));
+    let folder: PathBuf = std::env::temp_dir().join(format!(
+        "stremio-lightning-addons-ui-{}",
+        std::process::id()
+    ));
     let _ = std::fs::remove_dir_all(&folder);
     std::fs::create_dir_all(&folder).expect("a folder of its own for this run");
 
@@ -404,7 +414,11 @@ fn the_community_list_installs_and_every_addon_answers() {
                 ok: Some(true),
                 detail: format!("{} addons", list.len()),
             });
-            for addon in list.iter().filter(|addon| !addon.name.is_empty()).take(TOP_OF_THE_LIST) {
+            for addon in list
+                .iter()
+                .filter(|addon| !addon.name.is_empty())
+                .take(TOP_OF_THE_LIST)
+            {
                 targets.push(Offered {
                     name: addon.name.clone(),
                     transport_url: addon.transport_url.clone(),
@@ -509,7 +523,7 @@ fn the_community_list_installs_and_every_addon_answers() {
             steps.push(Step::Expect(
                 "its own page opens, where it is set up",
                 Box::new(move |_: &MainWindow| {
-                    if OPENED.lock().unwrap().iter().any(|opened| *opened == page) {
+                    if OPENED.lock().unwrap().contains(&page) {
                         Ok(page.clone())
                     } else {
                         Err(format!("nothing opened {page}"))
@@ -658,7 +672,8 @@ fn the_community_list_installs_and_every_addon_answers() {
 
         // A catalog first: it is the only way to learn the ids of the types nobody here knows
         // (kitsu, tv, music), and those ids are what everything else is asked for.
-        if let Some(catalog_resource) = resources.iter().find(|resource| resource.name == "catalog") {
+        if let Some(catalog_resource) = resources.iter().find(|resource| resource.name == "catalog")
+        {
             let first = manifest
                 .get("catalogs")
                 .and_then(|catalogs| catalogs.as_array())
@@ -670,7 +685,10 @@ fn the_community_list_installs_and_every_addon_answers() {
                     detail: "it declares the resource but no catalog".to_owned(),
                 }),
                 Some(catalog) => {
-                    let kind = catalog.get("type").and_then(|one| one.as_str()).unwrap_or("");
+                    let kind = catalog
+                        .get("type")
+                        .and_then(|one| one.as_str())
+                        .unwrap_or("");
                     let id = catalog.get("id").and_then(|one| one.as_str()).unwrap_or("");
                     // Extras the catalog declares are filled with their first option, which is
                     // what a screen sends when nobody has picked one.
@@ -684,17 +702,23 @@ fn the_community_list_installs_and_every_addon_answers() {
                         }),
                         Some(url) => match fetch_json(&booted, &url) {
                             Ok((value, took)) => {
-                                if let Some(metas) = value.get("metas").and_then(|metas| metas.as_array()) {
+                                if let Some(metas) =
+                                    value.get("metas").and_then(|metas| metas.as_array())
+                                {
                                     for meta in metas {
                                         if let (Some(one), Some(kind)) = (
                                             meta.get("id").and_then(|one| one.as_str()),
                                             meta.get("type").and_then(|one| one.as_str()),
                                         ) {
-                                            known.entry(kind.to_owned()).or_insert_with(|| one.to_owned());
+                                            known
+                                                .entry(kind.to_owned())
+                                                .or_insert_with(|| one.to_owned());
                                         }
                                     }
                                 }
-                                if let Some(named) = catalog.get("name").and_then(|one| one.as_str()) {
+                                if let Some(named) =
+                                    catalog.get("name").and_then(|one| one.as_str())
+                                {
                                     drawn_catalogs.push(named.to_owned());
                                 }
                                 let count = counted(&value, "metas");
@@ -717,7 +741,9 @@ fn the_community_list_installs_and_every_addon_answers() {
                             Err(error) if !extra.is_empty() => outcomes.push(Outcome {
                                 what: label,
                                 ok: None,
-                                detail: format!("{error}; the app sends the extra this probe guessed"),
+                                detail: format!(
+                                    "{error}; the app sends the extra this probe guessed"
+                                ),
                             }),
                             Err(error) => outcomes.push(Outcome {
                                 what: label,

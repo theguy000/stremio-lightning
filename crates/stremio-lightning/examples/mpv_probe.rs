@@ -7,9 +7,14 @@ use std::time::{Duration, Instant};
 
 fn main() {
     let mut args = std::env::args().skip(1);
-    let url = args.next().expect("usage: mpv_probe <url> [property=value ...]");
+    let url = args
+        .next()
+        .expect("usage: mpv_probe <url> [property=value ...]");
     let properties: Vec<(String, String)> = args
-        .filter_map(|arg| arg.split_once('=').map(|(k, v)| (k.to_owned(), v.to_owned())))
+        .filter_map(|arg| {
+            arg.split_once('=')
+                .map(|(k, v)| (k.to_owned(), v.to_owned()))
+        })
         .collect();
 
     // `loadstart=SECONDS` exercises the four-argument form of `loadfile` the shell uses to
@@ -51,7 +56,10 @@ fn main() {
     let started = Instant::now();
     match &load_start {
         Some(start) => mpv
-            .command("loadfile", &[&url, "replace", "-1", &format!("start={start}")])
+            .command(
+                "loadfile",
+                &[&url, "replace", "-1", &format!("start={start}")],
+            )
             .expect("loadfile with start"),
         None => mpv.command("loadfile", &[&url]).expect("loadfile"),
     }
@@ -68,7 +76,10 @@ fn main() {
                     let w: i64 = mpv.get_property("width").unwrap_or(0);
                     let h: i64 = mpv.get_property("height").unwrap_or(0);
                     let pos: f64 = mpv.get_property("time-pos").unwrap_or(-1.0);
-                    println!("LOADED in {:?} duration={duration:.1}s pos={pos:.1} {w}x{h}", started.elapsed());
+                    println!(
+                        "LOADED in {:?} duration={duration:.1}s pos={pos:.1} {w}x{h}",
+                        started.elapsed()
+                    );
                     std::process::exit(0);
                 }
                 libmpv2::events::Event::EndFile(reason) => {

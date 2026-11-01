@@ -746,7 +746,10 @@ pub fn auto_subtitle(
     }
     let mut languages: Vec<String> = Vec::new();
     let mut push = |language: Option<&str>| {
-        if let Some(language) = language.map(str::trim).filter(|language| !language.is_empty()) {
+        if let Some(language) = language
+            .map(str::trim)
+            .filter(|language| !language.is_empty())
+        {
             if !languages.iter().any(|seen| same_language(seen, language)) {
                 languages.push(language.to_owned());
             }
@@ -767,10 +770,9 @@ pub fn auto_subtitle(
     };
     for language in &languages {
         for external in sources {
-            if let Some(track) = tracks
-                .iter()
-                .find(|track| track.external == external && same_language(&track.language, language))
-            {
+            if let Some(track) = tracks.iter().find(|track| {
+                track.external == external && same_language(&track.language, language)
+            }) {
                 return Some(track.id.clone());
             }
         }
@@ -867,10 +869,7 @@ pub(crate) fn subtitle_languages(
         if priority.is_empty() {
             continue;
         }
-        if let Some(position) = codes
-            .iter()
-            .position(|code| same_language(code, priority))
-        {
+        if let Some(position) = codes.iter().position(|code| same_language(code, priority)) {
             ordered.push(codes.remove(position));
         }
     }
@@ -908,7 +907,12 @@ mod tests {
         }
     }
 
-    fn file_track(id: &str, language: &str, external: bool, title: &str) -> crate::plumbing::player::Track {
+    fn file_track(
+        id: &str,
+        language: &str,
+        external: bool,
+        title: &str,
+    ) -> crate::plumbing::player::Track {
         crate::plumbing::player::Track {
             id: id.to_owned(),
             title: title.to_owned(),

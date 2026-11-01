@@ -25,7 +25,8 @@ fn main() {
     .expect("mpv");
     mpv.disable_deprecated_events().ok();
 
-    mpv.command("loadfile", &[first.to_str().unwrap(), "replace"]).expect("loadfile");
+    mpv.command("loadfile", &[first.to_str().unwrap(), "replace"])
+        .expect("loadfile");
     let mut loaded = false;
     let mut waited = 0;
     while !loaded && waited < 60 {
@@ -45,10 +46,18 @@ fn main() {
     println!("sid now: {:?}", mpv.get_property::<String>("sid"));
     let count: i64 = mpv.get_property("track-list/count").unwrap_or(-1);
     for index in 0..count.max(0) {
-        let title: String = mpv.get_property(&format!("track-list/{index}/title")).unwrap_or_default();
-        let lang: String = mpv.get_property(&format!("track-list/{index}/lang")).unwrap_or_default();
-        let kind: String = mpv.get_property(&format!("track-list/{index}/type")).unwrap_or_default();
-        let selected: bool = mpv.get_property(&format!("track-list/{index}/selected")).unwrap_or(false);
+        let title: String = mpv
+            .get_property(&format!("track-list/{index}/title"))
+            .unwrap_or_default();
+        let lang: String = mpv
+            .get_property(&format!("track-list/{index}/lang"))
+            .unwrap_or_default();
+        let kind: String = mpv
+            .get_property(&format!("track-list/{index}/type"))
+            .unwrap_or_default();
+        let selected: bool = mpv
+            .get_property(&format!("track-list/{index}/selected"))
+            .unwrap_or(false);
         println!("  {index}: {kind} title={title:?} lang={lang:?} selected={selected}");
     }
 }

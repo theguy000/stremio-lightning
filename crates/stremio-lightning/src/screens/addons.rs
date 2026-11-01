@@ -452,15 +452,16 @@ mod tests {
     use super::*;
 
     fn card(name: &str, description: &str) -> AddonCard {
-        let manifest: stremio_core::types::addon::Manifest = serde_json::from_value(serde_json::json!({
-            "id": "example",
-            "version": "1.0.0",
-            "name": name,
-            "description": description,
-            "resources": ["catalog"],
-            "types": ["movie"],
-        }))
-        .expect("a manifest");
+        let manifest: stremio_core::types::addon::Manifest =
+            serde_json::from_value(serde_json::json!({
+                "id": "example",
+                "version": "1.0.0",
+                "name": name,
+                "description": description,
+                "resources": ["catalog"],
+                "types": ["movie"],
+            }))
+            .expect("a manifest");
         AddonCard {
             transport_url: "https://example.com/manifest.json".to_owned(),
             name: name.to_owned(),
