@@ -122,6 +122,9 @@ component StreamRow inherits Rectangle {
 
     touch := TouchArea {
         mouse-cursor: pointer;
+        // Each row is a stream an addon offered; the label names it.
+        accessible-role: button;
+        accessible-label: root.source.name;
         clicked => {
             root.clicked();
         }

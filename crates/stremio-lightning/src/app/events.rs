@@ -6,7 +6,8 @@ use std::sync::{Arc, Mutex};
 
 use futures::StreamExt;
 use slint::Weak;
-use stremio_core::runtime::msg::Event;
+use stremio_core::runtime::msg::{Action, ActionCatalogsWithExtra, Event};
+use stremio_core::runtime::RuntimeAction;
 use stremio_core::runtime::RuntimeEvent;
 use stremio_lightning_env::AppEnv;
 
@@ -15,6 +16,11 @@ use crate::plumbing::images::{backdrop_key, Images};
 use crate::screens::{auth, discover, library, player, settings};
 use crate::shell;
 use crate::MainWindow;
+
+/// The addons the Board's catalog range was last asked for, and how many catalogs that list had.
+/// Both halves matter: installing an addon adds ids, and the catalog list itself arrives a beat
+/// after startup, so the count grows on its own.
+pub(crate) type BoardCatalogRange = (Vec<String>, usize);
 
 /// Everything an event needs in order to repaint. Cloned once per event, because the stream
 /// outlives any one of them.
@@ -43,6 +49,9 @@ pub(crate) struct Context {
     /// not to the model, but the snapshot is what the window shows, so it is folded in here.
     pub(crate) playback_error: Arc<Mutex<String>>,
     pub(crate) local_extras: Arc<Mutex<settings::LocalExtras>>,
+    /// The addons and catalog count the Board's range was last asked for, so that installing
+    /// an addon asks for its catalogs and a growing list asks for the rows beyond the old one.
+    pub(crate) board_catalogs: Arc<Mutex<Option<BoardCatalogRange>>>,
     pub(crate) auth: auth::Generation,
     /// Repaint now, with whatever the cache holds. Used when an image arrives.
     pub(crate) repaint: Arc<dyn Fn() + Send + Sync>,
@@ -70,6 +79,40 @@ pub(crate) async fn pump(
         .await;
 }
 
+/// Asks the core for every catalog the account has, and asks again whenever the addons or the
+/// catalog list change. See the call site for why this cannot live with the other wiring.
+fn sync_board_catalogs(context: &Context) {
+    let count = {
+        let Some(model) = context.model() else {
+            return;
+        };
+        let ids = model
+            .ctx
+            .profile
+            .addons
+            .iter()
+            .map(|addon| addon.manifest.id.clone())
+            .collect::<Vec<_>>();
+        let count = model.board.catalogs.len();
+        let signature = (ids, count);
+        {
+            let mut known = context.board_catalogs.lock().unwrap();
+            if known.as_ref() == Some(&signature) {
+                return;
+            }
+            *known = Some(signature);
+        }
+        count
+    };
+    if count == 0 {
+        return;
+    }
+    context.runtime.dispatch(RuntimeAction {
+        field: None,
+        action: Action::CatalogsWithExtra(ActionCatalogsWithExtra::LoadRange(0..count)),
+    });
+}
+
 fn handle(event: RuntimeEvent<AppEnv, AppModel>, context: &Context) {
     match event {
         RuntimeEvent::CoreEvent(Event::Error { error, source }) => {
@@ -94,6 +137,10 @@ fn handle(event: RuntimeEvent<AppEnv, AppModel>, context: &Context) {
         _ => return,
     }
 
+    // The core fetches only the catalogs it is told about, and the startup load names the first
+    // eight. Asking again here -- outside the model borrow, because a dispatch takes it -- is what
+    // puts an installed addon's catalogs on the Board without a restart.
+    sync_board_catalogs(context);
     let Some(model) = context.model() else { return };
     // Whatever signed in, no other browser handshake is still wanted.
     if model.ctx.profile.auth.is_some() {

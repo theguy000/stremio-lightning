@@ -15,6 +15,7 @@ use stremio_core::models::library_with_filters::{
 };
 use stremio_core::runtime::msg::{Action, ActionCatalogsWithExtra, ActionCtx, ActionLoad};
 use stremio_core::runtime::{RuntimeAction, RuntimeEvent};
+use stremio_core::types::addon::Descriptor;
 use stremio_core::types::events::DismissedEventsBucket;
 use stremio_core::types::library::LibraryBucket;
 use stremio_core::types::notifications::NotificationsBucket;
@@ -34,6 +35,7 @@ pub fn runtime(profile: Profile) -> (AppRuntime, Receiver<RuntimeEvent<AppEnv, A
     // `default()` has nothing to pick from, so a `Load` with no selection would select nothing.
     let (discover, discover_effects) = CatalogWithFilters::<MetaItemPreview>::new(&profile);
     let (installed_addons, installed_effects) = InstalledAddonsWithFilters::new(&profile);
+    let (remote_addons, remote_effects) = CatalogWithFilters::<Descriptor>::new(&profile);
     let library = LibraryBucket::new(uid.clone(), vec![]);
     let notifications = NotificationsBucket::new::<AppEnv>(uid.clone(), vec![]);
     // The preview is built from the buckets rather than defaulted, so a library that came back
@@ -60,6 +62,7 @@ pub fn runtime(profile: Profile) -> (AppRuntime, Receiver<RuntimeEvent<AppEnv, A
         discover,
         library: library_with_filters,
         installed_addons,
+        remote_addons,
         addon_details: Default::default(),
         meta_details: Default::default(),
         player: Default::default(),
@@ -70,6 +73,7 @@ pub fn runtime(profile: Profile) -> (AppRuntime, Receiver<RuntimeEvent<AppEnv, A
         discover_effects
             .into_iter()
             .chain(installed_effects)
+            .chain(remote_effects)
             .chain(library_effects)
             .collect(),
         1000,
@@ -89,10 +93,12 @@ pub fn load_everything(runtime: &AppRuntime) {
         field: None,
         action: Action::CatalogsWithExtra(ActionCatalogsWithExtra::LoadRange(0..8)),
     });
-    runtime.dispatch(RuntimeAction {
-        field: None,
-        action: Action::Load(ActionLoad::CatalogWithFilters(None)),
-    });
+
+    // The marketplace is *not* loaded here. Web: `useRemoteAddons` in the Addons route dispatches
+    // `Unload` unless the URL names a marketplace catalog, so `/addons` opens on the account's own
+    // list. Loading the catalog model at startup selects its first catalog -- Cinemeta's "Official"
+    // -- which drew the marketplace in place of the account's addons, and left an addon installed a
+    // moment ago missing from the list under it.
     runtime.dispatch(RuntimeAction {
         field: None,
         action: Action::Load(ActionLoad::InstalledAddonsWithFilters(InstalledSelected {

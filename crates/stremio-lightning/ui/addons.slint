@@ -19,6 +19,14 @@ export struct AddonData {
     description: string,
     logo: image,
     has-logo: bool,
+    /// Web: `Addon.js` shows Uninstall on an addon the account has and Install on one it has not.
+    installed: bool,
+    /// `behaviorHints.configurationRequired`: the pill reads Configure instead of Install, and
+    /// pressing it opens the addon's own configuration page.
+    configuration-required: bool,
+    /// `behaviorHints.configurable`: an installed addon with a settings page gets the icon-only
+    /// Configure pill beside its Uninstall pill.
+    configurable: bool,
 }
 
 // Web: `AddonDetailsModal` -- the manifest a pasted URL answered with, before it is installed.
@@ -33,12 +41,49 @@ export struct AddonPendingData {
     has-logo: bool,
     /// Whether the manifest has arrived, which is when Install can be pressed.
     ready: bool,
+    /// Whether the addon has to be set up on its own page before it can be installed at all
+    /// (`behaviorHints.configurationRequired`). The dialog offers Configure for these, as the
+    /// marketplace card does, instead of pressing Install at an addon the core will refuse.
+    configuration-required: bool,
     /// Whether the account already has this addon.
     installed: bool,
     error: string,
 }
 
 // Web: the Uninstall button. A pill with a 2px outline at 30% opacity, full opacity on hover.
+// Web: `.install-button-container` -- the green pill a marketplace card offers, which turns into an
+// outline of itself under the pointer.
+component InstallButton inherits Rectangle {
+    in property <length> rem-size;
+    in property <bool> hovered: false;
+    /// "Install", or "Configure" for an addon that only works once it has been set up.
+    in property <string> text: "Install";
+    callback clicked();
+
+    height: 3.5 * root.rem-size;
+    border-radius: self.height / 2;
+    border-width: 2px;
+    border-color: Theme.accent-green;
+    background: ClassStyles.background-or(
+        ClassStyles.install-button-container,
+        root.hovered ? transparent : Theme.accent-green
+    );
+    opacity: ClassStyles.opacity-or(ClassStyles.install-button-container, 1.0);
+    visible: !ClassStyles.install-button-container.hidden;
+
+    label := Text {
+        width: parent.width;
+        height: parent.height;
+        text: root.text;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        font-size: 1.1 * root.rem-size;
+        font-weight: 700;
+        color: ClassStyles.color-or(ClassStyles.label, root.hovered ? Theme.accent-green : Theme.on-accent);
+        visible: !ClassStyles.label.hidden;
+    }
+}
+
 component UninstallButton inherits Rectangle {
     in property <length> rem-size;
     in property <bool> hovered: false;
@@ -114,13 +159,17 @@ component AddonCard inherits Rectangle {
     in property <length> rem-size;
     callback open();
     callback uninstall();
+    callback install();
+    /// The addon's own configuration page, opened in the browser.
+    callback configure();
     callback share();
 
     // The card's 1.5rem padding plus its 0.15rem border.
     property <length> pad: 23 * root.rem-size / 14;
     property <length> buttons-width: 17 * root.rem-size;
     property <length> info-x: root.pad + 8 * root.rem-size;
-    property <bool> hot: card-touch.has-hover || uninstall-touch.has-hover || share-touch.has-hover;
+    property <bool> hot: card-touch.has-hover || uninstall-touch.has-hover || configure-touch.has-hover
+        || share-touch.has-hover;
 
     // Web: 2 * 21px padding + 112px logo + 2 * 2px border = 158px, not a whole number of rem.
     height: 158 * root.rem-size / 14;
@@ -139,6 +188,8 @@ component AddonCard inherits Rectangle {
             width: 100%;
             height: 100%;
             mouse-cursor: pointer;
+            accessible-role: button;
+            accessible-label: root.data.name;
             clicked => {
                 root.open();
             }
@@ -253,10 +304,48 @@ component AddonCard inherits Rectangle {
                 opacity: ClassStyles.opacity-or(ClassStyles.action-buttons-container, 1.0);
                 visible: !ClassStyles.action-buttons-container.hidden;
 
-                uninstall-button-container := UninstallButton {
-                    width: 100%;
+                // Web: `.action-buttons-container` is a row with a 1rem gap whose buttons are
+                // `flex: auto`, so two of them share the box evenly and one fills it.
+                property <length> half: (parent.width - root.rem-size) / 2;
+                property <bool> two: !root.data.configuration-required && root.data.configurable;
+
+                // Web: the icon-only Configure pill, which every addon that keeps a settings page
+                // gets -- beside Uninstall, not instead of it.
+                if root.data.configurable && !root.data.configuration-required: Rectangle {
+                    x: 0px;
+                    width: action-buttons-container.half;
+                    height: 100%;
+                    border-radius: self.height / 2;
+                    border-width: 2px;
+                    border-color: Theme.text;
+                    background: configure-touch.has-hover ? Theme.overlay : transparent;
+                    opacity: configure-touch.has-hover ? 1.0 : 0.3;
+
+                    Image {
+                        x: (parent.width - self.width) / 2;
+                        y: (parent.height - self.height) / 2;
+                        width: 2 * root.rem-size;
+                        height: 2 * root.rem-size;
+                        source: @image-url("icons/settings.svg");
+                        colorize: Theme.text;
+                    }
+                }
+
+                // Web: the pill that reads Uninstall on an installed addon, Configure on one that
+                // has to be set up first, and Install -- green -- on the rest.
+                if root.data.installed: uninstall-button-container := UninstallButton {
+                    x: action-buttons-container.two ? action-buttons-container.half + root.rem-size : 0px;
+                    width: action-buttons-container.two ? action-buttons-container.half : parent.width;
                     height: 100%;
                     rem-size: root.rem-size;
+                    hovered: uninstall-touch.has-hover;
+                }
+                if !root.data.installed: install-button-container := InstallButton {
+                    x: action-buttons-container.two ? action-buttons-container.half + root.rem-size : 0px;
+                    width: action-buttons-container.two ? action-buttons-container.half : parent.width;
+                    height: 100%;
+                    rem-size: root.rem-size;
+                    text: root.data.configuration-required ? "Configure" : "Install";
                     hovered: uninstall-touch.has-hover;
                 }
             }
@@ -272,14 +361,46 @@ component AddonCard inherits Rectangle {
 
         // The presses are taken here, on the card itself: a TouchArea only receives what its own
         // box covers, and these two are the size of the column's halves.
-        uninstall-touch := TouchArea {
+        // One target under either pill: it uninstalls an addon the account has and installs one it
+        // does not.
+        // Web: the same pill is a different press for each state -- Uninstall on an addon the
+        // account has, Configure on one that has to be set up first, Install on the rest.
+        publish-button := Rectangle {
+            x: parent.width - root.pad - root.buttons-width + ((!root.data.configuration-required && root.data.configurable) ? (root.buttons-width - root.rem-size) / 2 + root.rem-size : 0px);
+            y: root.pad;
+            width: (!root.data.configuration-required && root.data.configurable) ? (root.buttons-width - root.rem-size) / 2 : root.buttons-width;
+            height: 3.5 * root.rem-size;
+
+            uninstall-touch := TouchArea {
+                width: 100%;
+                height: 100%;
+                mouse-cursor: pointer;
+                // The pill says Install, Uninstall or Configure; the label says so too, and names
+                // the addon, so the press the user makes can be found again by what it does.
+                accessible-role: button;
+                accessible-label: (root.data.installed ? "Uninstall "
+                    : root.data.configuration-required ? "Configure " : "Install ") + root.data.name;
+                clicked => {
+                    if root.data.installed {
+                        root.uninstall();
+                    } else if root.data.configuration-required {
+                        root.configure();
+                    } else {
+                        root.install();
+                    }
+                }
+            }
+        }
+        configure-touch := TouchArea {
             x: parent.width - root.pad - root.buttons-width;
             y: root.pad;
-            width: root.buttons-width;
+            width: (!root.data.configuration-required && root.data.configurable) ? (root.buttons-width - root.rem-size) / 2 : 0px;
             height: 3.5 * root.rem-size;
             mouse-cursor: pointer;
+            accessible-role: button;
+            accessible-label: "Configure " + root.data.name;
             clicked => {
-                root.uninstall();
+                root.configure();
             }
         }
         share-touch := TouchArea {
@@ -288,6 +409,8 @@ component AddonCard inherits Rectangle {
             width: root.buttons-width;
             height: 3.5 * root.rem-size;
             mouse-cursor: pointer;
+            accessible-role: button;
+            accessible-label: "Share " + root.data.name;
             clicked => {
                 root.share();
             }
@@ -318,9 +441,14 @@ export component AddonsContent inherits Rectangle {
     callback add-addon();
     callback add-submit(string);
     callback add-install();
+    /// The addon has to be configured first: its own page opens, as the card's Configure does.
+    callback add-configure(string);
     callback add-close();
     /// A card's own buttons, each naming the addon by its manifest URL.
     callback uninstall(string);
+    callback install(string);
+    /// An addon's own configuration page, opened in the browser.
+    callback configure(string);
     callback share(string);
     callback open(string);
 
@@ -396,6 +524,8 @@ export component AddonsContent inherits Rectangle {
                 width: 100%;
                 height: 100%;
                 mouse-cursor: pointer;
+                accessible-role: button;
+                accessible-label: "Add addon";
                 clicked => {
                     root.add-open = true;
                     root.add-url = "";
@@ -417,6 +547,7 @@ export component AddonsContent inherits Rectangle {
             visible: !ClassStyles.search-bar-container.hidden;
 
             search := TextInput {
+                accessible-label: "Search addons";
                 x: (23 * root.rem-size / 14);
                 width: (171 * root.rem-size / 14);
                 height: parent.height;
@@ -473,6 +604,12 @@ export component AddonsContent inherits Rectangle {
             }
             uninstall => {
                 root.uninstall(entry.transport-url);
+            }
+            install => {
+                root.install(entry.transport-url);
+            }
+            configure => {
+                root.configure(entry.transport-url);
             }
             share => {
                 root.share(entry.transport-url);
@@ -555,6 +692,9 @@ export component AddonsContent inherits Rectangle {
                     x: 1 * root.rem-size;
                     width: parent.width - 2 * root.rem-size;
                     height: parent.height;
+                    // What the field is for, so a test can put the pointer in it by name before
+                    // typing -- a dialog opens without focusing its field.
+                    accessible-label: "Addon URL";
                     single-line: true;
                     vertical-alignment: center;
                     font-size: 1.1 * root.rem-size;
@@ -677,6 +817,8 @@ export component AddonsContent inherits Rectangle {
                     width: 100%;
                     height: 100%;
                     mouse-cursor: pointer;
+                    accessible-role: button;
+                    accessible-label: "Cancel adding an addon";
                     clicked => {
                         root.add-open = false;
                         root.add-close();
@@ -696,7 +838,9 @@ export component AddonsContent inherits Rectangle {
                 Text {
                     width: parent.width;
                     height: parent.height;
-                    text: root.pending.ready ? (root.pending.installed ? "Reinstall" : "Install") : "Add";
+                    text: !root.pending.ready ? "Add"
+                        : root.pending.configuration-required ? "Configure"
+                        : root.pending.installed ? "Reinstall" : "Install";
                     horizontal-alignment: center;
                     vertical-alignment: center;
                     font-size: root.rem-size;
@@ -707,9 +851,28 @@ export component AddonsContent inherits Rectangle {
                     width: 100%;
                     height: 100%;
                     mouse-cursor: pointer;
+                    // The dialog's one button changes what it does as the manifest arrives: Add
+                    // reads the URL, then Install (or Reinstall) takes the addon. Its name says
+                    // which of those it is, so a test presses the step it means.
+                    accessible-role: button;
+                    // Named after what it will do and to which addon: the dialog keeps the last
+                    // manifest it read, so "Install the addon" alone would not say whose.
+                    accessible-label: !root.pending.ready ? "Read the addon's url"
+                        : root.pending.configuration-required
+                            ? "Configure the addon: " + root.pending.name
+                        : root.pending.installed
+                            ? "Reinstall the addon: " + root.pending.name
+                            : "Install the addon: " + root.pending.name;
                     clicked => {
                         if (root.add-submitted && root.pending.ready) {
-                            root.add-install();
+                            if (root.pending.configuration-required) {
+                                // Web: `Addon.js` offers Configure, not Install, for an addon whose
+                                // manifest asks to be set up first -- its own page, where its
+                                // settings and the install link are.
+                                root.add-configure(root.pending.transport-url);
+                            } else {
+                                root.add-install();
+                            }
                             root.add-open = false;
                         } else {
                             root.add-submitted = true;

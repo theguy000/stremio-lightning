@@ -52,11 +52,31 @@ fn app_data_dir() -> Option<std::path::PathBuf> {
     Some(current)
 }
 
+/// The app before its event loop starts: the window, wired to a core runtime, with every screen's
+/// first load already asked for. Tests drive this the way a person drives the real thing -- find
+/// an element by the label it shows, press it, then read the window's own state back -- so what
+/// they check is what the window shows, not what a mock was asked to do.
+pub struct Booted {
+    pub window: MainWindow,
+    pub runtime: Arc<AppRuntime>,
+    /// Kept alive here: the effects run on its threads for as long as the window lives.
+    pub tokio: tokio::runtime::Runtime,
+}
+
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
+    let data_dir = app_data_dir().ok_or("no data directory")?;
+    let booted = boot(data_dir)?;
+    booted.window.run()?;
+    Ok(())
+}
+
+/// Starts everything but the event loop, out of `data_dir`: the core's storage, settings and the
+/// stream server all live under it, so a test gets a profile of its own by naming a folder of its
+/// own.
+pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::Error>> {
     let tokio = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
-    let data_dir = app_data_dir().ok_or("no data directory")?;
     AppEnv::init(data_dir.clone(), tokio.handle().clone()).map_err(|e| e.message())?;
 
     let window = MainWindow::new()?;
@@ -114,6 +134,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         handle: tokio.handle().clone(),
         player_season: player_season.clone(),
         player_loaded: Default::default(),
+        player_attempted: Default::default(),
         playback_error: playback_error.clone(),
         playback: Default::default(),
         player_sync: Default::default(),
@@ -121,6 +142,11 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         // the screen. Started and restarted by the grid itself.
         settle: Default::default(),
         calendar_library: Default::default(),
+        board_catalogs: Default::default(),
+        shown_tracks: Default::default(),
+        subtitle_choice: Default::default(),
+        subtitle_auto: Default::default(),
+        browsed_language: Default::default(),
     };
     shell::wire(&window, wiring.clone());
     // The wheel is taken from the window itself: left to a Slint Flickable it costs a whole
@@ -169,6 +195,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             local_extras,
             playback_error,
             auth: wiring.auth.clone(),
+            board_catalogs: wiring.board_catalogs.clone(),
             repaint,
         },
     ));
@@ -178,6 +205,9 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     // The same pulls the window repeats whenever it comes back to the front: the web does this
     // once on mount too, so a mark made elsewhere is there before the first frame settles.
     app::build::pull_from_api(&runtime);
-    window.run()?;
-    Ok(())
+    Ok(Booted {
+        window,
+        runtime,
+        tokio,
+    })
 }

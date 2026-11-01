@@ -11,10 +11,10 @@ import { SettingsContent, SettingsViewData } from "settings.slint";
 import { SelectOption } from "multiselect-menu.slint";
 import { LinkGroup, PreviewData } from "meta-preview.slint";
 import { DetailsScreen, StreamData } from "details-screen.slint";
-import { PlayerScreen, PlayerEpisode, PlayerOption, PlayerTrack } from "player.slint";
+import { LanguageOption, PlayerScreen, PlayerEpisode, PlayerOption, PlayerTrack } from "player.slint";
 export { PlayerEpisode, PlayerOption, PlayerTrack }
 import { VideoRow } from "videos-list.slint";
-export { AddonData, LibraryCard, LibrarySort, LinkGroup, PreviewData, SelectInputData, SelectOption, SettingsViewData, StreamData, VideoRow }
+export { AddonData, LanguageOption, LibraryCard, LibrarySort, LinkGroup, PreviewData, SelectInputData, SelectOption, SettingsViewData, StreamData, VideoRow }
 import { ClassStyle, ClassStyles } from "class-styles.slint";
 import { IntroContent } from "intro.slint";
 import { ShareModal } from "share-modal.slint";
@@ -58,6 +58,9 @@ export component MainWindow inherits Window {
     /// The add-addon dialog: up or not, what was typed, and the manifest the URL answered with.
     in-out property <bool> addon-add-open;
     in-out property <string> addon-add-url;
+    /// Whether the pasted URL has been submitted, so a manifest the core already holds is not
+    /// shown before the dialog asks for one.
+    in-out property <bool> addon-add-submitted: false;
     in property <AddonPendingData> addon-pending;
     /// A URL the add-addon dialog could not parse, and nothing else.
     in-out property <string> addon-add-error;
@@ -66,6 +69,11 @@ export component MainWindow inherits Window {
     callback addon-add-install();
     callback addon-add-close();
     callback addon-uninstall(string);
+    /// A marketplace card's Install button.
+    callback addon-install-market(string);
+    /// A card's Configure button, and the icon one beside Uninstall: the addon's own
+    /// configuration page, opened in the browser.
+    callback addon-configure(string);
     callback addon-share(string);
     callback addon-open(string);
     /// The Calendar's month, its days and the days with something on them, as the core holds them.
@@ -132,9 +140,14 @@ export component MainWindow inherits Window {
     in property <string> player-scale: "contain";
     in property <[PlayerTrack]> player-audio-tracks: [];
     in property <[PlayerTrack]> player-subtitle-tracks: [];
+    /// The subtitle tracks of the one language the Subtitles menu is showing.
+    in property <[PlayerTrack]> player-subtitle-variants: [];
     in property <bool> player-subtitles-enabled: false;
     in property <float> player-subtitles-size: 100;
     in property <float> player-subtitles-offset: 0;
+    in property <float> player-subtitles-position: 100;
+    in property <[LanguageOption]> player-subtitle-languages: [];
+    in property <string> player-subtitle-language;
     in property <bool> player-fullscreen: false;
     in property <[PlayerOption]> player-options: [];
     in property <[PlayerEpisode]> player-episodes: [];
@@ -231,6 +244,8 @@ export component MainWindow inherits Window {
     callback player-toggle-subtitles();
     callback player-step-subtitles-offset(int);
     callback player-step-subtitles-size(int);
+    callback player-step-subtitles-position(int);
+    callback player-choose-language(string);
     callback player-select-episode(string);
     callback player-select-season(int);
     callback player-choose-option(string);
@@ -417,6 +432,10 @@ export component MainWindow inherits Window {
         error: root.player-error;
         subtitles-size: root.player-subtitles-size;
         subtitles-offset: root.player-subtitles-offset;
+        subtitles-position: root.player-subtitles-position;
+        subtitle-languages: root.player-subtitle-languages;
+        subtitle-language: root.player-subtitle-language;
+        subtitle-variants: root.player-subtitle-variants;
         fullscreen: root.player-fullscreen;
         options: root.player-options;
         episodes: root.player-episodes;
@@ -468,6 +487,12 @@ export component MainWindow inherits Window {
         choose-subtitles(id) => {
             root.player-choose-subtitles(id);
         }
+        choose-language(language) => {
+            root.player-choose-language(language);
+        }
+        step-subtitles-position(step) => {
+            root.player-step-subtitles-position(step);
+        }
         toggle-subtitles => {
             root.player-toggle-subtitles();
         }
@@ -498,46 +523,6 @@ export component MainWindow inherits Window {
         }
     }
 
-    // The share dialog sits over everything, including the bar and the toast.
-    if root.share-open: ShareModal {
-        width: 100%;
-        height: 100%;
-        link: root.share-link;
-        rem-size: root.rem-size;
-        closed => {
-            root.share-close();
-        }
-        copied => {
-            root.share-copy();
-        }
-        opened(network) => {
-            root.share-to(network);
-        }
-    }
-
-    // Web keeps its confirmations in a toast container over the bottom of the viewport. This app
-    // has one line to say, so it has one pill.
-    if root.toast != "": HorizontalLayout {
-        y: parent.height - 4 * root.rem-size;
-        height: 3 * root.rem-size;
-        alignment: center;
-        Rectangle {
-            height: 3 * root.rem-size;
-            border-radius: 0.75 * root.rem-size;
-            background: Theme.modal-background;
-            HorizontalLayout {
-                alignment: center;
-                padding-left: 1.5 * root.rem-size;
-                padding-right: 1.5 * root.rem-size;
-                Text {
-                    text: root.toast;
-                    color: Theme.text;
-                    font-size: 1 * root.rem-size;
-                    vertical-alignment: center;
-                }
-            }
-        }
-    }
 
     if !root.playing: HorizontalNavBar {
         rem-size: root.rem-size;
@@ -674,6 +659,7 @@ export component MainWindow inherits Window {
         query <=> root.addons-query;
         add-open <=> root.addon-add-open;
         add-url <=> root.addon-add-url;
+        add-submitted <=> root.addon-add-submitted;
         pending: root.addon-pending;
         add-error: root.addon-add-error;
         select-option(input, option) => {
@@ -691,18 +677,31 @@ export component MainWindow inherits Window {
         add-install => {
             root.addon-add-install();
         }
+        add-configure(url) => {
+            // An addon that must be set up first has no manifest to add yet: pressing Configure
+            // opens its own page, exactly as the same card's Configure pill does.
+            root.addon-configure(url);
+        }
         add-close => {
             root.addon-add-close();
         }
         uninstall(url) => {
-            root.addon-add-open = true;
             root.addon-uninstall(url);
+        }
+        install(url) => {
+            root.addon-install-market(url);
+        }
+        configure(url) => {
+            root.addon-configure(url);
         }
         share(url) => {
             root.addon-share(url);
         }
         open(url) => {
-            root.addon-open(url);
+            // A card is not pressable while a dialog is over it: the press belongs to the dialog.
+            if !root.share-open && !root.addon-add-open {
+                root.addon-open(url);
+            }
         }
     }
 
@@ -779,6 +778,50 @@ export component MainWindow inherits Window {
         // does for guest login and auth success; the view only reports the intent.
         dismiss => {
             root.auth-dismissed();
+        }
+    }
+    // Both of these cover the whole window, so they are declared last: a later sibling is painted
+    // on top and takes the press first. Declared before the screens, they were *under* them -- the
+    // toast hidden, and the share dialog see-through and untappable, with presses falling through
+    // to the addon card behind it (which is what opened the add dialog and its 404).
+    // Web keeps its confirmations in a toast container over the bottom of the viewport. This app
+    // has one line to say, so it has one pill.
+    if root.toast != "": HorizontalLayout {
+        y: parent.height - 4 * root.rem-size;
+        height: 3 * root.rem-size;
+        alignment: center;
+        Rectangle {
+            height: 3 * root.rem-size;
+            border-radius: 0.75 * root.rem-size;
+            background: Theme.modal-background;
+            HorizontalLayout {
+                alignment: center;
+                padding-left: 1.5 * root.rem-size;
+                padding-right: 1.5 * root.rem-size;
+                Text {
+                    text: root.toast;
+                    color: Theme.text;
+                    font-size: 1 * root.rem-size;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+
+    // The share dialog sits over everything, including the bar and the toast.
+    if root.share-open: ShareModal {
+        width: 100%;
+        height: 100%;
+        link: root.share-link;
+        rem-size: root.rem-size;
+        closed => {
+            root.share-close();
+        }
+        copied => {
+            root.share-copy();
+        }
+        opened(network) => {
+            root.share-to(network);
         }
     }
 }

@@ -14,10 +14,30 @@ pub fn resolve(kind: &str) -> Option<String> {
     }
 }
 
+/// What an address is handed to instead of the system, when a test is watching.
+type Opener = Box<dyn Fn(&str) + Send + Sync>;
+
+/// Where an address goes, when a test is watching. The app never sets this: a test does, so that
+/// pressing Configure can be checked without a browser opening on the machine running it.
+static OPENER: std::sync::Mutex<Option<Opener>> = std::sync::Mutex::new(None);
+
+/// Hands every address the app opens to `opener` instead of the system, until it is cleared.
+pub fn watch(opener: Option<Opener>) {
+    *OPENER.lock().unwrap_or_else(|error| error.into_inner()) = opener;
+}
+
 pub(crate) fn open(kind: &str) {
     let Some(url) = resolve(kind) else {
         return;
     };
+    if let Some(opener) = OPENER
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .as_ref()
+    {
+        opener(&url);
+        return;
+    }
     #[cfg(target_os = "windows")]
     open_with_default_browser(&url);
     #[cfg(target_os = "macos")]

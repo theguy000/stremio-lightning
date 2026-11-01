@@ -41,7 +41,13 @@ component MultiselectOption inherits Rectangle {
     }
     touch := TouchArea {
         mouse-cursor: pointer;
+        // What the row says, so it can be found by name rather than by where it happens to sit.
+        accessible-role: button;
+        accessible-label: root.label;
+        accessible-checkable: true;
+        accessible-checked: root.selected;
         clicked => {
+            debug("option pressed:", root.label);
             root.clicked();
         }
     }
@@ -109,14 +115,18 @@ export component MultiselectMenu inherits Rectangle {
     }
     label-touch := TouchArea {
         mouse-cursor: pointer;
+        accessible-role: button;
+        accessible-label: root.title;
         pointer-event(event) => {
             if (event.kind == PointerEventKind.down) {
                 root.was-open = popup.is-open;
             }
         }
         clicked => {
+            debug("menu pressed:", root.title, "was-open:", root.was-open);
             if (!root.was-open) {
                 popup.show();
+                debug("popup shown, open:", popup.is-open);
             }
         }
     }

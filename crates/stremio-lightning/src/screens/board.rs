@@ -108,7 +108,14 @@ fn card_of_library_item(model: &AppModel, item: &LibraryItem) -> Card {
         title: item.name.clone(),
         poster: item.poster.as_ref().map(|url| url.to_string()),
         progress: item.progress(),
-        watched: item.watched(),
+        // No `watched` flag: the web's continue-watching serialiser sends `_id`, `name`, `type`,
+        // `poster`, `posterShape`, `progress`, `deepLinks` and `state.videoId` and nothing else, so
+        // `LibItem` there is handed `watched: undefined` -- no check mark on a Continue Watching
+        // card, and no "Mark as watched" row in its list. The core's own `watched()` is
+        // `times_watched > 0`, which stays true while a title is being re-watched, so drawing it
+        // here would check mark a title that is half way through an episode. Only the Library
+        // passes it (`serialize_library.rs`), and only the Library draws it.
+        watched: false,
         playable: can_play(model, item),
     }
 }
