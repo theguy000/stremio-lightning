@@ -1,0 +1,11 @@
+#define APP_ICON 1
+
+// The icon Windows shows for the executable itself: Explorer, the Start menu shortcut, Alt-Tab
+// and the taskbar button. The window sets its own titlebar icon at run time
+// (`crates/stremio-lightning/src/shell/window_icon.rs`), but a taskbar button falls back to this
+// one, and without it Windows draws a blank page.
+//
+// A manifest is not listed here on purpose: `embed_resource` writes one for the linker, and the
+// Slint client needs the default (per-monitor DPI aware through winit) rather than the WebView2
+// shell's.
+APP_ICON ICON "../../src/favicon.ico"

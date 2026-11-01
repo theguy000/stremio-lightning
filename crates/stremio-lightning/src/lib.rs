@@ -80,6 +80,9 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
     AppEnv::init(data_dir.clone(), tokio.handle().clone()).map_err(|e| e.message())?;
 
     let window = MainWindow::new()?;
+    // Before anything is painted: the window is created with no icon, and on Windows that
+    // means a blank one in the titlebar and the taskbar until this is set.
+    shell::window_icon::install(&window);
     plumbing::theme::apply(&window);
     let video = plumbing::player::VideoPlayer::install(&window);
 
