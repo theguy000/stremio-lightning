@@ -15,6 +15,7 @@ pub mod details;
 pub mod discover;
 pub mod language_names;
 pub mod library;
+pub mod mods;
 pub mod player;
 pub mod settings;
 

@@ -1,12 +1,13 @@
 import { Button } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 import { CalendarContent, CalendarData } from "calendar.slint";
-import { HorizontalNavBar, Section, VerticalNavBar } from "shell.slint";
+import { HorizontalNavBar, ModsNavItem, Section, VerticalNavBar } from "shell.slint";
 import { BoardContent, CatalogRow, PosterData } from "board.slint";
 import { AddonData, AddonPendingData, AddonsContent } from "addons.slint";
 import { DiscoverContent, SelectInputData } from "discover.slint";
 import { LoggedOutPlaceholder } from "logged-out-placeholder.slint";
 import { LibraryCard, LibraryContent, LibrarySort } from "library.slint";
+import { ModCardData, ModsContent, ModsViewData } from "mods.slint";
 import { SettingsContent, SettingsViewData } from "settings.slint";
 import { SelectOption } from "multiselect-menu.slint";
 import { LinkGroup, PreviewData } from "meta-preview.slint";
@@ -14,7 +15,7 @@ import { DetailsScreen, StreamData } from "details-screen.slint";
 import { LanguageOption, PlayerScreen, PlayerEpisode, PlayerOption, PlayerTrack } from "player.slint";
 export { PlayerEpisode, PlayerOption, PlayerTrack }
 import { VideoRow } from "videos-list.slint";
-export { AddonData, LanguageOption, LibraryCard, LibrarySort, LinkGroup, PreviewData, SelectInputData, SelectOption, SettingsViewData, StreamData, VideoRow }
+export { AddonData, LanguageOption, LibraryCard, LibrarySort, LinkGroup, ModCardData, ModsNavItem, ModsViewData, PreviewData, SelectInputData, SelectOption, SettingsViewData, StreamData, VideoRow }
 import { ClassStyle, ClassStyles } from "class-styles.slint";
 import { IntroContent } from "intro.slint";
 import { ShareModal } from "share-modal.slint";
@@ -89,6 +90,20 @@ export component MainWindow inherits Window {
     in property <string> app-version;
     in property <string> build-version;
     in property <SettingsViewData> settings;
+    /// The Mods section: its page menu, the page on screen and the plugins and themes it lists.
+    in property <ModsViewData> mods;
+    /// The page of the Mods menu on screen, and the menu itself with that page marked. Both are
+    /// the window's own: a press only says which page was picked.
+    in-out property <string> mods-page: "plugins";
+    in-out property <[ModsNavItem]> mods-nav: [];
+    callback select-mods-page(string);
+    /// A card's switch, naming the file. Which list the file belongs to is the page's business.
+    callback toggle-mods-mod(string, bool);
+    /// A card's Remove button. Its first press arms the card and only its second press, on the
+    /// same card, removes the file.
+    callback remove-mods-mod(string);
+    /// Any other press on a Mods card takes back an armed Remove.
+    callback dismiss-mods-remove();
 
     in-out property <bool> details-open: false;
     in property <PreviewData> details-preview;
@@ -174,7 +189,8 @@ export component MainWindow inherits Window {
     property <string> section-title: root.section == Section.discover ? "Discover"
         : root.section == Section.library ? "Library"
         : root.section == Section.calendar ? "Calendar"
-        : root.section == Section.addons ? "Addons" : "Settings";
+        : root.section == Section.addons ? "Addons"
+        : root.section == Section.mods ? "Mods" : "Settings";
     in property <string> play-message;
     // One line at the bottom of the window, then gone: what the app says after a copy.
     in property <string> toast;
@@ -705,6 +721,36 @@ export component MainWindow inherits Window {
         }
     }
 
+    if root.section == Section.mods && !root.details-open && !root.playing: ModsContent {
+        x: root.nav-width;
+        y: root.bar-height;
+        width: parent.width - root.nav-width;
+        height: parent.height - root.bar-height;
+        viewport-width: root.width;
+        data: {
+            page: root.mods-page,
+            menu: root.mods-nav,
+            notice: root.mods.notice,
+            notice-failed: root.mods.notice-failed,
+            plugins: root.mods.plugins,
+            themes: root.mods.themes,
+            plugins-note: root.mods.plugins-note,
+            themes-note: root.mods.themes-note,
+        };
+        select-page(page) => {
+            root.select-mods-page(page);
+        }
+        toggle-mod(filename, enabled) => {
+            root.toggle-mods-mod(filename, enabled);
+        }
+        remove-mod(filename) => {
+            root.remove-mods-mod(filename);
+        }
+        dismiss-remove => {
+            root.dismiss-mods-remove();
+        }
+    }
+
     if root.section == Section.settings && !root.details-open && !root.playing: SettingsContent {
         x: root.nav-width;
         y: root.bar-height;
@@ -723,7 +769,7 @@ export component MainWindow inherits Window {
         reload-streaming-server => { root.reload-streaming-server(); }
     }
 
-    if root.section != Section.board && root.section != Section.discover && root.section != Section.library && root.section != Section.calendar && !root.details-open && root.section != Section.addons && root.section != Section.settings && !root.playing: VerticalLayout {
+    if root.section != Section.board && root.section != Section.discover && root.section != Section.library && root.section != Section.calendar && !root.details-open && root.section != Section.addons && root.section != Section.mods && root.section != Section.settings && !root.playing: VerticalLayout {
         x: root.nav-width;
         y: root.bar-height;
         width: parent.width - root.nav-width;

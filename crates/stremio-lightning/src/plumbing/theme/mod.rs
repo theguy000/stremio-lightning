@@ -16,13 +16,19 @@
 //! - Colours as `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`, `rgb()`, `rgba()` and `transparent`.
 //!
 //! Everything else is reported on stderr and skipped. Specificity is not computed: every
-//! supported selector weighs the same, so a later declaration wins and files load in file name
-//! order. An element that carries several web classes is reached through any of them (the menu
-//! toggle carries five), and the file order decides between them, not the class list. Themes
-//! live in the same folder the other shells use, `<data_local_dir>/stremio-lightning/themes`.
+//! supported selector weighs the same, so a later declaration wins. An element that carries
+//! several web classes is reached through any of them (the menu toggle carries five), and the file
+//! order decides between them, not the class list.
+//!
+//! A theme is on only when the Mods screen turned it on: `apply_enabled` reads `enabled_themes`
+//! from the shell's own `settings.json` and applies those files, in the order the list names
+//! them. Themes live in `<data_local_dir>/stremio-lightning/themes`, the folder the app's own
+//! mod handling names.
+
+use std::path::Path;
 
 use slint::{Color, ComponentHandle};
-use stremio_lightning_core::mods::{list_mods, read_mod_content, ModType};
+use stremio_lightning_core::mods::{read_mod_content, ModType};
 
 use crate::{ClassStyle, ClassStyles, MainWindow};
 
@@ -127,6 +133,29 @@ elements! {
     set_login_form_button => ["login-form-button", "form-button", "button-container"],
     set_signup_form_button => ["signup-form-button", "form-button", "button-container"],
     set_guest_login_button => ["guest-login-button", "form-button", "button-container"],
+    // Mods section: the frame and the two offline pages.
+    set_mods_menu_container => ["mods-menu-container"],
+    set_mods_menu_button => ["mods-menu-button"],
+    set_mods_content => ["mods-content"],
+    set_mods_page_title => ["mods-page-title"],
+    set_mods_page_note => ["mods-page-note"],
+    set_mod_card => ["mod-card"],
+    set_mod_title => ["mod-title"],
+    set_mod_byline => ["mod-byline"],
+    set_mod_description => ["mod-description"],
+    set_mod_warning => ["mod-warning"],
+    set_mod_notice => ["mod-notice"],
+    set_mod_toggle_container => ["mod-toggle-container"],
+    set_mod_toggle => ["mod-toggle"],
+    set_mod_remove_button => ["mod-remove-button"],
+    set_mod_remove_button_label => ["mod-remove-button-label"],
+    set_mods_empty => ["mods-empty"],
+}
+
+/// What this app does not understand in a theme file, one line each: the declarations it skips
+/// and the selectors that reach no component. A card shows these before the theme is turned on.
+pub fn warnings(css: &str) -> Vec<String> {
+    inspect(css).warnings
 }
 
 /// Reads a theme file's text and answers what it does to this app's components, so a theme can
@@ -173,35 +202,24 @@ fn to_slint(style: Style) -> ClassStyle {
     }
 }
 
-/// Reads every installed theme and writes the result into the window's `ClassStyles`.
-pub(crate) fn apply(window: &MainWindow) {
-    let Some(root) = dirs::data_local_dir() else {
-        return;
-    };
-    let mut files = match list_mods(&root, ModType::Theme) {
-        Ok(files) => files,
-        Err(error) => {
-            eprintln!("themes: {error}");
-            return;
-        }
-    };
-    files.sort_by(|a, b| a.filename.cmp(&b.filename));
+/// Reads the themes `settings.json` lists as enabled -- in the order it lists them -- and writes
+/// the result into the window's `ClassStyles`. An empty list leaves the window's own styling, and
+/// a file named there that no longer exists is skipped and said so on stderr.
+pub fn apply_enabled(window: &MainWindow, data_dir: &Path) {
+    let enabled = crate::screens::settings::LocalExtras::load(data_dir).enabled_themes;
 
     let mut rules = Vec::new();
-    for file in files {
-        match read_mod_content(&root, &file.filename, ModType::Theme) {
+    for filename in &enabled {
+        match read_mod_content(data_dir, filename, ModType::Theme) {
             Ok(css) => {
                 let theme = parse::parse_theme(&css);
                 for warning in &theme.warnings {
-                    eprintln!("theme {}: {warning}", file.filename);
+                    eprintln!("theme {filename}: {warning}");
                 }
                 rules.extend(theme.rules);
             }
-            Err(error) => eprintln!("theme {}: {error}", file.filename),
+            Err(error) => eprintln!("theme {filename}: {error}"),
         }
-    }
-    if rules.is_empty() {
-        return;
     }
 
     let (styles, unmatched) = parse::resolve(&rules, CLASSES);

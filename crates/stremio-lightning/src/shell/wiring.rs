@@ -22,8 +22,9 @@ use crate::plumbing::images::Images;
 use crate::plumbing::links;
 use crate::plumbing::player::VideoPlayer;
 use crate::plumbing::stream_server::{self, Supervisor};
+use crate::plumbing::theme;
 use crate::screens::player::{auto_subtitle, SubtitleChoice, SubtitleTrackFacts};
-use crate::screens::{addons, auth, calendar, details, discover, player, settings};
+use crate::screens::{addons, auth, calendar, details, discover, mods, player, settings};
 use crate::shell;
 use crate::MainWindow;
 
@@ -144,7 +145,27 @@ pub(crate) struct Wiring {
     /// window's own state and not mpv's. Empty means "whichever language is playing", so a fresh
     /// player starts out following the track auto-selection chose.
     pub(crate) browsed_language: Arc<Mutex<String>>,
+    /// Which page of the Mods menu is on screen. The shell owns the choice, as it owns which
+    /// section is showing; the Mods screen only describes each page's content.
+    pub(crate) mods_page: Arc<Mutex<String>>,
+    /// The Mods card whose Remove button was pressed once and waits for the second press, with
+    /// the page and the button it was pressed on. Pressing anything else, changing page, or this
+    /// timer firing clears it; the second press is the one that removes the file.
+    pub(crate) mods_armed: Arc<Mutex<Option<ArmedMod>>>,
+    pub(crate) mods_disarm: Arc<Timer>,
 }
+
+/// A Mods card that is one press away from its file being deleted, with the page it was on. A
+/// second press on the same card, on the same page, is what deletes the file.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ArmedMod {
+    pub(crate) id: String,
+    pub(crate) page: String,
+}
+
+/// How long an armed Remove stays armed. Long enough to press twice on purpose, short enough that
+/// a card left alone never deletes anything on a later, unrelated press.
+const DISARM_MS: u64 = 5000;
 
 /// The track lists the window was last given, so the same list is not handed over again and again.
 #[derive(Clone, Default, PartialEq)]
@@ -1317,7 +1338,154 @@ impl Wiring {
         }
     }
 
-    /// A setting changed: write it, tell the core, and let the player and the screen catch up.
+    // ---- Mods ----------------------------------------------------------------
+
+    /// The page the Mods menu is on, and the menu with it. Changing page takes back an armed
+    /// Remove: the card it was on is no longer on screen, so the next press cannot be its second.
+    fn select_mods_page(&self, id: String) {
+        let page = mods::Page::from_id(&id);
+        self.disarm_mods();
+        *self.mods_page.lock().unwrap() = page.id().to_owned();
+        let mut snapshot = self.latest.lock().unwrap().clone();
+        snapshot.mods = snapshot.mods.with_page(page);
+        self.repaint_with(snapshot);
+    }
+
+    /// The kind of mod the page on screen lists, if it lists any.
+    fn mods_page_kind(&self) -> Option<mods::catalogue::Kind> {
+        mods::Page::from_id(&self.mods_page.lock().unwrap()).kind()
+    }
+
+    /// A press on a plugin's or a theme's switch: write the choice down, save it, and for a theme
+    /// draw the window with the one it now names. `filename` is the file the card names, so the
+    /// list of the page on screen is the only one that could hold it.
+    fn toggle_mod(&self, filename: String, enabled: bool) {
+        // A switch is not a Remove, so its press takes back any armed Remove.
+        self.disarm_mods();
+        let Some(kind) = self.mods_page_kind() else {
+            return;
+        };
+        let notice = {
+            let mut extras = self.local_extras.lock().unwrap();
+            let notice = match kind {
+                mods::catalogue::Kind::Plugin => {
+                    mods::plugins::set_enabled(&mut extras, &filename, enabled)
+                }
+                mods::catalogue::Kind::Theme => {
+                    mods::themes::set_enabled(&mut extras, &filename, enabled)
+                }
+            };
+            extras.save(&self.data_dir);
+            notice
+        };
+        if kind == mods::catalogue::Kind::Theme {
+            self.apply_themes();
+        }
+        self.after_mod_action(notice);
+    }
+
+    /// The Remove button of a mod card. Its first press arms the card and deletes nothing; its
+    /// second press, on the same card, deletes the file. A press on any other card's button moves
+    /// the arm to that card rather than confirming the first.
+    fn remove_mod(&self, id: String) {
+        let Some(kind) = self.mods_page_kind() else {
+            return;
+        };
+        let page = self.mods_page.lock().unwrap().clone();
+        let pressed = ArmedMod {
+            id: id.clone(),
+            page,
+        };
+        if self.armed_mod() != Some(pressed.clone()) {
+            shell::view::arm(Some(&id));
+            *self.mods_armed.lock().unwrap() = Some(pressed);
+            self.restart_disarm();
+            self.repaint();
+            return;
+        }
+        self.disarm_mods();
+        let notice = {
+            let mut extras = self.local_extras.lock().unwrap();
+            let notice = match kind {
+                mods::catalogue::Kind::Plugin => {
+                    mods::plugins::remove(&self.data_dir, &mut extras, &id)
+                }
+                mods::catalogue::Kind::Theme => {
+                    mods::themes::remove(&self.data_dir, &mut extras, &id)
+                }
+            };
+            extras.save(&self.data_dir);
+            notice
+        };
+        if kind == mods::catalogue::Kind::Theme {
+            // The theme that was removed may have been the one drawn with, so the window goes back
+            // to its own colours the moment its file is gone.
+            self.apply_themes();
+        }
+        self.after_mod_action(Some(notice));
+    }
+
+    /// A press anywhere else on a Mods card: the armed card on it is not the one pressed, so the
+    /// arm goes away.
+    fn dismiss_mods_remove(&self) {
+        if self.disarm_mods() {
+            self.repaint();
+        }
+    }
+
+    /// Takes the arm back and returns whether there was one to take back.
+    fn disarm_mods(&self) -> bool {
+        let had = self.mods_armed.lock().unwrap().take().is_some();
+        shell::view::arm(None);
+        if had {
+            self.mods_disarm.stop();
+        }
+        had
+    }
+
+    fn armed_mod(&self) -> Option<ArmedMod> {
+        self.mods_armed.lock().unwrap().clone()
+    }
+
+    /// Starts the five seconds an armed card waits before it is no longer armed.
+    fn restart_disarm(&self) {
+        let armed = self.mods_armed.clone();
+        self.mods_disarm.start(
+            slint::TimerMode::SingleShot,
+            std::time::Duration::from_millis(DISARM_MS),
+            move || {
+                if let Ok(mut slot) = armed.lock() {
+                    if slot.take().is_some() {
+                        shell::view::arm(None);
+                    }
+                }
+            },
+        );
+    }
+
+    /// The Mods screen after an action that changed the folders or `settings.json`: the lists are
+    /// read again, and the action's own line is what the notice says.
+    fn after_mod_action(&self, notice: Option<mods::Notice>) {
+        let page = mods::Page::from_id(&self.mods_page.lock().unwrap());
+        let mut data = mods::data(&self.data_dir).with_page(page);
+        if let Some(notice) = notice {
+            data.notice = notice;
+        } else {
+            data.notice = self.latest.lock().unwrap().mods.notice.clone();
+        }
+        let mut snapshot = self.latest.lock().unwrap().clone();
+        snapshot.mods = data;
+        self.repaint_with(snapshot);
+    }
+
+    /// Draws the window with the themes `settings.json` now names.
+    fn apply_themes(&self) {
+        let data_dir = self.data_dir.clone();
+        let _ = self
+            .window
+            .upgrade_in_event_loop(move |window| theme::apply_enabled(&window, &data_dir));
+    }
+
     fn setting_changed(&self, updated: Option<stremio_core::types::profile::Settings>) {
         if let Some(updated) = updated {
             settings::dispatch_settings(&self.runtime, updated);
@@ -1898,6 +2066,24 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
     {
         let wiring = wiring.clone();
         window.on_reload_streaming_server(move || wiring.reload_streaming_server());
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_select_mods_page(move |page| wiring.select_mods_page(page.to_string()));
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_toggle_mods_mod(move |filename, enabled| {
+            wiring.toggle_mod(filename.to_string(), enabled);
+        });
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_remove_mods_mod(move |filename| wiring.remove_mod(filename.to_string()));
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_dismiss_mods_remove(move || wiring.dismiss_mods_remove());
     }
     {
         let wiring = wiring.clone();

@@ -1,0 +1,554 @@
+// The Mods section: a menu of six pages on the left, the page on screen to its right.
+//
+// Plugin settings, Marketplace, Logs and About are drawn as headings only until their stages
+// land; each of those stages fills in its branch of `if root.data.page == ...` and adds what its
+// card needs to `ModsViewData` below. Nothing here reads a file or runs a plugin: it all arrives
+// in `data`.
+import { ClassStyles } from "class-styles.slint";
+import { Theme } from "theme.slint";
+import { ModsNavItem } from "shell.slint";
+import { ScrollBar } from "scroll-bar.slint";
+
+// One plugin or theme file, as its card draws it.
+export struct ModCardData {
+    /// The file name. Every button on the card names the card by it.
+    id: string,
+    filename: string,
+    /// The metadata name, or the file name for a file that has no metadata comment.
+    name: string,
+    /// The author and the version, or empty when the file names neither.
+    byline: string,
+    description: string,
+    /// What the card says when its file carries no metadata comment.
+    unreadable: string,
+    /// What reading the file said it does not understand: one theme warning a line.
+    warnings: [string],
+    /// Whether the plugin is switched on, or the theme is the one on.
+    enabled: bool,
+    /// Whether this card's Remove button has been pressed once and is waiting for the second
+    /// press. A card in this state says so and its button reads "Confirm remove".
+    armed: bool,
+    /// What this page calls the on state: "enabled" for a plugin, "on" for a theme.
+    state: string,
+}
+
+// What the window holds for the Mods section. Later stages add their fields here and fill them in
+// `shell/view.rs`'s `mods_view`.
+export struct ModsViewData {
+    /// The id of the page on screen: "plugins", "themes", "marketplace", "settings", "logs",
+    /// "about".
+    page: string,
+    menu: [ModsNavItem],
+    /// One line about the last thing the user did. Empty when nothing has happened yet.
+    notice: string,
+    notice-failed: bool,
+    plugins: [ModCardData],
+    themes: [ModCardData],
+    /// The sentence above the Plugins list that says what the switch does.
+    plugins-note: string,
+    /// What the Themes page says when no theme is on.
+    themes-note: string,
+}
+
+// Web: the Settings menu's `.button`, which the Mods menu borrows: a 4rem pill, dim until it is
+// selected or the pointer is on it.
+component ModsMenuButton inherits Rectangle {
+    in property <string> label-text;
+    in property <bool> selected;
+    in property <length> rem-size;
+    callback clicked();
+
+    height: 4 * root.rem-size;
+    border-radius: 2 * root.rem-size;
+    background: (root.selected || touch.has-hover) ? ClassStyles.background-or(ClassStyles.mods-menu-button, Theme.overlay) : transparent;
+    opacity: ClassStyles.opacity-or(ClassStyles.mods-menu-button, root.selected ? 1.0 : 0.4);
+    visible: !ClassStyles.mods-menu-button.hidden;
+
+    mods-menu-label := Text {
+        x: 2 * root.rem-size;
+        y: 0px;
+        width: parent.width - 4 * root.rem-size;
+        height: parent.height;
+        text: root.label-text;
+        overflow: elide;
+        vertical-alignment: center;
+        font-size: 1.1 * root.rem-size;
+        font-weight: root.selected ? 600 : 500;
+        color: ClassStyles.color-or(ClassStyles.mods-menu-button, Theme.text);
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        // The page's name, so a screen reader -- or a test driving the window -- can find it.
+        accessible-role: button;
+        accessible-label: root.label-text;
+        accessible-checkable: true;
+        accessible-checked: root.selected;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// The switch on a card: a pill that says where it is, and moves.
+component ModToggle inherits Rectangle {
+    in property <bool> on;
+    in property <string> name;
+    in property <length> rem-size;
+    callback toggled();
+
+    width: 3.2 * root.rem-size;
+    height: 1.8 * root.rem-size;
+    border-radius: self.height / 2;
+    border-width: 1px;
+    border-color: ClassStyles.color-or(ClassStyles.mod-toggle, root.on ? Theme.accent-green : Theme.placeholder);
+    background: ClassStyles.background-or(ClassStyles.mod-toggle, root.on ? Theme.accent-green : transparent);
+    opacity: ClassStyles.opacity-or(ClassStyles.mod-toggle, 1.0);
+    visible: !ClassStyles.mod-toggle.hidden;
+
+    knob := Rectangle {
+        x: root.on ? parent.width - self.width - 2 * root.rem-size / 14 : 2 * root.rem-size / 14;
+        y: (parent.height - self.height) / 2;
+        width: parent.height - 4 * root.rem-size / 14;
+        height: self.width;
+        border-radius: self.width / 2;
+        background: root.on ? Theme.on-accent : Theme.placeholder;
+        animate x { duration: 120ms; }
+    }
+    touch := TouchArea {
+        width: 100%;
+        height: 100%;
+        mouse-cursor: pointer;
+        // The switch is named for what pressing it will do, so a test presses the step it means.
+        accessible-role: switch;
+        // "Disable " + "example.plugin.js": the file name.
+        accessible-label: (root.on ? "Disable " : "Enable ") + root.name;
+        accessible-checkable: true;
+        accessible-checked: root.on;
+        clicked => {
+            root.toggled();
+        }
+    }
+}
+
+// One Remove button. It removes nothing on its first press: it arms the card, and the second
+// press is the one that deletes the file.
+component ModRemoveButton inherits Rectangle {
+    in property <bool> armed;
+    in property <string> name;
+    in property <length> rem-size;
+    callback clicked();
+
+    height: 3 * root.rem-size;
+    width: remove-label.width + 2 * root.rem-size;
+    border-radius: self.height / 2;
+    border-width: 2px;
+    border-color: root.armed ? Theme.accent-red : Theme.text;
+    background: ClassStyles.background-or(ClassStyles.mod-remove-button, touch.has-hover || root.armed ? Theme.overlay : transparent);
+    opacity: ClassStyles.opacity-or(ClassStyles.mod-remove-button, touch.has-hover || root.armed ? 1.0 : 0.3);
+    visible: !ClassStyles.mod-remove-button.hidden;
+
+    remove-label := Text {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: self.preferred-width;
+        text: root.armed ? "Confirm remove" : "Remove";
+        font-size: root.rem-size;
+        font-weight: 700;
+        color: ClassStyles.color-or(ClassStyles.mod-remove-button-label, root.armed ? Theme.accent-red : Theme.text);
+        visible: !ClassStyles.mod-remove-button-label.hidden;
+    }
+    touch := TouchArea {
+        width: 100%;
+        height: 100%;
+        mouse-cursor: pointer;
+        // Its name says which press it is, so a test presses the step it means: the first press
+        // arms the card and the second removes the file.
+        accessible-role: button;
+        accessible-label: (root.armed ? "Confirm removing " : "Remove ") + root.name;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// Web: an addon card's shape, for a plugin or a theme: the name and the version on the first
+// line, the description under them, the switch and Remove on the right.
+component ModCardView inherits Rectangle {
+    in property <ModCardData> data;
+    in property <length> rem-size;
+    callback toggle();
+    callback remove();
+    // A press that is not the Remove button's second press: it takes back any armed card.
+    callback dismiss();
+
+    property <length> pad: 1.5 * root.rem-size;
+    property <length> buttons-width: 9 * root.rem-size;
+    property <length> text-width: root.width - 2 * root.pad - root.buttons-width - root.rem-size;
+    // What the card says under its title block: the description, then why it has no name, then
+    // one line per warning. The card grows to fit them, so no line is cut off.
+    property <length> body-height: (root.data.description == "" ? 0px : 2 * root.rem-size)
+        + (root.data.unreadable == "" ? 0px : 2 * root.rem-size)
+        + root.data.warnings.length * 1.2 * root.rem-size;
+    height: Math.max(10 * root.rem-size, 5.2 * root.rem-size + root.pad + root.body-height);
+
+    mod-card := Rectangle {
+        width: parent.width;
+        height: parent.height;
+        border-radius: 0.75 * root.rem-size;
+        border-width: 2 * root.rem-size / 14;
+        // An armed card is outlined in the warning colour, so the second press is never a press
+        // on a card that looks like every other one.
+        border-color: root.data.armed ? Theme.accent-red : transparent;
+        background: ClassStyles.background-or(ClassStyles.mod-card, Theme.overlay);
+        opacity: ClassStyles.opacity-or(ClassStyles.mod-card, 1.0);
+        visible: !ClassStyles.mod-card.hidden;
+
+        // Any press on the card body takes back an armed Remove: a person who pressed the wrong
+        // card does not have to wait five seconds for the arm on it to lapse.
+        body-touch := TouchArea {
+            width: 100%;
+            height: 100%;
+            clicked => {
+                root.dismiss();
+            }
+        }
+
+        mod-title := Text {
+            x: root.pad;
+            y: root.pad;
+            width: root.text-width;
+            height: 2 * root.rem-size;
+            text: root.data.name;
+            overflow: elide;
+            vertical-alignment: center;
+            font-size: 1.6 * root.rem-size;
+            color: ClassStyles.color-or(ClassStyles.mod-title, Theme.text);
+            opacity: ClassStyles.opacity-or(ClassStyles.mod-title, 1.0);
+            visible: !ClassStyles.mod-title.hidden;
+        }
+        mod-byline := Text {
+            x: root.pad;
+            y: root.pad + 2 * root.rem-size;
+            width: root.text-width;
+            height: 1.2 * root.rem-size;
+            text: root.data.byline;
+            overflow: elide;
+            vertical-alignment: center;
+            font-size: root.rem-size;
+            color: ClassStyles.color-or(ClassStyles.mod-byline, Theme.text);
+            opacity: ClassStyles.opacity-or(ClassStyles.mod-byline, 0.6);
+            visible: !ClassStyles.mod-byline.hidden;
+        }
+
+        mod-description := Text {
+            x: root.pad;
+            y: root.pad + 3.6 * root.rem-size;
+            width: root.text-width;
+            height: 2 * root.rem-size;
+            text: root.data.description;
+            wrap: word-wrap;
+            overflow: elide;
+            vertical-alignment: top;
+            font-size: root.rem-size;
+            color: ClassStyles.color-or(ClassStyles.mod-description, Theme.text);
+            opacity: ClassStyles.opacity-or(ClassStyles.mod-description, 1.0);
+            visible: root.data.description != "" && !ClassStyles.mod-description.hidden;
+        }
+        mod-unreadable := Text {
+            x: root.pad;
+            y: mod-description.y + (root.data.description == "" ? 0px : 2 * root.rem-size);
+            width: root.text-width;
+            height: 2 * root.rem-size;
+            text: root.data.unreadable;
+            wrap: word-wrap;
+            overflow: elide;
+            vertical-alignment: top;
+            font-size: root.rem-size;
+            color: ClassStyles.color-or(ClassStyles.mod-warning, Theme.text);
+            opacity: ClassStyles.opacity-or(ClassStyles.mod-warning, 0.7);
+            visible: root.data.unreadable != "" && !ClassStyles.mod-warning.hidden;
+        }
+        // A theme that reaches something this app has no component for says so here, before it is
+        // turned on, rather than only on stderr where nobody sees it.
+        for warning[index] in root.data.warnings: mod-warning := Text {
+            x: root.pad;
+            y: mod-unreadable.y + (root.data.unreadable == "" ? 0px : 2 * root.rem-size) + index * 1.2 * root.rem-size;
+            width: root.text-width;
+            height: 1.2 * root.rem-size;
+            text: warning;
+            overflow: elide;
+            font-size: 0.9 * root.rem-size;
+            color: ClassStyles.color-or(ClassStyles.mod-warning, Theme.accent-yellow);
+            opacity: ClassStyles.opacity-or(ClassStyles.mod-warning, 1.0);
+            visible: !ClassStyles.mod-warning.hidden;
+        }
+
+        mod-toggle-container := Rectangle {
+            x: parent.width - root.pad - root.buttons-width;
+            y: root.pad;
+            width: root.buttons-width;
+            height: 1.8 * root.rem-size;
+            background: ClassStyles.background-or(ClassStyles.mod-toggle-container, transparent);
+            opacity: ClassStyles.opacity-or(ClassStyles.mod-toggle-container, 1.0);
+            visible: !ClassStyles.mod-toggle-container.hidden;
+
+            mod-toggle := ModToggle {
+                x: 0px;
+                y: (parent.height - self.height) / 2;
+                rem-size: root.rem-size;
+                on: root.data.enabled;
+                // The file's own name, which is what the settings file records.
+                name: root.data.filename;
+                toggled => {
+                    root.toggle();
+                }
+            }
+            mod-state := Text {
+                x: mod-toggle.width + 0.6 * root.rem-size;
+                y: 0px;
+                width: parent.width - self.x;
+                height: parent.height;
+                text: (root.data.enabled ? "" : "Not ") + root.data.state;
+                overflow: elide;
+                vertical-alignment: center;
+                font-size: root.rem-size;
+                color: ClassStyles.color-or(ClassStyles.mod-toggle-container, root.data.enabled ? Theme.accent-green : Theme.text);
+            }
+        }
+
+        if root.data.armed: mod-armed-note := Text {
+            x: parent.width - root.pad - root.buttons-width - root.text-width;
+            y: root.pad + 2.2 * root.rem-size;
+            width: root.text-width;
+            height: 2.4 * root.rem-size;
+            text: "Pressing Confirm remove deletes " + root.data.filename + " from this computer.";
+            wrap: word-wrap;
+            font-size: 0.9 * root.rem-size;
+            color: Theme.accent-red;
+        }
+
+        ModRemoveButton {
+            x: parent.width - root.pad - self.width;
+            y: parent.height - root.pad - self.height;
+            rem-size: root.rem-size;
+            armed: root.data.armed;
+            name: root.data.filename;
+            clicked => {
+                root.remove();
+            }
+        }
+    }
+}
+
+export component ModsContent inherits Rectangle {
+    // The height every card on a page takes: the tallest card the page has to draw, so the list's
+    // row pitch matches what each card draws.
+    pure function tallest(cards: [ModCardData], rem-size: length) -> length {
+        return Math.max(10 * rem-size, cards.length == 0 ? 0px : 5.2 * rem-size + 1.5 * rem-size
+            + (cards[0].description == "" ? 0px : 2 * rem-size)
+            + (cards[0].unreadable == "" ? 0px : 2 * rem-size)
+            + cards[0].warnings.length * 1.2 * rem-size);
+    }
+
+    in property <ModsViewData> data;
+    /// The width of the window, which decides one rem.
+    in property <length> viewport-width;
+
+    // Pick a page of the menu.
+    callback select-page(string);
+    // A card's switch, naming the file and the state the switch asks for. One pair of callbacks
+    // for both pages: which list a file belongs to is the page's business, not the window's.
+    callback toggle-mod(string, bool);
+    // A card's Remove button. The first press of a card arms it and removes nothing; the second
+    // press of the same card removes the file.
+    callback remove-mod(string);
+    /// Any other press on a card, which takes back an armed Remove.
+    callback dismiss-remove();
+
+    property <length> rem-size: Theme.rem-size(root.viewport-width);
+    property <length> menu-width: 18 * root.rem-size;
+    property <length> page-padding: 3 * root.rem-size;
+    property <length> page-width: root.width - root.menu-width - 2 * root.page-padding;
+    property <length> page-top: 2 * root.rem-size + (root.data.notice == "" ? 0px : 3.4 * root.rem-size);
+    property <length> list-top: root.page-top + 6 * root.rem-size;
+    property <length> list-height: Math.max(root.height - root.list-top, 0px);
+    // A card plus the 0.75rem under it. Every card is the height of the tallest one on screen,
+    // because a `for` row cannot ask its neighbours how tall they are.
+    property <length> card-height: root.on-plugins ? tallest(root.data.plugins, root.rem-size)
+        : root.on-themes ? tallest(root.data.themes, root.rem-size) : 10 * root.rem-size;
+    property <length> card-pitch: root.card-height + 0.75 * root.rem-size;
+    property <bool> on-plugins: root.data.page == "plugins";
+    property <bool> on-themes: root.data.page == "themes";
+
+    mods-menu-container := Rectangle {
+        x: 0px;
+        y: 0px;
+        width: root.menu-width;
+        height: root.height;
+        background: ClassStyles.background-or(ClassStyles.mods-menu-container, transparent);
+        opacity: ClassStyles.opacity-or(ClassStyles.mods-menu-container, 1.0);
+        visible: !ClassStyles.mods-menu-container.hidden;
+
+        for item[index] in root.data.menu: ModsMenuButton {
+            x: 1.5 * root.rem-size;
+            y: 3 * root.rem-size + index * 4.5 * root.rem-size;
+            width: 15 * root.rem-size;
+            rem-size: root.rem-size;
+            label-text: item.label;
+            selected: item.selected;
+            clicked => {
+                root.select-page(item.id);
+            }
+        }
+    }
+
+    mods-content := Rectangle {
+        x: root.menu-width;
+        y: 0px;
+        width: root.width - root.menu-width;
+        height: root.height;
+        background: ClassStyles.background-or(ClassStyles.mods-content, transparent);
+        opacity: ClassStyles.opacity-or(ClassStyles.mods-content, 1.0);
+        visible: !ClassStyles.mods-content.hidden;
+
+        // The page's name, and the line about the last action under it.
+        mods-page-title := Text {
+            x: root.page-padding;
+            y: 2 * root.rem-size;
+            width: root.page-width;
+            height: 3 * root.rem-size;
+            text: root.on-plugins ? "Plugins"
+                : root.on-themes ? "Themes"
+                : root.data.page == "marketplace" ? "Marketplace"
+                : root.data.page == "settings" ? "Plugin settings"
+                : root.data.page == "logs" ? "Logs" : "About";
+            vertical-alignment: center;
+            font-size: 2.2 * root.rem-size;
+            font-weight: 700;
+            color: ClassStyles.color-or(ClassStyles.mods-page-title, Theme.text);
+            opacity: ClassStyles.opacity-or(ClassStyles.mods-page-title, 1.0);
+            visible: !ClassStyles.mods-page-title.hidden;
+        }
+
+        if root.data.notice != "": mod-notice := Text {
+            x: root.page-padding;
+            y: 5.4 * root.rem-size;
+            width: root.page-width;
+            height: 3 * root.rem-size;
+            text: root.data.notice;
+            wrap: word-wrap;
+            vertical-alignment: top;
+            font-size: root.rem-size;
+            color: ClassStyles.color-or(ClassStyles.mod-notice, root.data.notice-failed ? Theme.accent-red : Theme.text);
+            opacity: ClassStyles.opacity-or(ClassStyles.mod-notice, root.data.notice-failed ? 1.0 : 0.7);
+            visible: !ClassStyles.mod-notice.hidden;
+        }
+
+        // One sentence per page above its list: what the switch does on Plugins, and that the app
+        // is drawing its own colours when no theme is on.
+        mods-page-note := Text {
+            x: root.page-padding;
+            y: root.page-top;
+            width: root.page-width;
+            height: 4 * root.rem-size;
+            text: root.on-plugins ? root.data.plugins-note
+                : root.on-themes ? root.data.themes-note
+                : root.data.page == "marketplace" ? "The Marketplace arrives in a later release."
+                : root.data.page == "settings" ? "A plugin's own settings arrive with plugin support in the next release."
+                : root.data.page == "logs" ? "The Logs page arrives in a later release."
+                : "The About page arrives in a later release.";
+            wrap: word-wrap;
+            vertical-alignment: top;
+            font-size: root.rem-size;
+            color: ClassStyles.color-or(ClassStyles.mods-page-note, Theme.text);
+            opacity: ClassStyles.opacity-or(ClassStyles.mods-page-note, 0.7);
+            visible: !ClassStyles.mods-page-note.hidden;
+        }
+
+        if root.on-plugins && root.data.plugins.length == 0: mods-empty-plugins := Text {
+            x: root.page-padding;
+            y: root.list-top;
+            width: root.page-width;
+            height: 3 * root.rem-size;
+            text: "No plugins are installed.";
+            font-size: 1.4 * root.rem-size;
+            color: ClassStyles.color-or(ClassStyles.mods-empty, Theme.text);
+            opacity: ClassStyles.opacity-or(ClassStyles.mods-empty, 0.8);
+            visible: !ClassStyles.mods-empty.hidden;
+        }
+        if root.on-themes && root.data.themes.length == 0: mods-empty-themes := Text {
+            x: root.page-padding;
+            y: root.list-top;
+            width: root.page-width;
+            height: 3 * root.rem-size;
+            text: "No themes are installed.";
+            font-size: 1.4 * root.rem-size;
+            color: ClassStyles.color-or(ClassStyles.mods-empty, Theme.text);
+            opacity: ClassStyles.opacity-or(ClassStyles.mods-empty, 0.8);
+            visible: !ClassStyles.mods-empty.hidden;
+        }
+
+        mods-list := Flickable {
+            x: 0px;
+            y: root.list-top;
+            width: parent.width;
+            height: root.list-height;
+            content-width: self.width;
+            content-height: (root.on-plugins ? root.data.plugins.length : root.on-themes ? root.data.themes.length : 0) * root.card-pitch;
+
+            if root.on-plugins: Rectangle {
+                width: 100%;
+                height: 100%;
+                for entry[index] in root.data.plugins: ModCardView {
+                    x: root.page-padding;
+                    y: index * root.card-pitch;
+                    width: root.page-width - 8px;
+                    rem-size: root.rem-size;
+                    // Every card is the row's height: a card is never shorter than the tallest.
+                    height: root.card-height;
+                    data: entry;
+                    toggle => {
+                        root.toggle-mod(entry.filename, !entry.enabled);
+                    }
+                    remove => {
+                        root.remove-mod(entry.filename);
+                    }
+                    dismiss => {
+                        root.dismiss-remove();
+                    }
+                }
+            }
+            if root.on-themes: Rectangle {
+                width: 100%;
+                height: 100%;
+                for entry[index] in root.data.themes: ModCardView {
+                    x: root.page-padding;
+                    y: index * root.card-pitch;
+                    width: root.page-width - 8px;
+                    rem-size: root.rem-size;
+                    // Every card is the row's height: a card is never shorter than the tallest.
+                    height: root.card-height;
+                    data: entry;
+                    toggle => {
+                        root.toggle-mod(entry.filename, !entry.enabled);
+                    }
+                    remove => {
+                        root.remove-mod(entry.filename);
+                    }
+                    dismiss => {
+                        root.dismiss-remove();
+                    }
+                }
+            }
+        }
+
+        ScrollBar {
+            x: parent.width - 8px;
+            y: root.list-top;
+            height: root.list-height;
+            view-height: root.list-height;
+            content-height: mods-list.content-height;
+            offset <=> mods-list.content-y;
+        }
+    }
+}

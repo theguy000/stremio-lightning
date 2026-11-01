@@ -11,8 +11,13 @@ The same folder the other shells use, `<local app data>/stremio-lightning/themes
 - Linux: `$XDG_DATA_HOME/stremio-lightning/themes`, or `~/.local/share/stremio-lightning/themes`
 - macOS: `~/Library/Application Support/stremio-lightning/themes`
 
-Files load in file name order when the app starts. Every file in the folder is applied; there is
-no way yet to pick one. A later declaration wins over an earlier one. Specificity is not computed.
+A theme is applied only after it is turned on in Mods > Themes. Turning one on makes it the only
+one named in `settings.json` (`enabled_themes`), so at most one theme restyles the app at a time.
+The choice is applied as soon as it is made and again on the next start. A theme file that sits in
+the folder without being turned on changes nothing.
+
+Themes are applied in the order the list names them, so a later declaration wins over an earlier
+one. Specificity is not computed.
 
 ## What a theme can say
 
@@ -105,8 +110,24 @@ descendant selectors such as `.a .b`, sizes, margins, gradients and hover states
 | `login-form-button`, `form-button`, `button-container` | the "Log in" mode switch button | yes | yes | yes | yes |
 | `signup-form-button`, `form-button`, `button-container` | the "Sign up with email" mode switch button | yes | yes | yes | yes |
 | `guest-login-button`, `form-button`, `button-container` | the "Log in as Guest" button | yes | yes | yes | yes |
+| `mods-menu-container` | the Mods page menu column | | yes | yes | yes |
+| `mods-menu-button` | one page name in that menu. `selected` is not themable | | yes | yes | yes |
+| `mods-content` | the page to the right of the menu | | yes | yes | yes |
+| `mods-page-title` | the page name above its list | yes | | yes | yes |
+| `mods-page-note` | the sentence above the list (what the switch does, "No theme is on") | yes | | yes | yes |
+| `mod-card` | one plugin or theme card | | yes | yes | yes |
+| `mod-title` | the card's name | yes | | yes | yes |
+| `mod-byline` | the author and version line | yes | | yes | yes |
+| `mod-description` | the card's description | yes | | yes | yes |
+| `mod-warning` | one line about what a theme file says that the app does not understand | yes | | yes | yes |
+| `mod-notice` | the line about the last action, above the list | yes | | yes | yes |
+| `mod-toggle-container` | the switch and its state word | | yes | yes | yes |
+| `mod-toggle` | the switch itself | yes | yes | yes | yes |
+| `mod-remove-button` | the Remove / "Confirm remove" button | | yes | yes | yes |
+| `mod-remove-button-label` | the word on it | yes | | yes | yes |
+| `mods-empty` | "No plugins are installed." / "No themes are installed." | yes | | yes | yes |
 
-The intro/login and registration screen, the Board, the top bar, the side nav, Discover's filter menus, the logged-out Library and Calendar screens, the installed-addons list on Addons, and General and Interface on Settings are wired. On the intro screen, `title-container` is the Stremio brand title, `logo-container` is the logo wrapper, and `logo` is the logo image. On Settings, `button` is also the side menu buttons and the Authenticate button, `option` is also an option row and `label` is also a section or option label, as on the web. Details, Player and the other sections have element ids but no class styles yet. The `selected` and `active` states, hover and focus are not themable, and `icon` does not reach the selected nav icon or the caret next to the avatar. `.plugin.js` plugins do not run in the app.
+The intro/login and registration screen, the Board, the top bar, the side nav, Discover's filter menus, the logged-out Library and Calendar screens, the installed-addons list on Addons, General and Interface on Settings, and the Plugins and Themes pages of Mods are wired. On the intro screen, `title-container` is the Stremio brand title, `logo-container` is the logo wrapper, and `logo` is the logo image. On Settings, `button` is also the side menu buttons and the Authenticate button, `option` is also an option row and `label` is also a section or option label, as on the web. Details, Player and the other sections have element ids but no class styles yet. The `selected` and `active` states, hover and focus are not themable, and `icon` does not reach the selected nav icon or the caret next to the avatar. `.plugin.js` plugins do not run in the app.
 
 ## Elements with several web classes
 

@@ -62,4 +62,5 @@ pub(crate) struct Snapshot {
     pub(crate) addons: addons::Data,
     pub(crate) calendar: calendar::Data,
     pub(crate) settings: settings::Data,
+    pub(crate) mods: crate::screens::mods::Data,
 }
