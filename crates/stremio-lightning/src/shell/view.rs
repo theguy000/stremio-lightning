@@ -5,7 +5,7 @@
 
 use std::sync::Mutex;
 
-use slint::{ModelRc, SharedString, VecModel, Weak};
+use slint::{Model, ModelRc, SharedString, VecModel, Weak};
 
 use crate::app::Snapshot;
 use crate::plumbing::images::Images;
@@ -439,12 +439,47 @@ fn armed_card() -> Option<String> {
 }
 
 /// Sets every property the Mods section draws from: the page on screen, the menu with it, and the
-/// content itself. The page the window holds is the same page the snapshot's menu marks.
+/// content itself. The menu is written only when its rows differ from the ones the window holds,
+/// because a new model tears down every row -- including the one a press may be standing on. Which
+/// row is marked is not in the model: the menu marks the page `data.page` names.
 pub(crate) fn show_mods(window: &MainWindow, data: &crate::screens::mods::Data) {
     let view = mods_view(data);
+    let rows: Vec<(String, String)> = data
+        .menu
+        .iter()
+        .map(|item| (item.id.clone(), item.label.clone()))
+        .collect();
+    if rows != window_nav_rows(window) {
+        window.set_mods_nav(nav_rows(data));
+    }
     window.set_mods_page(data.page.clone().into());
-    window.set_mods_nav(view.menu.clone());
     window.set_mods(view);
+}
+
+/// The menu's rows the window holds now, as pairs of id and label.
+fn window_nav_rows(window: &MainWindow) -> Vec<(String, String)> {
+    let nav = window.get_mods_nav();
+    (0..nav.row_count())
+        .filter_map(|row| nav.row_data(row))
+        .map(|item| (item.id.to_string(), item.label.to_string()))
+        .collect()
+}
+
+/// The menu's rows as the window holds them, compared by id and label: whether a row is marked
+/// follows the page, so it is not part of what makes the model a new one.
+type NavRows = slint::ModelRc<ModsNavItem>;
+
+fn nav_rows(data: &crate::screens::mods::Data) -> NavRows {
+    let rows: Vec<ModsNavItem> = data
+        .menu
+        .iter()
+        .map(|item| ModsNavItem {
+            id: item.id.clone().into(),
+            label: item.label.clone().into(),
+            selected: false,
+        })
+        .collect();
+    ModelRc::new(VecModel::from(rows))
 }
 
 fn poster_data(card: &Card, images: &Images) -> PosterData {

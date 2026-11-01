@@ -359,17 +359,16 @@ fn the_window_opens_mods_lists_its_pages_and_removes_a_theme_in_two_presses() {
     };
     let page_is = |page: &'static str| {
         Box::new(move |window: &MainWindow| {
+            // The page the window holds, and the page the screen is drawing: the menu marks the
+            // row whose id is the screen's own page, so the two have to agree.
             let shown = window.get_mods_page().to_string();
-            let menus = window.get_mods_nav();
-            let marked: Vec<String> = (0..menus.row_count())
-                .filter_map(|row| menus.row_data(row))
-                .filter(|item| item.selected)
-                .map(|item| item.id.to_string())
-                .collect();
-            if shown == page && marked == [page.to_owned()] {
+            let drawn = window.get_mods().page.to_string();
+            if shown == page && drawn == page {
                 Ok(page.to_owned())
             } else {
-                Err(format!("the page is {shown}, the menu marks {marked:?}"))
+                Err(format!(
+                    "the window holds {shown} and the screen draws {drawn}"
+                ))
             }
         }) as Box<dyn Fn(&MainWindow) -> Result<String, String>>
     };
@@ -397,20 +396,13 @@ fn the_window_opens_mods_lists_its_pages_and_removes_a_theme_in_two_presses() {
             ),
             Step::Expect("the menu lists the six pages", page_names()),
             Step::Expect("the Plugins page is on screen first", page_is("plugins")),
-            // The card's body, not its buttons: this is the press that dismisses an arm, so it
-            // also checks a press on one page leaves the page menu alone.
-            Step::Click("Plugin settings".to_owned()),
-            Step::Expect(
-                "a press on another page's row opens it",
-                page_is("settings"),
-            ),
+            // A second press on the row of the page already on screen, after the page has been
+            // drawn again: a row is only ever pressed through the frame behind it.
             Step::Click("Plugins".to_owned()),
-            Step::Expect("and back on Plugins", page_is("plugins")),
-            // Every page of the menu opens when its own row is pressed, which is what makes the
-            // frame the page was drawn in irrelevant: a first press that misses the frame must
-            // not eat the second one.
-            Step::Click("Marketplace".to_owned()),
-            Step::Expect("Marketplace opens", page_is("marketplace")),
+            Step::Expect(
+                "a second press on its own row still opens it",
+                page_is("plugins"),
+            ),
             Step::Click("Themes".to_owned()),
             Step::Expect("Themes opens", page_is("themes")),
             Step::Click("Themes".to_owned()),

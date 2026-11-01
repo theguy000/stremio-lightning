@@ -395,7 +395,10 @@ export component ModsContent inherits Rectangle {
             width: 15 * root.rem-size;
             rem-size: root.rem-size;
             label-text: item.label;
-            selected: item.selected;
+            // Derived from the page on screen rather than taken from the row: the menu itself only
+            // changes when a page is picked, and rebuilding it under a press would take the row
+            // the press was made on out from under it.
+            selected: item.id == root.data.page;
             clicked => {
                 root.select-page(item.id);
             }
