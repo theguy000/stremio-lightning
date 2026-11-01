@@ -8,6 +8,7 @@
     "build:ui": "vite build",
     "dev:ui": "vite build --watch",
     "test:ui": "npm run build:bridge && vitest run",
+    "typecheck": "svelte-check --tsconfig ./tsconfig.json",
     "test:parity": "node scripts/parity/run.mjs"
   },
   "devDependencies": {
@@ -15,6 +16,7 @@
     "@types/node": "^25.6.0",
     "jsdom": "^29.1.1",
     "svelte": "^5.55.3",
+    "svelte-check": "^4.7.8",
     "typescript": "^6.0.2",
     "vite": "^8.0.8",
     "vitest": "^4.1.5"

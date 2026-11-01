@@ -14,10 +14,16 @@
     panelOpen = !panelOpen;
   }
 
-  onMount(async () => {
+  onMount(() => {
     const handleThemeChanged = () => requestAnimationFrame(loadSettingsFromStorage);
     document.addEventListener('sl-theme-changed', handleThemeChanged);
 
+    void loadContent();
+
+    return () => document.removeEventListener('sl-theme-changed', handleThemeChanged);
+  });
+
+  async function loadContent() {
     await loadThemeFromStorage();
     loadSettingsFromStorage();
 
@@ -33,9 +39,7 @@
         }
       })
     );
-
-    return () => document.removeEventListener('sl-theme-changed', handleThemeChanged);
-  });
+  }
 </script>
 
 <ModsButton active={panelOpen} ontoggle={togglePanel} />
