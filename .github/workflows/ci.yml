@@ -74,6 +74,9 @@ jobs:
       - name: Test
         run: cargo test --workspace
 
+      - name: Frontend tests
+        run: cargo xtask test-ui
+
   windows:
     name: Windows (clippy, test)
     runs-on: windows-latest
