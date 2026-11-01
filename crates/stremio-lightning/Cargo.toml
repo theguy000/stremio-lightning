@@ -43,6 +43,10 @@ windows = { version = "0.62.2", features = [
 
 [build-dependencies]
 slint-build = "1.18"
+# The executable's own icon, from `stremio-lightning.rc`. Only the icon is embedded: the manifest
+# is left to the linker, so the process keeps the DPI awareness winit sets up.
+[target.'cfg(windows)'.build-dependencies]
+embed-resource = "3.0.9"
 
 [dev-dependencies]
 # A test in tests/adversarial_m1_tests.rs instantiates a real Slint `Window`, which needs a

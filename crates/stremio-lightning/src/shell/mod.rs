@@ -7,6 +7,7 @@
 
 pub(crate) mod view;
 pub(crate) mod wheel;
+pub(crate) mod window_icon;
 pub(crate) mod wiring;
 
 pub(crate) use view::show;

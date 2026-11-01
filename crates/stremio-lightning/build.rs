@@ -9,10 +9,25 @@ fn main() {
     // `rerun-if-changed` path is no longer rerun for every file in the crate, and a screen that is
     // edited without touching `main.slint` would otherwise keep compiling its last version.
     println!("cargo:rerun-if-changed=ui");
+    // The window's icon: `shell::window_icon` embeds the project's logo, and a logo redrawn
+    // without touching any Rust file would otherwise keep the last build's copy.
+    println!("cargo:rerun-if-changed=../../assets/icons/128x128.png");
     println!("cargo:rerun-if-env-changed=MPV_DEV_DIR");
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
         link_windows_mpv();
+        embed_windows_icon();
     }
+}
+
+/// Embeds the executable's icon, so Explorer, the Start menu and a taskbar button that falls back
+/// to the executable all show the app's mark rather than a blank page. The source is the same
+/// multi-size `src/favicon.ico` the WebView2 shell embeds.
+fn embed_windows_icon() {
+    println!("cargo:rerun-if-changed=stremio-lightning.rc");
+    println!("cargo:rerun-if-changed=../../src/favicon.ico");
+    embed_resource::compile("stremio-lightning.rc", embed_resource::NONE)
+        .manifest_required()
+        .expect("failed to embed the executable icon");
 }
 
 /// On Windows libmpv is linked from the import library that `cargo xtask setup-windows`
