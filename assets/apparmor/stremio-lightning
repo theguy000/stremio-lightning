@@ -1,0 +1,10 @@
+abi <abi/4.0>,
+include <tunables/global>
+
+# Ubuntu 24.04 stops unprivileged programs from creating user namespaces.
+# WebKitGTK's sandbox (bubblewrap) needs one, so allow it for this app only.
+profile stremio-lightning /usr/lib/stremio-lightning/stremio-lightning-linux flags=(unconfined) {
+  userns,
+
+  include if exists <local/stremio-lightning>
+}
