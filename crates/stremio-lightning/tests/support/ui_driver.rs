@@ -103,7 +103,7 @@ fn step_once(
         Step::Click(label) => {
             let result = click(window, label);
             let detail = match &result {
-                Ok(()) => "pressed".to_owned(),
+                Ok(at) => at.clone(),
                 Err(error) => error.clone(),
             };
             record(
@@ -127,7 +127,7 @@ fn step_once(
                 Ok(label) => {
                     let result = click(window, &label);
                     let detail = match &result {
-                        Ok(()) => format!("pressed \u{201c}{label}\u{201d}"),
+                        Ok(at) => format!("pressed \u{201c}{label}\u{201d} at {at}"),
                         Err(error) => error.clone(),
                     };
                     record((*what).to_owned(), Some(result.is_ok()), detail);
@@ -233,7 +233,7 @@ pub fn run(window: &MainWindow, steps: Vec<Step>) -> Vec<Outcome> {
 }
 
 /// Lets the event loop turn for `slice`, which is when queued updates from other threads land.
-fn pump(slice: Duration) {
+pub fn pump(slice: Duration) {
     let timer = Timer::default();
     timer.start(TimerMode::SingleShot, slice, || {
         slint::quit_event_loop().ok();
@@ -243,8 +243,13 @@ fn pump(slice: Duration) {
 
 /// Every label on screen, for when a press misses: a failure should say what was there instead.
 pub fn labels(window: &MainWindow) -> Vec<String> {
-    let mut names: Vec<String> = window
-        .root_element()
+    labels_in(&window.root_element())
+}
+
+/// The labels a subtree holds, sorted. A press on a control is found through the window, so a
+/// control missing from its own subtree is missing from the window too.
+fn labels_in(element: &ElementHandle) -> Vec<String> {
+    let mut names: Vec<String> = element
         .query_descendants()
         .find_all()
         .iter()
@@ -256,7 +261,7 @@ pub fn labels(window: &MainWindow) -> Vec<String> {
     names
 }
 
-fn click(window: &MainWindow, label: &str) -> Result<(), String> {
+fn click(window: &MainWindow, label: &str) -> Result<String, String> {
     let found = ElementHandle::find_by_accessible_label(window, label).next();
     let Some(handle) = found else {
         let names = labels(window);
@@ -265,8 +270,22 @@ fn click(window: &MainWindow, label: &str) -> Result<(), String> {
             .filter(|name| name.contains(label))
             .take(4)
             .collect();
+        // The list a card lives in, subtree and all: a card's buttons are found through this,
+        // so when one goes missing the whole list says what it holds and where it sits.
+        let tree = ElementHandle::find_by_element_id(window, "mods-list")
+            .next()
+            .map(|list| {
+                let at = list.absolute_position();
+                let size = list.size();
+                let inner = labels_in(&list);
+                format!(
+                    "; the Mods list at ({:.0}, {:.0}) {:.0}x{:.0} holds {:?}",
+                    at.x, at.y, size.width, size.height, inner
+                )
+            })
+            .unwrap_or_default();
         return Err(format!(
-            "nothing says this; on screen: {:?}{}",
+            "nothing says this; on screen: {:?}{}{tree}",
             names.iter().take(12).collect::<Vec<_>>(),
             if near.is_empty() {
                 String::new()
@@ -277,7 +296,6 @@ fn click(window: &MainWindow, label: &str) -> Result<(), String> {
     };
     let position = handle.absolute_position();
     let size = handle.size();
-    println!("  press {label:?} at {position:?} size {size:?}");
     let centre = slint::LogicalPosition::new(
         position.x + size.width / 2.0,
         position.y + size.height / 2.0,
@@ -300,7 +318,7 @@ fn click(window: &MainWindow, label: &str) -> Result<(), String> {
             button: PointerEventButton::Left,
         });
     pump(Duration::from_millis(40));
-    Ok(())
+    Ok(format!("pressed at ({:.0}, {:.0})", centre.x, centre.y))
 }
 
 fn press_at(window: &MainWindow, x: f32, y: f32) {

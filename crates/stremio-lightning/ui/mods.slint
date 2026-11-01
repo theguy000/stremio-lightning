@@ -189,6 +189,8 @@ component ModCardView inherits Rectangle {
     property <length> body-height: (root.data.description == "" ? 0px : 2 * root.rem-size)
         + (root.data.unreadable == "" ? 0px : 2 * root.rem-size)
         + root.data.warnings.length * 1.2 * root.rem-size;
+    // The list gives every card the row's height, so this default is only what a card drawn on
+    // its own would take. It stays positive whatever the data says.
     height: Math.max(10 * root.rem-size, 5.2 * root.rem-size + root.pad + root.body-height);
 
     mod-card := Rectangle {
@@ -499,9 +501,11 @@ export component ModsContent inherits Rectangle {
             content-width: self.width;
             content-height: (root.on-plugins ? root.data.plugins.length : root.on-themes ? root.data.themes.length : 0) * root.card-pitch;
 
+            // The two loops sit in a rectangle of the list's own size: a `for` cannot follow an
+            // `if` directly, and a percentage height here is the scroll content's, not the view's.
             if root.on-plugins: Rectangle {
-                width: 100%;
-                height: 100%;
+                width: root.page-width;
+                height: root.list-height;
                 for entry[index] in root.data.plugins: ModCardView {
                     x: root.page-padding;
                     y: index * root.card-pitch;
@@ -522,8 +526,8 @@ export component ModsContent inherits Rectangle {
                 }
             }
             if root.on-themes: Rectangle {
-                width: 100%;
-                height: 100%;
+                width: root.page-width;
+                height: root.list-height;
                 for entry[index] in root.data.themes: ModCardView {
                     x: root.page-padding;
                     y: index * root.card-pitch;
