@@ -385,7 +385,9 @@ fn a_choice_survives_a_restart() {
 
 #[test]
 fn the_window_opens_every_page_and_removes_a_theme_in_two_presses() {
-    i_slint_backend_testing::init_integration_test_with_system_time();
+    // Mock time, not system time: the clock this runner reports is not monotonic, and Slint
+    // asserts on a tick that goes backwards as soon as any animation is live.
+    i_slint_backend_testing::init_integration_test_with_mock_time();
     let data_dir = temp_dir("window");
     write_mod(&data_dir, "themes", "red.theme.css", &theme("Red"));
     let red = data_dir
