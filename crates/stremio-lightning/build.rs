@@ -15,13 +15,23 @@ fn main() {
     println!("cargo:rerun-if-env-changed=MPV_DEV_DIR");
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
         link_windows_mpv();
-        embed_windows_icon();
     }
+    // Called on every host, not only Windows: `embed_windows_icon` decides for itself whether to
+    // act. The call must not be behind a `cfg!(windows)` here -- `cfg!` is a runtime bool, so the
+    // name would still have to resolve, and on a Linux host the Windows-only build-dependency
+    // that provides it does not.
+    embed_windows_icon();
 }
 
 /// Embeds the executable's icon, so Explorer, the Start menu and a taskbar button that falls back
 /// to the executable all show the app's mark rather than a blank page. The source is the same
 /// multi-size `src/favicon.ico` the WebView2 shell embeds.
+///
+/// Gated by an attribute, not `cfg!`: the `embed-resource` build-dependency is `cfg(windows)`, so on
+/// a Linux host a mere runtime `cfg!` guard would still leave the name unresolved. It is the *host*
+/// that matters here -- the build script is compiled and run on the machine doing the build, which
+/// is what `cfg(windows)` in a build script means.
+#[cfg(windows)]
 fn embed_windows_icon() {
     println!("cargo:rerun-if-changed=stremio-lightning.rc");
     println!("cargo:rerun-if-changed=../../src/favicon.ico");
@@ -29,6 +39,9 @@ fn embed_windows_icon() {
         .manifest_required()
         .expect("failed to embed the executable icon");
 }
+
+#[cfg(not(windows))]
+fn embed_windows_icon() {}
 
 /// On Windows libmpv is linked from the import library that `cargo xtask setup-windows`
 /// downloads for the Windows shell, and its DLL is copied next to the executable.
