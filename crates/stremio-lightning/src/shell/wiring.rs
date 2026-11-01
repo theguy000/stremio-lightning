@@ -1348,9 +1348,18 @@ impl Wiring {
         let page = mods::Page::from_id(&id);
         self.disarm_mods();
         *self.mods_page.lock().unwrap() = page.id().to_owned();
+        // The page the window holds now, before the folders are read: the menu's own selection
+        // follows the press without waiting for a snapshot, and the read below cannot lose it.
+        if let Some(window) = self.window.upgrade() {
+            window.set_mods_page(page.id().into());
+        }
         let data = mods::data(&self.data_dir).with_page(page);
         let mut snapshot = self.latest.lock().unwrap().clone();
         snapshot.mods = data.with_notice(snapshot.mods.notice.clone());
+        // The section's own properties are set here, not only posted: the press is on the
+        // window's thread already, and the page has to be the one picked by the time this returns.
+        *self.latest.lock().unwrap() = snapshot.clone();
+        self.show_mods_now();
         self.repaint_with(snapshot);
     }
 
@@ -1403,7 +1412,7 @@ impl Wiring {
             shell::view::arm(Some(&id));
             *self.mods_armed.lock().unwrap() = Some(pressed);
             self.restart_disarm();
-            self.repaint();
+            self.show_mods_now();
             return;
         }
         self.disarm_mods();
@@ -1432,7 +1441,17 @@ impl Wiring {
     /// arm goes away.
     fn dismiss_mods_remove(&self) {
         if self.disarm_mods() {
-            self.repaint();
+            self.show_mods_now();
+        }
+    }
+
+    /// Draws the Mods section from the last snapshot on the window's thread, without waiting for
+    /// the event loop. A press on the section is on this thread already, and the card's next frame
+    /// should be the answer to it.
+    fn show_mods_now(&self) {
+        if let Some(window) = self.window.upgrade() {
+            let data = self.latest.lock().unwrap().mods.clone();
+            shell::view::show_mods(&window, &data);
         }
     }
 
