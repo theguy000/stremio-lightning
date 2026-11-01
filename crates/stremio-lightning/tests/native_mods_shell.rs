@@ -359,10 +359,17 @@ fn the_window_opens_mods_lists_its_pages_and_removes_a_theme_in_two_presses() {
     };
     let page_is = |page: &'static str| {
         Box::new(move |window: &MainWindow| {
-            if window.get_mods_page() == page {
+            let shown = window.get_mods_page().to_string();
+            let menus = window.get_mods_nav();
+            let marked: Vec<String> = (0..menus.row_count())
+                .filter_map(|row| menus.row_data(row))
+                .filter(|item| item.selected)
+                .map(|item| item.id.to_string())
+                .collect();
+            if shown == page && marked == [page.to_owned()] {
                 Ok(page.to_owned())
             } else {
-                Err(format!("the page is {}", window.get_mods_page()))
+                Err(format!("the page is {shown}, the menu marks {marked:?}"))
             }
         }) as Box<dyn Fn(&MainWindow) -> Result<String, String>>
     };
@@ -390,8 +397,27 @@ fn the_window_opens_mods_lists_its_pages_and_removes_a_theme_in_two_presses() {
             ),
             Step::Expect("the menu lists the six pages", page_names()),
             Step::Expect("the Plugins page is on screen first", page_is("plugins")),
+            // The card's body, not its buttons: this is the press that dismisses an arm, so it
+            // also checks a press on one page leaves the page menu alone.
+            Step::Click("Plugin settings".to_owned()),
+            Step::Expect(
+                "a press on another page's row opens it",
+                page_is("settings"),
+            ),
+            Step::Click("Plugins".to_owned()),
+            Step::Expect("and back on Plugins", page_is("plugins")),
+            // Every page of the menu opens when its own row is pressed, which is what makes the
+            // frame the page was drawn in irrelevant: a first press that misses the frame must
+            // not eat the second one.
+            Step::Click("Marketplace".to_owned()),
+            Step::Expect("Marketplace opens", page_is("marketplace")),
             Step::Click("Themes".to_owned()),
-            Step::Expect("the Themes page is on screen", page_is("themes")),
+            Step::Expect("Themes opens", page_is("themes")),
+            Step::Click("Themes".to_owned()),
+            Step::Expect(
+                "and is still on screen after a second press",
+                page_is("themes"),
+            ),
             Step::Wait {
                 what: "the theme the folder holds has a card",
                 budget: Duration::from_secs(15),
