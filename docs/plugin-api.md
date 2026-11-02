@@ -135,6 +135,24 @@ the name is kept and never called, because the app has no such event to tell it 
 There is no event for the app's window being moved, and no function to move it, minimize it or
 close it: those belong to the user and the operating system.
 
+## Logs
+
+`console.log`, `console.info`, `console.debug`, `console.warn`, `console.error` and the four
+`logger` functions each write one line. The line shows up on the Logs page (Mods, then Logs) with
+the plugin's file name in its source column, the level it was written at, and the time. A line
+written through `logger` or `console` at a level the app does not know is kept as information
+rather than dropped.
+
+The line reaches the Logs page as soon as the app's next look at the plugin, which is within about
+a tenth of a second for a timer and at once for the plugin's load code or a settings save. A plugin
+that stops has one more line: an error saying why.
+
+The app keeps the newest 2000 records from every source, so a plugin that logs in a loop cannot
+grow the list without end: the oldest lines go first. Nothing is written to a file, so the records
+last as long as the app runs. Clear on the Logs page empties the list and deletes no file. A line
+that is written while the list is filtered may not be on screen: the filter is the user's, not the
+plugin's.
+
 ## Settings
 
 `registerSettings` takes a list of fields. Each field has a `key`, a `label`, a `type`, and

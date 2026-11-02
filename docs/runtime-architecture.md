@@ -50,8 +50,8 @@ Slint components live in `ui/`; a screen's Rust module and its Slint file share 
 
 Mods has a page menu on the left and one page on the right. The menu lists six pages: Plugins,
 Themes, Marketplace, Plugin settings, Logs and About. `screens/mods/` owns the menu, the two pages
-that list installed files and the settings page; Marketplace, Logs and About show a heading and a
-line saying they arrive later.
+that list installed files, the settings page, the Logs page and the About page; Marketplace shows a
+heading and a line saying it arrives later.
 `screens/mods/catalogue.rs` reads the plugin and theme folders under `<app data>/stremio-lightning/`
 and turns each file into a card. Everything a card says comes from the file: its metadata comment,
 or its file name when the comment is missing, plus the theme `parse` warnings for a theme.
@@ -91,6 +91,39 @@ slider; a field of any other kind is reported and left out. A press changes the 
 nothing. Save writes the changed values through `settings::save_setting`, keeps every key the schema
 does not name, and hands the file to the running plugin's `onSettingsSaved`. Revert reads the file
 again and drops the typing. Nothing on the page deletes a value or the schema.
+
+#### The Logs page
+
+`plumbing::logs::Logs` is the app's one recorder. The shell makes one at boot and shares an `Arc` of
+it with everything that has something to say: `app::plugins` records every line a plugin logs and
+the sentence that says why a plugin stopped, `plumbing::theme::apply_and_record` records each
+warning a theme file raises when it is applied, the Mods actions record what an enable or a removal
+did, `shell/wiring` records what became of the streaming server and what mpv said about a stream,
+and `app::events` records the core's own errors. `Runtime::with_logs` is how the plugin runtime is
+handed the same recorder the window reads.
+
+A record is one `Entry`: an id, the time in seconds, a `Source` (`Plugin`, `Theme`, `Mods`,
+`Server` or `App`), an origin (the plugin or theme file name, or the part of the app), a `Level`
+(`Debug`, `Info`, `Warn` or `Error`) and the text. The recorder keeps the newest `CAPACITY` (2000)
+and drops the oldest as a new one arrives. Nothing is written to a file, so the list lasts as long
+as the app runs; the page says so in its header.
+
+The filter is held by the recorder rather than by the window (`set_source`, `set_level`,
+`set_search`), so a snapshot redraws the same filtered list after any unrelated event. `Clear` takes
+two presses: the first arms the button, the second empties the list in memory and deletes no file.
+A press on a row opens that record's full text under the list.
+
+#### The About page
+
+`screens/mods/about.rs` reads the build (version, commit, platform), where the two folders are, the
+registry address, the option counts (plugins installed, on, running and failed; themes installed and
+on), the enabled file names and the licence line. Its Refresh press reads the folder and the plugin
+runtime again and asks `stremio_lightning_core::app_update` whether a newer release exists; the
+answer lands as an app record on the Logs page.
+
+Export diagnostics writes one text file into `<app data>/stremio-lightning/diagnostics/` holding
+the build, the places, the counts, the enabled lists, the licence and the newest 200 records, and
+puts its path on the page. It uploads nothing.
 
 ### The player
 

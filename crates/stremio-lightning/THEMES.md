@@ -27,7 +27,8 @@ one. Specificity is not computed.
   `visibility: hidden | visible`, `display: none`. Hiding keeps the layout space.
 - Colours: `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`, `rgb()`, `rgba()`, `transparent`.
 
-Anything else is printed on stderr (`theme <file>: ...`) and skipped. That includes `@media`,
+Anything else is skipped and recorded on the Logs page as a warning naming the file. The theme's
+card in Mods says the same. That includes `@media`,
 descendant selectors such as `.a .b`, sizes, margins, gradients and hover states.
 
 ## Classes
@@ -126,8 +127,17 @@ descendant selectors such as `.a .b`, sizes, margins, gradients and hover states
 | `mod-remove-button` | the Remove / "Confirm remove" button | | yes | yes | yes |
 | `mod-remove-button-label` | the word on it | yes | | yes | yes |
 | `mods-empty` | "No plugins are installed." / "No themes are installed." | yes | | yes | yes |
+| `mods-log-filter` | one choice of the Logs page's filter | yes | | yes | yes |
+| `mods-log-time` | a record's time column | yes | | yes | yes |
+| `mods-log-source` | a record's source column | yes | | yes | yes |
+| `mods-log-level` | a record's level column, before the theme's colour | yes | | yes | yes |
+| `mods-log-text` | a record's text | yes | | yes | yes |
+| `mods-log-detail` | the panel holding the open record | | yes | yes | yes |
+| `mods-log-detail-text` | one line of the open record | yes | | yes | yes |
+| `mods-about-label` | a label on the About page | yes | | yes | yes |
+| `mods-about-value` | a value or the licence line on the About page | yes | | yes | yes |
 
-The intro/login and registration screen, the Board, the top bar, the side nav, Discover's filter menus, the logged-out Library and Calendar screens, the installed-addons list on Addons, General and Interface on Settings, and the Plugins and Themes pages of Mods are wired. On the intro screen, `title-container` is the Stremio brand title, `logo-container` is the logo wrapper, and `logo` is the logo image. On Settings, `button` is also the side menu buttons and the Authenticate button, `option` is also an option row and `label` is also a section or option label, as on the web. Details, Player and the other sections have element ids but no class styles yet. The `selected` and `active` states, hover and focus are not themable, and `icon` does not reach the selected nav icon or the caret next to the avatar. `.plugin.js` plugins do not run in the app.
+The intro/login and registration screen, the Board, the top bar, the side nav, Discover's filter menus, the logged-out Library and Calendar screens, the installed-addons list on Addons, General and Interface on Settings, and the Plugins and Themes pages of Mods, and the Logs and About pages are wired. On the intro screen, `title-container` is the Stremio brand title, `logo-container` is the logo wrapper, and `logo` is the logo image. On Settings, `button` is also the side menu buttons and the Authenticate button, `option` is also an option row and `label` is also a section or option label, as on the web. Details, Player and the other sections have element ids but no class styles yet. The `selected` and `active` states, hover and focus are not themable, and `icon` does not reach the selected nav icon or the caret next to the avatar. `.plugin.js` plugins do not run in the app.
 
 ## Elements with several web classes
 
