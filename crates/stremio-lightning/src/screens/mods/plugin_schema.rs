@@ -103,9 +103,13 @@ impl Field {
                 let number = number.as_f64().unwrap_or(*min).clamp(*min, *max);
                 let number = min + ((number - min) / step).round() * step;
                 // A slider set in whole numbers stays in whole numbers: the third position of a
-                // 1-to-10 slider is "3", not "3.0000000001".
+                // 1-to-10 slider is "3", not "3.0" or "3.0000000001".
                 let number = if min.fract() == 0.0 && step.fract() == 0.0 {
-                    number.round()
+                    let whole = number.round();
+                    if whole.abs() <= i64::MAX as f64 {
+                        return Json::Number((whole as i64).into());
+                    }
+                    whole
                 } else {
                     number
                 };
