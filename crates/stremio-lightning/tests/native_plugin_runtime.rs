@@ -207,3 +207,160 @@ fn a_plugin_that_recurses_without_end_is_closed_and_the_app_survives() {
     assert!(after.running(), "stopped: {}", after.stopped());
     assert_eq!(lines(&outcome.logs), vec!["info: still here".to_owned()]);
 }
+
+#[test]
+fn a_plugin_hearing_that_playback_started_logs_its_own_line() {
+    let temp = Temp::new("events");
+    let file = temp.write(
+        "listener",
+        r#"
+        on("playback-started", function (event) {
+          logger.info("now playing " + event.videoId);
+        });
+        on("fullscreen", function (event) {
+          logger.info("fullscreen is " + event.on);
+        });
+        "#,
+    );
+    // `started` waits out the load, and the listener it armed is in this plugin.
+    let (mut running, outcome) = started(&temp, &file);
+    assert!(running.running(), "stopped: {}", running.stopped());
+    assert!(outcome.logs.is_empty(), "loading logs nothing");
+
+    // What the wiring says when mpv reports the file it was given has opened.
+    let heard = running.deliver(plugin::Event::PlaybackStarted {
+        video_id: "tt1:1:1".to_owned(),
+    });
+    assert_eq!(
+        lines(&heard.logs),
+        vec!["info: now playing tt1:1:1".to_owned()],
+        "the plugin heard the event"
+    );
+    assert_eq!(heard.run, Run::Clean);
+
+    // One the plugin does not listen for is delivered to it as nothing at all.
+    let unlistened = running.deliver(plugin::Event::CatalogLoaded {
+        id: "top".to_owned(),
+        count: 3,
+    });
+    assert!(unlistened.logs.is_empty());
+    assert_eq!(unlistened.run, Run::Clean);
+
+    let stopped = running.deliver(plugin::Event::PlaybackStopped);
+    assert!(
+        stopped.logs.is_empty(),
+        "it listens for the start, not the stop"
+    );
+}
+
+#[test]
+fn a_step_that_arms_too_many_timers_says_why_it_stopped() {
+    let temp = Temp::new("timers");
+    // More than one step may arm, in one step. The timers are due a minute from now, so none of
+    // them has fired when the step ends.
+    let file = temp.write(
+        "army",
+        "for (let i = 0; i < 5000; i++) { setTimeout(function () {}, 60000); }",
+    );
+
+    let (running, outcome) = started(&temp, &file);
+
+    assert!(!running.running(), "the plugin is closed");
+    assert!(
+        running.stopped().contains("timers"),
+        "the card says: {}",
+        running.stopped()
+    );
+    assert!(
+        lines(&outcome.logs)
+            .iter()
+            .any(|line| line.contains("arm at most")),
+        "the log says: {:?}",
+        lines(&outcome.logs)
+    );
+}
+
+#[test]
+fn the_documented_way_a_value_is_logged_is_the_way_it_is_logged() {
+    let temp = Temp::new("logged");
+    let file = temp.write(
+        "printer",
+        r#"
+        console.log("rows", [1, 2], { a: true }, null);
+        logger.warn(42, "and a half", 1.5);
+        console.log(undefined, function () {});
+        "#,
+    );
+
+    let (_, outcome) = started(&temp, &file);
+
+    assert_eq!(
+        lines(&outcome.logs),
+        vec![
+            "info: rows [1,2] {\"a\":true} null".to_owned(),
+            "warn: 42 and a half 1.5".to_owned(),
+            "info: null null".to_owned(),
+        ]
+    );
+}
+
+#[test]
+fn a_timer_takes_a_function_and_not_a_string() {
+    let temp = Temp::new("strings");
+    let file = temp.write(
+        "strings",
+        r#"
+        const id = setTimeout("logger.info('never')", 1);
+        logger.info("id is " + id);
+        "#,
+    );
+
+    let (running, outcome) = started(&temp, &file);
+
+    assert!(running.running(), "stopped: {}", running.stopped());
+    assert_eq!(lines(&outcome.logs), vec!["info: id is 0".to_owned()]);
+}
+
+#[test]
+fn saving_settings_calls_only_a_callback_that_is_a_function() {
+    let temp = Temp::new("saved");
+    let file = temp.write(
+        "saved",
+        r#"
+        onSettingsSaved("not a function");
+        logger.info("loaded");
+        "#,
+    );
+    let (mut running, outcome) = started(&temp, &file);
+    assert!(running.running(), "stopped: {}", running.stopped());
+    assert_eq!(lines(&outcome.logs), vec!["info: loaded".to_owned()]);
+
+    // The save runs with nothing to call, and says so by doing nothing: no error, no line.
+    let saved = running.settings_saved(json!({ "announce": false }));
+    assert_eq!(saved.run, Run::Clean);
+    assert!(saved.logs.is_empty());
+}
+
+#[test]
+fn a_schema_that_is_not_a_list_throws_inside_the_plugin() {
+    let temp = Temp::new("schema-shape");
+    let file = temp.write(
+        "wrong",
+        r#"
+        try {
+          registerSettings({ key: "one" });
+          logger.error("no error");
+        } catch (error) {
+          logger.warn("threw: " + error.message);
+        }
+        "#,
+    );
+
+    let (running, outcome) = started(&temp, &file);
+
+    // Caught inside the plugin, so the plugin goes on, and the message is the app's own.
+    assert!(running.running(), "stopped: {}", running.stopped());
+    let logged = lines(&outcome.logs);
+    assert_eq!(logged.len(), 1, "{logged:?}");
+    assert!(logged[0].contains("wants a list of fields"), "{logged:?}");
+}

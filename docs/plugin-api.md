@@ -67,10 +67,14 @@ plugin is closed. Working that needs longer has to be done in pieces with `setTi
 piece gets its own 200 milliseconds.
 
 A step may log at most 200 lines and arm at most 64 new timers. A plugin that goes past either is
-closed the same way, because a plugin whose output is unbounded freezes the Logs page instead of
-the window. The cap on timers counts the ones the plugin set from its load code and its callbacks.
-A timer that fires this often, or a `setInterval`, also stops the plugin once it has 256 timers
-waiting at once; that stop is logged with its reason.
+closed the same way, and the reason is reported on the Logs page and on its card, because a plugin
+whose output is unbounded freezes the Logs page instead of the window. The 64 is per step: a timer
+that arms two more every time it fires is over it on the step it reaches 64, whatever the ones
+before it did.
+
+A plugin may have at most 256 timers waiting at once. Past that it is closed, and the reason is
+reported the same way. A `setInterval` of a millisecond, or a timer that sets its own successor,
+reaches this on its own; nothing else is likely to.
 
 A plugin may use up to 8 MB of memory. Allocating past that throws inside the plugin.
 
@@ -85,29 +89,32 @@ Every name a plugin can see that is not part of the JavaScript language itself:
 
 | Name | What it does | Returns |
 | --- | --- | --- |
-| `console.log(...values)` | One `info` line with every value, joined by spaces. | nothing |
+| `console.log(...values)` | One `info` line with every value, joined by spaces. A string prints as itself; anything else prints as its JSON, so `console.log("rows", [1,2])` says `rows [1,2]`. | nothing |
 | `console.info(...values)` | Same as `console.log`. | nothing |
-| `console.debug(...values)` | One `debug` line. | nothing |
-| `console.warn(...values)` | One `warn` line. | nothing |
-| `console.error(...values)` | One `error` line. | nothing |
-| `logger.debug(text)` | One `debug` line. | nothing |
-| `logger.info(text)` | One `info` line. | nothing |
-| `logger.warn(text)` | One `warn` line. | nothing |
-| `logger.error(text)` | One `error` line. | nothing |
+| `console.debug(...values)` | One `debug` line, values printed the same way. | nothing |
+| `console.warn(...values)` | One `warn` line, values printed the same way. | nothing |
+| `console.error(...values)` | One `error` line, values printed the same way. | nothing |
+| `logger.debug(...values)` | One `debug` line, printed the same way as `console.debug`. | nothing |
+| `logger.info(...values)` | One `info` line, printed the same way as `console.info`. | nothing |
+| `logger.warn(...values)` | One `warn` line, printed the same way as `console.warn`. | nothing |
+| `logger.error(...values)` | One `error` line, printed the same way as `console.error`. | nothing |
 | `getSetting(key)` | The stored value of a setting of this plugin, or `null` when nothing is stored. | the value |
 | `saveSetting(key, value)` | Stores a value in this plugin's settings file, `<name>.plugin.json`. The value may be a string, a number, a boolean, `null`, a list or an object of those. | nothing |
 | `registerSettings(schema)` | Registers the settings page; see [Settings](#settings). The last call wins, so a plugin may register from its load code or from `onSettingsSaved`. | nothing |
-| `onSettingsSaved(callback)` | Keeps `callback`. The app calls it with the settings file's contents (an object keyed by setting name) after the user saves the Plugin settings page for this plugin, and after `registerSettings` has recorded the new form. `getSetting` inside the callback already returns the new values. | nothing |
+| `onSettingsSaved(callback)` | Keeps `callback`. The app calls it with the settings file's contents (an object keyed by setting name) after the user saves the Plugin settings page for this plugin, and after `registerSettings` has recorded the new form. `getSetting` inside the callback already returns the new values. Called with anything but a function it does nothing and reports nothing: the callback is not kept, and the plugin is not told. | nothing |
 | `applyTheme(rules)` | Restyles the window. `rules` is a list of `{ selector, property, value }`; the selector and property are the ones a theme file uses. A rule this app cannot read is left out, and the app does not report it back to the plugin, so a plugin cannot check its own rules. Rules replace the plugin's previous ones. An empty list takes the plugin's rules away. | nothing |
-| `setTimeout(callback, milliseconds)` | Runs `callback` once, after at least that long, while the plugin stays on. | the timer's id, a number |
-| `setInterval(callback, milliseconds)` | Runs `callback` every that often, while the plugin stays on. | the timer's id |
+| `setTimeout(callback, milliseconds)` | Runs `callback` once, after at least that long, while the plugin stays on. `callback` is a function; a string is not accepted and no timer is armed. | the timer's id, a number, or `0` when `callback` was not a function |
+| `setInterval(callback, milliseconds)` | Runs `callback` every that often, while the plugin stays on. `callback` is a function, as for `setTimeout`. | the timer's id |
 | `clearTimeout(id)` | Stops a `setTimeout`. | nothing |
 | `clearInterval(id)` | Stops a `setInterval`. | nothing |
 | `on(event, callback)` | Keeps `callback` for one of the events below, and calls it with the event's value. | nothing |
 
-Timers only fire while the plugin is loaded and running. The app fires a timer the moment the
-plugin is next idle after the timer came due, which is within about a tenth of a second. A timer
-set for a long time is not a way to keep the app awake: nothing runs while the app is closed.
+Timers only fire while the plugin is loaded and running. The app looks in on the plugin every
+tenth of a second or so, and fires whatever has come due then, so a timer fires within about a
+tenth of a second of its time. The plugin cannot do anything while that look-in is happening, so
+the wait is only as good as the step before it: a callback that runs to the 200 millisecond limit
+delays the next timer by that much. A timer set for a long time is not a way to keep the app
+awake: nothing runs while the app is closed.
 
 ## Events
 
@@ -116,14 +123,14 @@ column.
 
 | Event | When it happens | Value |
 | --- | --- | --- |
-| `playback-started` | A Video started playing. | `{ videoId }`, the core's own id, which names the show or film, season and episode |
-| `playback-stopped` | The player closed. | `null` |
-| `fullscreen` | The window went fullscreen or left it. | `{ on }`, a true or false |
-| `server-running` | The streaming server started or stopped. | `{ running }`, a true or false |
-| `catalog-loaded` | A catalogue arrived from the app's core. | `{ id, count }` |
+| `playback-started` | The Video on screen started playing: the file has opened in the player. A new stream in the same player is a second start with the new Video's id. | `{ videoId }`, the id of the Video that is playing |
+| `playback-stopped` | The player closed, or took a file off the screen. | `null` |
+| `fullscreen` | The window entered or left fullscreen, as the window reports it: a compositor that refuses a fullscreen press says nothing happened. | `{ on }`, a boolean |
+| `server-running` | The streaming server finished starting, one way or another, with whether it is answering. | `{ running }`, a boolean |
+| `catalog-loaded` | A catalog on the Board's first page arrived. A catalog reloaded is a second arrival, and one that failed and then arrived is an arrival. | `{ id, count }`: the catalog's id and how many items it brought |
 
-A plugin that subscribes to a name that is not in this table is not told about anything. The name
-must be a string literal from the table; the app does not invent new ones.
+Those five are all of them. A plugin that subscribes to another name is not told about anything:
+the name is kept and never called, because the app has no such event to tell it about.
 
 There is no event for the app's window being moved, and no function to move it, minimize it or
 close it: those belong to the user and the operating system.
@@ -154,7 +161,10 @@ The user's values are saved only when the user presses Save on the Plugin settin
 form back to what the settings file holds, and saves nothing.
 
 A field of another type is left out of the page and reported on the Logs page. A schema that is
-not a list of fields at all is reported the same way, and the page draws no fields for that plugin.
+not a list is an error inside the plugin: `registerSettings` throws from the call that gave it,
+so the plugin's load or its callback stops with that message, and the page draws no fields for it.
+One that is a list of things that are not fields is drawn as the fields it can read and no more;
+nothing is reported for the ones it cannot.
 A key the plugin itself uses may not be `__schema`: that key holds the registered form.
 
 ## Worked example

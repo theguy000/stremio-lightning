@@ -677,6 +677,53 @@ mod tests {
     }
 
     #[test]
+    fn a_line_a_plugin_logs_from_a_timer_reaches_its_card() {
+        let dir = folder();
+        let path = dir.data_dir.join("stremio-lightning").join("plugins");
+        let _ = std::fs::create_dir_all(&path);
+        std::fs::write(
+            path.join("later.plugin.js"),
+            "setTimeout(function () { logger.info('from a timer'); }, 30);",
+        )
+        .expect("the plugin file");
+        let runtime = crate::app::plugins::Runtime::new(dir.data_dir.clone());
+        runtime.start("later.plugin.js");
+        assert!(runtime.holds_timers(), "the load armed one");
+
+        // The app has nothing to report, so the pump is the only thing that calls in. The line
+        // is not there until it does.
+        assert!(
+            !runtime
+                .lines()
+                .iter()
+                .any(|(_, line)| line.text.contains("from a timer")),
+            "the timer has not fired yet"
+        );
+        let until = Instant::now() + std::time::Duration::from_secs(2);
+        while !runtime
+            .lines()
+            .iter()
+            .any(|(_, line)| line.text.contains("from a timer"))
+            && Instant::now() < until
+        {
+            // What `app::events::pump` does on its tick.
+            let asked = runtime.advance();
+            assert!(!asked.is_empty() || runtime.holds_timers());
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+
+        let logged: Vec<String> = runtime
+            .lines()
+            .into_iter()
+            .filter(|(file, _)| file == "later.plugin.js")
+            .map(|(_, line)| line.text)
+            .collect();
+        assert_eq!(logged, vec!["from a timer".to_owned()]);
+        assert!(runtime.running("later.plugin.js"));
+        assert!(!runtime.holds_timers(), "a timer fires once");
+    }
+
+    #[test]
     fn a_panic_under_the_plugin_is_reported_and_later_calls_hear_it_at_once() {
         let (mut running, outcome) =
             Running::start("registerSettings([]);".to_owned(), "crashed", Crash);

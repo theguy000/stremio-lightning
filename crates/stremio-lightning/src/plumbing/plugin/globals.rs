@@ -33,7 +33,6 @@ pub(super) type Held = std::rc::Rc<rquickjs::Persistent<Function<'static>>>;
 #[derive(Default, Debug)]
 pub(super) struct Requests {
     pub(super) saved: Vec<(String, Json)>,
-    pub(super) schemas: Vec<Json>,
     pub(super) theme: Option<Vec<Json>>,
     pub(super) logs: Vec<(String, String)>,
     /// Timers armed in this evaluation: id, how long from now, the period of an interval, and
@@ -185,7 +184,7 @@ impl World {
         };
         let mut requests = lock(&self.requests);
         if requests.timers.len() >= MAX_TIMERS_PER_STEP {
-            return Err(Stop::Logs);
+            return Err(Stop::Timers);
         }
         let id = self.next_timer.fetch_add(1, Ordering::SeqCst);
         requests
@@ -214,8 +213,10 @@ pub(super) enum Stop {
     Finished,
     /// The plugin used its whole budget for this evaluation.
     Budget,
-    /// The plugin logged more lines than one evaluation may, or armed more timers.
+    /// The plugin logged more lines than one evaluation may.
     Logs,
+    /// The plugin armed more timers in one evaluation than it may.
+    Timers,
 }
 
 impl Stop {
@@ -229,7 +230,12 @@ impl Stop {
                 super::BUDGET.as_millis()
             ),
             Self::Logs => {
-                format!("Stopped: a plugin step may log at most {MAX_LOG_LINES} lines and arm at most {MAX_TIMERS_PER_STEP} timers.")
+                format!("Stopped: a plugin step may log at most {MAX_LOG_LINES} lines.")
+            }
+            Self::Timers => {
+                format!(
+                    "Stopped: a plugin step may arm at most {MAX_TIMERS_PER_STEP} timers."
+                )
             }
         }
     }
@@ -348,8 +354,10 @@ fn plain<T>(value: T) -> Call<T> {
 /// The error a plugin sees for a stop: an `Error` thrown with the sentence, which ends the
 /// evaluation unless the plugin catches it.
 fn thrown<'js>(ctx: Ctx<'js>, (message, _): (String, Stop)) -> rquickjs::Error {
-    match rquickjs::String::from_str(ctx.clone(), &message) {
-        Ok(text) => ctx.throw(text.into_value()),
+    // An `Error` rather than a bare string: a plugin that catches it reads `error.message`, which
+    // is what a plugin author expects, and what the screen shows when it is not caught.
+    match rquickjs::Exception::from_message(ctx.clone(), &message) {
+        Ok(error) => ctx.throw(error.into_value()),
         Err(error) => error,
     }
 }
