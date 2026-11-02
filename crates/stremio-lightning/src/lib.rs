@@ -216,6 +216,7 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
         &window.as_weak(),
         &wiring.images,
         &data_dir,
+        &wiring.mods_export,
     );
     tokio.spawn(app::events::pump(
         events,
@@ -239,6 +240,9 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
             // one, and every snapshot the core draws reads through the other.
             mods_plugin: mods_plugin.clone(),
             mods_edits: mods_edits.clone(),
+            logs: logs.clone(),
+            mods_clearing: wiring.mods_clearing.clone(),
+            mods_export: wiring.mods_export.clone(),
             playback_error,
             auth: wiring.auth.clone(),
             board_catalogs: wiring.board_catalogs.clone(),

@@ -68,6 +68,15 @@ pub(crate) struct Context {
     /// The plugin the Plugin settings page is showing, and what it holds for it.
     pub(crate) mods_plugin: Arc<Mutex<String>>,
     pub(crate) mods_edits: Arc<Mutex<crate::screens::mods::settings::Edits>>,
+    /// The app's log records: the Logs page's rows come from here, so a snapshot built by a core
+    /// event lists what a plugin logged from a timer as well as what the last press did.
+    pub(crate) logs: Arc<crate::plumbing::logs::Logs>,
+    /// Whether the Logs page's Clear button is armed. The window owns it, and a snapshot that
+    /// left it out would draw the button unarmed between the two presses.
+    pub(crate) mods_clearing: Arc<Mutex<bool>>,
+    /// Where the diagnostics file was written last, which the About page shows until the app
+    /// closes. Held by the window, read back here so a core event does not take it off the page.
+    pub(crate) mods_export: Arc<Mutex<Option<String>>>,
     /// Repaint now, with whatever the cache holds. Used when an image arrives.
     pub(crate) repaint: Arc<dyn Fn() + Send + Sync>,
     /// What a plugin's ask means for the window, built from the wiring's `Send` parts: the theme
@@ -333,7 +342,16 @@ fn snapshot(model: &AppModel, context: &Context) -> Snapshot {
             // The line about the last action belongs to the section, not to the folders: it is read
             // back with the rest so a core event -- a library update, a catalog arriving -- does
             // not take the answer to a press off the screen before it was read.
-            .with_notice(context.latest.lock().unwrap().mods.notice.clone()),
+            .with_notice(context.latest.lock().unwrap().mods.notice.clone())
+            // The rest of the section: the Logs page's rows from the app's one recorder, the
+            // About page's counts from the same folders and runtime, and the diagnostics path
+            // the window holds. Without these a core event would draw both pages empty.
+            .with_logs(&context.logs, *context.mods_clearing.lock().unwrap())
+            .with_about(
+                &context.local_extras.lock().unwrap().clone(),
+                &context.plugins,
+                context.mods_export.lock().unwrap().as_ref(),
+            ),
         player,
     }
 }

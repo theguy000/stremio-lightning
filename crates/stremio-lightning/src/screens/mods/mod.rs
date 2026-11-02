@@ -281,12 +281,14 @@ impl Data {
     }
 
     /// The same screen with the About page read from the two folders, this shell's settings and
-    /// the plugin runtime.
+    /// the plugin runtime, and the diagnostics file written last. The path is the window's, read
+    /// back on every snapshot so a press on another page does not take it off the page.
     #[must_use]
     pub fn with_about(
         mut self,
         extras: &LocalExtras,
         plugins: &crate::app::plugins::Runtime,
+        export: Option<&String>,
     ) -> Self {
         let sources = about::Sources {
             data_dir: &self.data_dir,
@@ -294,6 +296,9 @@ impl Data {
             plugins,
         };
         self.about = about::data(&sources);
+        if let Some(path) = export {
+            self.about = about::exported(self.about, std::path::Path::new(path));
+        }
         self
     }
 

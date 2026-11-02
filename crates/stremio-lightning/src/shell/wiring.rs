@@ -95,6 +95,9 @@ pub(crate) struct Plugins {
     /// The app's log records: every line the runtime keeps is already in them, and the Mods
     /// screen reads them for the Logs page.
     pub(crate) logs: Arc<crate::plumbing::logs::Logs>,
+    /// Where the diagnostics file was written last, which the About page shows until the app
+    /// closes. A plugin's line redraws the section, and the path has to stay on the page.
+    pub(crate) export: Arc<Mutex<Option<String>>>,
 }
 
 impl Plugins {
@@ -152,6 +155,7 @@ impl Plugins {
             .with_about(
                 &crate::screens::settings::LocalExtras::load(&self.data_dir),
                 &self.runtime,
+                self.export.lock().unwrap().as_ref(),
             )
             .with_notice(notice);
         *self.latest.lock().unwrap() = snapshot.clone();
@@ -1588,10 +1592,12 @@ impl Wiring {
         window: &Weak<MainWindow>,
         images: &Images,
         data_dir: &std::path::Path,
+        export: &Arc<Mutex<Option<String>>>,
     ) -> Arc<dyn Fn(Vec<crate::app::plugins::Asked>) + Send + Sync> {
         let plugins = Plugins {
             runtime: plugins.clone(),
             logs: Arc::clone(plugins.logs()),
+            export: Arc::clone(export),
             latest: latest.clone(),
             window: window.clone(),
             images: images.clone(),
@@ -1609,6 +1615,7 @@ impl Wiring {
             &self.window,
             &self.images,
             &self.data_dir,
+            &self.mods_export,
         )
     }
 
@@ -1752,12 +1759,18 @@ impl Wiring {
     /// Draws the Mods section with the page the window holds, and the last notice: the answer to a
     /// press that changed something the screen shows and nothing on disk.
     fn repaint_mods_now(&self) {
-        let page = mods::Page::from_id(&self.mods_page.lock().unwrap());
         let mut snapshot = self.latest.lock().unwrap().clone();
-        snapshot.mods = self
-            .plugin_data(page)
-            .with_notice(snapshot.mods.notice.clone());
+        snapshot.mods = self.page_data(snapshot.mods.to_page());
         self.repaint_with(snapshot);
+    }
+
+    /// The page on screen, as a press leaves it, built before the window is touched: the folder is
+    /// read and every lock the screen takes is let go. A press is on the window's thread, and a
+    /// lock still held here when the window draws can stop the whole window, not just this page.
+    fn page_data(&self, page: mods::Page) -> mods::Data {
+        let mut data = self.plugin_data(page);
+        data.notice = self.latest.lock().unwrap().mods.notice.clone();
+        data
     }
 
     /// A press on a record: its full text is on screen, or taken back when it is the one open. A
@@ -1767,18 +1780,37 @@ impl Wiring {
         data.press_record(&self.logs, u64::from(id));
         let mut snapshot = self.latest.lock().unwrap().clone();
         snapshot.mods = data.with_notice(snapshot.mods.notice.clone());
-        self.repaint_with(snapshot);
+        self.finish_log_press(snapshot);
     }
 
     /// The Clear button. The first press arms it and removes nothing; the second empties the
-    /// list, which deletes no file and stops nothing being recorded afterwards.
+    /// list, which deletes no file and stops nothing being recorded afterwards. The arm is set
+    /// before the page is read, so the page and the window agree on what the button says.
     fn clear_logs(&self) {
-        let mut armed = self.mods_clearing.lock().unwrap();
-        let mut data = self.plugin_data(mods::Page::Logs);
-        *armed = data.press_clear(&self.logs, *armed);
-        drop(armed);
+        // The arm is read and set in one hold: the page below reads it, and two guards on the
+        // same line would never let the second one through.
+        let armed = {
+            let mut armed = self.mods_clearing.lock().unwrap();
+            let was_armed = *armed;
+            if was_armed {
+                self.logs.clear();
+            }
+            *armed = !was_armed;
+            *armed
+        };
         let mut snapshot = self.latest.lock().unwrap().clone();
-        snapshot.mods = data.with_notice(snapshot.mods.notice.clone());
+        snapshot.mods = self.page_data(mods::Page::Logs);
+        debug_assert_eq!(snapshot.mods.log_clear_armed, armed);
+        self.finish_log_press(snapshot);
+    }
+
+    /// Draws the Mods section from `snapshot` on the window's thread, and posts it like every other
+    /// repaint: the section is drawn now, and the whole window follows from the same snapshot.
+    fn finish_log_press(&self, snapshot: Snapshot) {
+        *self.latest.lock().unwrap() = snapshot.clone();
+        if let Some(window) = self.window.upgrade() {
+            shell::view::show_mods(&window, &snapshot.mods);
+        }
         self.repaint_with(snapshot);
     }
 
@@ -1924,7 +1956,11 @@ impl Wiring {
         screen
             .with_edits(pick, self.mods_edits.lock().unwrap().clone())
             .with_logs(&self.logs, *self.mods_clearing.lock().unwrap())
-            .with_about(&self.local_extras.lock().unwrap().clone(), &self.plugins)
+            .with_about(
+                &self.local_extras.lock().unwrap().clone(),
+                &self.plugins,
+                self.mods_export.lock().unwrap().as_ref(),
+            )
     }
 
     /// The Remove button of a mod card. Its first press arms the card and deletes nothing; its

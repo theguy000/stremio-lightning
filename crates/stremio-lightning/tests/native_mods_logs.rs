@@ -211,13 +211,21 @@ fn the_recorder_keeps_plugin_lines_theme_warnings_and_the_cap() {
     );
     logs.record(Source::Server, "127.0.0.1:11470", Level::Info, "answering");
     logs.record(Source::App, "Core", Level::Error, "the shelf is gone");
+    // The one record that is a plugin's, an error, and about the shelf: what the three parts of
+    // the filter are checked against below.
+    logs.record(
+        Source::Plugin,
+        "a.plugin.js",
+        Level::Error,
+        "the shelf could not be read",
+    );
 
     let plugins = Filter {
         source: "plugin".to_owned(),
         ..Filter::default()
     };
     let kept = logs.matching(&plugins);
-    assert_eq!(kept.len(), 2);
+    assert_eq!(kept.len(), 3);
     assert!(kept.iter().all(|entry| entry.source == Source::Plugin));
 
     let warnings = Filter {
@@ -225,14 +233,14 @@ fn the_recorder_keeps_plugin_lines_theme_warnings_and_the_cap() {
         ..Filter::default()
     };
     let kept = logs.matching(&warnings);
-    assert_eq!(kept.len(), 2, "warnings and errors: {kept:?}");
+    assert_eq!(kept.len(), 3, "warnings and errors: {kept:?}");
     assert!(kept.iter().all(|entry| entry.level >= Level::Warn));
 
     let errors = Filter {
         level: "error".to_owned(),
         ..Filter::default()
     };
-    assert_eq!(logs.matching(&errors).len(), 1);
+    assert_eq!(logs.matching(&errors).len(), 2);
 
     let searched = Filter {
         search: "SHELF".to_owned(),
@@ -240,14 +248,14 @@ fn the_recorder_keeps_plugin_lines_theme_warnings_and_the_cap() {
     };
     assert_eq!(
         logs.matching(&searched).len(),
-        3,
+        4,
         "the search ignores case and reads the text"
     );
     let by_origin = Filter {
         search: "a.plugin.js".to_owned(),
         ..Filter::default()
     };
-    assert_eq!(logs.matching(&by_origin).len(), 2);
+    assert_eq!(logs.matching(&by_origin).len(), 3);
 
     // The filter the page is showing lives in the recorder, so a page redrawn by an
     // unrelated event draws the same list. A part this app does not know is the "any" answer.
@@ -263,14 +271,19 @@ fn the_recorder_keeps_plugin_lines_theme_warnings_and_the_cap() {
             search: "shelf".to_owned(),
         }
     );
-    // The search reads the origin as well as the text: one line names the plugin, the error says
-    // it could not read the shelf.
-    assert_eq!(logs.matching(&logs.filter()).len(), 2);
+    // Three parts at once, each true of one record: the plugin's own error is the only record
+    // that is a plugin's, an error, and about the shelf. A filter that read only part of itself
+    // would keep the warning or the app's error.
+    let kept = logs.matching(&logs.filter());
+    assert_eq!(kept.len(), 1, "{kept:?}");
+    assert_eq!(kept[0].origin, "a.plugin.js");
+    assert_eq!(kept[0].level, Level::Error);
+    assert!(kept[0].text.contains("shelf"));
+    // The search reads the origin as well as the text: every one of the plugin's lines names it.
     logs.set_level("");
-    logs.set_source("plugin");
-    assert_eq!(logs.matching(&logs.filter()).len(), 2);
+    assert_eq!(logs.matching(&logs.filter()).len(), 3);
     logs.set_search("a.plugin.js");
-    assert_eq!(logs.matching(&logs.filter()).len(), 2);
+    assert_eq!(logs.matching(&logs.filter()).len(), 3);
     logs.set_source("nothing-like-this");
     assert_eq!(
         logs.filter().source,
@@ -542,7 +555,7 @@ fn the_window_lists_what_a_plugin_logged_and_filters_it() {
         "the armed button is pressed, and the list empties",
         click(window, "Confirm clearing the log records").and_then(|_| {
             wait(window, Duration::from_secs(5), |window| {
-                let rows = window.get_mods().log_rows.row_count();
+                let rows = slint::Model::row_count(&window.get_mods().log_rows);
                 let held = window.get_mods().log_held.to_string();
                 if rows == 0 && held.contains("holds no records") {
                     Ok(held)
