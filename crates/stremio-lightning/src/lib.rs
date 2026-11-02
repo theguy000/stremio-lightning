@@ -167,6 +167,13 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
         mods_plugin: mods_plugin.clone(),
         mods_edits: mods_edits.clone(),
         mods_typed: Default::default(),
+        market_listing: Default::default(),
+        market_asked: Default::default(),
+        market_search: Default::default(),
+        market_updates: Default::default(),
+        market_check_asked: Default::default(),
+        market_summary: Default::default(),
+        market_installing: Default::default(),
     };
     shell::wire(&window, wiring.clone());
     // The wheel is taken from the window itself: left to a Slint Flickable it costs a whole

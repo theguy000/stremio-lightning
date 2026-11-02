@@ -128,6 +128,16 @@ descendant selectors such as `.a .b`, sizes, margins, gradients and hover states
 | `mods-empty` | "No plugins are installed." / "No themes are installed." | yes | | yes | yes |
 
 The intro/login and registration screen, the Board, the top bar, the side nav, Discover's filter menus, the logged-out Library and Calendar screens, the installed-addons list on Addons, General and Interface on Settings, and the Plugins and Themes pages of Mods are wired. On the intro screen, `title-container` is the Stremio brand title, `logo-container` is the logo wrapper, and `logo` is the logo image. On Settings, `button` is also the side menu buttons and the Authenticate button, `option` is also an option row and `label` is also a section or option label, as on the web. Details, Player and the other sections have element ids but no class styles yet. The `selected` and `active` states, hover and focus are not themable, and `icon` does not reach the selected nav icon or the caret next to the avatar. `.plugin.js` plugins do not run in the app.
+| `market-card` | one card of the Marketplace, one registry entry | | yes | yes | yes |
+| `market-title` | the entry's name | yes | | yes | yes |
+| `market-byline` | the entry's author and version line | yes | | yes | yes |
+| `market-description` | the entry's description | yes | | yes | yes |
+| `market-heading` | the "Plugins" and "Themes" headings of the Marketplace list | yes | | yes | yes |
+| `mod-update` | the update line on a Plugin or Theme card ("Up to date.", "Update to 2.0.0") | yes | | yes | yes |
+| `market-button` | Install, Confirm uninstall, Install update, Update all and Check for updates. Hover is not themable | | yes | yes | yes |
+| `market-button-label` | the word on it | yes | | yes | yes |
+
+The intro/login and registration screen, the Board, the top bar, the side nav, Discover's filter menus, the logged-out Library and Calendar screens, the installed-addons list on Addons, General and Interface on Settings, and the Plugins, Themes and Marketplace pages of Mods are wired. On the intro screen, `title-container` is the Stremio brand title, `logo-container` is the logo wrapper, and `logo` is the logo image. On Settings, `button` is also the side menu buttons and the Authenticate button, `option` is also an option row and `label` is also a section or option label, as on the web. The Update line on a Plugin or Theme card is `mod-update`; the Update button beside it is a `market-button`. Details, Player and the other sections have element ids but no class styles yet. The `selected` and `active` states, hover and focus are not themable, and `icon` does not reach the selected nav icon or the caret next to the avatar. `.plugin.js` plugins do not run in the app.
 
 ## Elements with several web classes
 

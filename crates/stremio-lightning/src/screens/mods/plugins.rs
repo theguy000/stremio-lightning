@@ -18,6 +18,15 @@ pub const NOTE: &str =
 /// What an empty Plugins folder shows.
 pub const NONE_INSTALLED: &str = "No plugins are installed.";
 
+/// What the Plugins page says above its list once the update check has answered: the page's own
+/// sentence, then what the check found.
+pub fn note(cards: &[super::catalogue::ModCard]) -> String {
+    if cards.is_empty() {
+        return NOTE.to_owned();
+    }
+    format!("{NOTE} {}", super::marketplace::update_note(cards))
+}
+
 fn switched_on(filename: &str) -> String {
     format!("{filename} is enabled and starting.")
 }

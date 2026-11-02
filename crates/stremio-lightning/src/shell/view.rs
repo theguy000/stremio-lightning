@@ -14,6 +14,7 @@ use crate::screens::player::Data as PlayerData;
 use crate::screens::settings::Data as SettingsData;
 use crate::screens::Preview;
 use crate::screens::{Card, Input};
+use crate::MarketCardData;
 use crate::{
     AddonData, AddonPendingData, CalendarData, CalendarDay, CalendarSlot, CatalogRow, LibraryCard,
     LibrarySort, LinkGroup, MainWindow, ModCardData, ModsNavItem, ModsViewData, PlayerEpisode,
@@ -395,6 +396,7 @@ pub(crate) fn mods_view(data: &crate::screens::mods::Data) -> ModsViewData {
             enabled: card.enabled,
             armed: armed_here,
             state: state.into(),
+            update: card.update.clone().into(),
         }
     };
     ModsViewData {
@@ -450,6 +452,62 @@ pub(crate) fn mods_view(data: &crate::screens::mods::Data) -> ModsViewData {
         settings_state: state_said(data).into(),
         settings_state_failed: data.picked_enabled && !data.picked_state.running,
         settings_dirty: data.edits.dirty(),
+        ..mods_market(data)
+    }
+}
+
+/// The Marketplace's own properties, kept apart from `mods_view` so a later stage adds its fields
+/// to that function without touching this one.
+fn mods_market(data: &crate::screens::mods::Data) -> ModsViewData {
+    // Everything the other pages draw is left at its default: `mods_view` fills it, and the
+    // struct update that joins the two keeps what it filled.
+    ModsViewData {
+        market_note: data.market.note.clone().into(),
+        market_summary: ModelRc::new(VecModel::from(
+            data.market
+                .summary
+                .iter()
+                .map(|notice| SharedString::from(notice.text.clone()))
+                .collect::<Vec<_>>(),
+        )),
+        market_trouble: data.market.trouble.clone().into(),
+        market_plugins: ModelRc::new(VecModel::from(
+            data.market
+                .plugins
+                .iter()
+                .map(market_card)
+                .collect::<Vec<_>>(),
+        )),
+        market_themes: ModelRc::new(VecModel::from(
+            data.market
+                .themes
+                .iter()
+                .map(market_card)
+                .collect::<Vec<_>>(),
+        )),
+        market_empty: data.market.empty.clone().into(),
+        market_search: data.market_search.clone().into(),
+        market_checking: checking(),
+        updates_ready: data.updates_ready(),
+        ..ModsViewData::default()
+    }
+}
+
+/// One Marketplace card, with the two pieces of the window's own state it draws: whether its
+/// Uninstall is armed, and whether its file is being fetched this instant.
+fn market_card(card: &mods::marketplace::MarketCard) -> MarketCardData {
+    let armed = armed_market();
+    MarketCardData {
+        id: card.id.clone().into(),
+        kind: card.kind.clone().into(),
+        name: card.name.clone().into(),
+        author: card.author.clone().into(),
+        version: card.version.clone().into(),
+        description: card.description.clone().into(),
+        filename: card.filename.clone().into(),
+        action: card.action.clone().into(),
+        armed: armed.as_deref() == Some(card.id.as_str()),
+        installing: installing().as_deref() == Some(card.id.as_str()),
     }
 }
 
@@ -585,6 +643,49 @@ pub(crate) fn arm(filename: Option<&str>) {
 /// The card whose Remove button is armed, if any.
 fn armed_card() -> Option<String> {
     ARMED.lock().ok().and_then(|armed| armed.clone())
+}
+
+/// The Marketplace card whose Uninstall button has been pressed once and waits for the second
+/// press, by the entry's download. One at a time, and taken back by any other press on the page.
+static ARMED_MARKET: Mutex<Option<String>> = Mutex::new(None);
+
+/// Arms this Marketplace card's Uninstall button, or takes the arm back with `None`.
+pub(crate) fn arm_market(id: Option<&str>) {
+    if let Ok(mut armed) = ARMED_MARKET.lock() {
+        *armed = id.map(str::to_owned);
+    }
+}
+
+pub(crate) fn armed_market() -> Option<String> {
+    ARMED_MARKET.lock().ok().and_then(|armed| armed.clone())
+}
+
+/// The Marketplace entry being fetched or written right now, by its download. The window draws
+/// that card as waiting and refuses every other press on the page until the fetch lands.
+static INSTALLING: Mutex<Option<String>> = Mutex::new(None);
+
+/// Says which entry is being fetched.
+pub(crate) fn set_installing(id: Option<&str>) {
+    if let Ok(mut busy) = INSTALLING.lock() {
+        *busy = id.map(str::to_owned);
+    }
+}
+
+fn installing() -> Option<String> {
+    INSTALLING.lock().ok().and_then(|busy| busy.clone())
+}
+
+/// Whether the update check is running: Check for updates says so and refuses a second press.
+static CHECKING: Mutex<bool> = Mutex::new(false);
+
+pub(crate) fn set_checking(checking: bool) {
+    if let Ok(mut busy) = CHECKING.lock() {
+        *busy = checking;
+    }
+}
+
+fn checking() -> bool {
+    CHECKING.lock().map(|busy| *busy).unwrap_or(false)
 }
 
 /// Sets every property the Mods section draws from: the page on screen, the menu with it, and the

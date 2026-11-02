@@ -150,6 +150,15 @@ elements! {
     set_mod_remove_button => ["mod-remove-button"],
     set_mod_remove_button_label => ["mod-remove-button-label"],
     set_mods_empty => ["mods-empty"],
+    // The Marketplace page, and the buttons that update the installed mods.
+    set_market_card => ["market-card"],
+    set_market_title => ["market-title"],
+    set_market_byline => ["market-byline"],
+    set_market_description => ["market-description"],
+    set_market_heading => ["market-heading"],
+    set_mod_update => ["mod-update"],
+    set_market_button => ["market-button"],
+    set_market_button_label => ["market-button-label"],
 }
 
 /// What this app does not understand in a theme file, one line each: the declarations it skips
