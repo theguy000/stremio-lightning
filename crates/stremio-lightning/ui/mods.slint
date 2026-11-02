@@ -500,50 +500,45 @@ export component ModsContent inherits Rectangle {
             content-width: self.width;
             content-height: (root.on-plugins ? root.data.plugins.length : root.on-themes ? root.data.themes.length : 0) * root.card-pitch;
 
-            // The two loops sit in a rectangle of the list's own size: a `for` cannot follow an
-            // `if` directly, and a percentage height here is the scroll content's, not the view's.
-            if root.on-plugins: Rectangle {
-                width: root.page-width;
-                height: root.list-height;
-                for entry[index] in root.data.plugins: ModCardView {
-                    x: root.page-padding;
-                    y: index * root.card-pitch;
-                    width: root.page-width - 8px;
-                    rem-size: root.rem-size;
-                    // Every card is the row's height: a card is never shorter than the tallest.
-                    height: root.card-height;
-                    data: entry;
-                    toggle => {
-                        root.toggle-mod(entry.filename, !entry.enabled);
-                    }
-                    remove => {
-                        root.remove-mod(entry.filename);
-                    }
-                    dismiss => {
-                        root.dismiss-remove();
-                    }
+            // One `for` per page, each drawn only while its page is the one on screen -- the same
+            // shape the addons list uses. A `for` cannot follow an `if` directly, so the row is
+            // written out twice rather than held in a container: a container's own origin is not
+            // the list's, and its rows end up drawn above the list instead of inside it.
+            for entry[index] in root.data.plugins: ModCardView {
+                x: root.page-padding;
+                y: index * root.card-pitch;
+                width: root.page-width - 8px;
+                rem-size: root.rem-size;
+                // Every card is the row's height: a card is never shorter than the tallest.
+                height: root.card-height;
+                visible: root.on-plugins;
+                data: entry;
+                toggle => {
+                    root.toggle-mod(entry.filename, !entry.enabled);
+                }
+                remove => {
+                    root.remove-mod(entry.filename);
+                }
+                dismiss => {
+                    root.dismiss-remove();
                 }
             }
-            if root.on-themes: Rectangle {
-                width: root.page-width;
-                height: root.list-height;
-                for entry[index] in root.data.themes: ModCardView {
-                    x: root.page-padding;
-                    y: index * root.card-pitch;
-                    width: root.page-width - 8px;
-                    rem-size: root.rem-size;
-                    // Every card is the row's height: a card is never shorter than the tallest.
-                    height: root.card-height;
-                    data: entry;
-                    toggle => {
-                        root.toggle-mod(entry.filename, !entry.enabled);
-                    }
-                    remove => {
-                        root.remove-mod(entry.filename);
-                    }
-                    dismiss => {
-                        root.dismiss-remove();
-                    }
+            for entry[index] in root.data.themes: ModCardView {
+                x: root.page-padding;
+                y: index * root.card-pitch;
+                width: root.page-width - 8px;
+                rem-size: root.rem-size;
+                height: root.card-height;
+                visible: root.on-themes;
+                data: entry;
+                toggle => {
+                    root.toggle-mod(entry.filename, !entry.enabled);
+                }
+                remove => {
+                    root.remove-mod(entry.filename);
+                }
+                dismiss => {
+                    root.dismiss-remove();
                 }
             }
         }

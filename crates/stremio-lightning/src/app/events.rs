@@ -197,9 +197,14 @@ fn snapshot(model: &AppModel, context: &Context) -> Snapshot {
             &context.video_query.lock().unwrap(),
         ),
         settings: settings::data(model, &context.extras()),
-        mods: crate::screens::mods::data(&context.data_dir).with_page(
-            crate::screens::mods::Page::from_id(&context.mods_page.lock().unwrap()),
-        ),
+        mods: crate::screens::mods::data(&context.data_dir)
+            .with_page(crate::screens::mods::Page::from_id(
+                &context.mods_page.lock().unwrap(),
+            ))
+            // The line about the last action belongs to the section, not to the folders: it is read
+            // back with the rest so a core event -- a library update, a catalog arriving -- does
+            // not take the answer to a press off the screen before it was read.
+            .with_notice(context.latest.lock().unwrap().mods.notice.clone()),
         player,
     }
 }
