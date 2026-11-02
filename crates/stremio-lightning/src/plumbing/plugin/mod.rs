@@ -47,6 +47,12 @@ pub use worker::Running;
 pub const BUDGET: Duration = Duration::from_millis(200);
 /// How much memory one plugin may use before its allocations fail.
 const MEMORY_LIMIT: usize = 8 * 1024 * 1024;
+/// How much of the thread's stack the interpreter may use. QuickJS counts this from the stack
+/// pointer it has when an evaluation starts, and throws `InternalError: stack overflow` at the
+/// limit instead of running into the guard page and killing the process. The plugin's thread gets
+/// 2 MiB (see `worker::STACK_SIZE`), so this leaves half of it for the Rust frames below the
+/// interpreter. A plugin that recurses deeply is closed with that error, not fatal to the app.
+const STACK_LIMIT: usize = 1024 * 1024;
 /// The most timers one plugin may have waiting at once. A plugin that sets one from a timer is a
 /// plugin that never finishes, however short each of its steps is.
 const MAX_TIMERS: usize = 256;

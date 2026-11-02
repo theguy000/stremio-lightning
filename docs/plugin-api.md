@@ -66,11 +66,18 @@ milliseconds of wall-clock time. A loop that runs past that is stopped by the en
 plugin is closed. Working that needs longer has to be done in pieces with `setTimeout`, and each
 piece gets its own 200 milliseconds.
 
-A step may also log at most 200 lines and arm at most 64 timers. A plugin that goes past either is
+A step may log at most 200 lines and arm at most 64 new timers. A plugin that goes past either is
 closed the same way, because a plugin whose output is unbounded freezes the Logs page instead of
-the window.
+the window. The cap on timers counts the ones the plugin set from its load code and its callbacks.
+A timer that fires this often, or a `setInterval`, also stops the plugin once it has 256 timers
+waiting at once; that stop is logged with its reason.
 
 A plugin may use up to 8 MB of memory. Allocating past that throws inside the plugin.
+
+A plugin may use 1 MB of stack. A function that calls itself without end throws
+`InternalError: Maximum call stack size exceeded`, and the plugin is closed with that error. It is
+the same for a value nested more than 64 levels deep: the level past 64 is stored as `null` rather
+than read.
 
 ## Globals
 

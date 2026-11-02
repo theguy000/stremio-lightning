@@ -184,3 +184,26 @@ fn settings_round_trip_through_the_page_and_back_to_the_plugin() {
     );
     assert_eq!(temp.stored("rounded")["name"], json!("ada"));
 }
+
+#[test]
+fn a_plugin_that_recurses_without_end_is_closed_and_the_app_survives() {
+    let temp = Temp::new("deep");
+    // The thread the interpreter runs on is the app's own code: if the recursion were to run off
+    // the stack, this test would take the whole process with it, not just fail.
+    let file = temp.write("deep", "function f() { f(); }\nf();");
+
+    let (running, outcome) = started(&temp, &file);
+
+    assert!(!running.running(), "the plugin is closed");
+    assert!(
+        running.stopped().to_lowercase().contains("stack"),
+        "the screen says: {}",
+        running.stopped()
+    );
+    assert!(outcome.run.failed());
+    // The process is still here and can start another plugin.
+    let next = temp.write("after", "logger.info('still here');");
+    let (after, outcome) = started(&temp, &next);
+    assert!(after.running(), "stopped: {}", after.stopped());
+    assert_eq!(lines(&outcome.logs), vec!["info: still here".to_owned()]);
+}

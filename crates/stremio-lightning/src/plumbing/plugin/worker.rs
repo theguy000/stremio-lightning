@@ -10,7 +10,14 @@ use rquickjs::Runtime;
 use serde_json::{Map, Value as Json};
 
 use super::globals::{self, Held, Settings};
-use super::{lock, Call, Channel, Host, LogLine, Outcome, Run, Timer, BUDGET, MEMORY_LIMIT};
+use super::{
+    lock, Call, Channel, Host, LogLine, Outcome, Run, Timer, BUDGET, MEMORY_LIMIT, STACK_LIMIT,
+};
+
+/// The plugin's own thread's stack. The interpreter's own limit is measured from the frame an
+/// evaluation starts in, so the thread needs room for that frame plus [`STACK_LIMIT`] of
+/// JavaScript.
+const STACK_SIZE: usize = 2 * 1024 * 1024;
 
 /// A plugin that has been started, as the app sees it from outside.
 pub struct Running {
@@ -32,6 +39,7 @@ impl Running {
         let name = plugin.to_owned();
         let spawned = std::thread::Builder::new()
             .name(format!("plugin {}", super::name_of(plugin)))
+            .stack_size(STACK_SIZE)
             .spawn(move || worker_main(&name, source, host, &commands));
         let mut running = Self {
             channel: Channel {
@@ -170,6 +178,8 @@ impl<H: Host + 'static> Worker<H> {
         let runtime = Runtime::new()
             .map_err(|error| format!("The JavaScript interpreter did not start: {error}"))?;
         runtime.set_memory_limit(MEMORY_LIMIT);
+        // A plugin that recurses without end reaches this limit, not the page after the stack.
+        runtime.set_max_stack_size(STACK_LIMIT);
         let world = globals::World::new();
         // The interrupt handler is the one thing that can stop a plugin which never returns to
         // the interpreter: QuickJS calls it every few thousand instructions, and the exception it
