@@ -29,7 +29,8 @@ impl Temp {
             std::process::id()
         ));
         let _ = fs::remove_dir_all(&path);
-        fs::create_dir_all(path.join("plugins")).expect("the folder could be made");
+        fs::create_dir_all(mods::mods_dir(&path, ModType::Plugin))
+            .expect("the folder could be made");
         Self { path }
     }
 

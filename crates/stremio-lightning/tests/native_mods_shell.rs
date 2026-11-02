@@ -586,20 +586,6 @@ fn the_window_opens_every_page_and_removes_a_theme_in_two_presses() {
     // The page reads the same file, so a file it cannot parse would leave the plugin off and the
     // card with nothing to say. Prove the switch is on before the app opens.
     let installed = stremio_lightning::screens::mods::data(&data_dir).plugins;
-    let page = stremio_lightning::screens::mods::data(&data_dir);
-    println!(
-        "PROBE root {data_dir:?} entries {:?} file {:?} notice {:?} cards {:?}",
-        std::fs::read_dir(&data_dir).map(|dir| dir
-            .filter_map(|e| e.ok())
-            .map(|e| e.file_name())
-            .collect::<Vec<_>>()),
-        std::fs::read_to_string(data_dir.join("settings.json")),
-        page.notice,
-        installed
-            .iter()
-            .map(|c| (c.filename.as_str(), c.enabled))
-            .collect::<Vec<_>>()
-    );
     assert_eq!(
         installed
             .iter()
@@ -682,6 +668,24 @@ fn the_window_opens_every_page_and_removes_a_theme_in_two_presses() {
                 ))
             }
         }),
+    );
+    // The Plugin settings page draws the same plugin the card above does, so its own line says
+    // the same thing once the page is the one on screen.
+    outcomes = step(
+        outcomes,
+        "The Plugin settings page says the same about the plugin it opens on",
+        click(window, "Plugin settings")
+            .and_then(|_| wait(window, Duration::from_secs(10), |_| page_is("settings")))
+            .and_then(|_| {
+                wait(window, Duration::from_secs(10), |window| {
+                    let state = window.get_mods().settings_state.to_string();
+                    if state.starts_with("Stopped: ") {
+                        Ok(state)
+                    } else {
+                        Err(format!("the page says {state:?}"))
+                    }
+                })
+            }),
     );
     outcomes = step(outcomes, "the menu lists the six pages", {
         let nav = window.get_mods_nav();

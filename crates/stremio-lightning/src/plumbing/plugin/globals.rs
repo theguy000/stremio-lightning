@@ -125,13 +125,31 @@ impl World {
     }
 
     /// How an evaluation ended, from what the interpreter returned and whether the clock ran out.
-    pub(super) fn verdict<R>(&self, result: rquickjs::Result<R>) -> super::Run {
+    /// The context is here for the one thing only it holds: the exception the code threw, which
+    /// is gone once the evaluation ends.
+    pub(super) fn verdict<R>(
+        &self,
+        ctx: &rquickjs::Ctx<'_>,
+        result: rquickjs::Result<R>,
+    ) -> super::Run {
         if self.is_over() {
             return super::Run::RanTooLong;
         }
         match result {
             Ok(_) => super::Run::Clean,
-            Err(error) => super::Run::Threw(super::describe(&error)),
+            Err(error) => {
+                let exception = matches!(error, rquickjs::Error::Exception)
+                    .then(|| {
+                        ctx.catch()
+                            .into_exception()
+                            .map(|thrown| match thrown.message() {
+                                Some(message) => message,
+                                None => thrown.to_string(),
+                            })
+                    })
+                    .flatten();
+                super::Run::Threw(super::describe(error, exception))
+            }
         }
     }
 

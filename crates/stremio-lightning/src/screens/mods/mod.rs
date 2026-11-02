@@ -123,7 +123,8 @@ pub struct Data {
     /// Whether the plugin picked on that page is running, and why not: the same state its card
     /// carries, said in full on the page where its settings are. `picked_enabled` is whether that
     /// plugin is switched on, which is what decides whether the page says anything about running
-    /// at all.
+    /// at all. Both are read from the folder and the runtime with every snapshot, never carried as
+    /// a choice: a switch pressed here and one pressed on the Plugins page are the same press.
     pub picked_state: settings::Running,
     pub picked_enabled: bool,
 }
@@ -151,10 +152,36 @@ impl Data {
 
     /// The same screen with what the plugin runtime holds folded in: the Plugins page says which
     /// plugins run, and the Plugin settings page lists the plugins that can be configured.
+    ///
+    /// The page opens on the first plugin in the list, switched on or off as the folder says.
     #[must_use]
     pub fn with_plugins(mut self, plugins: &crate::app::plugins::Runtime) -> Self {
         let extras = LocalExtras::load(&self.data_dir);
-        match settings::plugins(&self.data_dir, &extras) {
+        self.read_folder(&extras, plugins);
+        let plugin = match self.settings_plugins.first() {
+            Some(first) => first.filename.clone(),
+            None => String::new(),
+        };
+        self.update(plugin, settings::Edits::default());
+        self
+    }
+
+    /// The same screen for a window that has been running for a while: the folder is read again,
+    /// and what the user chose and typed stays. The window is drawn again on every core event,
+    /// and this is the part of it the folder can change without the user: a plugin installed or
+    /// removed, a plugin that failed to load. Nothing typed is thrown away.
+    #[must_use]
+    pub fn refresh(mut self, plugins: &crate::app::plugins::Runtime) -> Self {
+        let extras = LocalExtras::load(&self.data_dir);
+        self.read_folder(&extras, plugins);
+        let (plugin, edits) = (self.plugin.clone(), self.edits.clone());
+        self.update(plugin, edits);
+        self
+    }
+
+    /// Reads the two folders and what the runtime holds for each plugin into this screen.
+    fn read_folder(&mut self, extras: &LocalExtras, plugins: &crate::app::plugins::Runtime) {
+        match settings::plugins(&self.data_dir, extras) {
             Ok(list) => self.settings_plugins = list,
             Err(error) => self.notice = Notice::unreadable(error),
         }
@@ -170,25 +197,28 @@ impl Data {
             }
         }
         self.plugins.sort_by(|a, b| a.filename.cmp(&b.filename));
+    }
+
+    /// The same screen with what the Plugin settings page holds: the plugin picked, and its
+    /// schema with the values on screen. Whether that plugin is on comes from the folder, so this
+    /// cannot put the page out of step with the card on the Plugins page.
+    #[must_use]
+    pub fn with_edits(mut self, plugin: String, edits: settings::Edits) -> Self {
+        self.update(plugin, edits);
         self
     }
 
-    /// The same screen with what the Plugin settings page holds: the plugin picked, its schema
-    /// with the values on screen, and where that plugin stands. The switch the user pressed last
-    /// is the one that counts, not the folder's copy of it, which the core's own events can be
-    /// holding from before the press.
-    #[must_use]
-    pub fn with_edits(mut self, plugin: String, edits: settings::Edits, enabled: bool) -> Self {
+    /// Puts in place what the Plugin settings page holds: the plugin picked, what is typed for it,
+    /// and where that plugin stands. It is a method on the fields alone, so calling it cannot move
+    /// the screen and leave a stale copy of it behind.
+    fn update(&mut self, plugin: String, edits: settings::Edits) {
         self.picked_state = self.running.get(&plugin).cloned().unwrap_or_default();
-        self.picked_enabled = enabled;
-        for entry in &mut self.settings_plugins {
-            if entry.filename == plugin {
-                entry.enabled = enabled;
-            }
-        }
+        self.picked_enabled = self
+            .settings_plugins
+            .iter()
+            .any(|entry| entry.filename == plugin && entry.enabled);
         self.plugin = plugin;
         self.edits = edits;
-        self
     }
 
     /// The same screen after the user chose `page`, nothing else changed.
@@ -250,15 +280,23 @@ pub fn data(data_dir: &Path) -> Data {
     let extras = LocalExtras::load(data_dir);
     let mut data = Data::empty();
     data.data_dir = data_dir.to_path_buf();
-    let mut read = |kind: catalogue::Kind, cards: &mut Vec<ModCard>| match catalogue::cards(
-        data_dir, kind, &extras,
-    ) {
-        Ok(list) => *cards = list,
-        Err(error) => data.notice = Notice::unreadable(error),
-    };
-    read(catalogue::Kind::Plugin, &mut data.plugins);
-    read(catalogue::Kind::Theme, &mut data.themes);
-    data
+    data.cards_from_folder(&extras)
+}
+
+impl Data {
+    /// The cards the two pages draw, read from the folder, and the line about a folder that cannot
+    /// be read. The data the window gets at boot and the data it gets on every later event both
+    /// come through here.
+    fn cards_from_folder(mut self, extras: &LocalExtras) -> Self {
+        for kind in [catalogue::Kind::Plugin, catalogue::Kind::Theme] {
+            match catalogue::cards(&self.data_dir, kind, extras) {
+                Ok(list) if kind == catalogue::Kind::Plugin => self.plugins = list,
+                Ok(list) => self.themes = list,
+                Err(error) => self.notice = Notice::unreadable(error),
+            }
+        }
+        self
+    }
 }
 
 /// What a press on a card's switch means. `enabled` is the state the switch asks for; the screen
@@ -376,5 +414,65 @@ mod tests {
         assert!(switchable(&data));
         assert!(!switchable(&data.clone().with_page(Page::Logs)));
         assert!(data.clone().with_page(Page::Themes).cards().is_empty());
+    }
+
+    /// The folder is the answer to what the page opens on and whether that plugin is on: the page
+    /// is drawn before anyone presses anything.
+    #[test]
+    fn the_settings_page_opens_on_the_first_plugin_the_folder_names() {
+        let dir = std::env::temp_dir().join(format!(
+            "stremio-lightning-mods-picked-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        let opened = Data::empty().with_plugins(&crate::app::plugins::Runtime::new(dir.clone()));
+        assert!(opened.plugin.is_empty(), "no plugin is installed yet");
+        assert!(!opened.picked_enabled);
+
+        let plugins = stremio_lightning_core::mods::mods_dir(
+            &dir,
+            stremio_lightning_core::mods::ModType::Plugin,
+        );
+        std::fs::create_dir_all(&plugins).unwrap();
+        std::fs::write(plugins.join("a.plugin.js"), "/**\n * @name A\n */\n").unwrap();
+        std::fs::write(plugins.join("b.plugin.js"), "/**\n * @name B\n */\n").unwrap();
+        std::fs::write(
+            dir.join("settings.json"),
+            r#"{"enabled_plugins":["b.plugin.js"]}"#,
+        )
+        .unwrap();
+
+        // What the page holds: the screen's own data, read from the folder, with the runtime folded
+        // in, which is how the wiring builds it.
+        let mut page = Data::empty();
+        page.data_dir = dir.clone();
+        let opened = page.with_plugins(&crate::app::plugins::Runtime::new(dir.clone()));
+        // Both are listed, so the first by file name is the one the page opens on, and the folder
+        // does not name it: the page says the plugin is off rather than saying nothing.
+        assert_eq!(
+            opened.plugin, "a.plugin.js",
+            "opened on {:?}",
+            opened.plugin
+        );
+        // Both are listed, so the first by file name is the one the page opens on, and the folder
+        // does not name it: the page says the plugin is off rather than saying nothing.
+        assert_eq!(
+            opened.plugin,
+            "a.plugin.js",
+            "listed {:?}, notice {:?}, reading {:?}",
+            opened
+                .settings_plugins
+                .iter()
+                .map(|p| p.filename.as_str())
+                .collect::<Vec<_>>(),
+            opened.notice,
+            std::fs::read_dir(&plugins).map(|d| d
+                .filter_map(|e| e.ok())
+                .map(|e| e.file_name())
+                .collect::<Vec<_>>())
+        );
+        assert!(!opened.picked_enabled);
+        assert_eq!(opened.picked_state.stopped, "");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

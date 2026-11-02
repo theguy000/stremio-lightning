@@ -163,8 +163,6 @@ pub(crate) struct Wiring {
     /// holds, and anything typed since. The page is built from this rather than read again on
     /// every press, so a control cannot lose what was typed while another was pressed.
     pub(crate) mods_edits: Arc<Mutex<crate::screens::mods::settings::Edits>>,
-    /// Whether the plugin picked on that page is on, which is what its state line follows.
-    pub(crate) mods_enabled: Arc<Mutex<bool>>,
     /// Delays drawing while a text box is typed in. The page writes typed text on every press,
     /// and redrawing it on every press would take the editor out from under the next letter.
     pub(crate) mods_typed: Arc<Timer>,
@@ -1372,7 +1370,9 @@ impl Wiring {
         if let Some(window) = self.window.upgrade() {
             window.set_mods_page(page.id().into());
         }
-        let data = mods::data(&self.data_dir).with_page(page);
+        // The screen's own data with the plugins folded in, as on every later event: the Plugin
+        // settings page reads the folder here too, so opening it is not a page with nothing on it.
+        let data = self.plugin_data(page);
         let mut snapshot = self.latest.lock().unwrap().clone();
         snapshot.mods = data.with_notice(snapshot.mods.notice.clone());
         // The section's own properties are set here, not only posted: the press is on the
@@ -1420,11 +1420,6 @@ impl Wiring {
             } else {
                 self.drain(self.plugins.stop(&filename));
             }
-            // The Plugin settings page says whether the plugin it shows runs, and an off plugin
-            // says nothing about running at all.
-            if *self.mods_plugin.lock().unwrap() == filename {
-                *self.mods_enabled.lock().unwrap() = enabled;
-            }
         }
         self.after_mod_action(notice);
     }
@@ -1432,6 +1427,11 @@ impl Wiring {
     /// Starts every plugin `settings.json` names. Called once at boot, after the window is up.
     pub(crate) fn start_enabled_plugins(&self) {
         let enabled = self.local_extras.lock().unwrap().enabled_plugins.clone();
+        // The Plugin settings page opens on the plugin picked, which is the first one in the list
+        // when the app has just started. The pick is remembered here; whether the plugin is
+        // switched on is read from the folder with every snapshot.
+        let page = self.plugin_data(mods::Page::Plugins);
+        *self.mods_plugin.lock().unwrap() = page.plugin;
         let asked = self.plugins.start_enabled(&enabled);
         self.drain(asked);
         // The report is repainted so the first frame after boot already says which plugins run.
@@ -1509,13 +1509,6 @@ impl Wiring {
                 mods::settings::edits(&self.data_dir, &filename)
             };
         }
-        let enabled = self
-            .local_extras
-            .lock()
-            .unwrap()
-            .enabled_plugins
-            .contains(&filename);
-        *self.mods_enabled.lock().unwrap() = enabled;
         *self.mods_plugin.lock().unwrap() = filename;
         self.after_mod_action(None);
     }
@@ -1600,16 +1593,22 @@ impl Wiring {
         self.after_mod_action(Some(mods::Notice::said(format!("Saved {filename}."))));
     }
 
-    /// The Mods screen for `page`, with what the plugin runtime holds folded in.
+    /// The Mods screen for `page`, with what the plugin runtime holds folded in, and the plugin
+    /// the Plugin settings page has picked. The picked plugin is what the user last chose, so the
+    /// page it opens on is read from the runtime rather than from the folder every time.
     fn plugin_data(&self, page: mods::Page) -> mods::Data {
-        mods::data(&self.data_dir)
+        // The lock is taken before the screen is built: a guard alive across the `with_plugins`
+        // call would sit on the same line as the screen's own fields.
+        let pick = self.mods_plugin.lock().unwrap().clone();
+        let screen = mods::data(&self.data_dir)
             .with_page(page)
-            .with_plugins(&self.plugins)
-            .with_edits(
-                self.mods_plugin.lock().unwrap().clone(),
-                self.mods_edits.lock().unwrap().clone(),
-                *self.mods_enabled.lock().unwrap(),
-            )
+            .with_plugins(&self.plugins);
+        let pick = if pick.is_empty() {
+            screen.plugin.clone()
+        } else {
+            pick
+        };
+        screen.with_edits(pick, self.mods_edits.lock().unwrap().clone())
     }
 
     /// The Remove button of a mod card. Its first press arms the card and deletes nothing; its

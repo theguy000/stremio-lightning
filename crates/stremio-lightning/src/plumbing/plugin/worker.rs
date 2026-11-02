@@ -2,7 +2,7 @@
 //! asked for into calls on the host.
 
 use std::collections::BTreeMap;
-use std::sync::mpsc::{Receiver, Sender};
+use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -10,9 +10,7 @@ use rquickjs::Runtime;
 use serde_json::{Map, Value as Json};
 
 use super::globals::{self, Held, Settings};
-use super::{
-    lock, Answer, Call, Channel, Host, LogLine, Outcome, Run, Timer, BUDGET, MEMORY_LIMIT,
-};
+use super::{lock, Call, Channel, Host, LogLine, Outcome, Run, Timer, BUDGET, MEMORY_LIMIT};
 
 /// A plugin that has been started, as the app sees it from outside.
 pub struct Running {
@@ -31,15 +29,13 @@ impl Running {
         host: H,
     ) -> (Self, Outcome) {
         let (calls, commands) = std::sync::mpsc::channel();
-        let (replies, answers) = std::sync::mpsc::channel();
         let name = plugin.to_owned();
         let spawned = std::thread::Builder::new()
             .name(format!("plugin {}", super::name_of(plugin)))
-            .spawn(move || worker_main(&name, source, host, &commands, &replies));
+            .spawn(move || worker_main(&name, source, host, &commands));
         let mut running = Self {
             channel: Channel {
                 calls: Some(calls),
-                answers,
                 closed: None,
             },
             stopped: String::new(),
@@ -74,14 +70,16 @@ impl Running {
     /// Tells the plugin its settings were saved. `values` is the plugin's settings file as the
     /// Plugin settings page left it, the schema included.
     pub fn settings_saved(&mut self, values: Json) -> Outcome {
-        let outcome = self.channel.ask(Call::SettingsSaved(values));
+        let outcome = self.channel.ask(|reply| Call::SettingsSaved(values, reply));
         self.record(&outcome);
         outcome
     }
 
     pub fn deliver(&mut self, event: super::Event) -> Outcome {
         let (name, value) = event.named();
-        let outcome = self.channel.ask(Call::Event(name.to_owned(), value));
+        let outcome = self
+            .channel
+            .ask(|reply| Call::Event(name.to_owned(), value, reply));
         self.record(&outcome);
         outcome
     }
@@ -93,44 +91,32 @@ impl Running {
     }
 }
 
-fn worker_main<H: Host + 'static>(
-    plugin: &str,
-    source: String,
-    host: H,
-    calls: &Receiver<Call>,
-    answers: &Sender<Answer>,
-) {
+fn worker_main<H: Host + 'static>(plugin: &str, source: String, host: H, calls: &Receiver<Call>) {
     let mut worker = match Worker::new(plugin, host) {
         Ok(worker) => worker,
         Err(error) => {
-            let _ = answers.send(Answer {
-                outcome: Outcome {
-                    run: Run::Threw(error),
-                    ..Outcome::default()
-                },
-                closed: true,
-            });
+            // Nothing is listening for this answer: the start is still setting its channel up.
+            // Fail the start instead, so it says why no plugin is running.
+            while let Ok(call) = calls.recv() {
+                call.answer(error.clone());
+            }
             return;
         }
     };
-    let outcome = worker.load(&source);
-    let closed = outcome.run.failed();
-    if answers.send(Answer { outcome, closed }).is_err() || closed {
-        return;
-    }
-    // The plugin is loaded and running. From here on it only hears from the app.
     while let Ok(call) = calls.recv() {
-        let outcome = match call {
-            Call::Started => Outcome::default(),
-            Call::SettingsSaved(values) => worker.settings_saved(values),
-            Call::Event(name, value) => worker.deliver(&name, value),
+        let (outcome, reply) = match call {
+            // The start's own call: the plugin's file runs for the first time.
+            Call::Started(reply) => (worker.load(&source), reply),
+            Call::SettingsSaved(values, reply) => (worker.settings_saved(values), reply),
+            Call::Event(name, value, reply) => (worker.deliver(&name, value), reply),
         };
         let closed = outcome.run.failed();
         if closed {
             let reason = outcome.run.said();
             lock(&worker.host).log(plugin, LogLine::new("error", reason), true);
         }
-        if answers.send(Answer { outcome, closed }).is_err() || closed {
+        let _ = reply.send(outcome);
+        if closed {
             return;
         }
     }
@@ -213,11 +199,9 @@ impl<H: Host + 'static> Worker<H> {
 
     /// Runs the plugin's file for the first time, then every timer that came due while it loaded.
     fn load(&mut self, source: &str) -> Outcome {
-        let settled = self.settle(|this| {
-            this.context.with(|ctx| {
-                let _: rquickjs::Value = ctx.eval(source)?;
-                Ok(())
-            })
+        let settled = self.settle(|_, ctx| {
+            let _: rquickjs::Value = ctx.eval(source)?;
+            Ok(())
         });
         self.finish(settled)
     }
@@ -228,7 +212,7 @@ impl<H: Host + 'static> Worker<H> {
         let fresh: Map<String, Json> = values.as_object().cloned().unwrap_or_default();
         *lock(&self.world.settings) = Some(fresh);
         let callbacks = std::mem::take(&mut self.on_settings_saved);
-        let settled = self.settle(|this| this.called(&callbacks, &values));
+        let settled = self.settle(|this, ctx| this.called(ctx, &callbacks, &values));
         *lock(&self.world.settings) = None;
         let stopped = settled.outcome.run.failed();
         let outcome = self.finish(settled);
@@ -241,7 +225,7 @@ impl<H: Host + 'static> Worker<H> {
     /// Calls the plugin's callbacks for one event, with the event's value.
     fn deliver(&mut self, event: &str, value: Json) -> Outcome {
         let callbacks = self.listeners.remove(event).unwrap_or_default();
-        let settled = self.settle(|this| this.called(&callbacks, &value));
+        let settled = self.settle(|this, ctx| this.called(ctx, &callbacks, &value));
         let stopped = settled.outcome.run.failed();
         let outcome = self.finish(settled);
         if !stopped {
@@ -251,19 +235,34 @@ impl<H: Host + 'static> Worker<H> {
     }
 
     /// Runs one evaluation with the budget armed and the host reachable from its settings
-    /// functions.
-    fn settle(&mut self, run: impl FnOnce(&mut Self) -> rquickjs::Result<()>) -> Settled {
+    /// functions. `run` gets the interpreter's context, which is needed to read back the
+    /// exception a plugin threw before the evaluation ends.
+    fn settle(
+        &mut self,
+        run: impl FnOnce(&mut Self, &rquickjs::Ctx<'_>) -> rquickjs::Result<()>,
+    ) -> Settled {
         let session = Session {
             plugin: self.plugin.clone(),
             host: Arc::clone(&self.host),
             world: globals::Shared::clone(&self.world),
         };
         self.world.begin(BUDGET);
-        let result = globals::inside_call(globals::SettingsHandle::new(session), || run(self));
+        // The context is borrowed for the call, and `run` needs the worker itself, so the call
+        // goes through a clone: `Context` is a handle, and both name the same interpreter.
+        let context = self.context.clone();
+        let result = context.with(|ctx| {
+            let result =
+                globals::inside_call(globals::SettingsHandle::new(session), || run(self, &ctx));
+            // Judged inside the context and before the evaluation is ended: the verdict asks
+            // whether the clock ran out, and ending an evaluation clears the deadline that
+            // answered it.
+            self.world.verdict(&ctx, result)
+        });
+        let run = result;
         self.world.end();
         let requests = self.world.take();
         let outcome = Outcome {
-            run: self.world.verdict(result),
+            run,
             logs: requests
                 .logs
                 .iter()
@@ -331,8 +330,7 @@ impl<H: Host + 'static> Worker<H> {
             let period = timer.period;
             let due = timer.due;
             self.timers.remove(&id);
-            let settled =
-                self.settle(|this| this.context.with(|ctx| globals::handed(&ctx, &code, ())));
+            let settled = self.settle(|_, ctx| globals::handed(ctx, &code, ()));
             // `finish` runs what this step asked for and every timer it made due, so its answer
             // already holds this step's lines.
             let step = self.finish(settled);
@@ -364,20 +362,23 @@ impl<H: Host + 'static> Worker<H> {
     }
 
     /// Calls each callback with `value`. The call's settings session is already in place.
-    fn called(&mut self, callbacks: &[Held], value: &Json) -> rquickjs::Result<()> {
+    fn called(
+        &mut self,
+        ctx: &rquickjs::Ctx<'_>,
+        callbacks: &[Held],
+        value: &Json,
+    ) -> rquickjs::Result<()> {
         let session = Session {
             plugin: self.plugin.clone(),
             host: Arc::clone(&self.host),
             world: globals::Shared::clone(&self.world),
         };
         globals::inside_call(globals::SettingsHandle::new(session), || {
-            self.context.with(|ctx| {
-                let value = globals::to_js(&ctx, value)?;
-                for callback in callbacks {
-                    globals::handed(&ctx, callback, (value.clone(),))?;
-                }
-                Ok::<(), rquickjs::Error>(())
-            })
+            let value = globals::to_js(ctx, value)?;
+            for callback in callbacks {
+                globals::handed(ctx, callback, (value.clone(),))?;
+            }
+            Ok::<(), rquickjs::Error>(())
         })
     }
 

@@ -126,7 +126,6 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
     let plugins = app::plugins::Runtime::new(data_dir.clone());
     let mods_plugin: Arc<Mutex<String>> = Default::default();
     let mods_edits: Arc<Mutex<screens::mods::settings::Edits>> = Default::default();
-    let mods_enabled: Arc<Mutex<bool>> = Default::default();
 
     let wiring = shell::wiring::Wiring {
         window: window.as_weak(),
@@ -167,7 +166,6 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
         plugins: plugins.clone(),
         mods_plugin: mods_plugin.clone(),
         mods_edits: mods_edits.clone(),
-        mods_enabled: mods_enabled.clone(),
         mods_typed: Default::default(),
     };
     shell::wire(&window, wiring.clone());
@@ -218,9 +216,10 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
             data_dir: data_dir.clone(),
             mods_page: mods_page.clone(),
             plugins: plugins.clone(),
-            mods_plugin,
-            mods_edits,
-            mods_enabled,
+            // The wiring's columns and the event pump's are the same two: a press writes through
+            // one, and every snapshot the core draws reads through the other.
+            mods_plugin: mods_plugin.clone(),
+            mods_edits: mods_edits.clone(),
             playback_error,
             auth: wiring.auth.clone(),
             board_catalogs: wiring.board_catalogs.clone(),

@@ -28,7 +28,7 @@
 //! thread is left to the interpreter, and every later call says so at once.
 
 use std::path::Path;
-use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
+use std::sync::mpsc::{RecvTimeoutError, Sender};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -267,20 +267,31 @@ pub fn record_schema(plugins_dir: &Path, name: &str, schema: &Json) -> Result<()
     )
 }
 
-/// The command the app sends the plugin's thread.
+/// The command the app sends the plugin's thread. Each carries the channel its answer goes back
+/// on, so an answer can only reach the call that asked for it.
 enum Call {
-    /// Nothing: the thread loads the plugin and says whether that worked.
-    Started,
+    /// The first call: the thread loads the plugin and says whether that worked.
+    Started(Sender<Outcome>),
     /// The Plugin settings page saved values: the plugin's `onSettingsSaved` callbacks hear it.
-    SettingsSaved(Json),
-    Event(String, Json),
+    SettingsSaved(Json, Sender<Outcome>),
+    Event(String, Json, Sender<Outcome>),
 }
 
-/// A call's answer, back on the app's thread.
-struct Answer {
-    outcome: Outcome,
-    /// The interpreter will take no further call.
-    closed: bool,
+impl Call {
+    /// Answers a call the thread's interpreter never started to run. The app may have stopped
+    /// listening, in which case the answer is dropped with the channel.
+    fn answer(self, reason: String) {
+        let outcome = Outcome {
+            run: Run::Threw(reason),
+            ..Outcome::default()
+        };
+        let reply = match self {
+            Self::Started(reply) => reply,
+            Self::SettingsSaved(_, reply) => reply,
+            Self::Event(_, _, reply) => reply,
+        };
+        let _ = reply.send(outcome);
+    }
 }
 
 /// Calls into one plugin, each run on the plugin's thread. The thread holds the interpreter for
@@ -288,13 +299,14 @@ struct Answer {
 /// answered without waiting.
 struct Channel {
     calls: Option<Sender<Call>>,
-    answers: Receiver<Answer>,
     /// Why the plugin takes no call, once it has stopped taking them.
     closed: Option<String>,
 }
 
 impl Channel {
-    fn ask(&mut self, call: Call) -> Outcome {
+    /// Sends one call and waits for its answer. `call` builds the call around the channel the
+    /// answer comes back on, so the answer cannot be read by a later call.
+    fn ask(&mut self, call: impl FnOnce(Sender<Outcome>) -> Call) -> Outcome {
         let trouble = |reason: &str| Outcome {
             run: Run::Threw(reason.to_owned()),
             ..Outcome::default()
@@ -305,16 +317,17 @@ impl Channel {
         let Some(calls) = &self.calls else {
             return Outcome::default();
         };
-        if calls.send(call).is_err() {
+        let (replies, answer) = std::sync::mpsc::channel();
+        if calls.send(call(replies)).is_err() {
             self.close(GONE.to_owned());
             return trouble(GONE);
         }
-        match self.answers.recv_timeout(ANSWER_WAIT) {
-            Ok(answer) => {
-                if answer.closed {
-                    self.close(answer.outcome.run.said());
+        match answer.recv_timeout(ANSWER_WAIT) {
+            Ok(outcome) => {
+                if outcome.run.failed() {
+                    self.close(outcome.run.said());
                 }
-                answer.outcome
+                outcome
             }
             Err(RecvTimeoutError::Timeout) => {
                 // The thread is inside the plugin and is not coming back.
@@ -352,10 +365,14 @@ struct Timer {
 }
 
 /// What a failed evaluation says on screen. The plugin author reads the same words the engine
-/// threw, so they can find the line the error came from.
-fn describe(error: &rquickjs::Error) -> String {
+/// threw, so they can find the line the error came from. An exception carries its own sentence,
+/// which the interpreter's pending exception still holds when the evaluation ends.
+fn describe(error: rquickjs::Error, exception: Option<String>) -> String {
     match error {
-        rquickjs::Error::Exception => "The plugin threw an error.".to_owned(),
+        rquickjs::Error::Exception => match exception {
+            Some(said) if !said.is_empty() => said,
+            _ => "The plugin threw an error.".to_owned(),
+        },
         rquickjs::Error::UnrelatedRuntime => {
             "The plugin's callback came from another interpreter.".to_owned()
         }

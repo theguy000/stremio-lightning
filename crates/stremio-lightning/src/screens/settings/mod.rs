@@ -50,7 +50,11 @@ impl Default for PlayerConfig {
 /// Settings this shell keeps beside the profile: values that stremio-web stores but the core's
 /// `Profile` does not carry. They are written next to the app's data, not into the profile, and
 /// merged over it when the screen is built.
+// Fields this build does not carry are skipped, not refused: a `settings.json` written by another
+// build still holds the choices this one reads. Without that, one unknown key dropped the whole
+// file and every plugin and theme the user had switched on came back off.
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct LocalExtras {
     pub overrides: HashMap<String, Value>,
     /// Whether the Streams list wraps its descriptions. Kept here rather than in the profile
