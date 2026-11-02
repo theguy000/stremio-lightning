@@ -196,9 +196,28 @@ fn sync_board_catalogs(context: &Context) {
     });
 }
 
+/// The core's errors carry a message but no `Display`, so a record spells out which layer spoke
+/// and what it said.
+fn error_text(error: &stremio_core::models::ctx::CtxError) -> String {
+    use stremio_core::models::ctx::CtxError;
+    match error {
+        CtxError::API(api) => format!("API {}: {}", api.code, api.message),
+        CtxError::Env(env) => format!("Environment: {}", env.message()),
+        CtxError::Other(other) => format!("Core: {}", other.message()),
+    }
+}
+
 fn handle(event: RuntimeEvent<AppEnv, AppModel>, context: &Context) {
     match event {
         RuntimeEvent::CoreEvent(Event::Error { error, source }) => {
+            // The core's own errors are records too, so a title that would not load or a list
+            // that would not arrive says so on the Logs page. It never prints to stderr.
+            context.plugins.logs().record(
+                crate::plumbing::logs::Source::App,
+                "Core",
+                crate::plumbing::logs::Level::Error,
+                error_text(&error),
+            );
             // Any error means the attempt has finished, so always stop the spinner; only
             // authentication errors belong in the sign-in banner.
             let message = matches!(*source, Event::UserAuthenticated { .. })
@@ -249,8 +268,14 @@ fn handle(event: RuntimeEvent<AppEnv, AppModel>, context: &Context) {
                 if let crate::app::plugins::Asked::Theme(rules) = ask {
                     let rules = rules.clone();
                     let weak = context.weak.clone();
+                    // Over the enabled theme, so a plugin that restyles one element does not take
+                    // the theme off the window with it.
+                    let theme_rules = crate::plumbing::theme::enabled_rules(
+                        &context.data_dir,
+                        context.plugins.logs(),
+                    );
                     let _ = weak.upgrade_in_event_loop(move |window| {
-                        let _ = crate::plumbing::theme::install(&window, &rules);
+                        let _ = crate::plumbing::theme::install_over(&window, &theme_rules, &rules);
                     });
                 }
             }

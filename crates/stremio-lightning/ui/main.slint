@@ -112,6 +112,17 @@ export component MainWindow inherits Window {
     callback edit-mods-setting-number(string, float);
     callback save-mods-settings();
     callback revert-mods-settings();
+    /// The Logs page's filter: which part of it ("source" or "level") and the id picked, empty
+    /// for every one; the search box, where each change is a press; a press on a record, which
+    /// opens its full text; and Clear, whose second press empties the list.
+    callback filter-mods-logs(string, string);
+    callback search-mods-logs(string);
+    callback open-mods-log(int);
+    callback clear-mods-logs();
+    /// The About page: read the folders again, write the diagnostics file, and copy the version.
+    callback refresh-mods-about();
+    callback export-mods-diagnostics();
+    callback copy-mods-version();
 
     in-out property <bool> details-open: false;
     in property <PreviewData> details-preview;
@@ -753,6 +764,20 @@ export component MainWindow inherits Window {
             settings-state: root.mods.settings-state,
             settings-state-failed: root.mods.settings-state-failed,
             settings-dirty: root.mods.settings-dirty,
+            log-sources: root.mods.log-sources,
+            log-levels: root.mods.log-levels,
+            log-search: root.mods.log-search,
+            log-held: root.mods.log-held,
+            log-rows: root.mods.log-rows,
+            log-empty: root.mods.log-empty,
+            log-detail: root.mods.log-detail,
+            log-clear-armed: root.mods.log-clear-armed,
+            about-build: root.mods.about-build,
+            about-places: root.mods.about-places,
+            about-counts: root.mods.about-counts,
+            about-enabled: root.mods.about-enabled,
+            about-license: root.mods.about-license,
+            about-export: root.mods.about-export,
         };
         select-page(page) => {
             root.select-mods-page(page);
@@ -783,6 +808,27 @@ export component MainWindow inherits Window {
         }
         revert-settings => {
             root.revert-mods-settings();
+        }
+        filter-logs(part, value) => {
+            root.filter-mods-logs(part, value);
+        }
+        search-logs(text) => {
+            root.search-mods-logs(text);
+        }
+        open-log(id) => {
+            root.open-mods-log(id);
+        }
+        clear-logs => {
+            root.clear-mods-logs();
+        }
+        refresh-about => {
+            root.refresh-mods-about();
+        }
+        export-diagnostics => {
+            root.export-mods-diagnostics();
+        }
+        copy-version => {
+            root.copy-mods-version();
         }
     }
 

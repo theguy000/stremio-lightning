@@ -52,11 +52,14 @@ impl Started {
         }
     }
 
-    fn record(&mut self, outcome: &Outcome) {
+    /// Keeps what this call logged, and records every line in the app's log so the Logs page and
+    /// the diagnostics file have it. `filename` is what the record is about.
+    fn record(&mut self, filename: &str, logs: &crate::plumbing::logs::Logs, outcome: &Outcome) {
         // The outcome's lines reach the plugin's log only through here. A plugin's card reads the
-        // runtime's state, and the Logs page reads `Runtime::lines`, which reads this.
+        // runtime's state, and the Logs page reads the recorder this writes to.
         for line in &outcome.logs {
             self.lines.push(line.clone());
+            logs.plugin(filename, line);
             if line.level == "warn" || line.level == "error" {
                 self.last_error = line.text.clone();
             }
@@ -88,6 +91,10 @@ pub struct Runtime {
     /// Counts the asks, so the screen can tell whether anything about a plugin changed without
     /// waking every listener.
     count: AtomicU64,
+    /// The app's log records. Every line this runtime keeps for a plugin is recorded here too, at
+    /// the moment it is kept, which is what the Logs page lists and what the diagnostics file
+    /// writes. Created with the runtime so a test reads the same lines without wiring an app.
+    logs: Arc<crate::plumbing::logs::Logs>,
 }
 
 impl std::fmt::Debug for Runtime {
@@ -106,6 +113,12 @@ impl std::fmt::Debug for Runtime {
 
 impl Runtime {
     pub fn new(data_dir: PathBuf) -> Arc<Self> {
+        Self::with_logs(data_dir, Arc::new(crate::plumbing::logs::Logs::new()))
+    }
+
+    /// A runtime that records into the app's own list of records, which is the one the Logs page
+    /// reads. The app makes one of these; a test that wants no app behind it uses `new`.
+    pub fn with_logs(data_dir: PathBuf, logs: Arc<crate::plumbing::logs::Logs>) -> Arc<Self> {
         Arc::new(Self {
             data_dir,
             started: Mutex::default(),
@@ -113,7 +126,13 @@ impl Runtime {
             stopped: Mutex::default(),
             asked: Mutex::default(),
             count: AtomicU64::default(),
+            logs,
         })
+    }
+
+    /// The app's log records, which this runtime fills with the lines its plugins log.
+    pub fn logs(&self) -> &Arc<crate::plumbing::logs::Logs> {
+        &self.logs
     }
 
     /// Starts every plugin `settings.json` names, in the order it names them. A file the list
@@ -151,6 +170,12 @@ impl Runtime {
                 self.withdraw(filename, &cell);
                 let said = format!("{} could not be read: {error}", path.display());
                 self.failed(filename, said.clone());
+                self.logs.record(
+                    crate::plumbing::logs::Source::Plugin,
+                    filename,
+                    crate::plumbing::logs::Level::Error,
+                    said.clone(),
+                );
                 return vec![
                     Asked::Log(LogLine::new("error", said), true),
                     Asked::Changed,
@@ -167,7 +192,7 @@ impl Runtime {
             let mut entry = lock(&cell);
             entry.running = running;
             entry.last_error = settings::last_error(&outcome.logs);
-            entry.record(&outcome);
+            entry.record(filename, &self.logs, &outcome);
             entry.running.running()
         };
         let mut asked = Vec::new();
@@ -183,7 +208,9 @@ impl Runtime {
         } else {
             self.withdraw(filename, &cell);
             self.failed(filename, outcome.run.said());
-            asked.push(Asked::Log(LogLine::new("error", outcome.run.said()), true));
+            let reason = LogLine::new("error", outcome.run.said());
+            self.logs.plugin(filename, &reason);
+            asked.push(Asked::Log(reason, true));
         }
         asked
     }
@@ -229,7 +256,7 @@ impl Runtime {
                 let reason = outcome.run.said();
                 outcome.logs.push(LogLine::new("error", reason));
             }
-            entry.record(&outcome);
+            entry.record(filename, &self.logs, &outcome);
             asked_by(&outcome, &entry)
         };
         self.close(filename, &cell);
@@ -261,7 +288,7 @@ impl Runtime {
                     let reason = outcome.run.said();
                     outcome.logs.push(LogLine::new("error", reason));
                 }
-                entry.record(&outcome);
+                entry.record(&name, &self.logs, &outcome);
                 asked.extend(asked_by(&outcome, &entry));
             }
             self.close(&name, &cell);
@@ -293,7 +320,7 @@ impl Runtime {
                     let reason = outcome.run.said();
                     outcome.logs.push(LogLine::new("error", reason));
                 }
-                entry.record(&outcome);
+                entry.record(&name, &self.logs, &outcome);
                 asked.extend(asked_by(&outcome, &entry));
             }
             self.close(&name, &cell);
@@ -369,10 +396,10 @@ impl Runtime {
         }
     }
 
-    /// The lines every plugin has logged, oldest first and by plugin, as the Logs page shows
-    /// them: the plugin's name, then the line. A plugin that stopped is here too, which is where
-    /// the reason it stopped is read from. This is the Logs page's only source; nothing else
-    /// keeps a plugin's lines, and the list is in memory for this run of the app.
+    /// The lines every plugin has logged, oldest first and by plugin: the plugin's name, then the
+    /// line. A plugin that stopped is here too, which is where the reason it stopped is read from.
+    /// Every one of them is also in [`Self::logs`], which is the Logs page's source and mixes them
+    /// with the rest of the app's records. Both lists are in memory for this run of the app.
     pub fn lines(&self) -> Vec<(String, LogLine)> {
         let mut all: Vec<(String, LogLine)> = Vec::new();
         {

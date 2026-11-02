@@ -1,14 +1,12 @@
 // The Mods section: a menu of six pages on the left, the page on screen to its right.
 //
-// Plugin settings, Marketplace, Logs and About are drawn as headings only until their stages
-// land; each of those stages fills in its branch of `if root.data.page == ...` and adds what its
-// card needs to `ModsViewData` below. Nothing here reads a file or runs a plugin: it all arrives
-// in `data`.
+// The Marketplace page is drawn as a heading only until its stage lands. Nothing here reads a
+// file or runs a plugin: it all arrives in `data`.
 import { ClassStyles } from "class-styles.slint";
 import { Theme } from "theme.slint";
 import { ModsNavItem } from "shell.slint";
 import { ScrollBar } from "scroll-bar.slint";
-import { LineEdit, Slider } from "std-widgets.slint";
+import { LineEdit, Slider, VerticalBox } from "std-widgets.slint";
 
 // One plugin or theme file, as its card draws it.
 export struct ModCardData {
@@ -67,6 +65,34 @@ export struct SettingsFieldData {
     shown: string,
 }
 
+// One choice of a Logs page filter: the id the press sends back, the word it shows, and whether
+// it is the one picked.
+export struct ModsFilterChoice {
+    id: string,
+    label: string,
+    selected: bool,
+}
+
+// One record on the Logs page. `id` is what a press on the row names it by.
+export struct ModsLogRow {
+    id: int,
+    /// The source column: "Plugin a.plugin.js", "Theme red.theme.css", "Server".
+    source: string,
+    /// The level as a word: "Error", "Warning", "Info", "Debug".
+    level: string,
+    /// The level as the filter names it, so a row can be drawn as bad news or not.
+    level-id: string,
+    time: string,
+    /// The record's text on one line. The full text is the detail.
+    text: string,
+}
+
+// One label and its value on the About page.
+export struct ModsAboutLine {
+    label: string,
+    value: string,
+}
+
 // What the window holds for the Mods section. Later stages add their fields here and fill them in
 // `shell/view.rs`'s `mods_view`.
 export struct ModsViewData {
@@ -100,6 +126,26 @@ export struct ModsViewData {
     settings-state-failed: bool,
     /// Whether the page has something typed and not saved. Only this turns Save on.
     settings-dirty: bool,
+    /// The Logs page: the filter's two lists of choices with the picked one marked, what the search
+    /// box holds, the header that says how many records are held, the rows, and the full text of
+    /// the one record that is open.
+    log-sources: [ModsFilterChoice],
+    log-levels: [ModsFilterChoice],
+    log-search: string,
+    log-held: string,
+    log-rows: [ModsLogRow],
+    log-empty: string,
+    log-detail: [string],
+    /// Whether Clear has been pressed once and the second press is the one that empties the list.
+    log-clear-armed: bool,
+    /// The About page: the build, the places, the counts, the enabled lists, the licence, and the
+    /// path of the diagnostics file written last.
+    about-build: [ModsAboutLine],
+    about-places: [ModsAboutLine],
+    about-counts: [ModsAboutLine],
+    about-enabled: [ModsAboutLine],
+    about-license: string,
+    about-export: string,
 }
 
 // Web: the Settings menu's `.button`, which the Mods menu borrows: a 4rem pill, dim until it is
@@ -669,6 +715,163 @@ component SettingsButton inherits Rectangle {
     }
 }
 
+
+
+// A pill on the Logs page: one choice of a filter, with the picked one marked. Web: the addon
+// card's pills, round and dim until picked.
+component ModsFilterPill inherits Rectangle {
+    in property <string> id;
+    in property <string> label-text;
+    in property <bool> selected;
+    in property <length> rem-size;
+    callback clicked();
+
+    height: 2.6 * rem-size;
+    width: filter-pill-label.width + 1.6 * rem-size;
+    border-radius: self.height / 2;
+    border-width: 1px;
+    border-color: root.selected ? Theme.accent-green : Theme.placeholder;
+    background: (root.selected || filter-pill-touch.has-hover) ? Theme.overlay : transparent;
+    visible: !ClassStyles.mods-log-filter.hidden;
+
+    filter-pill-label := Text {
+        x: 0.8 * root.rem-size;
+        y: (parent.height - self.height) / 2;
+        width: self.preferred-width;
+        text: root.label-text;
+        font-size: 0.9 * root.rem-size;
+        color: ClassStyles.color-or(ClassStyles.mods-log-filter, root.selected ? Theme.accent-green : Theme.text);
+        visible: !ClassStyles.mods-log-filter.hidden;
+    }
+    filter-pill-touch := TouchArea {
+        width: 100%;
+        height: 100%;
+        mouse-cursor: pointer;
+        // The word on it, so a test presses the filter it means.
+        accessible-role: radio-button;
+        accessible-label: root.label-text;
+        accessible-checkable: true;
+        accessible-checked: root.selected;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// One record on the Logs page: the time, the source, the level and the text on one line. A press
+// opens the whole record under the list. Web: a row of the addon list, one line per record.
+component ModsLogRowView inherits Rectangle {
+    in property <ModsLogRow> record;
+    in property <length> rem-size;
+    callback opened();
+
+    height: 2.2 * rem-size;
+    background: log-row-touch.has-hover ? Theme.overlay : transparent;
+
+    log-row-time := Text {
+        x: 0.4 * rem-size;
+        y: 0px;
+        width: 6 * rem-size;
+        height: parent.height;
+        text: root.record.time;
+        vertical-alignment: center;
+        font-size: 0.85 * rem-size;
+        color: ClassStyles.color-or(ClassStyles.mods-log-time, Theme.placeholder);
+        opacity: ClassStyles.opacity-or(ClassStyles.mods-log-time, 1.0);
+        visible: !ClassStyles.mods-log-time.hidden;
+    }
+    log-row-source := Text {
+        x: log-row-time.width + 0.8 * rem-size;
+        y: 0px;
+        width: 17 * rem-size;
+        height: parent.height;
+        text: root.record.source;
+        overflow: elide;
+        vertical-alignment: center;
+        font-size: 0.85 * rem-size;
+        color: ClassStyles.color-or(ClassStyles.mods-log-source, Theme.text);
+        opacity: ClassStyles.opacity-or(ClassStyles.mods-log-source, 1.0);
+        visible: !ClassStyles.mods-log-source.hidden;
+    }
+    log-row-level := Text {
+        x: log-row-source.x + log-row-source.width;
+        y: 0px;
+        width: 8 * rem-size;
+        height: parent.height;
+        text: root.record.level;
+        overflow: elide;
+        vertical-alignment: center;
+        font-size: 0.85 * rem-size;
+        // The level's own colour: an error is red, a warning yellow, and the rest the page's text.
+        color: ClassStyles.color-or(ClassStyles.mods-log-level,
+            root.record.level-id == "error" ? Theme.accent-red
+            : root.record.level-id == "warn" ? Theme.accent-yellow : Theme.text);
+        opacity: ClassStyles.opacity-or(ClassStyles.mods-log-level, 1.0);
+        visible: !ClassStyles.mods-log-level.hidden;
+    }
+    log-row-text := Text {
+        x: log-row-level.x + log-row-level.width + 0.8 * rem-size;
+        y: 0px;
+        width: Math.max(0px, parent.width - self.x - 0.4 * rem-size);
+        height: parent.height;
+        text: root.record.text;
+        overflow: elide;
+        vertical-alignment: center;
+        font-size: 0.85 * rem-size;
+        color: ClassStyles.color-or(ClassStyles.mods-log-text, Theme.text);
+        opacity: ClassStyles.opacity-or(ClassStyles.mods-log-text, 1.0);
+        visible: !ClassStyles.mods-log-text.hidden;
+    }
+    log-row-touch := TouchArea {
+        width: 100%;
+        height: 100%;
+        mouse-cursor: pointer;
+        // The text, so a test presses the record it means. The time is in it, because two lines
+        // of the same text are two records.
+        accessible-role: button;
+        accessible-label: "Show " + root.record.time + " " + root.record.source + ": " + root.record.text;
+        clicked => {
+            root.opened();
+        }
+    }
+}
+
+// One label and its value on the About page: the label in a column of its own so the values line
+// up. Web: a Settings row.
+component ModsAboutRow inherits Rectangle {
+    in property <ModsAboutLine> entry;
+    in property <length> rem-size;
+
+    height: 2.2 * rem-size;
+
+    about-row-label := Text {
+        x: 0px;
+        y: 0px;
+        width: 18 * rem-size;
+        height: parent.height;
+        text: root.entry.label;
+        overflow: elide;
+        vertical-alignment: center;
+        font-size: 0.95 * rem-size;
+        color: ClassStyles.color-or(ClassStyles.mods-about-label, Theme.text);
+        opacity: ClassStyles.opacity-or(ClassStyles.mods-about-label, 0.7);
+        visible: !ClassStyles.mods-about-label.hidden;
+    }
+    about-row-value := Text {
+        x: about-row-label.width + rem-size;
+        y: 0px;
+        width: Math.max(0px, parent.width - self.x - 0.4 * rem-size);
+        height: parent.height;
+        text: root.entry.value;
+        overflow: elide;
+        vertical-alignment: center;
+        font-size: 0.95 * rem-size;
+        color: ClassStyles.color-or(ClassStyles.mods-about-value, Theme.text);
+        opacity: ClassStyles.opacity-or(ClassStyles.mods-about-value, 1.0);
+        visible: !ClassStyles.mods-about-value.hidden;
+    }
+}
+
 export component ModsContent inherits Rectangle {    // The height every card on a page takes: the tallest card the page has to draw, so the list's
     // row pitch matches what each card draws.
     pure function tallest(cards: [ModCardData], rem-size: length) -> length {
@@ -705,6 +908,20 @@ export component ModsContent inherits Rectangle {    // The height every card on
     callback save-settings();
     /// The Revert press: what is typed goes back to what the file holds.
     callback revert-settings();
+    /// A press on one of the Logs page's filter pills: which part of the filter ("source" or
+    /// "level") and the id picked, empty for "every one".
+    callback filter-logs(string, string);
+    /// The Logs page's search box. Each change is a press.
+    callback search-logs(string);
+    /// A press on a record: its full text opens, or closes when it is the one open.
+    callback open-log(int);
+    /// The Logs page's Clear button. The first press arms it and empties nothing.
+    callback clear-logs();
+    /// The About page's buttons: read the folders again, write the diagnostics file, and copy the
+    /// version to the clipboard.
+    callback refresh-about();
+    callback export-diagnostics();
+    callback copy-version();
 
     property <length> rem-size: Theme.rem-size(root.viewport-width);
     property <length> menu-width: 18 * root.rem-size;
@@ -722,6 +939,8 @@ export component ModsContent inherits Rectangle {    // The height every card on
     property <bool> on-plugins: root.data.page == "plugins";
     property <bool> on-themes: root.data.page == "themes";
     property <bool> on-settings: root.data.page == "settings";
+    property <bool> on-logs: root.data.page == "logs";
+    property <bool> on-about: root.data.page == "about";
     // The left list of the Plugin settings page: a column 18rem wide beside the page's controls.
     property <length> choice-width: 18 * root.rem-size;
     property <length> fields-width: Math.max(0px, root.page-width - root.choice-width - 2 * root.rem-size);
@@ -804,8 +1023,8 @@ export component ModsContent inherits Rectangle {    // The height every card on
                 : root.on-themes ? root.data.themes-note
                 : root.data.page == "marketplace" ? "The Marketplace arrives in a later release."
                 : root.data.page == "settings" ? "Pick a plugin on the left. Its settings are saved only when you press Save."
-                : root.data.page == "logs" ? "The Logs page arrives in a later release."
-                : "The About page arrives in a later release.";
+                : root.data.page == "logs" ? root.data.log-held
+                : "What this build is and what it keeps.";
             wrap: word-wrap;
             vertical-alignment: top;
             font-size: root.rem-size;
@@ -1056,6 +1275,291 @@ export component ModsContent inherits Rectangle {    // The height every card on
                 view-height: parent.height;
                 content-height: settings-fields.content-height;
                 offset <=> settings-fields.content-y;
+            }
+        }
+
+        // ---- Logs -----------------------------------------------------------------------
+        // Every record the app holds, newest first, with the filter above the list and the full
+        // text of one record under it. Clear empties the list on its second press and deletes no
+        // file: the header says how many are held and that nothing is written.
+        if root.on-logs: Rectangle {
+            x: root.page-padding;
+            y: root.list-top;
+            width: root.page-width;
+            height: Math.max(root.height - root.list-top, 0px);
+
+            property <length> filter-height: 8 * root.rem-size;
+            property <length> detail-height: root.data.log-detail.length == 0 ? 0px
+                : (root.data.log-detail.length + 1) * 1.4 * root.rem-size + 0.8 * root.rem-size;
+            property <length> rows-height: Math.max(0px, parent.height - filter-height - detail-height);
+
+            // One row of pills per part of the filter, and the search box beside the Clear button.
+            log-source-filter := HorizontalLayout {
+                x: 0px;
+                y: 0px;
+                width: parent.width - 12 * root.rem-size;
+                height: 2.6 * root.rem-size;
+                spacing: 0.4 * root.rem-size;
+                alignment: start;
+
+                for choice[index] in root.data.log-sources: ModsFilterPill {
+                    id: choice.id;
+                    label-text: choice.label;
+                    selected: choice.selected;
+                    rem-size: root.rem-size;
+                    clicked => {
+                        root.filter-logs("source", choice.id);
+                    }
+                }
+            }
+            log-level-filter := HorizontalLayout {
+                x: 0px;
+                y: 3 * root.rem-size;
+                width: parent.width - 12 * root.rem-size;
+                height: 2.6 * root.rem-size;
+                spacing: 0.4 * root.rem-size;
+                alignment: start;
+
+                for choice[index] in root.data.log-levels: ModsFilterPill {
+                    id: choice.id;
+                    label-text: choice.label;
+                    selected: choice.selected;
+                    rem-size: root.rem-size;
+                    clicked => {
+                        root.filter-logs("level", choice.id);
+                    }
+                }
+            }
+            log-search := LineEdit {
+                x: 0px;
+                y: 6 * root.rem-size;
+                width: root.page-width - 22 * root.rem-size;
+                height: 2.6 * root.rem-size;
+                font-size: 0.95 * root.rem-size;
+                // The box says what it searches, so a test finds the box it means.
+                accessible-description: "Search the log records";
+                init => {
+                    self.text = root.data.log-search;
+                }
+                edited(text) => {
+                    root.search-logs(text);
+                }
+            }
+            // The Clear button: a press arms it, and while it is armed the button says what the
+            // second press does.
+            SettingsButton {
+                x: parent.width - 18 * root.rem-size;
+                y: 6 * root.rem-size;
+                rem-size: root.rem-size;
+                label-text: root.data.log-clear-armed ? "Press again to clear" : "Clear";
+                name: root.data.log-clear-armed ? "Confirm clearing the log records" : "Clear the log records";
+                primary: false;
+                enabled: root.data.log-rows.length > 0 || root.data.log-clear-armed;
+                clicked => {
+                    root.clear-logs();
+                }
+            }
+
+            // The records: the newest first, and a press on one opens its full text below.
+            log-rows := Flickable {
+                x: 0px;
+                y: parent.filter-height;
+                width: parent.width - 8px;
+                height: parent.rows-height;
+                content-width: self.width;
+                content-height: root.data.log-rows.length * 2.2 * root.rem-size;
+
+                for row[index] in root.data.log-rows: ModsLogRowView {
+                    x: 0px;
+                    y: index * 2.2 * root.rem-size;
+                    width: log-rows.width;
+                    rem-size: root.rem-size;
+                    record: row;
+                    opened => {
+                        root.open-log(row.id);
+                    }
+                }
+            }
+            if root.data.log-rows.length == 0: log-empty := Text {
+                x: 0px;
+                y: parent.filter-height;
+                width: parent.width;
+                height: 3 * root.rem-size;
+                text: root.data.log-empty;
+                font-size: 1.1 * root.rem-size;
+                color: ClassStyles.color-or(ClassStyles.mods-empty, Theme.text);
+                opacity: ClassStyles.opacity-or(ClassStyles.mods-empty, 0.8);
+                visible: !ClassStyles.mods-empty.hidden;
+            }
+            // The record that was pressed, every line of it.
+            if root.data.log-detail.length > 0: log-detail := Rectangle {
+                x: 0px;
+                y: parent.height - parent.detail-height;
+                width: parent.width;
+                height: parent.detail-height;
+                border-radius: 0.5 * root.rem-size;
+                background: ClassStyles.background-or(ClassStyles.mods-log-detail, Theme.overlay);
+                opacity: ClassStyles.opacity-or(ClassStyles.mods-log-detail, 1.0);
+                visible: !ClassStyles.mods-log-detail.hidden;
+
+                for line[index] in root.data.log-detail: detail-line := Text {
+                    x: 0.8 * root.rem-size;
+                    y: 0.4 * root.rem-size + index * 1.4 * root.rem-size;
+                    width: parent.width - 1.6 * root.rem-size;
+                    height: 1.4 * root.rem-size;
+                    text: line;
+                    overflow: elide;
+                    font-size: 0.85 * root.rem-size;
+                    color: ClassStyles.color-or(ClassStyles.mods-log-detail-text, Theme.text);
+                    opacity: ClassStyles.opacity-or(ClassStyles.mods-log-detail-text, 1.0);
+                    visible: !ClassStyles.mods-log-detail-text.hidden;
+                }
+            }
+            ScrollBar {
+                x: parent.width - 8px;
+                y: parent.filter-height;
+                height: parent.rows-height;
+                view-height: parent.rows-height;
+                content-height: log-rows.content-height;
+                offset <=> log-rows.content-y;
+            }
+        }
+
+        // ---- About ----------------------------------------------------------------------
+        // What this build is, where it keeps the two folders, what is installed, and the one
+        // button that writes a diagnostics file. Nothing here deletes anything.
+        // ---- About ----------------------------------------------------------------------
+        // What this build is, where it keeps the two folders, what is installed, and the one
+        // button that writes a diagnostics file. Nothing here deletes anything. The sections are
+        // laid out by hand rather than by a nested layout: the page scrolls as one, and a layout
+        // inside a layout cannot ask its parent how tall it is without a loop.
+        if root.on-about: Rectangle {
+            x: root.page-padding;
+            y: root.list-top;
+            width: root.page-width;
+            height: Math.max(root.height - root.list-top, 0px);
+
+            property <length> about-row: 2.2 * root.rem-size;
+            property <length> about-build-height: root.data.about-build.length * about-row;
+            property <length> about-places-height: root.data.about-places.length * about-row
+                + (root.data.about-export == "" ? 0px : about-row);
+            property <length> about-counts-height: root.data.about-counts.length * about-row;
+            property <length> about-enabled-height: root.data.about-enabled.length * about-row;
+
+            about-actions := HorizontalLayout {
+                x: 0px;
+                y: 0px;
+                width: parent.width;
+                height: 3 * root.rem-size;
+                spacing: 1.2 * root.rem-size;
+                alignment: start;
+
+                SettingsButton {
+                    rem-size: root.rem-size;
+                    label-text: "Refresh";
+                    name: "Refresh the About page";
+                    primary: false;
+                    enabled: true;
+                    clicked => {
+                        root.refresh-about();
+                    }
+                }
+                SettingsButton {
+                    rem-size: root.rem-size;
+                    label-text: "Export diagnostics";
+                    name: "Export diagnostics";
+                    primary: true;
+                    enabled: true;
+                    clicked => {
+                        root.export-diagnostics();
+                    }
+                }
+                SettingsButton {
+                    rem-size: root.rem-size;
+                    label-text: "Copy version";
+                    name: "Copy the version";
+                    primary: false;
+                    enabled: true;
+                    clicked => {
+                        root.copy-version();
+                    }
+                }
+            }
+
+            about-body := Flickable {
+                x: 0px;
+                y: about-actions.y + about-actions.height + 1.2 * root.rem-size;
+                width: parent.width - 8px;
+                height: Math.max(0px, parent.height - self.y);
+                content-width: self.width;
+                content-height: (about-counts.y + about-counts-height)
+                    + (about-enabled.y - about-counts.y - about-counts-height)
+                    + (about-license.y - about-enabled.y - about-enabled-height)
+                    + about-license.height;
+
+                for entry[index] in root.data.about-build: ModsAboutRow {
+                    x: 0px;
+                    y: index * about-row;
+                    width: about-body.width;
+                    rem-size: root.rem-size;
+                    entry: entry;
+                }
+                about-places := VerticalLayout {
+                    x: 0px;
+                    y: about-build-height + 1.4 * root.rem-size;
+                    width: parent.width;
+                    height: about-places-height;
+
+                    for entry[index] in root.data.about-places: ModsAboutRow {
+                        entry: entry;
+                        rem-size: root.rem-size;
+                    }
+                    if root.data.about-export != "": ModsAboutRow {
+                        entry: { label: "Diagnostics file", value: root.data.about-export };
+                        rem-size: root.rem-size;
+                    }
+                }
+                about-counts := VerticalLayout {
+                    x: 0px;
+                    y: about-places.y + about-places.height + 1.4 * root.rem-size;
+                    width: parent.width;
+                    height: about-counts-height;
+
+                    for entry[index] in root.data.about-counts: ModsAboutRow {
+                        entry: entry;
+                        rem-size: root.rem-size;
+                    }
+                }
+                about-enabled := VerticalLayout {
+                    x: 0px;
+                    y: about-counts.y + about-counts.height + 1.4 * root.rem-size;
+                    width: parent.width;
+                    height: about-enabled-height;
+
+                    for entry[index] in root.data.about-enabled: ModsAboutRow {
+                        entry: entry;
+                        rem-size: root.rem-size;
+                    }
+                }
+                about-license := Text {
+                    x: 0px;
+                    y: about-enabled.y + about-enabled.height + 1.4 * root.rem-size;
+                    width: parent.width;
+                    height: 2.4 * root.rem-size;
+                    text: root.data.about-license;
+                    wrap: word-wrap;
+                    font-size: 0.9 * root.rem-size;
+                    color: ClassStyles.color-or(ClassStyles.mods-about-value, Theme.placeholder);
+                    visible: !ClassStyles.mods-about-value.hidden;
+                }
+            }
+            ScrollBar {
+                x: parent.width - 8px;
+                y: about-body.y;
+                height: about-body.height;
+                view-height: about-body.height;
+                content-height: about-body.content-height;
+                offset <=> about-body.content-y;
             }
         }
     }

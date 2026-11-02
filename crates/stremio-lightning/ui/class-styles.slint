@@ -135,6 +135,20 @@ export global ClassStyles {
     /// "No plugins are installed." and the same line on Themes.
     in property <ClassStyle> mods-empty;
 
+    // The Logs page: the filter's pills, one record's four columns, and the box the full text of
+    // a record opens in.
+    in property <ClassStyle> mods-log-filter;
+    in property <ClassStyle> mods-log-time;
+    in property <ClassStyle> mods-log-source;
+    in property <ClassStyle> mods-log-level;
+    in property <ClassStyle> mods-log-text;
+    in property <ClassStyle> mods-log-detail;
+    in property <ClassStyle> mods-log-detail-text;
+
+    // The About page: one row's label and its value.
+    in property <ClassStyle> mods-about-label;
+    in property <ClassStyle> mods-about-value;
+
     pure public function color-or(style: ClassStyle, fallback: color) -> color {
         return style.has-color ? style.color : fallback;
     }

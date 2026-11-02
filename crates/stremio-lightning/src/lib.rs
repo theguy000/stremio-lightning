@@ -83,9 +83,13 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
     // Before anything is painted: the window is created with no icon, and on Windows that
     // means a blank one in the titlebar and the taskbar until this is set.
     shell::window_icon::install(&window);
+    // The app's log records, made before anything that has something to say: the theme reader,
+    // the plugin runtime, this shell's own errors and the streaming server all record into it.
+    let logs = Arc::new(plumbing::logs::Logs::new());
     // Only the themes the Mods screen has turned on, so a freshly installed theme file changes
-    // nothing until someone picks it.
-    plumbing::theme::apply_enabled(&window, &data_dir);
+    // nothing until someone picks it. What a theme says that the app cannot use is recorded here,
+    // which is what puts it on the Logs page as well as on its card.
+    plumbing::theme::apply_and_record(&window, &data_dir, &logs);
     let video = plumbing::player::VideoPlayer::install(&window);
 
     let server = Arc::new(plumbing::stream_server::Supervisor::new(
@@ -123,7 +127,9 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
     let mods_page = Arc::new(Mutex::new(screens::mods::Page::default().id().to_owned()));
     // The plugins the app runs. Created before the window is shown and started below, once the
     // lists the app reads are in place.
-    let plugins = app::plugins::Runtime::new(data_dir.clone());
+    // The runtime keeps the app's record of what its plugins log: the list the Logs page reads
+    // and the list the runtime writes to are one list.
+    let plugins = app::plugins::Runtime::with_logs(data_dir.clone(), Arc::clone(&logs));
     let mods_plugin: Arc<Mutex<String>> = Default::default();
     let mods_edits: Arc<Mutex<screens::mods::settings::Edits>> = Default::default();
 
@@ -167,6 +173,9 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
         mods_plugin: mods_plugin.clone(),
         mods_edits: mods_edits.clone(),
         mods_typed: Default::default(),
+        logs: logs.clone(),
+        mods_clearing: Default::default(),
+        mods_export: Default::default(),
     };
     shell::wire(&window, wiring.clone());
     // The wheel is taken from the window itself: left to a Slint Flickable it costs a whole

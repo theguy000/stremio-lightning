@@ -13,7 +13,7 @@
 //! cannot grow the list without end. Cleared means emptied from memory: no file is touched.
 
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -32,7 +32,13 @@ pub enum Source {
 
 impl Source {
     /// Every source, in the order the filter's list gives them.
-    pub const ALL: [Self; 5] = [Self::Plugin, Self::Theme, Self::Mods, Self::Server, Self::App];
+    pub const ALL: [Self; 5] = [
+        Self::Plugin,
+        Self::Theme,
+        Self::Mods,
+        Self::Server,
+        Self::App,
+    ];
 
     /// The id the window passes in the filter: a word with no spaces, so it can be a control's
     /// name on screen.
@@ -71,6 +77,7 @@ impl Source {
         }
     }
 
+    #[cfg(test)]
     fn rank(self) -> u8 {
         match self {
             Self::Plugin => 0,
@@ -209,13 +216,13 @@ impl Filter {
 
     /// Whether `entry` passes every part of the filter.
     pub fn keeps(&self, entry: &Entry) -> bool {
-        if self.picked_source().is_some_and(|source| source != entry.source) {
+        if self
+            .picked_source()
+            .is_some_and(|source| source != entry.source)
+        {
             return false;
         }
-        if self
-            .least_level()
-            .is_some_and(|level| !entry.passes(level))
-        {
+        if self.least_level().is_some_and(|level| !entry.passes(level)) {
             return false;
         }
         let wanted = self.search.trim().to_lowercase();
@@ -319,7 +326,7 @@ impl Logs {
             entries.clear();
             went
         };
-        *lock(&self.detail) = 0;
+        self.detail.store(0, Ordering::SeqCst);
         self.count.fetch_add(1, Ordering::SeqCst);
         went
     }
@@ -377,7 +384,8 @@ impl Logs {
             return true;
         };
         let held = lock(&self.entries).iter().any(|entry| entry.id == id);
-        self.detail.store(if held { id } else { 0 }, Ordering::SeqCst);
+        self.detail
+            .store(if held { id } else { 0 }, Ordering::SeqCst);
         held
     }
 
@@ -417,17 +425,13 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// An atomic `u64` waiting for the app's own use, kept out of the recorder so that nothing but a
-/// record changes the count.
-type DetailId = AtomicU64;
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::plumbing::plugin::LogLine;
 
     fn id_slot() -> u8 {
-        Source::Plugin.rank() + Level::Debug.rank()
+        Source::Plugin.rank()
     }
 
     #[test]
@@ -440,7 +444,11 @@ mod tests {
         assert_eq!(entry.level, Level::Warn);
         assert_eq!(entry.text, "slow");
         assert_eq!(entry.source_label(), "Plugin a.plugin.js");
-        assert_eq!(id_slot(), 0, "every source and level has its own rank");
+        assert_eq!(
+            id_slot(),
+            1,
+            "the plugin source shares its first rank with no other"
+        );
     }
 
     #[test]
@@ -451,7 +459,11 @@ mod tests {
         assert_eq!(Level::from_id("shouting"), None);
         let logs = Logs::new();
         logs.plugin("a.plugin.js", &LogLine::new("shouting", "hi"));
-        assert_eq!(logs.entries()[0].level, Level::Info, "an unknown name is not a dropped line");
+        assert_eq!(
+            logs.entries()[0].level,
+            Level::Info,
+            "an unknown name is not a dropped line"
+        );
     }
 
     #[test]
@@ -463,7 +475,11 @@ mod tests {
         assert_eq!(logs.len(), CAPACITY, "the oldest go first");
         let listed = logs.matching(&Filter::default());
         assert_eq!(listed.len(), CAPACITY);
-        assert_eq!(listed[0].text, format!("line {}", CAPACITY + 4), "newest first");
+        assert_eq!(
+            listed[0].text,
+            format!("line {}", CAPACITY + 4),
+            "newest first"
+        );
         assert_eq!(listed[CAPACITY - 1].text, "line 5");
     }
 
@@ -472,7 +488,12 @@ mod tests {
         let logs = Logs::new();
         logs.record(Source::Plugin, "a.plugin.js", Level::Info, "started");
         logs.record(Source::Plugin, "a.plugin.js", Level::Error, "threw");
-        logs.record(Source::Theme, "red.theme.css", Level::Warn, "unknown property");
+        logs.record(
+            Source::Theme,
+            "red.theme.css",
+            Level::Warn,
+            "unknown property",
+        );
         logs.record(Source::Server, "", Level::Info, "ready");
 
         let mut filter = Filter {
@@ -512,7 +533,10 @@ mod tests {
         assert_eq!(logs.clear(), 1);
         assert!(logs.is_empty());
         assert!(logs.matching(&Filter::default()).is_empty());
-        assert!(logs.count() > before, "a clear is a change the view must see");
+        assert!(
+            logs.count() > before,
+            "a clear is a change the view must see"
+        );
         logs.record(Source::Mods, "b.theme.css", Level::Info, "removed");
         assert_eq!(logs.len(), 1, "recording goes on after a clear");
     }
@@ -524,16 +548,14 @@ mod tests {
         let two = logs.record(Source::App, "", Level::Error, "two");
         assert!(logs.set_detail(Some(one.id)));
         assert_eq!(logs.detail(), Some(one.clone()));
-        assert!(!logs.set_detail(Some(9_999)), "a record not held is no detail");
+        assert!(
+            !logs.set_detail(Some(9_999)),
+            "a record not held is no detail"
+        );
         assert_eq!(logs.detail(), None);
         assert!(logs.set_detail(Some(two.id)));
         logs.clear();
         assert_eq!(logs.detail(), None, "a clear takes the detail with it");
-        assert_eq!(
-            DetailId::new(0).load(Ordering::SeqCst),
-            0,
-            "the detail slot starts empty"
-        );
     }
 
     #[test]

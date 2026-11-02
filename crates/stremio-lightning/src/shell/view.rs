@@ -16,9 +16,10 @@ use crate::screens::Preview;
 use crate::screens::{Card, Input};
 use crate::{
     AddonData, AddonPendingData, CalendarData, CalendarDay, CalendarSlot, CatalogRow, LibraryCard,
-    LibrarySort, LinkGroup, MainWindow, ModCardData, ModsNavItem, ModsViewData, PlayerEpisode,
-    PlayerOption, PlayerTrack, PosterData, PreviewData, SelectInputData, SelectOption,
-    SettingsFieldData, SettingsPluginData, SettingsViewData, StreamData, VideoRow,
+    LibrarySort, LinkGroup, MainWindow, ModCardData, ModsAboutLine, ModsFilterChoice, ModsLogRow,
+    ModsNavItem, ModsViewData, PlayerEpisode, PlayerOption, PlayerTrack, PosterData, PreviewData,
+    SelectInputData, SelectOption, SettingsFieldData, SettingsPluginData, SettingsViewData,
+    StreamData, VideoRow,
 };
 
 /// Copies everything a snapshot describes onto the window. Runs on the window's thread.
@@ -450,7 +451,73 @@ pub(crate) fn mods_view(data: &crate::screens::mods::Data) -> ModsViewData {
         settings_state: state_said(data).into(),
         settings_state_failed: data.picked_enabled && !data.picked_state.running,
         settings_dirty: data.edits.dirty(),
+        log_sources: ModelRc::new(VecModel::from(
+            data.log_sources
+                .iter()
+                .map(filter_choice)
+                .collect::<Vec<_>>(),
+        )),
+        log_levels: ModelRc::new(VecModel::from(
+            data.log_levels
+                .iter()
+                .map(filter_choice)
+                .collect::<Vec<_>>(),
+        )),
+        log_search: data.log_filter.search.clone().into(),
+        log_held: data.log_held.clone().into(),
+        log_rows: ModelRc::new(VecModel::from(
+            data.log_rows.iter().map(log_row).collect::<Vec<_>>(),
+        )),
+        log_empty: data.log_empty.clone().into(),
+        log_detail: ModelRc::new(VecModel::from(
+            data.log_detail
+                .iter()
+                .map(|line| SharedString::from(line.clone()))
+                .collect::<Vec<_>>(),
+        )),
+        log_clear_armed: data.log_clear_armed,
+        about_build: about_lines(&data.about.build),
+        about_places: about_lines(&data.about.places),
+        about_counts: about_lines(&data.about.counts),
+        about_enabled: about_lines(&data.about.enabled),
+        about_license: data.about.license.clone().into(),
+        about_export: data.about.export.clone().into(),
     }
+}
+
+/// One pill of the Logs page's filter.
+fn filter_choice(choice: &mods::logs::Choice) -> ModsFilterChoice {
+    ModsFilterChoice {
+        id: choice.id.clone().into(),
+        label: choice.label.clone().into(),
+        selected: choice.selected,
+    }
+}
+
+/// One record of the Logs page. A record id past what the window's integer holds keeps its low
+/// bits, which still tell one row from its neighbours.
+fn log_row(row: &mods::logs::Row) -> ModsLogRow {
+    ModsLogRow {
+        id: row.id as i32,
+        source: row.source.clone().into(),
+        level: row.level.clone().into(),
+        level_id: row.level_id.clone().into(),
+        time: row.time.clone().into(),
+        text: row.text.clone().into(),
+    }
+}
+
+/// One section of the About page, as the rows it draws.
+fn about_lines(lines: &[mods::about::Line]) -> ModelRc<ModsAboutLine> {
+    ModelRc::new(VecModel::from(
+        lines
+            .iter()
+            .map(|line| ModsAboutLine {
+                label: line.label.clone().into(),
+                value: line.value.clone().into(),
+            })
+            .collect::<Vec<_>>(),
+    ))
 }
 
 /// One row of the Plugin settings page's left list.

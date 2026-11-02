@@ -4,8 +4,8 @@
 //! The window's Mods section is a menu of six pages on the left and one page's content on the
 //! right. This file owns the menu and the two pages that work offline: Plugins and Themes.
 //! `catalogue` reads what is installed and turns it into cards; `plugins`, `themes` and `settings`
-//! hold what pressing a page's controls does. The Marketplace, Logs and About pages come later and
-//! get their own files beside these.
+//! hold what pressing a page's controls does. `logs` reads what the app recorded and `about` reads
+//! what this build is; the Marketplace page gets its own file beside these.
 //!
 //! Nothing here executes a plugin. Turning one on writes its file name to `enabled_plugins` in
 //! the shell's own `settings.json`; what reading that list means is the plugin runtime's business.
@@ -16,7 +16,9 @@ use std::path::Path;
 
 use crate::screens::settings::LocalExtras;
 
+pub mod about;
 pub mod catalogue;
+pub mod logs;
 pub mod plugin_schema;
 pub mod plugins;
 pub mod settings;
@@ -127,6 +129,21 @@ pub struct Data {
     /// a choice: a switch pressed here and one pressed on the Plugins page are the same press.
     pub picked_state: settings::Running,
     pub picked_enabled: bool,
+    /// The Logs page: the filter it is showing, the records it keeps, the choices of each part of
+    /// the filter, the header that says how many are held, and the one record whose full text is
+    /// open. Read from the app's recorder with every snapshot, so a line a plugin logs from a timer
+    /// is on the page without a press.
+    pub log_filter: logs::Filter,
+    pub log_sources: Vec<logs::Choice>,
+    pub log_levels: Vec<logs::Choice>,
+    pub log_rows: Vec<logs::Row>,
+    pub log_held: String,
+    pub log_empty: String,
+    pub log_detail: Vec<String>,
+    pub log_clear_armed: bool,
+    /// The About page: what this build is, where it keeps the two folders, what is installed, and
+    /// the path of the diagnostics file written last.
+    pub about: about::Data,
 }
 
 impl Data {
@@ -147,6 +164,15 @@ impl Data {
             edits: settings::Edits::default(),
             picked_state: settings::Running::default(),
             picked_enabled: false,
+            log_filter: logs::Filter::default(),
+            log_sources: logs::sources(&logs::Filter::default()),
+            log_levels: logs::levels(&logs::Filter::default()),
+            log_rows: Vec::new(),
+            log_held: logs::NOTE.to_owned(),
+            log_empty: logs::NONE.to_owned(),
+            log_detail: Vec::new(),
+            log_clear_armed: false,
+            about: about::Data::default(),
         }
     }
 
@@ -232,6 +258,62 @@ impl Data {
     #[must_use]
     pub fn to_page(&self) -> Page {
         Page::from_id(&self.page)
+    }
+
+    /// The same screen with the app's log records folded in: the Logs page's rows, the header that
+    /// says how many are held, and the record whose full text is open. Nothing is recorded here;
+    /// the page only reads. `armed` is the window's own state for the Clear button.
+    #[must_use]
+    pub fn with_logs(mut self, logs: &crate::plumbing::logs::Logs, armed: bool) -> Self {
+        self.log_filter = logs.filter();
+        self.log_sources = logs::sources(&self.log_filter);
+        self.log_levels = logs::levels(&self.log_filter);
+        self.log_rows = logs::rows(logs, &self.log_filter);
+        self.log_held = logs::held(logs, &self.log_filter);
+        self.log_empty = if logs.is_empty() {
+            logs::NONE.to_owned()
+        } else {
+            logs::NONE_MATCH.to_owned()
+        };
+        self.log_detail = logs::detail(logs);
+        self.log_clear_armed = armed;
+        self
+    }
+
+    /// The same screen with the About page read from the two folders, this shell's settings and
+    /// the plugin runtime.
+    #[must_use]
+    pub fn with_about(
+        mut self,
+        extras: &LocalExtras,
+        plugins: &crate::app::plugins::Runtime,
+    ) -> Self {
+        let sources = about::Sources {
+            data_dir: &self.data_dir,
+            extras,
+            plugins,
+        };
+        self.about = about::data(&sources);
+        self
+    }
+
+    /// The same screen after a press on the Logs page's Clear button. The first press arms it and
+    /// removes nothing; the second empties the list, which deletes no file and stops no record
+    /// being recorded afterwards. Returns whether the list is now armed, which is what the window
+    /// holds until the next press.
+    pub fn press_clear(&mut self, logs: &crate::plumbing::logs::Logs, armed: bool) -> bool {
+        if !armed {
+            return true;
+        }
+        logs.clear();
+        false
+    }
+
+    /// The same screen after a press on one of the Logs page's records: the full text of that
+    /// record is on screen, or taken back when it is the one already open.
+    pub fn press_record(&mut self, logs: &crate::plumbing::logs::Logs, id: u64) {
+        let open = logs.detail().is_some_and(|entry| entry.id == id);
+        logs.set_detail(if open { None } else { Some(id) });
     }
 
     /// The same screen after the user pressed something: the menu is not rebuilt, so the card

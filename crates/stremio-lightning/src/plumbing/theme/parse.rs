@@ -23,7 +23,7 @@ impl Style {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 enum Selector {
     Exact(String),
     Contains(String),
@@ -50,7 +50,7 @@ impl fmt::Display for Selector {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Rule {
     selectors: Vec<Selector>,
     style: Style,

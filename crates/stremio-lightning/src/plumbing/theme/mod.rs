@@ -15,7 +15,7 @@
 //!   space, like `visibility: hidden` on the web.
 //! - Colours as `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`, `rgb()`, `rgba()` and `transparent`.
 //!
-//! Everything else is reported on stderr and skipped. Specificity is not computed: every
+//! Everything else is reported, to the theme's card and to the Logs page, and skipped. Specificity is not computed: every
 //! supported selector weighs the same, so a later declaration wins. An element that carries
 //! several web classes is reached through any of them (the menu toggle carries five), and the file
 //! order decides between them, not the class list.
@@ -34,7 +34,7 @@ use crate::{ClassStyle, ClassStyles, MainWindow};
 
 pub mod parse;
 
-pub use parse::{Rgba, Style};
+pub use parse::{Rgba, Rule, Style};
 
 type Setter = fn(&ClassStyles<'_>, ClassStyle);
 
@@ -150,6 +150,16 @@ elements! {
     set_mod_remove_button => ["mod-remove-button"],
     set_mod_remove_button_label => ["mod-remove-button-label"],
     set_mods_empty => ["mods-empty"],
+    // The Logs page and the About page.
+    set_mods_log_filter => ["mods-log-filter"],
+    set_mods_log_time => ["mods-log-time"],
+    set_mods_log_source => ["mods-log-source"],
+    set_mods_log_level => ["mods-log-level"],
+    set_mods_log_text => ["mods-log-text"],
+    set_mods_log_detail => ["mods-log-detail"],
+    set_mods_log_detail_text => ["mods-log-detail-text"],
+    set_mods_about_label => ["mods-about-label"],
+    set_mods_about_value => ["mods-about-value"],
 }
 
 /// What this app does not understand in a theme file, one line each: the declarations it skips
@@ -204,9 +214,14 @@ fn to_slint(style: Style) -> ClassStyle {
 
 /// Reads the themes `settings.json` lists as enabled -- in the order it lists them -- and writes
 /// the result into the window's `ClassStyles`. An empty list leaves the window's own styling, and
-/// a file named there that no longer exists is skipped and said so on stderr.
-pub fn apply_enabled(window: &MainWindow, data_dir: &Path) {
+/// a file named there that no longer exists is skipped and reported in the list this returns.
+///
+/// The list is one line per thing the app could not use, each naming the file it came from: the
+/// caller records them, which is what puts a theme's trouble on the Logs page as well as on its
+/// card. Nothing is printed to stderr.
+pub fn apply_enabled(window: &MainWindow, data_dir: &Path) -> Vec<(String, String)> {
     let enabled = crate::screens::settings::LocalExtras::load(data_dir).enabled_themes;
+    let mut troubles = Vec::new();
 
     let mut rules = Vec::new();
     for filename in &enabled {
@@ -214,22 +229,57 @@ pub fn apply_enabled(window: &MainWindow, data_dir: &Path) {
             Ok(css) => {
                 let theme = parse::parse_theme(&css);
                 for warning in &theme.warnings {
-                    eprintln!("theme {filename}: {warning}");
+                    troubles.push((filename.clone(), warning.clone()));
                 }
                 rules.extend(theme.rules);
             }
-            Err(error) => eprintln!("theme {filename}: {error}"),
+            Err(error) => troubles.push((filename.clone(), error)),
         }
     }
 
     let (styles, unmatched) = parse::resolve(&rules, CLASSES);
     for warning in unmatched {
-        eprintln!("themes: {warning}");
+        troubles.push((enabled.join(", "), warning));
     }
     let globals = window.global::<ClassStyles>();
     for ((_, set_element), style) in ELEMENTS.iter().zip(styles) {
         set_element(&globals, to_slint(style));
     }
+    troubles
+}
+
+/// The rules the enabled themes give, read the way `apply_enabled` reads them, with every line the
+/// app could not use recorded as it goes. This is what a plugin's own rules are drawn over, so the
+/// theme stays on the window.
+pub fn enabled_rules(data_dir: &Path, logs: &crate::plumbing::logs::Logs) -> Vec<parse::Rule> {
+    let enabled = crate::screens::settings::LocalExtras::load(data_dir).enabled_themes;
+    let mut rules = Vec::new();
+    for filename in &enabled {
+        match read_mod_content(data_dir, filename, ModType::Theme) {
+            Ok(css) => {
+                let theme = parse::parse_theme(&css);
+                logs.theme(filename, &theme.warnings);
+                rules.extend(theme.rules);
+            }
+            Err(error) => logs.theme_unreadable(filename, error),
+        }
+    }
+    rules
+}
+
+/// `apply_enabled` for the window's own thread, with the lines recorded as it goes: this is what
+/// every press that changes the theme list calls. The recorder is the app's one, so a theme's
+/// warnings land on the Logs page beside the plugin lines.
+pub fn apply_and_record(
+    window: &MainWindow,
+    data_dir: &Path,
+    logs: &crate::plumbing::logs::Logs,
+) -> Vec<(String, String)> {
+    let troubles = apply_enabled(window, data_dir);
+    for (filename, warning) in &troubles {
+        logs.theme(filename, std::slice::from_ref(warning));
+    }
+    troubles
 }
 
 /// The web classes a plugin's `applyTheme` rules may select, in the order the element table lists
@@ -269,6 +319,49 @@ pub fn install(window: &MainWindow, rules: &[serde_json::Value]) -> Vec<String> 
     let globals = window.global::<ClassStyles>();
     for ((_, set_element), style) in ELEMENTS.iter().zip(styles) {
         set_element(&globals, to_slint(style));
+    }
+    warnings
+}
+
+/// Draws the window with a plugin's rules over the enabled theme's, which is what the window
+/// showed before the plugin asked for anything. A plugin that sets one property of an element
+/// leaves the theme's other properties on it; a plugin that names nothing leaves the theme as it
+/// was. The warnings are the plugin's alone, one line each.
+pub fn install_over(
+    window: &MainWindow,
+    theme_rules: &[parse::Rule],
+    plugin_rules: &[serde_json::Value],
+) -> Vec<String> {
+    let mut parsed = theme_rules.to_vec();
+    let mut warnings = parse_plugin(&mut parsed, plugin_rules);
+    let (styles, unmatched) = parse::resolve(&parsed, CLASSES);
+    let globals = window.global::<ClassStyles>();
+    for ((_, set_element), style) in ELEMENTS.iter().zip(styles) {
+        set_element(&globals, to_slint(style));
+    }
+    warnings.extend(unmatched);
+    warnings
+}
+
+/// Reads a plugin's JSON rules into `parsed`, after whatever is already there.
+fn parse_plugin(parsed: &mut Vec<parse::Rule>, rules: &[serde_json::Value]) -> Vec<String> {
+    let mut warnings = Vec::new();
+    for rule in rules {
+        let (Some(selector), Some(property), Some(value)) = (
+            rule.get("selector").and_then(serde_json::Value::as_str),
+            rule.get("property").and_then(serde_json::Value::as_str),
+            rule.get("value").and_then(serde_json::Value::as_str),
+        ) else {
+            warnings.push(
+                "a rule needs `selector`, `property` and `value` strings, so it was left out."
+                    .to_owned(),
+            );
+            continue;
+        };
+        let mut said = Vec::new();
+        let style = parse::parse_declarations(&format!("{property}: {value}"), selector, &mut said);
+        warnings.extend(said);
+        parsed.extend(parse::rule(selector, style));
     }
     warnings
 }

@@ -92,6 +92,9 @@ pub(crate) struct Plugins {
     pub(crate) window: Weak<MainWindow>,
     pub(crate) images: Images,
     pub(crate) data_dir: std::path::PathBuf,
+    /// The app's log records: every line the runtime keeps is already in them, and the Mods
+    /// screen reads them for the Logs page.
+    pub(crate) logs: Arc<crate::plumbing::logs::Logs>,
 }
 
 impl Plugins {
@@ -118,13 +121,39 @@ impl Plugins {
             return;
         }
         if !theme.is_empty() {
+            // A plugin's rules go over the enabled theme's, which is what the window showed before
+            // it asked: installing the plugin's rules alone would take the theme off the window.
             let rules = theme.clone();
+            let (data_dir, logs) = (self.data_dir.clone(), Arc::clone(&self.logs));
             let _ = self.window.upgrade_in_event_loop(move |window| {
-                let _ = theme::install(&window, &rules);
+                let theme_rules = theme::enabled_rules(&data_dir, &logs);
+                let said = theme::install_over(&window, &theme_rules, &rules);
+                for warning in &said {
+                    logs.record(
+                        crate::plumbing::logs::Source::Theme,
+                        "",
+                        crate::plumbing::logs::Level::Warn,
+                        warning,
+                    );
+                }
             });
         }
+        // The whole Mods screen, as a core event builds it: the Logs page's rows come from the
+        // app's records, which a line a plugin logged from a timer has just changed. The page on
+        // screen and the last notice are the ones the window holds, so a plugin's line never
+        // costs the user their page.
         let mut snapshot = self.latest.lock().unwrap().clone();
-        snapshot.mods = crate::screens::mods::data(&self.data_dir).refresh(&self.runtime);
+        let page = crate::screens::mods::Page::from_id(&snapshot.mods.page);
+        let notice = snapshot.mods.notice.clone();
+        snapshot.mods = crate::screens::mods::data(&self.data_dir)
+            .with_page(page)
+            .refresh(&self.runtime)
+            .with_logs(&self.logs, false)
+            .with_about(
+                &crate::screens::settings::LocalExtras::load(&self.data_dir),
+                &self.runtime,
+            )
+            .with_notice(notice);
         *self.latest.lock().unwrap() = snapshot.clone();
         crate::shell::show(&self.window, snapshot, &self.images);
     }
@@ -216,6 +245,15 @@ pub(crate) struct Wiring {
     /// Delays drawing while a text box is typed in. The page writes typed text on every press,
     /// and redrawing it on every press would take the editor out from under the next letter.
     pub(crate) mods_typed: Arc<Timer>,
+    /// The app's log records, which the Logs page lists. Shared with the plugin runtime, which
+    /// records every line its plugins log, and with the rest of the shell where an error is worth
+    /// a record.
+    pub(crate) logs: Arc<crate::plumbing::logs::Logs>,
+    /// The Logs page's Clear button, pressed once and waiting for the second press: the window's
+    /// own state, like an armed Remove, because the screen only describes what it shows.
+    pub(crate) mods_clearing: Arc<Mutex<bool>>,
+    /// Where the diagnostics file was written, shown on the About page until the app closes.
+    pub(crate) mods_export: Arc<Mutex<Option<String>>>,
 }
 
 /// A Mods card that is one press away from its file being deleted, with the page it was on. A
@@ -692,7 +730,15 @@ impl Wiring {
             }
         } else if *self.playback_error.lock().unwrap() != status.error {
             *self.playback_error.lock().unwrap() = status.error.clone();
-            window.set_player_error(status.error.into());
+            window.set_player_error(status.error.clone().into());
+            // What mpv said about the address it was given is a record when it changes: the same
+            // sentence reaches here many times a second while the picture holds.
+            self.logs.record(
+                crate::plumbing::logs::Source::App,
+                "Player",
+                crate::plumbing::logs::Level::Error,
+                &status.error,
+            );
         }
 
         let (time, duration, sent, was_paused) = {
@@ -1496,6 +1542,9 @@ impl Wiring {
             extras.save(&self.data_dir);
             notice
         };
+        // What the switch did is a record on the Logs page as well as the notice: a plugin that
+        // starts and then stops says why, and this says where it was started from.
+        self.recorded(kind, &filename, notice.as_ref());
         if kind == mods::catalogue::Kind::Theme {
             self.apply_themes();
         }
@@ -1542,6 +1591,7 @@ impl Wiring {
     ) -> Arc<dyn Fn(Vec<crate::app::plugins::Asked>) + Send + Sync> {
         let plugins = Plugins {
             runtime: plugins.clone(),
+            logs: Arc::clone(plugins.logs()),
             latest: latest.clone(),
             window: window.clone(),
             images: images.clone(),
@@ -1684,6 +1734,146 @@ impl Wiring {
         )));
     }
 
+    // ---- The Logs page -------------------------------------------------------
+
+    /// A press on one part of the Logs page's filter. The filter belongs to the recorder, which is
+    /// where a line a plugin logs from a timer finds it too: a page redrawn by a core event draws
+    /// the same filtered list. Pressing a control takes back an armed Clear.
+    fn filter_logs(&self, part: &str, value: String) {
+        *self.mods_clearing.lock().unwrap() = false;
+        match part {
+            "source" => self.logs.set_source(&value),
+            "level" => self.logs.set_level(&value),
+            _ => self.logs.set_search(&value),
+        }
+        self.repaint_mods_now();
+    }
+
+    /// Draws the Mods section with the page the window holds, and the last notice: the answer to a
+    /// press that changed something the screen shows and nothing on disk.
+    fn repaint_mods_now(&self) {
+        let page = mods::Page::from_id(&self.mods_page.lock().unwrap());
+        let mut snapshot = self.latest.lock().unwrap().clone();
+        snapshot.mods = self
+            .plugin_data(page)
+            .with_notice(snapshot.mods.notice.clone());
+        self.repaint_with(snapshot);
+    }
+
+    /// A press on a record: its full text is on screen, or taken back when it is the one open. A
+    /// record the list no longer holds opens nothing.
+    fn open_log_record(&self, id: u32) {
+        let mut data = self.plugin_data(mods::Page::Logs);
+        data.press_record(&self.logs, u64::from(id));
+        let mut snapshot = self.latest.lock().unwrap().clone();
+        snapshot.mods = data.with_notice(snapshot.mods.notice.clone());
+        self.repaint_with(snapshot);
+    }
+
+    /// The Clear button. The first press arms it and removes nothing; the second empties the
+    /// list, which deletes no file and stops nothing being recorded afterwards.
+    fn clear_logs(&self) {
+        let mut armed = self.mods_clearing.lock().unwrap();
+        let mut data = self.plugin_data(mods::Page::Logs);
+        *armed = data.press_clear(&self.logs, *armed);
+        drop(armed);
+        let mut snapshot = self.latest.lock().unwrap().clone();
+        snapshot.mods = data.with_notice(snapshot.mods.notice.clone());
+        self.repaint_with(snapshot);
+    }
+
+    // ---- The About page ------------------------------------------------------
+
+    /// The About page's Refresh press: the two folders and what the plugins are doing are read
+    /// again, which is what the counts are, and the release feed is asked whether there is a newer
+    /// version. The counts are drawn here at once; the feed's answer lands as an app record, which
+    /// is where a check that could not be made says so.
+    fn refresh_about(&self) {
+        let mut snapshot = self.latest.lock().unwrap().clone();
+        snapshot.mods = self.plugin_data(mods::Page::About);
+        snapshot.mods.notice = mods::Notice::said("Read the plugin and theme folders again.");
+        self.repaint_with(snapshot);
+        let logs = self.logs.clone();
+        self.handle.spawn(async move {
+            let (level, text) =
+                match stremio_lightning_core::app_update::check_app_update(mods::about::VERSION)
+                    .await
+                {
+                    Ok(info) => match &info.new_version {
+                        Some(newer) => (
+                            crate::plumbing::logs::Level::Info,
+                            format!("A newer version is available: {newer}."),
+                        ),
+                        None => (
+                            crate::plumbing::logs::Level::Info,
+                            format!(
+                                "Version {} is the newest released version.",
+                                info.current_version
+                            ),
+                        ),
+                    },
+                    Err(error) => (crate::plumbing::logs::Level::Warn, error),
+                };
+            logs.record(crate::plumbing::logs::Source::App, "About", level, &text);
+        });
+    }
+
+    /// The Export diagnostics press: one text file in the app data folder's `diagnostics/`, and
+    /// the path it went to stays on the page. Nothing is uploaded.
+    fn export_diagnostics(&self) {
+        let extras = self.local_extras.lock().unwrap().clone();
+        let sources = mods::about::Sources {
+            data_dir: &self.data_dir,
+            extras: &extras,
+            plugins: &self.plugins,
+        };
+        let about = mods::about::data(&sources);
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|since| since.as_secs())
+            .unwrap_or_default();
+        let result = mods::about::export(&about, &self.logs, &self.data_dir, now);
+        let notice = match result {
+            Ok((path, _)) => {
+                *self.mods_export.lock().unwrap() = Some(path.display().to_string());
+                self.logs.record(
+                    crate::plumbing::logs::Source::App,
+                    "About",
+                    crate::plumbing::logs::Level::Info,
+                    format!("The diagnostics file was written to {}.", path.display()),
+                );
+                mods::Notice::said(format!("Wrote the diagnostics file to {}.", path.display()))
+            }
+            Err(error) => {
+                self.logs.record(
+                    crate::plumbing::logs::Source::App,
+                    "About",
+                    crate::plumbing::logs::Level::Error,
+                    &error,
+                );
+                mods::Notice::failed(error)
+            }
+        };
+        self.after_mod_action(Some(notice));
+    }
+
+    /// The About page's Copy press: the version and the build go to the clipboard, one line each,
+    /// which is what a bug report asks for.
+    fn copy_version(&self) {
+        let text = format!(
+            "Stremio Lightning {} ({}) on {} {}",
+            mods::about::VERSION,
+            mods::about::BUILD,
+            std::env::consts::OS,
+            std::env::consts::ARCH
+        );
+        let notice = match clipboard::copy(&text) {
+            Ok(()) => mods::Notice::said(format!("Copied: {text}")),
+            Err(error) => mods::Notice::failed(format!("Nothing was copied: {error}")),
+        };
+        self.after_mod_action(Some(notice));
+    }
+
     /// The Save press: every changed value is written to the plugin's settings file, and the
     /// plugin's own `onSettingsSaved` callbacks are handed the file. Nothing is written when
     /// nothing changed, so a press on a page nobody touched leaves the file alone.
@@ -1728,7 +1918,13 @@ impl Wiring {
         } else {
             pick
         };
-        screen.with_edits(pick, self.mods_edits.lock().unwrap().clone())
+        // The rest of the section: the Logs page's rows, the About page's counts, and the Clear
+        // button's arm. Every press on the section builds its page through here, so no page is
+        // ever drawn from a stale list.
+        screen
+            .with_edits(pick, self.mods_edits.lock().unwrap().clone())
+            .with_logs(&self.logs, *self.mods_clearing.lock().unwrap())
+            .with_about(&self.local_extras.lock().unwrap().clone(), &self.plugins)
     }
 
     /// The Remove button of a mod card. Its first press arms the card and deletes nothing; its
@@ -1769,6 +1965,7 @@ impl Wiring {
             // to its own colours the moment its file is gone.
             self.apply_themes();
         }
+        self.recorded(kind, &id, Some(&notice));
         self.after_mod_action(Some(notice));
     }
 
@@ -1832,6 +2029,27 @@ impl Wiring {
         );
     }
 
+    /// Records what a press on a Mods card did, when the press had something to say: a switch that
+    /// changed a list, or a removal. A press that changed nothing records nothing. A plugin's
+    /// record is a plugin one, and a theme's is a theme one, so the Logs page's filter finds them
+    /// beside the lines that came from the file itself.
+    fn recorded(&self, kind: mods::catalogue::Kind, filename: &str, notice: Option<&mods::Notice>) {
+        let Some(notice) = notice else {
+            return;
+        };
+        let source = match kind {
+            mods::catalogue::Kind::Plugin => crate::plumbing::logs::Source::Plugin,
+            mods::catalogue::Kind::Theme => crate::plumbing::logs::Source::Theme,
+        };
+        let level = if notice.failed {
+            crate::plumbing::logs::Level::Error
+        } else {
+            crate::plumbing::logs::Level::Info
+        };
+        self.logs
+            .record(source, filename, level, notice.text.clone());
+    }
+
     /// The Mods screen after an action that changed the folders or `settings.json`: the lists are
     /// read again, and the action's own line is what the notice says.
     fn after_mod_action(&self, notice: Option<mods::Notice>) {
@@ -1847,12 +2065,14 @@ impl Wiring {
         self.repaint_with(snapshot);
     }
 
-    /// Draws the window with the themes `settings.json` now names.
+    /// Draws the window with the themes `settings.json` now names, and records what each one says
+    /// that the app cannot use, which is what puts a theme's warnings on the Logs page too.
     fn apply_themes(&self) {
         let data_dir = self.data_dir.clone();
-        let _ = self
-            .window
-            .upgrade_in_event_loop(move |window| theme::apply_enabled(&window, &data_dir));
+        let logs = self.logs.clone();
+        let _ = self.window.upgrade_in_event_loop(move |window| {
+            theme::apply_and_record(&window, &data_dir, &logs);
+        });
     }
 
     fn setting_changed(&self, updated: Option<stremio_core::types::profile::Settings>) {
@@ -1918,10 +2138,26 @@ impl Wiring {
         // cross into the task: `VideoPlayer` holds `Rc`s and is not `Send`.
         let (window, server) = (self.window.clone(), self.server.clone());
         let (plugins, put) = (self.plugins.clone(), self.put_plugins());
+        let logs = self.logs.clone();
         self.handle.spawn(async move {
             let state = stream_server::wait_until_answering(&server, started).await;
             let text = settings::server_status(&state);
             let running = matches!(state, crate::plumbing::stream_server::State::Ready);
+            // What the server became is a record like any other. A server that answers is news; a
+            // server that never did, or one that could not be started, is worth a warning.
+            let level = match state {
+                crate::plumbing::stream_server::State::Ready => crate::plumbing::logs::Level::Info,
+                crate::plumbing::stream_server::State::PortTaken => {
+                    crate::plumbing::logs::Level::Debug
+                }
+                _ => crate::plumbing::logs::Level::Warn,
+            };
+            logs.record(
+                crate::plumbing::logs::Source::Server,
+                stream_server::ADDRESS,
+                level,
+                &text,
+            );
             // The plugins hear the server's own verdict, not the boot's hope: this task waits
             // until the server answers or gives up, which is when the fact is known. What they
             // ask for is drained here, so a line from their callback is on the Plugins page even
@@ -2509,6 +2745,38 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
     {
         let wiring = wiring.clone();
         window.on_revert_mods_settings(move || wiring.revert_plugin_settings());
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_filter_mods_logs(move |part, value| {
+            wiring.filter_logs(&part, value.to_string());
+        });
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_search_mods_logs(move |text| {
+            wiring.filter_logs("search", text.to_string());
+        });
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_open_mods_log(move |id| wiring.open_log_record(id.max(0) as u32));
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_clear_mods_logs(move || wiring.clear_logs());
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_refresh_mods_about(move || wiring.refresh_about());
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_export_mods_diagnostics(move || wiring.export_diagnostics());
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_copy_mods_version(move || wiring.copy_version());
     }
     {
         let wiring = wiring.clone();
