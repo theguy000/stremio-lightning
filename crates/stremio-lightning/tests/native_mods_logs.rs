@@ -26,12 +26,15 @@ const TALKATIVE: &str = r#"/**
  * @version 1.0.0
  */
 (function () {
-  console.log("native-mods-logs quiet");
+  console.debug("native-mods-logs quiet");
   console.info("native-mods-logs reading the shelf");
   console.warn("native-mods-logs the shelf is empty");
   console.error("native-mods-logs the shelf could not be read");
 })();
 "#;
+
+/// How many lines that plugin writes.
+const TALKATIVE_LINES: usize = 4;
 
 /// One line as the plugin runtime hands it to the recorder.
 fn line(level: &str, text: &str) -> stremio_lightning::plumbing::plugin::LogLine {
@@ -260,7 +263,14 @@ fn the_recorder_keeps_plugin_lines_theme_warnings_and_the_cap() {
             search: "shelf".to_owned(),
         }
     );
-    assert_eq!(logs.matching(&logs.filter()).len(), 1);
+    // The search reads the origin as well as the text: one line names the plugin, the error says
+    // it could not read the shelf.
+    assert_eq!(logs.matching(&logs.filter()).len(), 2);
+    logs.set_level("");
+    logs.set_source("plugin");
+    assert_eq!(logs.matching(&logs.filter()).len(), 2);
+    logs.set_search("a.plugin.js");
+    assert_eq!(logs.matching(&logs.filter()).len(), 2);
     logs.set_source("nothing-like-this");
     assert_eq!(
         logs.filter().source,
@@ -305,9 +315,23 @@ fn the_window_lists_what_a_plugin_logged_and_filters_it() {
     i_slint_backend_testing::init_integration_test_with_mock_time();
     let data_dir = temp_dir("window");
     write_mod(&data_dir, "plugins", "talkative.plugin.js", TALKATIVE);
+    // A second plugin that fails at load and is switched on too, so the About page has a failure
+    // to count and a second enabled name.
+    write_mod(
+        &data_dir,
+        "plugins",
+        "throws.plugin.js",
+        "/**\n * @name Throws\n * @description Fails.\n * @author Bo\n * @version 1.0.0\n */\nthrow new Error(\"no\");\n",
+    );
+    write_mod(
+        &data_dir,
+        "themes",
+        "red.theme.css",
+        "/**\n * @name Red\n * @description A colour change.\n * @author Someone\n * @version 1.0.0\n */\n.nav-tab-button {\n  color: #ff0000;\n}\n",
+    );
     std::fs::write(
         data_dir.join("settings.json"),
-        r#"{"enabled_plugins":["talkative.plugin.js"]}"#,
+        r#"{"enabled_plugins":["talkative.plugin.js","throws.plugin.js"],"enabled_themes":["red.theme.css"]}"#,
     )
     .expect("the settings file");
 
@@ -381,8 +405,9 @@ fn the_window_lists_what_a_plugin_logged_and_filters_it() {
                 .filter(|(_, _, text)| text.starts_with("native-mods-logs "))
                 .map(|(_, _, text)| text)
                 .collect();
-            if said.first().map(String::as_str)
-                == Some("native-mods-logs the shelf could not be read")
+            if said.len() == TALKATIVE_LINES
+                && said.first().map(String::as_str)
+                    == Some("native-mods-logs the shelf could not be read")
             {
                 Ok(format!("{} lines", said.len()))
             } else {
@@ -531,49 +556,10 @@ fn the_window_lists_what_a_plugin_logged_and_filters_it() {
     );
     verdict("Clear did not empty the list in two presses", &clearing);
 
-    let _ = std::fs::remove_dir_all(&data_dir);
-}
-
-#[test]
-fn the_about_page_names_the_build_and_reads_the_counts() {
-    // Mock time for the same reason the Logs test takes it: the window is booted and drawn here.
-    i_slint_backend_testing::init_integration_test_with_mock_time();
-    let data_dir = temp_dir("about");
-    write_mod(&data_dir, "plugins", "talkative.plugin.js", TALKATIVE);
-    // A plugin that fails at load and is switched on, so the page has a failure to count.
-    write_mod(
-        &data_dir,
-        "plugins",
-        "throws.plugin.js",
-        "/**\n * @name Throws\n * @description Fails.\n * @author Bo\n * @version 1.0.0\n */\nthrow new Error(\"no\");\n",
-    );
-    write_mod(
-        &data_dir,
-        "themes",
-        "red.theme.css",
-        "/**\n * @name Red\n * @description A colour change.\n * @author Someone\n * @version 1.0.0\n */\n.nav-tab-button {\n  color: #ff0000;\n}\n",
-    );
-    std::fs::write(
-        data_dir.join("settings.json"),
-        r#"{"enabled_plugins":["talkative.plugin.js","throws.plugin.js"],"enabled_themes":["red.theme.css"]}"#,
-    )
-    .expect("the settings file");
-
-    let booted = stremio_lightning::boot(data_dir.clone()).expect("the app boots");
-    let window = &booted.window;
-    ui_driver::pump_for(window);
-
-    let mut outcomes: Vec<Outcome> = Vec::new();
-    outcomes = step(
-        outcomes,
-        "the Mods tab opens the Mods screen",
-        click(window, "Mods").and_then(|_| match window.get_section() {
-            Section::Mods => Ok("Mods".to_owned()),
-            other => Err(format!("the section is {other:?}")),
-        }),
-    );
-    outcomes = step(
-        outcomes,
+    // ---- the About page reads the same app --------------------------------------
+    let mut about: Vec<Outcome> = Vec::new();
+    about = step(
+        about,
         "About opens",
         click(window, "About").and_then(|_| {
             wait(window, Duration::from_secs(10), |window| {
@@ -586,7 +572,7 @@ fn the_about_page_names_the_build_and_reads_the_counts() {
             })
         }),
     );
-    outcomes = step(outcomes, "it names the version and the build", {
+    about = step(about, "it names the version and the build", {
         let build = &window.get_mods().about_build;
         let labels: Vec<String> = (0..build.row_count())
             .filter_map(|row| build.row_data(row))
@@ -607,8 +593,8 @@ fn the_about_page_names_the_build_and_reads_the_counts() {
     // The counts are drawn from the page's own reading of the folder, and the failed plugin is
     // only known once the runtime has tried it. The check is the window's own data, once it says
     // what the folder and the runtime say.
-    outcomes = step(
-        outcomes,
+    about = step(
+        about,
         "it counts two plugins installed and two on, and one of each theme",
         wait(window, Duration::from_secs(20), |window| {
             let counts = window.get_mods().about_counts.clone();
@@ -636,7 +622,7 @@ fn the_about_page_names_the_build_and_reads_the_counts() {
             }
         }),
     );
-    outcomes = step(outcomes, "the enabled lists name files", {
+    about = step(about, "the enabled lists name files", {
         let enabled = &window.get_mods().about_enabled;
         let plugins = (0..enabled.row_count())
             .filter_map(|row| enabled.row_data(row))
@@ -647,34 +633,29 @@ fn the_about_page_names_the_build_and_reads_the_counts() {
             other => Err(format!("the enabled plugins are {other:?}")),
         }
     });
-    outcomes = step(
-        outcomes,
-        "the places name the two folders and the registry",
+    about = step(about, "the places name the two folders and the registry", {
+        let places = &window.get_mods().about_places;
+        let listed: Vec<(String, String)> = (0..places.row_count())
+            .filter_map(|row| places.row_data(row))
+            .map(|line| (line.label.to_string(), line.value.to_string()))
+            .collect();
+        let plugins_dir = stremio_lightning_core::mods::mods_dir(
+            &data_dir,
+            stremio_lightning_core::mods::ModType::Plugin,
+        );
+        let has = |label: &str, value: &Path| {
+            listed
+                .iter()
+                .any(|(name, said)| name == label && Path::new(said) == value)
+        };
+        if has("Plugins folder", &plugins_dir) && listed.iter().any(|(name, _)| name == "Registry")
         {
-            let places = &window.get_mods().about_places;
-            let listed: Vec<(String, String)> = (0..places.row_count())
-                .filter_map(|row| places.row_data(row))
-                .map(|line| (line.label.to_string(), line.value.to_string()))
-                .collect();
-            let plugins_dir = stremio_lightning_core::mods::mods_dir(
-                &data_dir,
-                stremio_lightning_core::mods::ModType::Plugin,
-            );
-            let has = |label: &str, value: &Path| {
-                listed
-                    .iter()
-                    .any(|(name, said)| name == label && Path::new(said) == value)
-            };
-            if has("Plugins folder", &plugins_dir)
-                && listed.iter().any(|(name, _)| name == "Registry")
-            {
-                Ok(format!("{listed:?}"))
-            } else {
-                Err(format!("the places are {listed:?}"))
-            }
-        },
-    );
-    outcomes = step(outcomes, "it ends with the licence line", {
+            Ok(format!("{listed:?}"))
+        } else {
+            Err(format!("the places are {listed:?}"))
+        }
+    });
+    about = step(about, "it ends with the licence line", {
         let license = window.get_mods().about_license.to_string();
         if license == mods::about::LICENSE && !license.is_empty() {
             Ok(license)
@@ -684,14 +665,17 @@ fn the_about_page_names_the_build_and_reads_the_counts() {
     });
     // Export writes a file into the app's data folder and shows where it went. It uploads
     // nothing: the only thing to check is that the file is there and says what the page says.
-    outcomes = step(
-        outcomes,
+    let pressed = click(window, "Export diagnostics");
+    about = step(
+        about,
         "Export diagnostics writes a file and shows where",
-        click(window, "Export diagnostics").and_then(|_| {
+        pressed.and_then(|_| {
             wait(window, Duration::from_secs(10), |window| {
                 let written = window.get_mods().about_export.to_string();
-                let path = Path::new(&written);
-                match std::fs::read_to_string(path) {
+                if written.is_empty() {
+                    return Err("the page shows no path yet".to_owned());
+                }
+                match std::fs::read_to_string(&written) {
                     Ok(text) if text.contains("Plugins installed") => Ok(written),
                     Ok(_) => Err(format!("{written} says nothing about the counts")),
                     Err(error) => Err(format!("{written}: {error}")),
@@ -699,7 +683,7 @@ fn the_about_page_names_the_build_and_reads_the_counts() {
             })
         }),
     );
-    outcomes = step(outcomes, "and the file is under the app's data folder", {
+    about = step(about, "and the file is under the app's data folder", {
         let written = PathBuf::from(window.get_mods().about_export.to_string());
         let folder = written.parent().map(Path::to_path_buf);
         let wanted = data_dir.join(mods::about::FOLDER);
@@ -713,7 +697,7 @@ fn the_about_page_names_the_build_and_reads_the_counts() {
             ))
         }
     });
-    verdict("the About page did not read the app's counts", &outcomes);
+    verdict("the About page did not read the app's counts", &about);
 
     let _ = std::fs::remove_dir_all(&data_dir);
 }
