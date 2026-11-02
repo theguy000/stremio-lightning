@@ -162,7 +162,9 @@ pub trait Host {
     /// booleans, null, arrays and objects.
     fn get_setting(&mut self, plugin: &str, key: &str) -> Json;
     fn save_setting(&mut self, plugin: &str, key: &str, value: &Json);
-    fn register_settings(&mut self, plugin: &str, schema: &Json);
+    /// The plugin registered a settings page. A schema this app cannot read is the host's answer
+    /// as an error, which `registerSettings` throws back into the plugin.
+    fn register_settings(&mut self, plugin: &str, schema: &Json) -> Result<(), String>;
     /// The plugin asked for the window to be restyled, in the same terms a theme file uses: a list
     /// of `{ "selector": ".class", "property": "color", "value": "#ff0000" }` objects.
     fn apply_theme(&mut self, plugin: &str, rules: &[Json]);
@@ -251,8 +253,8 @@ impl Host for Folder {
         let _ = settings::save_setting(&self.plugins_dir(), &name_of(plugin), key, value.clone());
     }
 
-    fn register_settings(&mut self, plugin: &str, schema: &Json) {
-        let _ = record_schema(&self.plugins_dir(), &name_of(plugin), schema);
+    fn register_settings(&mut self, plugin: &str, schema: &Json) -> Result<(), String> {
+        record_schema(&self.plugins_dir(), &name_of(plugin), schema)
     }
 
     fn apply_theme(&mut self, _plugin: &str, _rules: &[Json]) {
@@ -283,28 +285,37 @@ enum Call {
     Started(Sender<Outcome>),
     /// The Plugin settings page saved values: the plugin's `onSettingsSaved` callbacks hear it.
     SettingsSaved(Json, Sender<Outcome>),
+    /// An event the app reported, with its value.
     Event(String, Json, Sender<Outcome>),
+    /// The app's pump looked in: run the timers that have come due and report what they did.
+    Tick(Sender<Outcome>),
 }
 
 impl Call {
     /// The channel this call's answer goes back on.
     fn reply(&self) -> &Sender<Outcome> {
         match self {
-            Self::Started(reply) | Self::SettingsSaved(_, reply) | Self::Event(_, _, reply) => {
-                reply
-            }
+            Self::Started(reply)
+            | Self::SettingsSaved(_, reply)
+            | Self::Event(_, _, reply)
+            | Self::Tick(reply) => reply,
         }
     }
 
     /// Runs this call on the plugin's worker, taking the call apart so only what it needs is
     /// left. Split from [`Self::reply`] so the answer still has a channel when the run panics.
     fn run<H: Host + 'static>(self, worker: &mut worker::Worker<H>, source: &str) -> Outcome {
-        match self {
+        let outcome = match self {
             // The start's own call: the plugin's file runs for the first time.
             Self::Started(_) => worker.load(source),
             Self::SettingsSaved(values, _) => worker.settings_saved(values),
             Self::Event(name, value, _) => worker.deliver(&name, value),
-        }
+            Self::Tick(_) => worker.advance(),
+        };
+        // The app asks whether to wake this thread at all before every tick, and this is the
+        // answer it reads.
+        worker.publish_timers();
+        outcome
     }
 
     /// Answers a call the thread's interpreter never started to run. The app may have stopped
@@ -325,16 +336,16 @@ struct Channel {
     calls: Option<Sender<Call>>,
     /// Why the plugin takes no call, once it has stopped taking them.
     closed: Option<String>,
+    /// The reason the thread ended, for the call after the one that watched it end. The call
+    /// that ran out its budget is answered by the thread; the next call finds the channel gone,
+    /// and this is what it says instead of claiming nobody explained.
+    wound: Option<String>,
 }
 
 impl Channel {
     /// Sends one call and waits for its answer. `call` builds the call around the channel the
     /// answer comes back on, so the answer cannot be read by a later call.
     fn ask(&mut self, call: impl FnOnce(Sender<Outcome>) -> Call) -> Outcome {
-        let trouble = |reason: &str| Outcome {
-            run: Run::Threw(reason.to_owned()),
-            ..Outcome::default()
-        };
         if let Some(reason) = &self.closed {
             return trouble(reason);
         }
@@ -348,22 +359,46 @@ impl Channel {
         }
         match answer.recv_timeout(ANSWER_WAIT) {
             Ok(outcome) => {
+                let mut outcome = outcome;
                 if outcome.run.failed() {
+                    // The plugin's own thread reports its lines through the host, which is where
+                    // the Logs page read them from before the card did. The call that stopped it
+                    // is the one place that knows the reason, so the reason travels with the
+                    // answer too: a host that has already closed cannot say it.
+                    if outcome.logs.is_empty() {
+                        let reason = outcome.run.said();
+                        outcome.logs.push(LogLine::new("error", reason));
+                    }
+                    // A call that ran out its budget answers with its own reason; the thread it
+                    // ran on then ends, and the NEXT call finds the channel gone. Without this,
+                    // that next call would say the interpreter stopped "without saying why"
+                    // about a plugin whose reason is known.
                     self.close(outcome.run.said());
+                    self.wound.get_or_insert_with(|| outcome.run.said());
                 }
                 outcome
             }
             Err(RecvTimeoutError::Timeout) => {
-                // The thread is inside the plugin and is not coming back.
-                self.close(Run::RanTooLong.said());
-                Outcome {
-                    run: Run::RanTooLong,
-                    ..Outcome::default()
-                }
+                // The thread is inside the plugin and is not coming back. The reason travels
+                // with the answer here too: the plugin's own thread is the one that would report
+                // it, and it is exactly the one not answering. A thread that was already left
+                // running has a reason from the call that left it, and later waits do not
+                // replace it with the fact that they too found nothing.
+                let reason = match &self.wound {
+                    Some(reason) => reason.clone(),
+                    None => {
+                        let reason = Run::RanTooLong.said();
+                        self.wound = Some(reason.clone());
+                        reason
+                    }
+                };
+                self.close(reason.clone());
+                trouble(&reason)
             }
             Err(RecvTimeoutError::Disconnected) => {
-                self.close(GONE.to_owned());
-                trouble(GONE)
+                let reason = self.wound.clone().unwrap_or_else(|| GONE.to_owned());
+                self.close(reason.clone());
+                trouble(&reason)
             }
         }
     }
@@ -371,6 +406,17 @@ impl Channel {
     fn close(&mut self, reason: String) {
         self.calls = None;
         self.closed = Some(reason);
+    }
+}
+
+/// A call that could not run, as its outcome. The reason is the outcome's one line as well as
+/// its run: a plugin whose call never reached it still has to say on its card why it stopped, and
+/// the host that logs plugin lines is the host that just answered nothing.
+fn trouble(reason: &str) -> Outcome {
+    Outcome {
+        run: Run::Threw(reason.to_owned()),
+        logs: vec![LogLine::new("error", reason)],
+        theme: None,
     }
 }
 

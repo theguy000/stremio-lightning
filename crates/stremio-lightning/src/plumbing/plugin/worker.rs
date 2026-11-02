@@ -24,6 +24,9 @@ pub struct Running {
     channel: Channel,
     /// Why the plugin is no longer running, empty while it is.
     stopped: String,
+    /// Whether the thread's worker holds a timer. Kept here so the app can tell without asking
+    /// the thread, which an idle plugin would otherwise be woken for several times a second.
+    has_timers: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Running {
@@ -34,8 +37,10 @@ impl Running {
             channel: Channel {
                 calls: None,
                 closed: None,
+                wound: None,
             },
             stopped: String::new(),
+            has_timers: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
 
@@ -49,16 +54,20 @@ impl Running {
     ) -> (Self, Outcome) {
         let (calls, commands) = std::sync::mpsc::channel();
         let name = plugin.to_owned();
+        let has_timers = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let threads_timers = Arc::clone(&has_timers);
         let spawned = std::thread::Builder::new()
             .name(format!("plugin {}", super::name_of(plugin)))
             .stack_size(STACK_SIZE)
-            .spawn(move || worker_main(&name, source, host, &commands));
+            .spawn(move || worker_main(&name, source, host, &commands, threads_timers));
         let mut running = Self {
             channel: Channel {
                 calls: Some(calls),
                 closed: None,
+                wound: None,
             },
             stopped: String::new(),
+            has_timers,
         };
         if let Err(error) = spawned {
             let reason = format!("The plugin's interpreter did not start: {error}");
@@ -82,6 +91,15 @@ impl Running {
         self.stopped.is_empty()
     }
 
+    /// Whether the plugin has a timer that has not fired or been cleared. Asked before waking the
+    /// plugin's thread, so an idle plugin costs nothing.
+    pub fn holds_timers(&self) -> bool {
+        match &self.channel.calls {
+            Some(_) => self.has_timers.load(std::sync::atomic::Ordering::Relaxed),
+            None => false,
+        }
+    }
+
     /// Why the plugin stopped, empty while it runs.
     pub fn stopped(&self) -> &str {
         &self.stopped
@@ -95,6 +113,16 @@ impl Running {
         outcome
     }
 
+    /// Runs the timers that have come due since the last call and returns what they logged and
+    /// asked for. A plugin's timer code only runs inside a call into it, so the app's pump is what
+    /// makes a `setTimeout` fire: nothing else calls in when the app has nothing to report.
+    pub fn advance(&mut self) -> Outcome {
+        let outcome = self.channel.ask(Call::Tick);
+        self.record(&outcome);
+        outcome
+    }
+
+    /// Tells every listener for `event` that it happened.
     pub fn deliver(&mut self, event: super::Event) -> Outcome {
         let (name, value) = event.named();
         let outcome = self
@@ -117,8 +145,14 @@ impl Running {
     }
 }
 
-fn worker_main<H: Host + 'static>(plugin: &str, source: String, host: H, calls: &Receiver<Call>) {
-    let mut worker = match Worker::new(plugin, host) {
+fn worker_main<H: Host + 'static>(
+    plugin: &str,
+    source: String,
+    host: H,
+    calls: &Receiver<Call>,
+    has_timers: Arc<std::sync::atomic::AtomicBool>,
+) {
+    let mut worker = match Worker::new(plugin, host, has_timers) {
         Ok(worker) => worker,
         Err(error) => {
             // Nothing is listening for this answer: the start is still setting its channel up.
@@ -180,6 +214,9 @@ pub(super) struct Worker<H: Host> {
     listeners: BTreeMap<String, Vec<Held>>,
     /// The timers that have not fired or been cleared, by id.
     timers: BTreeMap<u32, Timer>,
+    /// Whether `timers` is empty, shared with the `Running` the app holds, so the app can tell
+    /// whether waking this plugin's thread would run anything at all.
+    has_timers: Arc<std::sync::atomic::AtomicBool>,
     /// The interpreter's context. It holds the runtime that made it, so the runtime lives as long
     /// as this does; there is no separate field for it.
     context: rquickjs::Context,
@@ -210,7 +247,11 @@ impl<H: Host> Drop for Worker<H> {
 }
 
 impl<H: Host + 'static> Worker<H> {
-    fn new(plugin: &str, host: H) -> Result<Self, String> {
+    fn new(
+        plugin: &str,
+        host: H,
+        has_timers: Arc<std::sync::atomic::AtomicBool>,
+    ) -> Result<Self, String> {
         let runtime = Runtime::new()
             .map_err(|error| format!("The JavaScript interpreter did not start: {error}"))?;
         runtime.set_memory_limit(MEMORY_LIMIT);
@@ -239,6 +280,7 @@ impl<H: Host + 'static> Worker<H> {
             on_settings_saved: Vec::new(),
             listeners: BTreeMap::new(),
             timers: BTreeMap::new(),
+            has_timers,
             context,
         })
     }
@@ -348,9 +390,6 @@ impl<H: Host + 'static> Worker<H> {
         for (key, value) in &requests.saved {
             lock(&self.host).save_setting(&name, key, value);
         }
-        for schema in &requests.schemas {
-            lock(&self.host).register_settings(&name, schema);
-        }
         if let Some(rules) = &settled.outcome.theme {
             lock(&self.host).apply_theme(&name, rules);
         }
@@ -363,12 +402,7 @@ impl<H: Host + 'static> Worker<H> {
         }
         for (id, after, period, code) in requests.timers {
             if self.timers.len() >= super::MAX_TIMERS {
-                let mut outcome = settled.outcome;
-                outcome.run = Run::Threw(format!(
-                    "It left more than {} timers waiting at once, so it was stopped.",
-                    super::MAX_TIMERS
-                ));
-                return outcome;
+                return stopped_timers(settled.outcome);
             }
             self.timers.insert(
                 id,
@@ -387,6 +421,24 @@ impl<H: Host + 'static> Worker<H> {
     }
 
     /// Runs every timer that is due, until none is or the plugin stops.
+    /// Says whether this worker holds a timer, for the `Running` the app keeps.
+    pub(super) fn publish_timers(&self) {
+        self.has_timers.store(
+            !self.timers.is_empty(),
+            std::sync::atomic::Ordering::Relaxed,
+        );
+    }
+
+    /// The timers that have come due, as the app's pump asks for them. A plugin with nothing due
+    /// has nothing to say, and the pump asks several times a second: that case is answered here
+    /// rather than by waking the plugin's thread for it.
+    pub(super) fn advance(&mut self) -> Outcome {
+        match self.due_now() {
+            Some(_) => self.fire_due(),
+            None => Outcome::default(),
+        }
+    }
+
     fn fire_due(&mut self) -> Outcome {
         let mut outcome = Outcome::default();
         while let Some((id, timer)) = self.due_now() {
@@ -406,10 +458,8 @@ impl<H: Host + 'static> Worker<H> {
             // has already failed the step in that case; this is the check that catches it first.
             if let Some(period) = period {
                 if self.timers.len() >= super::MAX_TIMERS {
-                    outcome.run = Run::Threw(format!(
-                        "It left more than {} timers waiting at once, so it was stopped.",
-                        super::MAX_TIMERS
-                    ));
+                    let step = stopped_timers(Outcome::default());
+                    outcome.merge(step);
                     break;
                 }
                 self.timers.insert(
@@ -456,6 +506,21 @@ impl<H: Host + 'static> Worker<H> {
     }
 }
 
+/// Why a plugin that left more than [`super::MAX_TIMERS`] timers waiting was stopped, as the
+/// outcome that reports it. The sentence is both the stop reason and the line the screens show:
+/// a card says "Stopped:" and then the reason, so the reason has to travel with the outcome even
+/// when the host listening for it is the one that has just closed.
+fn stopped_timers(outcome: Outcome) -> Outcome {
+    let reason = format!(
+        "It left more than {} timers waiting at once, so it was stopped. A setInterval, or a timer that sets its own successor this often, is how a plugin ends up here.",
+        super::MAX_TIMERS
+    );
+    let mut outcome = outcome;
+    outcome.run = Run::Threw(reason.clone());
+    outcome.logs.push(LogLine::new("error", reason));
+    outcome
+}
+
 /// How a plugin reads and writes its settings: the app's host for the settings file, and the
 /// values the Plugin settings page has just saved while the plugin's own callbacks run.
 ///
@@ -483,15 +548,19 @@ impl<H: Host> Settings for Session<H> {
         Ok(())
     }
 
+    /// Records the schema and hands the page's verdict back, so a schema the app cannot read
+    /// throws from `registerSettings` rather than being kept as though the page could draw it.
     fn register(&mut self, schema: &Json) -> Result<(), String> {
-        lock(&self.host).register_settings(&self.plugin, schema);
-        Ok(())
+        lock(&self.host).register_settings(&self.plugin, schema)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    use crate::app::plugins::Asked;
     use crate::plumbing::plugin::{Event, Folder};
 
     /// A host that fails the way a bug in the app would: the registration it is asked for panics.
@@ -505,7 +574,7 @@ mod tests {
 
         fn save_setting(&mut self, _plugin: &str, _key: &str, _value: &Json) {}
 
-        fn register_settings(&mut self, _plugin: &str, _schema: &Json) {
+        fn register_settings(&mut self, _plugin: &str, _schema: &Json) -> Result<(), String> {
             panic!("the app's own registration failed");
         }
 
@@ -514,10 +583,15 @@ mod tests {
         fn log(&mut self, _plugin: &str, _line: LogLine, _stopped: bool) {}
     }
 
-    /// A plugin's own folder: the settings file its callbacks read.
+    /// A plugin's own folder: the settings file its callbacks read, and the plugins folder one
+    /// test writes to. A folder of its own per call, because tests run side by side.
     fn folder() -> Folder {
-        let dir =
-            std::env::temp_dir().join(format!("stremio-lightning-worker-{}", std::process::id()));
+        static COUNT: AtomicU32 = AtomicU32::new(0);
+        let unique = COUNT.fetch_add(1, Ordering::SeqCst);
+        let dir = std::env::temp_dir().join(format!(
+            "stremio-lightning-worker-{}-{unique}",
+            std::process::id()
+        ));
         let folder = Folder::new(&dir);
         let plugins = folder.data_dir.join("stremio-lightning").join("plugins");
         let _ = std::fs::remove_dir_all(&dir);
@@ -561,6 +635,48 @@ mod tests {
     }
 
     #[test]
+    fn a_plugin_that_never_returns_says_why_on_its_card_as_well_as_in_its_log() {
+        let dir = folder();
+        let path = dir.data_dir.join("stremio-lightning").join("plugins");
+        let _ = std::fs::create_dir_all(&path);
+        std::fs::write(
+            path.join("spin.plugin.js"),
+            "on('fullscreen', function () { while (true) {} });",
+        )
+        .expect("the plugin file");
+        let runtime = crate::app::plugins::Runtime::new(dir.data_dir.clone());
+        runtime.start("spin.plugin.js");
+
+        // The event is heard inside the plugin, which never comes back. Its thread is the one
+        // that would report that, so the reason has to come back with the answer instead.
+        let asked = runtime.deliver(Event::Fullscreen { on: true });
+        assert!(
+            asked
+                .iter()
+                .any(|ask| matches!(ask, Asked::Changed | Asked::Log(..))),
+            "the app was told: {asked:?}"
+        );
+
+        let state = runtime.state("spin.plugin.js", true);
+        assert!(!state.running);
+        assert!(
+            state.stopped.contains("past the time"),
+            "the card says: {:?}",
+            state.stopped
+        );
+        let logged: Vec<String> = runtime
+            .lines()
+            .into_iter()
+            .filter(|(file, _)| file == "spin.plugin.js")
+            .map(|(_, line)| line.text)
+            .collect();
+        assert!(
+            logged.iter().any(|line| line.contains("past the time")),
+            "the Logs page has the reason: {logged:?}"
+        );
+    }
+
+    #[test]
     fn a_panic_under_the_plugin_is_reported_and_later_calls_hear_it_at_once() {
         let (mut running, outcome) =
             Running::start("registerSettings([]);".to_owned(), "crashed", Crash);
@@ -584,5 +700,43 @@ mod tests {
         let (runs, outcome) = Running::start("logger.info('fine');".to_owned(), "fine", folder());
         assert!(runs.running(), "stopped: {}", runs.stopped());
         assert_eq!(outcome.run, Run::Clean);
+    }
+
+    /// Item 5 at the registry: a load that failed left its reason in the stopped map, and a
+    /// later start that goes through has to clear it. A card that still said why the last run
+    /// died, next to a plugin that is running, would be telling the user two things at once.
+    #[test]
+    fn a_plugin_that_failed_once_and_starts_clean_the_second_time_says_nothing_about_the_first() {
+        let dir = folder();
+        let path = dir.data_dir.join("stremio-lightning").join("plugins");
+        let _ = std::fs::create_dir_all(&path);
+        let file = path.join("twice.plugin.js");
+        std::fs::write(&file, "throw new Error('not yet');").expect("the first plugin file");
+        let runtime = crate::app::plugins::Runtime::new(dir.data_dir.clone());
+
+        runtime.start("twice.plugin.js");
+        let first = runtime.state("twice.plugin.js", true);
+        assert!(!first.running);
+        assert!(
+            first.stopped.contains("not yet"),
+            "the card says: {:?}",
+            first.stopped
+        );
+
+        // The user fixes the file and presses the switch again.
+        std::fs::write(&file, "logger.info('now it works');").expect("the second plugin file");
+        runtime.start("twice.plugin.js");
+
+        let second = runtime.state("twice.plugin.js", true);
+        assert!(second.running, "it started: {:?}", second.stopped);
+        assert_eq!(second.stopped, "", "the old reason is gone");
+        assert_eq!(second.last_error, "");
+        let logged: Vec<String> = runtime
+            .lines()
+            .into_iter()
+            .filter(|(name, _)| name == "twice.plugin.js")
+            .map(|(_, line)| line.text)
+            .collect();
+        assert_eq!(logged, vec!["now it works".to_owned()]);
     }
 }

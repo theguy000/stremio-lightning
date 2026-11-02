@@ -78,7 +78,12 @@ pub struct Runtime {
     /// Plugins switched on whose thread is gone, by file name, and why: what the Plugins page
     /// says about them until they are switched off and on again.
     failed: Mutex<HashMap<String, String>>,
-    /// What plugins have asked the app to do, for the app's own thread to take.
+    /// The lines of the plugins that stopped, by file name, so the Logs page can still show why
+    /// they stopped. A start replaces them; nothing else removes them.
+    stopped: Mutex<HashMap<String, Arc<Mutex<Started>>>>,
+    /// What plugins have asked the app to do on their own thread, for the app's own thread to
+    /// take. A call the app makes returns its asks directly; this holds what arrived without one,
+    /// such as a line a plugin logged from a timer.
     asked: Mutex<Vec<Asked>>,
     /// Counts the asks, so the screen can tell whether anything about a plugin changed without
     /// waking every listener.
@@ -105,6 +110,7 @@ impl Runtime {
             data_dir,
             started: Mutex::default(),
             failed: Mutex::default(),
+            stopped: Mutex::default(),
             asked: Mutex::default(),
             count: AtomicU64::default(),
         })
@@ -135,6 +141,7 @@ impl Runtime {
                 .or_insert_with(|| Arc::clone(&cell));
         }
         lock(&self.failed).remove(filename);
+        lock(&self.stopped).remove(filename);
         let plugins_dir = self.plugins_dir();
         let name = plugin::name_of(filename);
         let path = plugins_dir.join(filename);
@@ -217,7 +224,11 @@ impl Runtime {
         };
         let asked = {
             let mut entry = lock(&cell);
-            let outcome = entry.running.settings_saved(values);
+            let mut outcome = entry.running.settings_saved(values);
+            if outcome.logs.is_empty() && outcome.run.failed() {
+                let reason = outcome.run.said();
+                outcome.logs.push(LogLine::new("error", reason));
+            }
             entry.record(&outcome);
             asked_by(&outcome, &entry)
         };
@@ -238,7 +249,14 @@ impl Runtime {
         for (name, cell) in cells {
             {
                 let mut entry = lock(&cell);
-                let outcome = entry.running.deliver(event.clone());
+                let mut outcome = entry.running.deliver(event.clone());
+                // A plugin that ran past its budget is answered by the channel rather than by
+                // its own thread, so the reason it stopped is not in what its thread reported.
+                // It travels with the outcome, which is the only thing the card reads.
+                if outcome.logs.is_empty() && outcome.run.failed() {
+                    let reason = outcome.run.said();
+                    outcome.logs.push(LogLine::new("error", reason));
+                }
                 entry.record(&outcome);
                 asked.extend(asked_by(&outcome, &entry));
             }
@@ -250,6 +268,10 @@ impl Runtime {
     /// Moves a plugin that stopped out of the running set, so every page says why rather than
     /// going on claiming it runs. A plugin that answered its call is still running, and a reason
     /// one of its earlier calls recorded is no longer true, so it is taken away.
+    ///
+    /// A plugin that stopped keeps its lines: the call that stopped it may have been answered by
+    /// the closed channel rather than by its own thread, and its lines are the only reason the
+    /// Logs page ever gets. They live beside the reason until the plugin is started again.
     fn close(&self, filename: &str, cell: &Arc<Mutex<Started>>) {
         let running = lock(cell).running.running();
         if running {
@@ -264,7 +286,14 @@ impl Runtime {
             }
         }
         drop(started);
+        self.retain(filename, cell);
         self.failed(filename, reason);
+    }
+
+    /// Keeps the lines of a plugin that stopped, where `lines` can still find them. They are held
+    /// with the plugin's cell, which nothing starts again until they are replaced.
+    fn retain(&self, filename: &str, cell: &Arc<Mutex<Started>>) {
+        lock(&self.stopped).insert(filename.to_owned(), Arc::clone(cell));
     }
 
     fn finish(&self, mut asked: Vec<Asked>) -> Vec<Asked> {
@@ -304,21 +333,23 @@ impl Runtime {
         }
     }
 
-    /// The lines every running plugin has logged, oldest first and by plugin, as the Logs page
-    /// shows them: the plugin's name, then the line. This is the Logs page's only source; nothing
-    /// else keeps a plugin's lines, and the list is in memory for this run of the app.
+    /// The lines every plugin has logged, oldest first and by plugin, as the Logs page shows
+    /// them: the plugin's name, then the line. A plugin that stopped is here too, which is where
+    /// the reason it stopped is read from. This is the Logs page's only source; nothing else
+    /// keeps a plugin's lines, and the list is in memory for this run of the app.
     pub fn lines(&self) -> Vec<(String, LogLine)> {
-        let started = lock(&self.started);
-        let mut all: Vec<(String, LogLine)> = started
-            .iter()
-            .flat_map(|(filename, cell)| {
-                lock(cell)
+        let mut all: Vec<(String, LogLine)> = Vec::new();
+        {
+            let stopping = lock(&self.stopped);
+            for (filename, cell) in lock(&self.started).iter().chain(stopping.iter()) {
+                let lines = lock(cell)
                     .lines
                     .iter()
                     .map(|line| (filename.clone(), line.clone()))
-                    .collect::<Vec<_>>()
-            })
-            .collect();
+                    .collect::<Vec<_>>();
+                all.extend(lines);
+            }
+        }
         all.sort_by(|a, b| a.0.cmp(&b.0));
         all
     }
@@ -377,10 +408,12 @@ impl Host for Hosted {
         self.ask(Asked::Changed);
     }
 
-    fn register_settings(&mut self, _plugin: &str, schema: &Json) {
+    fn register_settings(&mut self, _plugin: &str, schema: &Json) -> Result<(), String> {
         let name = plugin::name_of(&self.plugin);
-        let _ = plugin::record_schema(&self.plugins_dir(), &name, schema);
+        let recorded = plugin::record_schema(&self.plugins_dir(), &name, schema);
+        // Even a schema the page cannot draw is news: the Plugin settings page says so.
         self.ask(Asked::Changed);
+        recorded
     }
 
     fn apply_theme(&mut self, _plugin: &str, rules: &[Json]) {

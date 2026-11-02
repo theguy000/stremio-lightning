@@ -58,6 +58,9 @@ pub(crate) struct Context {
     /// The addons and catalog count the Board's range was last asked for, so that installing
     /// an addon asks for its catalogs and a growing list asks for the rows beyond the old one.
     pub(crate) board_catalogs: Arc<Mutex<Option<BoardCatalogRange>>>,
+    /// The catalogs the plugins were last told arrived, by id and how many items each had. A
+    /// catalog is told once per arrival; a reload with the same count is still a second arrival.
+    pub(crate) said_catalogs: Arc<Mutex<std::collections::HashMap<String, usize>>>,
     pub(crate) auth: auth::Generation,
     /// The plugins the app is running: the Mods pages say what each one is doing, and every
     /// snapshot is drawn from what it holds now.
@@ -89,6 +92,35 @@ pub(crate) async fn pump(
             async move { handle(event, &context) }
         })
         .await;
+}
+
+/// The catalogs whose first page has arrived since the last snapshot, each as an event a plugin
+/// hears. A catalog is remembered by its id and item count: the same catalog reloaded to the same
+/// count is a fresh arrival, and an id a plugin was told about once is not told again on every
+/// later snapshot.
+fn catalogs_arrived(model: &AppModel, context: &Context) -> Vec<crate::plumbing::plugin::Event> {
+    use stremio_core::models::common::Loadable;
+    let mut said = context.said_catalogs.lock().unwrap();
+    let mut events = Vec::new();
+    for catalog in &model.board.catalogs {
+        let Some(page) = catalog.first() else {
+            continue;
+        };
+        let Some(Loadable::Ready(items)) = &page.content else {
+            // A catalog that is loading or failed has not arrived; the next ready one is news
+            // even if it brings the same count as the last that did.
+            said.remove(&page.request.path.id);
+            continue;
+        };
+        let id = page.request.path.id.clone();
+        let count = items.len();
+        if said.get(&id) == Some(&count) {
+            continue;
+        }
+        said.insert(id.clone(), count);
+        events.push(crate::plumbing::plugin::Event::CatalogLoaded { id, count });
+    }
+    events
 }
 
 /// Asks the core for every catalog the account has, and asks again whenever the addons or the
@@ -162,7 +194,29 @@ fn handle(event: RuntimeEvent<AppEnv, AppModel>, context: &Context) {
     // blank every watched mark in the drawer for a frame, which reads as the app losing them.
     let library_blank = model.ctx.library.items.is_empty() && model.ctx.profile.auth.is_some();
     let mut snapshot = snapshot(&model, context);
+    // A catalog whose first page has arrived, with how many items it brought. Told before the
+    // model is dropped: reading it takes the model, and a plugin call would take it again.
+    let arrived = catalogs_arrived(&model, context);
     drop(model);
+    if !arrived.is_empty() {
+        let asked: Vec<crate::app::plugins::Asked> = arrived
+            .into_iter()
+            .flat_map(|event| context.plugins.deliver(event))
+            .collect();
+        if !asked.is_empty() {
+            // The window is drawn from the snapshot below anyway; only the rules a plugin asked
+            // for need the window's thread before it.
+            for ask in asked {
+                if let crate::app::plugins::Asked::Theme(rules) = ask {
+                    let rules = rules.clone();
+                    let weak = context.weak.clone();
+                    let _ = weak.upgrade_in_event_loop(move |window| {
+                        let _ = crate::plumbing::theme::install(&window, &rules);
+                    });
+                }
+            }
+        }
+    }
 
     if library_blank {
         let previous = context.latest.lock().unwrap().player.episodes.clone();

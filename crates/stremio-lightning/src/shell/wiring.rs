@@ -21,6 +21,7 @@ use crate::plumbing::clipboard;
 use crate::plumbing::images::Images;
 use crate::plumbing::links;
 use crate::plumbing::player::VideoPlayer;
+use crate::plumbing::plugin::Event;
 use crate::plumbing::stream_server::{self, Supervisor};
 use crate::plumbing::theme;
 use crate::screens::player::{auto_subtitle, SubtitleChoice, SubtitleTrackFacts};
@@ -77,6 +78,55 @@ fn drawn_range(visible: &Mutex<(usize, usize)>) -> (usize, usize) {
     match grid {
         Some(grid) => discover::settled_range(grid.scroll, grid.height, grid.pitch, grid.columns),
         None => *visible.lock().unwrap(),
+    }
+}
+
+/// The plugin runtime and the few things a look at it needs, in a shape that can leave the
+/// window's thread. A call into a plugin can wait out the interpreter's answer window, so the
+/// event task and the server's task make those calls and hand the result back to the window;
+/// this is what they hold instead of the wiring, which holds `Rc`s and cannot go with them.
+#[derive(Clone)]
+pub(crate) struct Plugins {
+    pub(crate) runtime: Arc<crate::app::plugins::Runtime>,
+    pub(crate) latest: Arc<Mutex<Snapshot>>,
+    pub(crate) window: Weak<MainWindow>,
+    pub(crate) images: Images,
+    pub(crate) data_dir: std::path::PathBuf,
+}
+
+impl Plugins {
+    /// Puts what the plugins asked for into effect: the rules a theme asked for, and a fresh
+    /// Mods page for anything that logged. A line is already in the runtime's own record, which
+    /// is what every card and the Logs page read, so there is nothing here to log twice.
+    pub(crate) fn put(&self, asked: Vec<crate::app::plugins::Asked>) {
+        let mut theme: Vec<serde_json::Value> = Vec::new();
+        let mut changed = false;
+        for ask in asked {
+            match ask {
+                crate::app::plugins::Asked::Log(line, stopped) => {
+                    let _ = (line, stopped);
+                    changed = true;
+                }
+                crate::app::plugins::Asked::Theme(more) => {
+                    theme.extend(more);
+                    changed = true;
+                }
+                crate::app::plugins::Asked::Changed => changed = true,
+            }
+        }
+        if !changed {
+            return;
+        }
+        if !theme.is_empty() {
+            let rules = theme.clone();
+            let _ = self.window.upgrade_in_event_loop(move |window| {
+                let _ = theme::install(&window, &rules);
+            });
+        }
+        let mut snapshot = self.latest.lock().unwrap().clone();
+        snapshot.mods = crate::screens::mods::data(&self.data_dir).refresh(&self.runtime);
+        *self.latest.lock().unwrap() = snapshot.clone();
+        crate::shell::show(&self.window, snapshot, &self.images);
     }
 }
 
@@ -208,6 +258,9 @@ pub(crate) struct Playback {
     pub(crate) sent_time: f64,
     pub(crate) paused: Option<bool>,
     pub(crate) scale: stremio_core::types::player::VideoScale,
+    /// The Video the plugins were last told is playing, empty when they were told it stopped.
+    /// mpv reports the same file forty times a second, and a plugin hears about it once.
+    pub(crate) said: String,
 }
 
 impl Default for Playback {
@@ -218,6 +271,7 @@ impl Default for Playback {
             sent_time: 0.0,
             paused: None,
             scale: stremio_core::types::player::VideoScale::Contain,
+            said: String::new(),
         }
     }
 }
@@ -590,6 +644,7 @@ impl Wiring {
         }
         window.set_player_subtitles_enabled(status.subtitles.iter().any(|track| track.selected));
         window.set_player_subtitles_size((status.subtitles_scale * 100.0) as f32);
+        self.tell_playback(status.loaded);
         window.set_player_subtitles_offset((status.subtitles_delay * 1000.0) as f32);
         window.set_player_subtitles_position(status.subtitles_position as f32);
 
@@ -667,6 +722,30 @@ impl Wiring {
         }
     }
 
+    /// Tells the plugins what the player is doing, when it has changed: a file that has loaded
+    /// for the Video on screen started playing, and one that came off (or loaded with nothing on
+    /// screen) stopped. mpv says the same thing many times a second, so the Video id the plugins
+    /// last heard is kept here and a plugin hears each change once.
+    fn tell_playback(&self, loaded: bool) {
+        let video = if loaded {
+            self.latest.lock().unwrap().player.video_id.clone()
+        } else {
+            String::new()
+        };
+        let event = {
+            let mut playback = self.playback.lock().unwrap();
+            if playback.said == video {
+                return;
+            }
+            playback.said = video.clone();
+            match video.is_empty() {
+                true => Event::PlaybackStopped,
+                false => Event::PlaybackStarted { video_id: video },
+            }
+        };
+        self.drain(self.plugins.deliver(event));
+    }
+
     /// The stream reached its end. Binge watching carries on to the next Video; anything else
     /// goes back to where the player was opened from, as the web's back navigation does.
     fn ended(&self) {
@@ -690,7 +769,15 @@ impl Wiring {
         self.video.show(false);
         *self.player_loaded.lock().unwrap() = String::new();
         *self.playback_error.lock().unwrap() = String::new();
-        *self.playback.lock().unwrap() = Playback::default();
+        let was_playing = {
+            let mut playback = self.playback.lock().unwrap();
+            let was = !playback.said.is_empty();
+            *playback = Playback::default();
+            was
+        };
+        if was_playing {
+            self.drain(self.plugins.deliver(Event::PlaybackStopped));
+        }
         self.player_season
             .store(player::NO_SEASON, Ordering::Relaxed);
         player::unload(&self.runtime);
@@ -1415,11 +1502,12 @@ impl Wiring {
         if kind == mods::catalogue::Kind::Plugin {
             // The switch is the start and the stop: a plugin that is on runs, and one that is off
             // has no interpreter at all.
-            if enabled {
-                self.drain(self.plugins.start(&filename));
+            let asked = if enabled {
+                self.plugins.start(&filename)
             } else {
-                self.drain(self.plugins.stop(&filename));
-            }
+                self.plugins.stop(&filename)
+            };
+            self.drain(asked);
         }
         self.after_mod_action(notice);
     }
@@ -1440,6 +1528,38 @@ impl Wiring {
         let mut snapshot = self.latest.lock().unwrap().clone();
         snapshot.mods = data;
         self.repaint_with(snapshot);
+    }
+
+    /// What the event task does with a plugin's asks, built from the wiring's `Send` parts only:
+    /// the event task is not the window's thread, and the wiring holds `Rc`s. This is where a
+    /// line a plugin logged from a timer, and rules it asked for there, reach the window.
+    pub(crate) fn puts_plugins(
+        plugins: &Arc<crate::app::plugins::Runtime>,
+        latest: &Arc<Mutex<Snapshot>>,
+        window: &Weak<MainWindow>,
+        images: &Images,
+        data_dir: &std::path::Path,
+    ) -> Arc<dyn Fn(Vec<crate::app::plugins::Asked>) + Send + Sync> {
+        let plugins = Plugins {
+            runtime: plugins.clone(),
+            latest: latest.clone(),
+            window: window.clone(),
+            images: images.clone(),
+            data_dir: data_dir.to_path_buf(),
+        };
+        Arc::new(move |asked| plugins.put(asked))
+    }
+
+    /// What the event task and the server's task do with a plugin's asks. Built from the wiring's
+    /// `Send` parts alone: those tasks are not on the window's thread, and the wiring holds `Rc`s.
+    pub(crate) fn put_plugins(&self) -> Arc<dyn Fn(Vec<crate::app::plugins::Asked>) + Send + Sync> {
+        Wiring::puts_plugins(
+            &self.plugins,
+            &self.latest,
+            &self.window,
+            &self.images,
+            &self.data_dir,
+        )
     }
 
     /// Puts what the plugins asked for into effect. Their lines are already in the runtime, which
@@ -1794,12 +1914,20 @@ impl Wiring {
 
     /// Waits for the server to answer and shows which of the possible things happened.
     pub(crate) fn report_server_state(&self, started: Result<(), String>) {
-        // Only the window handle and the server cross into the task: `VideoPlayer` holds `Rc`s
-        // and is not `Send`.
+        // Only the window handle, the server, the plugin runtime and the line's own reporter
+        // cross into the task: `VideoPlayer` holds `Rc`s and is not `Send`.
         let (window, server) = (self.window.clone(), self.server.clone());
+        let (plugins, put) = (self.plugins.clone(), self.put_plugins());
         self.handle.spawn(async move {
             let state = stream_server::wait_until_answering(&server, started).await;
             let text = settings::server_status(&state);
+            let running = matches!(state, crate::plumbing::stream_server::State::Ready);
+            // The plugins hear the server's own verdict, not the boot's hope: this task waits
+            // until the server answers or gives up, which is when the fact is known. What they
+            // ask for is drained here, so a line from their callback is on the Plugins page even
+            // if no core event ever follows.
+            let asked = plugins.deliver(Event::ServerRunning { running });
+            put(asked);
             let _ =
                 window.upgrade_in_event_loop(move |window| window.set_server_status(text.into()));
         });
@@ -2043,11 +2171,19 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
     {
         let wiring = wiring.clone();
         window.on_player_toggle_fullscreen(move || {
-            let _ = wiring.window.upgrade_in_event_loop(|window| {
-                let fullscreen = !window.window().is_fullscreen();
-                window.window().set_fullscreen(fullscreen);
-                window.set_player_fullscreen(fullscreen);
-            });
+            let Some(window) = wiring.window.upgrade() else {
+                return;
+            };
+            let wanted = !window.window().is_fullscreen();
+            window.window().set_fullscreen(wanted);
+            // The window is the only thing that knows whether it went: a compositor can refuse,
+            // and the plugin hears what happened rather than what was asked for.
+            let fullscreen = window.window().is_fullscreen();
+            window.set_player_fullscreen(fullscreen);
+            // Drained here rather than at the next repaint: a plugin that logs from this callback
+            // or asks for a colour has its answer on screen before the press is over.
+            let asked = wiring.plugins.deliver(Event::Fullscreen { on: fullscreen });
+            wiring.drain(asked);
         });
     }
     {

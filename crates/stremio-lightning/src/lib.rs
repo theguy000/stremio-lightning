@@ -223,6 +223,7 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
             playback_error,
             auth: wiring.auth.clone(),
             board_catalogs: wiring.board_catalogs.clone(),
+            said_catalogs: Default::default(),
             repaint,
         },
     ));
