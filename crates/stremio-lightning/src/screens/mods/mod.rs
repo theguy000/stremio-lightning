@@ -15,6 +15,7 @@ use std::path::Path;
 use crate::screens::settings::LocalExtras;
 
 pub mod catalogue;
+pub mod plugin_schema;
 pub mod plugins;
 pub mod themes;
 
