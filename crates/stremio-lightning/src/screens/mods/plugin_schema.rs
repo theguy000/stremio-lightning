@@ -313,10 +313,44 @@ pub fn hint(field: &Field) -> String {
         }
         Field::Range { min, max, step, .. } => {
             if *step == 1.0 {
-                format!("A whole number from {min} to {max}.")
+                format!("A whole number from {} to {}.", shown(*min), shown(*max))
             } else {
-                format!("A number from {min} to {max}, in steps of {step}.")
+                format!(
+                    "A number from {} to {}, in steps of {}.",
+                    shown(*min),
+                    shown(*max),
+                    shown(*step)
+                )
             }
         }
+    }
+}
+
+/// A range bound as the hint prints it. A whole number prints as one, so a slider from 1 to 10
+/// does not read "1 to 10.0".
+fn shown(number: f64) -> String {
+    match serde_json::Number::from_f64(number) {
+        Some(number) if number.is_i64() || number.is_u64() => number.to_string(),
+        _ => format!("{number}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_whole_number_range_prints_whole_numbers_in_its_hint() {
+        let schema = json!([
+            { "key": "rows", "label": "Rows", "type": "range", "min": 1, "max": 10, "step": 1 },
+            { "key": "volume", "label": "Volume", "type": "range", "min": 0.5, "max": 1.5, "step": 0.1 }
+        ]);
+        let fields = parse(&schema).expect("a readable schema");
+
+        assert_eq!(hint(&fields[0]), "A whole number from 1 to 10.");
+        assert_eq!(
+            hint(&fields[1]),
+            "A number from 0.5 to 1.5, in steps of 0.1."
+        );
     }
 }

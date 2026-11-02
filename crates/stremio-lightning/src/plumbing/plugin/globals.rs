@@ -22,6 +22,9 @@ pub(super) const MAX_LOG_LINES: usize = 200;
 const MAX_TIMERS_PER_STEP: usize = 64;
 /// The longest a plugin may ask a timer to wait.
 const LONGEST_WAIT_MS: f64 = 3_600_000.0;
+/// How deep a value handed to the app may nest before the rest of it is dropped. Reading takes a
+/// real stack frame per level, and the stack is shared with everything the interpreter is doing.
+const MAX_DEPTH: usize = 64;
 
 /// A function a plugin handed to the app to call later.
 pub(super) type Held = std::rc::Rc<rquickjs::Persistent<Function<'static>>>;
@@ -385,6 +388,13 @@ pub(super) fn to_js<'js>(ctx: &Ctx<'js>, value: &Json) -> rquickjs::Result<Value
 /// plain values, and anything JSON has no shape for (a function, a symbol, a value that refers to
 /// itself) becomes nothing.
 pub(super) fn from_js(value: &Value<'_>) -> Json {
+    walk(value, 0)
+}
+
+/// `from_js` at one level of nesting. Past [`MAX_DEPTH`] a container becomes `null`: the value is
+/// still stored, it just stops at that level rather than reading a deeper stack than the plugin
+/// was given.
+fn walk(value: &Value<'_>, depth: usize) -> Json {
     if let Some(text) = value.as_string().and_then(|text| text.to_string().ok()) {
         return Json::String(text);
     }
@@ -403,10 +413,14 @@ pub(super) fn from_js(value: &Value<'_>) -> Json {
     let Some(object) = value.as_object() else {
         return Json::Null;
     };
+    if depth >= MAX_DEPTH {
+        return Json::Null;
+    }
+    let inner = depth + 1;
     if let Some(array) = object.as_array() {
         let items = (0..array.len())
             .filter_map(|index| array.get::<Value>(index).ok())
-            .map(|item| from_js(&item))
+            .map(|item| walk(&item, inner))
             .collect();
         return Json::Array(items);
     }
@@ -416,7 +430,7 @@ pub(super) fn from_js(value: &Value<'_>) -> Json {
         if item.is_function() || item.is_symbol() || item.is_undefined() {
             continue;
         }
-        map.insert(key, from_js(&item));
+        map.insert(key, walk(&item, inner));
     }
     Json::Object(map)
 }
@@ -729,4 +743,52 @@ fn log_warn<'js>(ctx: Ctx<'js>, args: Rest<Value<'js>>) -> rquickjs::Result<Valu
 
 fn log_error<'js>(ctx: Ctx<'js>, args: Rest<Value<'js>>) -> rquickjs::Result<Value<'js>> {
     logging(ctx, "error", &args.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Builds an object nested `levels` deep inside the interpreter and walks it there, the way a
+    /// plugin passing it to `saveSetting` does. Returns the walk and how many levels it kept.
+    fn walk_nested(levels: usize) -> (Json, usize) {
+        let runtime = rquickjs::Runtime::new().expect("an interpreter");
+        let context = rquickjs::Context::full(&runtime).expect("a context");
+        let walked = context.with(|ctx| {
+            let start = rquickjs::Object::new(ctx.clone()).expect("an object");
+            let mut here = start.clone();
+            for _ in 0..levels {
+                let next = rquickjs::Object::new(ctx.clone()).expect("a level");
+                here.set("down", next).expect("a child");
+                here = here.get::<_, rquickjs::Object>("down").expect("the child");
+            }
+            here.set("bottom", "reached").expect("the bottom");
+
+            let mut json = from_js(&start.into_value());
+            let mut depth = 0;
+            while json.is_object() {
+                depth += 1;
+                match json.get("down") {
+                    Some(next) => json = next.clone(),
+                    None => break,
+                }
+            }
+            (json, depth)
+        });
+        walked
+    }
+
+    #[test]
+    fn a_value_nested_past_the_depth_limit_is_read_up_to_the_limit() {
+        // Twice the limit: the walk has to stop by itself, and the level it stops at is dropped.
+        let (deepest, depth) = walk_nested(MAX_DEPTH * 2);
+        assert_eq!(depth, MAX_DEPTH, "the walk stopped at the limit");
+        assert_eq!(deepest, Json::Null, "the level past the limit is not read");
+
+        // A value inside the limit is read whole, down to its last string. The bottom object is
+        // one level of its own.
+        let (shallow, depth) = walk_nested(MAX_DEPTH - 1);
+        assert_eq!(depth, MAX_DEPTH);
+        assert_eq!(shallow["bottom"], Json::from("reached"));
+    }
 }
