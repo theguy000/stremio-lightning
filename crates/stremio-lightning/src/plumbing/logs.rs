@@ -76,17 +76,6 @@ impl Source {
             format!("{} {}", self.label(), origin)
         }
     }
-
-    #[cfg(test)]
-    fn rank(self) -> u8 {
-        match self {
-            Self::Plugin => 0,
-            Self::Theme => 1,
-            Self::Mods => 2,
-            Self::Server => 3,
-            Self::App => 4,
-        }
-    }
 }
 
 /// How bad a record is, from quietest to worst. The level filter keeps the records at its own
@@ -430,10 +419,6 @@ mod tests {
     use super::*;
     use crate::plumbing::plugin::LogLine;
 
-    fn id_slot() -> u8 {
-        Source::Plugin.rank()
-    }
-
     #[test]
     fn a_plugin_line_is_a_record_at_its_own_level() {
         let logs = Logs::new();
@@ -444,11 +429,6 @@ mod tests {
         assert_eq!(entry.level, Level::Warn);
         assert_eq!(entry.text, "slow");
         assert_eq!(entry.source_label(), "Plugin a.plugin.js");
-        assert_eq!(
-            id_slot(),
-            1,
-            "the plugin source shares its first rank with no other"
-        );
     }
 
     #[test]

@@ -204,7 +204,11 @@ mod tests {
         assert_eq!(rows[0].level_id, "error");
         assert!(logs.set_detail(Some(entry.id)));
         let detail = detail(&logs);
-        assert_eq!(detail[0], "Plugin a.plugin.js at 00:00:00");
+        assert_eq!(
+            detail[0],
+            format!("Plugin a.plugin.js at {}", entry.at_shown()),
+            "the open record is named by its source and the time it was recorded"
+        );
         assert!(detail.contains(&"first".to_owned()));
         assert!(detail.contains(&"second".to_owned()));
     }
