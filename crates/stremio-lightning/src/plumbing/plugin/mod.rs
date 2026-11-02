@@ -62,8 +62,11 @@ pub const LOG_LINES: usize = 200;
 /// How long the app waits for the plugin's thread to answer a call. The interpreter stops its own
 /// code after [`BUDGET`]; this waits for a thread that answers nothing at all.
 const ANSWER_WAIT: Duration = Duration::from_millis(700);
-/// What the screen says about a plugin whose thread stopped answering on its own.
+/// What the screen says about a plugin whose thread stopped without answering.
 const GONE: &str = "The interpreter the plugin ran in stopped without saying why.";
+/// What the screen says when the app's own code failed inside the plugin's thread. The plugin did
+/// nothing wrong, so the sentence does not blame it.
+const PANICKED: &str = "The app failed while running this plugin, so the plugin was stopped.";
 
 /// The name a plugin is known by outside JavaScript: its file name without `.plugin.js`. This is
 /// the name its settings file uses, `<name>.plugin.json`, and the name the app hands its callbacks.
@@ -284,6 +287,26 @@ enum Call {
 }
 
 impl Call {
+    /// The channel this call's answer goes back on.
+    fn reply(&self) -> &Sender<Outcome> {
+        match self {
+            Self::Started(reply) | Self::SettingsSaved(_, reply) | Self::Event(_, _, reply) => {
+                reply
+            }
+        }
+    }
+
+    /// Runs this call on the plugin's worker, taking the call apart so only what it needs is
+    /// left. Split from [`Self::reply`] so the answer still has a channel when the run panics.
+    fn run<H: Host + 'static>(self, worker: &mut worker::Worker<H>, source: &str) -> Outcome {
+        match self {
+            // The start's own call: the plugin's file runs for the first time.
+            Self::Started(_) => worker.load(source),
+            Self::SettingsSaved(values, _) => worker.settings_saved(values),
+            Self::Event(name, value, _) => worker.deliver(&name, value),
+        }
+    }
+
     /// Answers a call the thread's interpreter never started to run. The app may have stopped
     /// listening, in which case the answer is dropped with the channel.
     fn answer(self, reason: String) {
@@ -291,12 +314,7 @@ impl Call {
             run: Run::Threw(reason),
             ..Outcome::default()
         };
-        let reply = match self {
-            Self::Started(reply) => reply,
-            Self::SettingsSaved(_, reply) => reply,
-            Self::Event(_, _, reply) => reply,
-        };
-        let _ = reply.send(outcome);
+        let _ = self.reply().send(outcome);
     }
 }
 

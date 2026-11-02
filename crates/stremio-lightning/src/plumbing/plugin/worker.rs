@@ -111,19 +111,37 @@ fn worker_main<H: Host + 'static>(plugin: &str, source: String, host: H, calls: 
             return;
         }
     };
+    // A panic here is a bug in the app rather than in the plugin, and this thread is where it
+    // lands: it must not take the window with it. The panic is answered as the call's own
+    // outcome, and the line that says so is reported like any other stop.
     while let Ok(call) = calls.recv() {
-        let (outcome, reply) = match call {
-            // The start's own call: the plugin's file runs for the first time.
-            Call::Started(reply) => (worker.load(&source), reply),
-            Call::SettingsSaved(values, reply) => (worker.settings_saved(values), reply),
-            Call::Event(name, value, reply) => (worker.deliver(&name, value), reply),
+        let reply = call.reply().clone();
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            call.run(&mut worker, &source)
+        }));
+        let outcome = match outcome {
+            Ok(outcome) => outcome,
+            Err(_) => {
+                let reason = super::PANICKED.to_owned();
+                // The start's outcome is the one the caller keeps, so the reason goes back on the
+                // channel with the answer the file's own lines never made.
+                lock(&worker.host).log(plugin, LogLine::new("error", reason.clone()), true);
+                Outcome {
+                    run: Run::Threw(reason),
+                    ..Outcome::default()
+                }
+            }
         };
         let closed = outcome.run.failed();
         if closed {
             let reason = outcome.run.said();
             lock(&worker.host).log(plugin, LogLine::new("error", reason), true);
         }
+        // The reply goes back before the thread ends, so the call that panicked hears about it
+        // rather than timing out. Dropping the channel afterwards is what tells every later call
+        // the plugin is gone.
         let _ = reply.send(outcome);
+        drop(reply);
         if closed {
             return;
         }
@@ -131,7 +149,7 @@ fn worker_main<H: Host + 'static>(plugin: &str, source: String, host: H, calls: 
 }
 
 /// The plugin's thread: the interpreter, and the state that outlives one call.
-struct Worker<H: Host> {
+pub(super) struct Worker<H: Host> {
     plugin: String,
     /// The host behind a lock shared with the settings session. One call at a time uses it, so
     /// the lock is never contended; it is there so the session can own its host.
@@ -208,7 +226,7 @@ impl<H: Host + 'static> Worker<H> {
     }
 
     /// Runs the plugin's file for the first time, then every timer that came due while it loaded.
-    fn load(&mut self, source: &str) -> Outcome {
+    pub(super) fn load(&mut self, source: &str) -> Outcome {
         let settled = self.settle(|_, ctx| {
             let _: rquickjs::Value = ctx.eval(source)?;
             Ok(())
@@ -218,12 +236,20 @@ impl<H: Host + 'static> Worker<H> {
 
     /// Calls the plugin's `onSettingsSaved` callbacks with the saved values. While they run,
     /// `getSetting` answers from the file's new values.
-    fn settings_saved(&mut self, values: Json) -> Outcome {
+    pub(super) fn settings_saved(&mut self, values: Json) -> Outcome {
         let fresh: Map<String, Json> = values.as_object().cloned().unwrap_or_default();
         *lock(&self.world.settings) = Some(fresh);
         let callbacks = std::mem::take(&mut self.on_settings_saved);
-        let settled = self.settle(|this, ctx| this.called(ctx, &callbacks, &values));
+        // A panic in the callbacks would leave the saved values standing in for the file's, so
+        // they are put back whether the call returned or unwound.
+        let settled = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.settle(|this, ctx| this.called(ctx, &callbacks, &values))
+        }));
         *lock(&self.world.settings) = None;
+        let settled = match settled {
+            Ok(settled) => settled,
+            Err(panic) => std::panic::resume_unwind(panic),
+        };
         let stopped = settled.outcome.run.failed();
         let outcome = self.finish(settled);
         if !stopped {
@@ -233,9 +259,19 @@ impl<H: Host + 'static> Worker<H> {
     }
 
     /// Calls the plugin's callbacks for one event, with the event's value.
-    fn deliver(&mut self, event: &str, value: Json) -> Outcome {
+    pub(super) fn deliver(&mut self, event: &str, value: Json) -> Outcome {
         let callbacks = self.listeners.remove(event).unwrap_or_default();
-        let settled = self.settle(|this, ctx| this.called(ctx, &callbacks, &value));
+        // A panic leaves the listeners where they were, as if the call had never run.
+        let settled = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.settle(|this, ctx| this.called(ctx, &callbacks, &value))
+        }));
+        let settled = match settled {
+            Ok(settled) => settled,
+            Err(panic) => {
+                self.listeners.insert(event.to_owned(), callbacks);
+                std::panic::resume_unwind(panic);
+            }
+        };
         let stopped = settled.outcome.run.failed();
         let outcome = self.finish(settled);
         if !stopped {
@@ -432,5 +468,58 @@ impl<H: Host> Settings for Session<H> {
     fn register(&mut self, schema: &Json) -> Result<(), String> {
         lock(&self.host).register_settings(&self.plugin, schema);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::plumbing::plugin::{Event, Folder};
+
+    /// A host that fails the way a bug in the app would: the registration it is asked for panics.
+    /// Every other call goes through, so the plugin's own code still loads.
+    struct Crash;
+
+    impl Host for Crash {
+        fn get_setting(&mut self, _plugin: &str, _key: &str) -> Json {
+            Json::Null
+        }
+
+        fn save_setting(&mut self, _plugin: &str, _key: &str, _value: &Json) {}
+
+        fn register_settings(&mut self, _plugin: &str, _schema: &Json) {
+            panic!("the app's own registration failed");
+        }
+
+        fn apply_theme(&mut self, _plugin: &str, _rules: &[Json]) {}
+
+        fn log(&mut self, _plugin: &str, _line: LogLine, _stopped: bool) {}
+    }
+
+    #[test]
+    fn a_panic_under_the_plugin_is_reported_and_later_calls_hear_it_at_once() {
+        let (mut running, outcome) =
+            Running::start("registerSettings([]);".to_owned(), "crashed", Crash);
+
+        assert!(!running.running(), "the plugin is stopped");
+        assert_eq!(outcome.run.said(), super::super::PANICKED);
+
+        // Every later call is answered through the closed channel rather than waiting out the
+        // interpreter's timeout, which is what it would do if the thread died mid-call.
+        let at = Instant::now();
+        let later = running.deliver(Event::PlaybackStopped);
+        assert!(later.run.failed());
+        assert!(
+            at.elapsed() < super::super::ANSWER_WAIT,
+            "the later call took {:?}",
+            at.elapsed()
+        );
+        assert_eq!(running.stopped(), later.run.said());
+        // And a plugin on a host that does not fail still runs, so one panic did not take the
+        // thread machinery with it.
+        let (runs, outcome) =
+            Running::start("logger.info('fine');".to_owned(), "fine", Folder::default());
+        assert!(runs.running(), "stopped: {}", runs.stopped());
+        assert_eq!(outcome.run, Run::Clean);
     }
 }
