@@ -416,28 +416,38 @@ fn the_window_lists_what_a_plugin_logged_and_filters_it() {
         }),
     );
     let all = rows_on(window);
-    let plugin_lines = all
-        .iter()
-        .filter(|(source, _, _)| source.starts_with("Plugin "))
-        .count();
-    outcomes = step(outcomes, "the header says how many are held", {
-        let held = window.get_mods().log_held.to_string();
-        if held.contains("of up to 2000 records") && !mods::logs::NOTE.contains("2000") {
-            Err("the header was not drawn".to_owned())
-        } else {
-            Ok(held)
+    // What the header counts is the recorder's list, not the rows on screen: an error the app
+    // recorded from another part is a row too.
+    outcomes = step(outcomes, "the page draws a header for its list", {
+        let texts = ui_driver::texts(window);
+        let header: Vec<&String> = texts
+            .iter()
+            .filter(|text| text.contains("records.") && text.contains("The filter keeps"))
+            .collect();
+        match header.first() {
+            Some(text) => Ok((*text).clone()),
+            None => Err(format!("the page says {texts:?}")),
         }
     });
-    outcomes = step(outcomes, "the header counts the plugin's lines", {
-        let held = window.get_mods().log_held.to_string();
-        if plugin_lines > 0 && held.contains(&format!("The filter keeps {plugin_lines}")) {
-            Ok(format!("{plugin_lines} plugin lines"))
-        } else {
-            Err(format!(
-                "{plugin_lines} plugin lines, and the header says {held:?}"
-            ))
-        }
-    });
+    outcomes = step(
+        outcomes,
+        "the header holds every record and keeps every one",
+        {
+            let rows = rows_on(window).len();
+            let texts = ui_driver::texts(window);
+            let header = texts
+                .iter()
+                .find(|text| text.contains("records.") && text.contains("The filter keeps"))
+                .cloned()
+                .unwrap_or_default();
+            let kept = format!("The filter keeps {rows} of them.");
+            if rows > 0 && header.contains("of up to 2000 records") && header.contains(&kept) {
+                Ok(format!("{rows} rows, and {header}"))
+            } else {
+                Err(format!("{rows} rows, and the header says {header:?}"))
+            }
+        },
+    );
     verdict(
         "the Logs page did not list what the plugin logged",
         &outcomes,

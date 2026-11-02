@@ -381,8 +381,22 @@ impl Logs {
     /// Records a line a plugin logged. The runtime hands every line it takes here, so the Logs
     /// page and the plugin's own card read the same sentence. A line that is not at a level this
     /// app knows is recorded as information rather than dropped.
+    ///
+    /// A line the recorder already holds is not a second record. The host and the call that
+    /// stopped a plugin can both report the same sentence, and a reader wants it once.
     pub fn plugin(&self, filename: &str, line: &crate::plumbing::plugin::LogLine) -> Entry {
         let level = Level::from_id(&line.level).unwrap_or(Level::Info);
+        {
+            let entries = lock(&self.entries);
+            if let Some(held) = entries.iter().rev().find(|entry| {
+                entry.source == Source::Plugin
+                    && entry.origin == filename
+                    && entry.level == level
+                    && entry.text == line.text
+            }) {
+                return held.clone();
+            }
+        }
         self.record(Source::Plugin, filename, level, line.text.clone())
     }
 
@@ -572,6 +586,24 @@ mod tests {
         logs.set_level("loud");
         assert_eq!(logs.filter().source, "");
         assert_eq!(logs.filter().level, "");
+    }
+
+    #[test]
+    fn the_same_plugin_line_twice_is_one_record() {
+        let logs = Logs::new();
+        let one = logs.plugin("a.plugin.js", &LogLine::new("error", "it threw"));
+        // The host and the call that stopped it can both report the same sentence.
+        let two = logs.plugin("a.plugin.js", &LogLine::new("error", "it threw"));
+        assert_eq!(one.id, two.id);
+        assert_eq!(logs.len(), 1, "the reader wants it once");
+        // A different level, a different plugin or different text is a record of its own.
+        logs.plugin("a.plugin.js", &LogLine::new("warn", "it threw"));
+        logs.plugin("b.plugin.js", &LogLine::new("error", "it threw"));
+        assert_eq!(logs.len(), 3);
+        // A line written again after a clear is a record: the list the reader had is gone.
+        logs.clear();
+        logs.plugin("a.plugin.js", &LogLine::new("error", "it threw"));
+        assert_eq!(logs.len(), 1);
     }
 
     #[test]

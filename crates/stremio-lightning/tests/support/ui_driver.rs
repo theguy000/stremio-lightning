@@ -278,6 +278,23 @@ pub fn labels(window: &MainWindow) -> Vec<String> {
 
 /// The labels a subtree holds, sorted. A press on a control is found through the window, so a
 /// control missing from its own subtree is missing from the window too.
+/// Every line of text the window is drawing, for a sentence the window draws rather than a
+/// control a person presses: a page's header, or a row's columns.
+pub fn texts(window: &MainWindow) -> Vec<String> {
+    let root = window.root_element();
+    ElementHandle::query_descendants(&root)
+        .find_all()
+        .iter()
+        .filter_map(|element| {
+            (element.accessible_role() == Some(i_slint_backend_testing::AccessibleRole::Text))
+                .then(|| element.accessible_label())
+                .flatten()
+                .map(|label| label.to_string())
+                .filter(|label| !label.is_empty())
+        })
+        .collect()
+}
+
 fn labels_in(element: &ElementHandle) -> Vec<String> {
     let mut names: Vec<String> = element
         .query_descendants()
