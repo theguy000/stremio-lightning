@@ -589,11 +589,10 @@ fn the_window_opens_every_page_and_removes_a_theme_in_two_presses() {
     let page = stremio_lightning::screens::mods::data(&data_dir);
     println!(
         "PROBE root {data_dir:?} entries {:?} file {:?} notice {:?} cards {:?}",
-        std::fs::read_dir(&data_dir)
-            .map(|dir| dir
-                .filter_map(|e| e.ok())
-                .map(|e| e.file_name())
-                .collect::<Vec<_>>()),
+        std::fs::read_dir(&data_dir).map(|dir| dir
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name())
+            .collect::<Vec<_>>()),
         std::fs::read_to_string(data_dir.join("settings.json")),
         page.notice,
         installed
