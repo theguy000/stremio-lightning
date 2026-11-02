@@ -70,9 +70,31 @@ pub(crate) struct Context {
     pub(crate) mods_edits: Arc<Mutex<crate::screens::mods::settings::Edits>>,
     /// Repaint now, with whatever the cache holds. Used when an image arrives.
     pub(crate) repaint: Arc<dyn Fn() + Send + Sync>,
+    /// What a plugin's ask means for the window, built from the wiring's `Send` parts: the theme
+    /// rules it asked for are installed, and the Mods pages are drawn again. A line is already in
+    /// the runtime's own record, which is what every card and the Logs page read.
+    pub(crate) put_plugins: Arc<dyn Fn(Vec<crate::app::plugins::Asked>) + Send + Sync>,
 }
 
 impl Context {
+    /// Lets every plugin run the timers that have come due and puts into effect what they asked
+    /// for, on this task rather than the window's thread: a plugin call can wait out the
+    /// interpreter's whole answer window, and the window does not stop drawing for it.
+    ///
+    /// This is also the one place a plugin's asks are drained when nothing in the app caused them.
+    /// A plugin sets its timers from inside its own callbacks, and a line it logs from one has the
+    /// timer's thread as its only reporter; nothing would bring that line to its card if the app
+    /// only drained after an event of its own.
+    fn tick_plugins(&self) {
+        let mut asked = self.plugins.take();
+        if self.plugins.holds_timers() {
+            asked.extend(self.plugins.advance());
+        }
+        if !asked.is_empty() {
+            (self.put_plugins)(asked);
+        }
+    }
+
     fn model(&self) -> Option<std::sync::RwLockReadGuard<'_, AppModel>> {
         self.runtime.model().ok()
     }
@@ -81,17 +103,34 @@ impl Context {
     }
 }
 
-/// Runs until the runtime stops. One event at a time, in order.
+/// How often the pump asks the plugins whether a timer has come due. The app has no event to
+/// wait on for that one: a plugin's timer fires inside a call into it, and no part of the core
+/// knows there is a timer. A fifth of a second is under what a person notices in a `setTimeout`
+/// and over what the check costs when no plugin has a timer waiting.
+pub(crate) const PLUGIN_TICK: std::time::Duration = std::time::Duration::from_millis(200);
+
+/// Runs until the runtime stops. One event at a time, in order, with the plugins looked in on
+/// between them.
 pub(crate) async fn pump(
-    events: futures::channel::mpsc::Receiver<RuntimeEvent<AppEnv, AppModel>>,
+    mut events: futures::channel::mpsc::Receiver<RuntimeEvent<AppEnv, AppModel>>,
     context: Context,
 ) {
-    events
-        .for_each(move |event| {
-            let context = context.clone();
-            async move { handle(event, &context) }
-        })
-        .await;
+    let mut tick = tokio::time::interval(PLUGIN_TICK);
+    // A tick that arrives while the last one is still running is dropped rather than queued: the
+    // only thing a late tick could do is look at the same timers again.
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+        tokio::select! {
+            event = events.next() => {
+                let Some(event) = event else { return };
+                // Plugins first, and before the model is read: a plugin can have logged a line
+                // from a timer since the last event, and it belongs in the snapshot below.
+                context.tick_plugins();
+                handle(event, &context);
+            }
+            _ = tick.tick() => context.tick_plugins(),
+        }
+    }
 }
 
 /// The catalogs whose first page has arrived since the last snapshot, each as an event a plugin

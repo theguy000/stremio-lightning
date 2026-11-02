@@ -236,6 +236,42 @@ impl Runtime {
         self.finish(asked)
     }
 
+    /// Whether any running plugin has a timer waiting. The event task asks every few tenths of a
+    /// second whether to call in at all, and a plugin with no timers is never called into for it.
+    pub fn holds_timers(&self) -> bool {
+        lock(&self.started)
+            .values()
+            .any(|cell| lock(cell).running.holds_timers())
+    }
+
+    /// Lets every running plugin run the timers that have come due, and returns what they asked
+    /// for while they ran. A plugin's timer code only runs inside a call into it, so this is the
+    /// call that makes a `setTimeout` fire even when nothing in the app happens.
+    pub fn advance(&self) -> Vec<Asked> {
+        let cells: Vec<(String, Arc<Mutex<Started>>)> = lock(&self.started)
+            .iter()
+            .map(|(name, cell)| (name.clone(), Arc::clone(cell)))
+            .collect();
+        let mut asked = Vec::new();
+        for (name, cell) in cells {
+            {
+                let mut entry = lock(&cell);
+                let mut outcome = entry.running.advance();
+                if outcome.logs.is_empty() && outcome.run.failed() {
+                    let reason = outcome.run.said();
+                    outcome.logs.push(LogLine::new("error", reason));
+                }
+                entry.record(&outcome);
+                asked.extend(asked_by(&outcome, &entry));
+            }
+            self.close(&name, &cell);
+        }
+        if asked.is_empty() {
+            return Vec::new();
+        }
+        self.finish(asked)
+    }
+
     /// One thing that happened in the app, told to every plugin that listens for it. Returns
     /// everything the plugins asked for while they heard it, which is what the caller draws: a
     /// plugin that logs from an event callback or sets a setting there has its line on its card

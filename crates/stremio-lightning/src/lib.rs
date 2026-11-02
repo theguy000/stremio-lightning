@@ -198,6 +198,16 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
             shell::show(&window, snapshot, &images);
         })
     };
+    // A plugin's timers only run while the app is calling into it, and the app has nothing to
+    // report most of the time. The pump asks the plugins every few tenths of a second for that
+    // reason, and what they say is drawn here; see `app::events::pump`.
+    let put_plugins = shell::wiring::Wiring::puts_plugins(
+        &plugins,
+        &latest,
+        &window.as_weak(),
+        &wiring.images,
+        &data_dir,
+    );
     tokio.spawn(app::events::pump(
         events,
         app::events::Context {
@@ -225,6 +235,7 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
             board_catalogs: wiring.board_catalogs.clone(),
             said_catalogs: Default::default(),
             repaint,
+            put_plugins,
         },
     ));
 
