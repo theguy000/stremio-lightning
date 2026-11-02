@@ -392,9 +392,9 @@ impl Logs {
     /// Records a line a plugin logged. The runtime hands every line it takes here, so the Logs
     /// page and the plugin's own card read the same sentence. A line that is not at a level this
     /// app knows is recorded as information rather than dropped.
-    pub fn plugin(&self, filename: &str, line: &crate::plumbing::plugin::LogLine) {
+    pub fn plugin(&self, filename: &str, line: &crate::plumbing::plugin::LogLine) -> Entry {
         let level = Level::from_id(&line.level).unwrap_or(Level::Info);
-        self.record(Source::Plugin, filename, level, line.text.clone());
+        self.record(Source::Plugin, filename, level, line.text.clone())
     }
 
     /// Records what a theme file says that this app does not understand, one record per warning.
