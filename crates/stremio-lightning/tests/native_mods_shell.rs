@@ -429,7 +429,7 @@ fn the_settings_page_saves_only_on_save_and_a_stopped_plugin_says_why() {
         &data_dir,
         "plugins",
         "broken.plugin.js",
-        &plugin("Broken", "Bo", "1.0.0"),
+        &format!("{}\n", plugin("Broken", "Bo", "1.0.0")),
     );
 
     // The plugin runs once, the way the app starts it, and writes its schema into its own file.
@@ -591,6 +591,13 @@ fn the_window_opens_every_page_and_removes_a_theme_in_two_presses() {
 
     let booted = stremio_lightning::boot(data_dir.clone()).expect("the app boots");
     let window = &booted.window;
+    println!(
+        "the plugins folder holds {:?}",
+        std::fs::read_dir(plugins_dir(&data_dir)).map(|dir| dir
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.file_name())
+            .collect::<Vec<_>>())
+    );
     ui_driver::pump_for(window);
     // ---- the Mods tab, the menu, and every page opening from its own row ---------------------
     let menu = [
@@ -644,7 +651,10 @@ fn the_window_opens_every_page_and_removes_a_theme_in_two_presses() {
             if said.iter().any(|line| line.starts_with("Stopped: ")) {
                 Ok(said.join(" / "))
             } else {
-                Err(format!("the card says {said:?}"))
+                Err(format!(
+                    "the card says {said:?}, all cards {cards:?}, notice {:?}",
+                    window.get_mods().notice
+                ))
             }
         }),
     );
