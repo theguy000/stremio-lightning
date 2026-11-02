@@ -10,6 +10,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use serde_json::json;
 use slint::Model;
 use stremio_lightning::screens::mods::{self, catalogue, Page};
 use stremio_lightning::themes;
@@ -402,6 +403,162 @@ fn a_choice_survives_a_restart() {
     let _ = std::fs::remove_dir_all(&data_dir);
 }
 
+/// A plugin whose file registers two controls, one of each kind the page has more than one of: a
+/// range and a select. Anything else it wants to do is `body`.
+fn configuring(name: &str, body: &str) -> String {
+    format!(
+        "/**\n * @name {name}\n * @description Settings.\n * @author Ada\n * @version 1.0.0\n */\nregisterSettings([\n  {{ key: \"rows\", label: \"Rows\", type: \"range\", min: 1, max: 9, step: 1, default: 3 }},\n  {{ key: \"mode\", label: \"Mode\", type: \"select\", options: [\"fast\", \"slow\"], default: \"slow\" }}\n]);\n{body}\n"
+    )
+}
+
+/// The plugins folder under `data_dir`.
+fn plugins_dir(data_dir: &Path) -> PathBuf {
+    stremio_lightning_core::mods::mods_dir(data_dir, stremio_lightning_core::mods::ModType::Plugin)
+}
+
+#[test]
+fn the_settings_page_saves_only_on_save_and_a_stopped_plugin_says_why() {
+    let data_dir = temp_dir("settings");
+    write_mod(
+        &data_dir,
+        "plugins",
+        "tidy.plugin.js",
+        &configuring("Tidy", ""),
+    );
+    write_mod(
+        &data_dir,
+        "plugins",
+        "broken.plugin.js",
+        &plugin("Broken", "Bo", "1.0.0"),
+    );
+
+    // The plugin runs once, the way the app starts it, and writes its schema into its own file.
+    let source = std::fs::read_to_string(plugins_dir(&data_dir).join("tidy.plugin.js"))
+        .expect("the plugin was written");
+    let (running, outcome) = stremio_lightning::plumbing::plugin::Running::start(
+        source,
+        "tidy",
+        stremio_lightning::plumbing::plugin::Folder::new(&data_dir),
+    );
+    assert!(running.running(), "stopped: {}", running.stopped());
+    assert!(!outcome.run.failed(), "stopped: {}", outcome.run.said());
+
+    // ---- the left list says what each plugin has -------------------------------------------
+    let folder = plugins_dir(&data_dir);
+    let extras = stremio_lightning::screens::settings::LocalExtras::default();
+    let listed = mods::settings::plugins(&data_dir, &extras).expect("the plugins folder reads");
+    let file_names: Vec<&str> = listed.iter().map(|p| p.filename.as_str()).collect();
+    assert_eq!(
+        file_names,
+        ["broken.plugin.js", "tidy.plugin.js"],
+        "every installed plugin is on the left list, by file name"
+    );
+    let tidy = listed
+        .iter()
+        .find(|p| p.filename == "tidy.plugin.js")
+        .unwrap();
+    assert_eq!(tidy.fields, 2, "it registered two controls");
+    assert_eq!(tidy.name, "Tidy", "and is named by its own metadata");
+    assert_eq!(
+        listed
+            .iter()
+            .find(|p| p.filename == "broken.plugin.js")
+            .unwrap()
+            .fields,
+        0,
+        "a plugin that registered nothing has no controls"
+    );
+
+    // ---- the schema is drawn from the file, not from a process that has to run first --------
+    let mut edits = mods::settings::edits(&data_dir, "tidy.plugin.js");
+    let keys: Vec<&str> = edits.controls.iter().map(|c| c.field.key()).collect();
+    assert_eq!(keys, ["rows", "mode"], "the page reads the schema back");
+    assert_eq!(
+        edits.controls[0].edited,
+        json!(3),
+        "a control with no saved value holds its default"
+    );
+    assert!(!edits.dirty(), "nothing is typed yet");
+
+    // ---- typing changes the page and not the file -------------------------------------------
+    let schema_only = mods::settings::file_of(&folder, "tidy");
+    mods::settings::set_value(&mut edits, "rows", &json!(7));
+    assert!(edits.dirty(), "a typed value is a change to save");
+    assert_eq!(
+        mods::settings::file_of(&folder, "tidy"),
+        schema_only,
+        "typing writes nothing"
+    );
+
+    // ---- Revert throws the typing away and leaves the file alone ---------------------------
+    mods::settings::revert(&mut edits);
+    assert!(!edits.dirty(), "revert leaves nothing typed");
+    assert_eq!(edits.controls[0].edited, json!(3));
+    assert_eq!(
+        mods::settings::file_of(&folder, "tidy"),
+        schema_only,
+        "revert writes nothing"
+    );
+
+    // ---- Save writes what changed, keeps the schema, and hands the file back ----------------
+    mods::settings::set_value(&mut edits, "rows", &json!(7));
+    mods::settings::set_value(&mut edits, "mode", &json!("fast"));
+    let saved = mods::settings::save(&data_dir, &mut edits);
+    assert!(saved.written, "the file took the values: {}", saved.error);
+    assert_eq!(
+        stremio_lightning_core::settings::setting(&folder, "tidy", "rows").expect("a saved value"),
+        json!(7)
+    );
+    assert_eq!(
+        stremio_lightning_core::settings::setting(&folder, "tidy", "mode").expect("a saved value"),
+        json!("fast")
+    );
+    assert!(
+        saved.values.get("__schema").is_some(),
+        "a save keeps the schema the page draws from"
+    );
+    assert_eq!(
+        saved.values.get("mode"),
+        Some(&json!("fast")),
+        "the plugin is handed what its file now holds"
+    );
+    assert!(!edits.dirty(), "the page and the file agree after Save");
+
+    // ---- nothing on the page deletes a value the schema no longer names --------------------
+    stremio_lightning_core::settings::save_setting(&folder, "tidy", "left_over", json!("keep me"))
+        .expect("a value the schema does not name");
+    let mut edits = mods::settings::edits(&data_dir, "tidy.plugin.js");
+    mods::settings::set_value(&mut edits, "rows", &json!(4));
+    assert!(mods::settings::save(&data_dir, &mut edits).written);
+    assert_eq!(
+        stremio_lightning_core::settings::setting(&folder, "tidy", "left_over")
+            .expect("still there"),
+        json!("keep me"),
+        "a save writes the controls and leaves the rest of the file alone"
+    );
+
+    // ---- what the page says about a plugin that runs, and one that stopped -----------------
+    let up = mods::settings::Running {
+        running: true,
+        stopped: String::new(),
+        last_error: "slow".to_owned(),
+    };
+    assert_eq!(up.said(true), "Running. Last warning: slow");
+    let stopped = mods::settings::Running {
+        running: false,
+        stopped: "it threw".to_owned(),
+        ..up
+    };
+    assert_eq!(stopped.said(true), "Stopped: it threw");
+    assert_eq!(
+        stopped.said(false),
+        "",
+        "a plugin that is off does not claim to have stopped"
+    );
+
+    let _ = std::fs::remove_dir_all(&data_dir);
+}
+
 #[test]
 fn the_window_opens_every_page_and_removes_a_theme_in_two_presses() {
     // Mock time, not system time: the clock this runner reports is not monotonic, and Slint
@@ -410,6 +567,22 @@ fn the_window_opens_every_page_and_removes_a_theme_in_two_presses() {
     i_slint_backend_testing::init_integration_test_with_mock_time();
     let data_dir = temp_dir("window");
     write_mod(&data_dir, "themes", "red.theme.css", &theme("Red"));
+    // One plugin that fails at load, switched on before the app starts, so the Plugins page has to
+    // say what became of it rather than only that the file is on.
+    write_mod(
+        &data_dir,
+        "plugins",
+        "throws.plugin.js",
+        &format!(
+            "{}\nthrow new Error(\"no\");\n",
+            plugin("Throws", "Tia", "1.0.0")
+        ),
+    );
+    std::fs::write(
+        data_dir.join("settings.json"),
+        r#"{"enabled_plugins":["throws.plugin.js"]}"#,
+    )
+    .expect("the settings file");
     let red = data_dir
         .join("stremio-lightning")
         .join("themes")
@@ -449,6 +622,30 @@ fn the_window_opens_every_page_and_removes_a_theme_in_two_presses() {
         click(window, "Mods").and_then(|_| match window.get_section() {
             Section::Mods => Ok("Mods".to_owned()),
             other => Err(format!("the section is {other:?}")),
+        }),
+    );
+    outcomes = step(
+        outcomes,
+        "The Plugins page says why a plugin that failed is not running",
+        wait(window, Duration::from_secs(20), |window| {
+            let plugins = window.get_mods().plugins;
+            let cards: Vec<(String, Vec<String>)> = (0..plugins.row_count())
+                .filter_map(|row| plugins.row_data(row))
+                .map(|card| {
+                    (
+                        card.filename.to_string(),
+                        card.warnings.iter().map(|w| w.to_string()).collect(),
+                    )
+                })
+                .collect();
+            let Some((_, said)) = cards.iter().find(|(file, _)| file == "throws.plugin.js") else {
+                return Err(format!("the page lists {cards:?}"));
+            };
+            if said.iter().any(|line| line.starts_with("Stopped: ")) {
+                Ok(said.join(" / "))
+            } else {
+                Err(format!("the card says {said:?}"))
+            }
         }),
     );
     outcomes = step(outcomes, "the menu lists the six pages", {
