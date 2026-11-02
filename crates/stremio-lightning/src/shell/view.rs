@@ -3,18 +3,22 @@
 //! This is the only place in the app that knows both a screen's data and the window it lands in.
 //! It decides nothing: every value here was decided by the screen that produced it.
 
-use slint::{ModelRc, SharedString, VecModel, Weak};
+use std::sync::Mutex;
+
+use slint::{Model, ModelRc, SharedString, VecModel, Weak};
 
 use crate::app::Snapshot;
 use crate::plumbing::images::Images;
+use crate::screens::mods::{self, ModCard};
 use crate::screens::player::Data as PlayerData;
 use crate::screens::settings::Data as SettingsData;
 use crate::screens::Preview;
 use crate::screens::{Card, Input};
 use crate::{
     AddonData, AddonPendingData, CalendarData, CalendarDay, CalendarSlot, CatalogRow, LibraryCard,
-    LibrarySort, LinkGroup, MainWindow, PlayerEpisode, PlayerOption, PlayerTrack, PosterData,
-    PreviewData, SelectInputData, SelectOption, SettingsViewData, StreamData, VideoRow,
+    LibrarySort, LinkGroup, MainWindow, ModCardData, ModsNavItem, ModsViewData, PlayerEpisode,
+    PlayerOption, PlayerTrack, PosterData, PreviewData, SelectInputData, SelectOption,
+    SettingsViewData, StreamData, VideoRow,
 };
 
 /// Copies everything a snapshot describes onto the window. Runs on the window's thread.
@@ -145,6 +149,7 @@ pub(crate) fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
     window.set_addons_message(snapshot.addons.message.clone().into());
 
     window.set_settings(settings_view(&snapshot.settings));
+    show_mods(window, &snapshot.mods);
     player_view(window, &snapshot.player, images);
 
     let details = &snapshot.details;
@@ -352,6 +357,129 @@ fn calendar_view(data: &crate::screens::calendar::Data, images: &Images) -> Cale
             data.list.iter().map(day).collect::<Vec<_>>(),
         )),
     }
+}
+
+/// The Mods section: its page menu, the line about the last action, and the plugins and themes
+/// on their pages. What is armed for removal is the window's own state, not this snapshot's, so
+/// it is left alone here and the cards carry whatever arm the wiring last set.
+pub(crate) fn mods_view(data: &crate::screens::mods::Data) -> ModsViewData {
+    let armed = armed_card();
+    let card = |kind: mods::catalogue::Kind, card: &ModCard| {
+        let armed_here = armed.as_deref() == Some(card.filename.as_str());
+        let state = match kind {
+            mods::catalogue::Kind::Plugin => "enabled",
+            mods::catalogue::Kind::Theme => "on",
+        };
+        ModCardData {
+            id: card.id.clone().into(),
+            filename: card.filename.clone().into(),
+            name: mods::catalogue::title(card).into(),
+            byline: mods::catalogue::byline(card).into(),
+            description: card.description.clone().into(),
+            unreadable: mods::catalogue::unreadable(card).into(),
+            warnings: ModelRc::new(VecModel::from(
+                card.warnings
+                    .iter()
+                    .map(|warning| SharedString::from(warning.clone()))
+                    .collect::<Vec<_>>(),
+            )),
+            enabled: card.enabled,
+            armed: armed_here,
+            state: state.into(),
+        }
+    };
+    ModsViewData {
+        page: data.page.clone().into(),
+        menu: ModelRc::new(VecModel::from(
+            data.menu
+                .iter()
+                .map(|item| ModsNavItem {
+                    id: item.id.clone().into(),
+                    label: item.label.clone().into(),
+                    selected: item.selected,
+                })
+                .collect::<Vec<_>>(),
+        )),
+        notice: data.notice.text.clone().into(),
+        notice_failed: data.notice.failed,
+        plugins: ModelRc::new(VecModel::from(
+            data.plugins
+                .iter()
+                .map(|card_data| card(mods::catalogue::Kind::Plugin, card_data))
+                .collect::<Vec<_>>(),
+        )),
+        themes: ModelRc::new(VecModel::from(
+            data.themes
+                .iter()
+                .map(|card_data| card(mods::catalogue::Kind::Theme, card_data))
+                .collect::<Vec<_>>(),
+        )),
+        plugins_note: data.plugins_note.clone().into(),
+        themes_note: data.themes_note.clone().into(),
+    }
+}
+
+/// The card whose Remove button has been pressed once and waits for the second press.
+///
+/// One card at a time: pressing Remove on another card moves the arm to it, and `None` takes it
+/// back. `shell::wiring` takes it back when the page changes, another control is pressed, or five
+/// seconds pass.
+static ARMED: Mutex<Option<String>> = Mutex::new(None);
+
+/// Arms `filename`'s Remove button, or takes the arm back with `None`.
+pub(crate) fn arm(filename: Option<&str>) {
+    if let Ok(mut armed) = ARMED.lock() {
+        *armed = filename.map(str::to_owned);
+    }
+}
+
+/// The card whose Remove button is armed, if any.
+fn armed_card() -> Option<String> {
+    ARMED.lock().ok().and_then(|armed| armed.clone())
+}
+
+/// Sets every property the Mods section draws from: the page on screen, the menu with it, and the
+/// content itself. The menu is written only when its rows differ from the ones the window holds,
+/// because a new model tears down every row -- including the one a press may be standing on. Which
+/// row is marked is not in the model: the menu marks the page `data.page` names.
+pub(crate) fn show_mods(window: &MainWindow, data: &crate::screens::mods::Data) {
+    let view = mods_view(data);
+    let rows: Vec<(String, String)> = data
+        .menu
+        .iter()
+        .map(|item| (item.id.clone(), item.label.clone()))
+        .collect();
+    if rows != window_nav_rows(window) {
+        window.set_mods_nav(nav_rows(data));
+    }
+    window.set_mods_page(data.page.clone().into());
+    window.set_mods(view);
+}
+
+/// The menu's rows the window holds now, as pairs of id and label.
+fn window_nav_rows(window: &MainWindow) -> Vec<(String, String)> {
+    let nav = window.get_mods_nav();
+    (0..nav.row_count())
+        .filter_map(|row| nav.row_data(row))
+        .map(|item| (item.id.to_string(), item.label.to_string()))
+        .collect()
+}
+
+/// The menu's rows as the window holds them, compared by id and label: whether a row is marked
+/// follows the page, so it is not part of what makes the model a new one.
+type NavRows = slint::ModelRc<ModsNavItem>;
+
+fn nav_rows(data: &crate::screens::mods::Data) -> NavRows {
+    let rows: Vec<ModsNavItem> = data
+        .menu
+        .iter()
+        .map(|item| ModsNavItem {
+            id: item.id.clone().into(),
+            label: item.label.clone().into(),
+            selected: false,
+        })
+        .collect();
+    ModelRc::new(VecModel::from(rows))
 }
 
 fn poster_data(card: &Card, images: &Images) -> PosterData {

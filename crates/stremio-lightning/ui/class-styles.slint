@@ -109,6 +109,32 @@ export global ClassStyles {
     in property <ClassStyle> signup-form-button;
     in property <ClassStyle> guest-login-button;
 
+    // Mods section: the page menu, one menu button, a page's content, its title and one card.
+    // The card's own pieces are the ones the Addons card uses, so a theme that reaches addons
+    // reaches plugins and themes too.
+    in property <ClassStyle> mods-menu-container;
+    in property <ClassStyle> mods-menu-button;
+    in property <ClassStyle> mods-content;
+    in property <ClassStyle> mods-page-title;
+    /// The one sentence above each page's list: what the switch does, or that no theme is on.
+    in property <ClassStyle> mods-page-note;
+    in property <ClassStyle> mod-card;
+
+    // The building blocks of a mod card, named for the Mods section rather than reused from
+    // Addons: an enabled plugin and an installed addon are different things, and a theme should
+    // be able to reach one without the other.
+    in property <ClassStyle> mod-title;
+    in property <ClassStyle> mod-byline;
+    in property <ClassStyle> mod-description;
+    in property <ClassStyle> mod-warning;
+    in property <ClassStyle> mod-notice;
+    in property <ClassStyle> mod-toggle-container;
+    in property <ClassStyle> mod-toggle;
+    in property <ClassStyle> mod-remove-button;
+    in property <ClassStyle> mod-remove-button-label;
+    /// "No plugins are installed." and the same line on Themes.
+    in property <ClassStyle> mods-empty;
+
     pure public function color-or(style: ClassStyle, fallback: color) -> color {
         return style.has-color ? style.color : fallback;
     }

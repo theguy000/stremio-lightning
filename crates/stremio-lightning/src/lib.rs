@@ -83,7 +83,9 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
     // Before anything is painted: the window is created with no icon, and on Windows that
     // means a blank one in the titlebar and the taskbar until this is set.
     shell::window_icon::install(&window);
-    plumbing::theme::apply(&window);
+    // Only the themes the Mods screen has turned on, so a freshly installed theme file changes
+    // nothing until someone picks it.
+    plumbing::theme::apply_enabled(&window, &data_dir);
     let video = plumbing::player::VideoPlayer::install(&window);
 
     let server = Arc::new(plumbing::stream_server::Supervisor::new(
@@ -116,6 +118,9 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
     let said: Arc<AtomicU64> = Default::default();
     let player_season = Arc::new(AtomicUsize::new(screens::player::NO_SEASON));
     let playback_error: Arc<Mutex<String>> = Default::default();
+    // The Mods page on screen. The wiring moves it and every snapshot the core produces carries
+    // it, so a core event leaves the user on the page they picked.
+    let mods_page = Arc::new(Mutex::new(screens::mods::Page::default().id().to_owned()));
 
     let wiring = shell::wiring::Wiring {
         window: window.as_weak(),
@@ -150,6 +155,9 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
         subtitle_choice: Default::default(),
         subtitle_auto: Default::default(),
         browsed_language: Default::default(),
+        mods_page: mods_page.clone(),
+        mods_armed: Default::default(),
+        mods_disarm: Default::default(),
     };
     shell::wire(&window, wiring.clone());
     // The wheel is taken from the window itself: left to a Slint Flickable it costs a whole
@@ -196,6 +204,8 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
             video_query,
             moved,
             local_extras,
+            data_dir: data_dir.clone(),
+            mods_page: mods_page.clone(),
             playback_error,
             auth: wiring.auth.clone(),
             board_catalogs: wiring.board_catalogs.clone(),

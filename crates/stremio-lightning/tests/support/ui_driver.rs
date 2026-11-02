@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 use i_slint_backend_testing::{ElementHandle, ElementRoot};
 use i_slint_core::items::PointerEventButton;
 use slint::platform::{Key, WindowEvent};
-use slint::{ComponentHandle, Timer, TimerMode};
+use slint::ComponentHandle;
 
 use stremio_lightning::MainWindow;
 
@@ -103,7 +103,7 @@ fn step_once(
         Step::Click(label) => {
             let result = click(window, label);
             let detail = match &result {
-                Ok(()) => "pressed".to_owned(),
+                Ok(at) => at.clone(),
                 Err(error) => error.clone(),
             };
             record(
@@ -127,7 +127,7 @@ fn step_once(
                 Ok(label) => {
                     let result = click(window, &label);
                     let detail = match &result {
-                        Ok(()) => format!("pressed \u{201c}{label}\u{201d}"),
+                        Ok(at) => format!("pressed \u{201c}{label}\u{201d} at {at}"),
                         Err(error) => error.clone(),
                     };
                     record((*what).to_owned(), Some(result.is_ok()), detail);
@@ -221,6 +221,7 @@ fn step_once(
 /// callback would be a mistake: a press makes Slint look at its timers again, and Slint refuses to
 /// do that while one is being called. Slices keep the presses outside.
 pub fn run(window: &MainWindow, steps: Vec<Step>) -> Vec<Outcome> {
+    pump_for(window);
     let mut outcomes: Vec<Outcome> = Vec::new();
     let mut at = 0usize;
     let mut deadline: Option<Instant> = None;
@@ -233,18 +234,52 @@ pub fn run(window: &MainWindow, steps: Vec<Step>) -> Vec<Outcome> {
 }
 
 /// Lets the event loop turn for `slice`, which is when queued updates from other threads land.
-fn pump(slice: Duration) {
-    let timer = Timer::default();
-    timer.start(TimerMode::SingleShot, slice, || {
+///
+/// The window runs on the testing backend's mocked clock, and that clock only moves when it is
+/// told to: the backend's event loop fires no timer of its own, so a wall-clock timer would never
+/// come due and the loop would never end. Instead the stop is a one-shot timer of the loop's own
+/// context, which is the one the mocked clock drives: it is made due by the step below, so the
+/// loop has a way to end, and a repeating timer that re-arms itself from inside its callback does
+/// not keep it waiting.
+pub fn pump(slice: Duration) {
+    if let Some(window) = PUMPED.with(|pumped| pumped.borrow().clone()) {
+        if let Some(window) = window.upgrade() {
+            window.window().request_redraw();
+        }
+    }
+    let loop_ctx = i_slint_core::with_global_context(
+        || unreachable!("the platform is set before anything is pumped"),
+        |ctx| ctx.clone(),
+    )
+    .expect("a context, since the platform is set");
+    loop_ctx.single_shot(slice, || {
         slint::quit_event_loop().ok();
     });
+    i_slint_backend_testing::mock_elapsed_time(slice);
     slint::run_event_loop().expect("the event loop runs");
+}
+
+thread_local! {
+    /// The window whose loop `pump` turns, set before a run so that every slice inside it -- the
+    /// steps' own, and the ones a test takes between them -- is a slice of that window.
+    static PUMPED: std::cell::RefCell<Option<slint::Weak<MainWindow>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Pumps `window`'s loop from now on, since `pump` takes no window of its own.
+pub fn pump_for(window: &MainWindow) {
+    PUMPED.with(|pumped| *pumped.borrow_mut() = Some(window.as_weak()));
 }
 
 /// Every label on screen, for when a press misses: a failure should say what was there instead.
 pub fn labels(window: &MainWindow) -> Vec<String> {
-    let mut names: Vec<String> = window
-        .root_element()
+    labels_in(&window.root_element())
+}
+
+/// The labels a subtree holds, sorted. A press on a control is found through the window, so a
+/// control missing from its own subtree is missing from the window too.
+fn labels_in(element: &ElementHandle) -> Vec<String> {
+    let mut names: Vec<String> = element
         .query_descendants()
         .find_all()
         .iter()
@@ -256,8 +291,25 @@ pub fn labels(window: &MainWindow) -> Vec<String> {
     names
 }
 
-fn click(window: &MainWindow, label: &str) -> Result<(), String> {
-    let found = ElementHandle::find_by_accessible_label(window, label).next();
+/// The first element that says `label`, anywhere in the window.
+///
+/// Not `ElementHandle::find_by_accessible_label`: that walks through the visible parts of the
+/// window, and a card's own controls were not among what it walked. This asks every element the
+/// tree holds, which is the whole of what a person could press.
+pub fn find(window: &MainWindow, label: &str) -> Option<ElementHandle> {
+    let root = window.root_element();
+    let wanted = label.to_owned();
+    ElementHandle::query_descendants(&root)
+        .match_predicate(move |element| {
+            element
+                .accessible_label()
+                .is_some_and(|said| said == wanted)
+        })
+        .find_first()
+}
+
+fn click(window: &MainWindow, label: &str) -> Result<String, String> {
+    let found = find(window, label);
     let Some(handle) = found else {
         let names = labels(window);
         let near: Vec<&String> = names
@@ -265,8 +317,22 @@ fn click(window: &MainWindow, label: &str) -> Result<(), String> {
             .filter(|name| name.contains(label))
             .take(4)
             .collect();
+        // The list a card lives in, subtree and all: a card's buttons are found through this,
+        // so when one goes missing the whole list says what it holds and where it sits.
+        let tree = ElementHandle::find_by_element_id(window, "mods-list")
+            .next()
+            .map(|list| {
+                let at = list.absolute_position();
+                let size = list.size();
+                let inner = labels_in(&list);
+                format!(
+                    "; the Mods list at ({:.0}, {:.0}) {:.0}x{:.0} holds {:?}",
+                    at.x, at.y, size.width, size.height, inner
+                )
+            })
+            .unwrap_or_default();
         return Err(format!(
-            "nothing says this; on screen: {:?}{}",
+            "nothing says this; on screen: {:?}{}{tree}",
             names.iter().take(12).collect::<Vec<_>>(),
             if near.is_empty() {
                 String::new()
@@ -277,7 +343,6 @@ fn click(window: &MainWindow, label: &str) -> Result<(), String> {
     };
     let position = handle.absolute_position();
     let size = handle.size();
-    println!("  press {label:?} at {position:?} size {size:?}");
     let centre = slint::LogicalPosition::new(
         position.x + size.width / 2.0,
         position.y + size.height / 2.0,
@@ -300,7 +365,7 @@ fn click(window: &MainWindow, label: &str) -> Result<(), String> {
             button: PointerEventButton::Left,
         });
     pump(Duration::from_millis(40));
-    Ok(())
+    Ok(format!("pressed at ({:.0}, {:.0})", centre.x, centre.y))
 }
 
 fn press_at(window: &MainWindow, x: f32, y: f32) {

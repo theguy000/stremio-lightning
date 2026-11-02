@@ -46,6 +46,28 @@ that needs callbacks gets them in `shell/wiring`, one line each.
 
 Slint components live in `ui/`; a screen's Rust module and its Slint file share a name.
 
+### The Mods section
+
+Mods has a page menu on the left and one page on the right. The menu lists six pages: Plugins,
+Themes, Marketplace, Plugin settings, Logs and About. `screens/mods/` owns the menu and the two
+pages that work offline; the other four show a heading and a line saying they arrive later.
+`screens/mods/catalogue.rs` reads the plugin and theme folders under `<app data>/stremio-lightning/`
+and turns each file into a card. Everything a card says comes from the file: its metadata comment,
+or its file name when the comment is missing, plus the theme `parse` warnings for a theme.
+
+The window holds two pieces of state the snapshot does not. `mods-page` is the page on screen, so
+a press on the menu only says which page was picked and the wiring repaints with it. An armed
+Remove is window state too: the first press of a card's Remove button arms that card and the
+second press, on the same card, deletes the file. Pressing any other card, changing page, or five
+seconds passing takes the arm back.
+
+Plugins and themes are switched on by writing their file names to `enabled_plugins` and
+`enabled_themes` in the shell's own `settings.json`. A name that is absent means off. Turning a
+theme on replaces the whole theme list with that one name, so one theme is on at a time.
+`plumbing::theme::apply_enabled` reads that list and draws the window with it, both at boot and
+whenever the choice changes. This build does not run plugin code; the Plugins page says so above
+its list, and turning a plugin on only remembers the choice for the plugin runtime.
+
 ### The player
 
 `ui/player.slint` is the one screen that is not only Slint: mpv draws its frames into the

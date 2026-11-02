@@ -49,6 +49,12 @@ pub(crate) struct Context {
     /// not to the model, but the snapshot is what the window shows, so it is folded in here.
     pub(crate) playback_error: Arc<Mutex<String>>,
     pub(crate) local_extras: Arc<Mutex<settings::LocalExtras>>,
+    /// Where the app keeps its own files. The Mods screen reads its plugins and themes folders
+    /// from here, so a snapshot names the files the user would find there.
+    pub(crate) data_dir: std::path::PathBuf,
+    /// The page of the Mods menu on screen. The window picks it, so every snapshot the core
+    /// produces carries the page the user is looking at rather than the first one.
+    pub(crate) mods_page: Arc<Mutex<String>>,
     /// The addons and catalog count the Board's range was last asked for, so that installing
     /// an addon asks for its catalogs and a growing list asks for the rows beyond the old one.
     pub(crate) board_catalogs: Arc<Mutex<Option<BoardCatalogRange>>>,
@@ -191,6 +197,14 @@ fn snapshot(model: &AppModel, context: &Context) -> Snapshot {
             &context.video_query.lock().unwrap(),
         ),
         settings: settings::data(model, &context.extras()),
+        mods: crate::screens::mods::data(&context.data_dir)
+            .with_page(crate::screens::mods::Page::from_id(
+                &context.mods_page.lock().unwrap(),
+            ))
+            // The line about the last action belongs to the section, not to the folders: it is read
+            // back with the rest so a core event -- a library update, a catalog arriving -- does
+            // not take the answer to a press off the screen before it was read.
+            .with_notice(context.latest.lock().unwrap().mods.notice.clone()),
         player,
     }
 }

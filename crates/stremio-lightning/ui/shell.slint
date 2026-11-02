@@ -7,7 +7,17 @@ export enum Section {
     library,
     calendar,
     addons,
+    // The Mods section sits between Addons and Settings, as its tab does under the Addons tab.
+    mods,
     settings,
+}
+
+// One row of the Mods menu: the six pages of the Mods section, of which one is on screen. The
+// user picks the page, so the window holds which one, not the screen that draws it.
+export struct ModsNavItem {
+    id: string,
+    label: string,
+    selected: bool,
 }
 
 // Web: <a class="nav-tab-button nav-tab-button-container [selected]">. `selected` is not themable yet.
@@ -139,10 +149,23 @@ export component VerticalNavBar inherits Rectangle {
                 root.select(Section.addons);
             }
         }
+        // The Mods section reuses the gear Settings draws: there is no Mods icon of its own, and a
+        // second outline of the same gear reads as the same idea rather than as a new one.
         NavTabButton {
             rem-size: root.rem-size;
             x: (8 * root.rem-size / 14);
             y: (420 * root.rem-size / 14);
+            tab-icon: root.section == Section.mods ? @image-url("icons/settings.svg") : @image-url("icons/settings-outline.svg");
+            tab-label: "Mods";
+            selected: root.section == Section.mods;
+            clicked => {
+                root.select(Section.mods);
+            }
+        }
+        NavTabButton {
+            rem-size: root.rem-size;
+            x: (8 * root.rem-size / 14);
+            y: (502.2 * root.rem-size / 14);
             tab-icon: root.section == Section.settings ? @image-url("icons/settings.svg") : @image-url("icons/settings-outline.svg");
             tab-label: "Settings";
             selected: root.section == Section.settings;

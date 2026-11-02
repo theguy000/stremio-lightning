@@ -86,6 +86,7 @@ fn test_empirical_navigation_and_lifecycle_suite() {
         Section::Library,
         Section::Calendar,
         Section::Addons,
+        Section::Mods,
         Section::Settings,
     ];
 
@@ -129,7 +130,7 @@ fn test_empirical_navigation_and_lifecycle_suite() {
             "Active section must be strictly preserved upon overlay dismissal!"
         );
     }
-    assert_eq!(dismissed_count.load(Ordering::SeqCst), 6);
+    assert_eq!(dismissed_count.load(Ordering::SeqCst), 7);
 
     // ------------------------------------------------------------------------
     // Part 3: Logged-out Placeholders Visibility on Library and Calendar
