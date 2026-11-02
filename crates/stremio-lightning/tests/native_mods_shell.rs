@@ -10,7 +10,6 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use i_slint_backend_testing::ElementHandle;
 use slint::Model;
 use stremio_lightning::screens::mods::{self, catalogue, Page};
 use stremio_lightning::themes;
@@ -24,7 +23,17 @@ use support::ui_driver::{self, Outcome};
 /// the element maps the press to the window itself, so a control inside a scrolled list is
 /// pressed where it is drawn however far the list has scrolled. `Err` says what is on screen.
 fn click(window: &MainWindow, label: &str) -> Result<String, String> {
-    let found = ElementHandle::find_by_accessible_label(window, label).next();
+    // What is on the model and what is drawn are not the same thing: a card the model has just
+    // gained is a row the window builds on a later turn, and the row's buttons only exist once it
+    // has. Waiting for the label is waiting for what a person waits for: the control being there
+    // to press. The budget is generous and the loop is bounded, so a control that never appears
+    // fails the line rather than the run.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut found = None;
+    while found.is_none() && Instant::now() < deadline {
+        ui_driver::pump(Duration::from_millis(50));
+        found = ui_driver::find(window, label);
+    }
     let Some(handle) = found else {
         return Err(format!(
             "nothing says this; on screen: {:?}",
@@ -446,19 +455,23 @@ fn the_window_opens_every_page_and_removes_a_theme_in_two_presses() {
         }
     });
     // Every row of the menu, pressed in turn. A row is drawn inside the menu column, which is on
-    // screen on every page, so this is the press a person makes from anywhere in the section.
+    // screen on every page, so this is the press a person makes from anywhere in the section. The
+    // press and what it changes are not one instant: the page is drawn from a snapshot the app
+    // posts from its own thread, so each is waited for the way a person waits for the page.
     for (id, label) in menu {
         outcomes = step(
             outcomes,
             &format!("{label} opens"),
-            click(window, label).and_then(|_| page_is(id)),
+            click(window, label)
+                .and_then(|_| wait(window, Duration::from_secs(10), |_| page_is(id))),
         );
     }
     // And again on the page already on screen, after the page has been drawn again.
     outcomes = step(
         outcomes,
         "Themes opens once more",
-        click(window, "Themes").and_then(|_| page_is("themes")),
+        click(window, "Themes")
+            .and_then(|_| wait(window, Duration::from_secs(10), |_| page_is("themes"))),
     );
     outcomes = step(
         outcomes,
@@ -550,14 +563,18 @@ fn the_window_opens_every_page_and_removes_a_theme_in_two_presses() {
             }
         }),
     );
-    second = step(second, "and the screen says what happened", {
-        let notice = window.get_mods().notice.to_string();
-        if notice == "Removed red.theme.css." {
-            Ok(notice)
-        } else {
-            Err(format!("the screen says {notice:?}"))
-        }
-    });
+    second = step(
+        second,
+        "and the screen says what happened",
+        wait(window, Duration::from_secs(10), |window| {
+            let notice = window.get_mods().notice.to_string();
+            if notice == "Removed red.theme.css." {
+                Ok(notice)
+            } else {
+                Err(format!("the screen says {notice:?}"))
+            }
+        }),
+    );
     verdict("the second press did not remove the theme", &second);
 
     let _ = std::fs::remove_dir_all(&data_dir);

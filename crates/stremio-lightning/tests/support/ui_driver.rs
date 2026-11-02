@@ -237,18 +237,26 @@ pub fn run(window: &MainWindow, steps: Vec<Step>) -> Vec<Outcome> {
 ///
 /// The window runs on the testing backend's mocked clock, and that clock only moves when it is
 /// told to: the backend's event loop fires no timer of its own, so a wall-clock timer would never
-/// come due and the loop would never end. Instead each slice asks the window to draw, which hands
-/// the loop an event, and the clock is stepped by the slice, which fires whatever timers and
-/// animations the window has due.
+/// come due and the loop would never end. Instead the stop is a one-shot timer of the loop's own
+/// context, which is the one the mocked clock drives: it is made due by the step below, so the
+/// loop has a way to end, and a repeating timer that re-arms itself from inside its callback does
+/// not keep it waiting.
 pub fn pump(slice: Duration) {
     if let Some(window) = PUMPED.with(|pumped| pumped.borrow().clone()) {
         if let Some(window) = window.upgrade() {
             window.window().request_redraw();
         }
-        i_slint_backend_testing::mock_elapsed_time(slice);
     }
+    let loop_ctx = i_slint_core::with_global_context(
+        || unreachable!("the platform is set before anything is pumped"),
+        |ctx| ctx.clone(),
+    )
+    .expect("a context, since the platform is set");
+    loop_ctx.single_shot(slice, || {
+        slint::quit_event_loop().ok();
+    });
+    i_slint_backend_testing::mock_elapsed_time(slice);
     slint::run_event_loop().expect("the event loop runs");
-    slint::quit_event_loop().ok();
 }
 
 thread_local! {
@@ -283,8 +291,25 @@ fn labels_in(element: &ElementHandle) -> Vec<String> {
     names
 }
 
+/// The first element that says `label`, anywhere in the window.
+///
+/// Not `ElementHandle::find_by_accessible_label`: that walks through the visible parts of the
+/// window, and a card's own controls were not among what it walked. This asks every element the
+/// tree holds, which is the whole of what a person could press.
+pub fn find(window: &MainWindow, label: &str) -> Option<ElementHandle> {
+    let root = window.root_element();
+    let wanted = label.to_owned();
+    ElementHandle::query_descendants(&root)
+        .match_predicate(move |element| {
+            element
+                .accessible_label()
+                .is_some_and(|said| said == wanted)
+        })
+        .find_first()
+}
+
 fn click(window: &MainWindow, label: &str) -> Result<String, String> {
-    let found = ElementHandle::find_by_accessible_label(window, label).next();
+    let found = find(window, label);
     let Some(handle) = found else {
         let names = labels(window);
         let near: Vec<&String> = names
