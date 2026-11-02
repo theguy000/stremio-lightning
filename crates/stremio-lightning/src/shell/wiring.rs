@@ -153,6 +153,21 @@ pub(crate) struct Wiring {
     /// timer firing clears it; the second press is the one that removes the file.
     pub(crate) mods_armed: Arc<Mutex<Option<ArmedMod>>>,
     pub(crate) mods_disarm: Arc<Timer>,
+    /// The plugins the app is running. Every switch, save and Remove on the Mods screen goes
+    /// through it, and so does everything a plugin asks the app for.
+    pub(crate) plugins: Arc<crate::app::plugins::Runtime>,
+    /// The plugin the Plugin settings page is showing, by file name. It opens on the first
+    /// plugin installed, and says so when none is.
+    pub(crate) mods_plugin: Arc<Mutex<String>>,
+    /// What the settings page holds for the plugin on screen: its schema, the values its file
+    /// holds, and anything typed since. The page is built from this rather than read again on
+    /// every press, so a control cannot lose what was typed while another was pressed.
+    pub(crate) mods_edits: Arc<Mutex<crate::screens::mods::settings::Edits>>,
+    /// Whether the plugin picked on that page is on, which is what its state line follows.
+    pub(crate) mods_enabled: Arc<Mutex<bool>>,
+    /// Delays drawing while a text box is typed in. The page writes typed text on every press,
+    /// and redrawing it on every press would take the editor out from under the next letter.
+    pub(crate) mods_typed: Arc<Timer>,
 }
 
 /// A Mods card that is one press away from its file being deleted, with the page it was on. A
@@ -162,6 +177,10 @@ pub(crate) struct ArmedMod {
     pub(crate) id: String,
     pub(crate) page: String,
 }
+
+/// How long typing has to pause before the page draws what was typed. A tenth of a second is
+/// under what a person sees and over what the window takes to draw.
+const TYPING_PAUSE_MS: u64 = 100;
 
 /// How long an armed Remove stays armed. Long enough to press twice on purpose, short enough that
 /// a card left alone never deletes anything on a later, unrelated press.
@@ -1393,7 +1412,204 @@ impl Wiring {
         if kind == mods::catalogue::Kind::Theme {
             self.apply_themes();
         }
+        if kind == mods::catalogue::Kind::Plugin {
+            // The switch is the start and the stop: a plugin that is on runs, and one that is off
+            // has no interpreter at all.
+            if enabled {
+                self.drain(self.plugins.start(&filename));
+            } else {
+                self.drain(self.plugins.stop(&filename));
+            }
+            // The Plugin settings page says whether the plugin it shows runs, and an off plugin
+            // says nothing about running at all.
+            if *self.mods_plugin.lock().unwrap() == filename {
+                *self.mods_enabled.lock().unwrap() = enabled;
+            }
+        }
         self.after_mod_action(notice);
+    }
+
+    /// Starts every plugin `settings.json` names. Called once at boot, after the window is up.
+    pub(crate) fn start_enabled_plugins(&self) {
+        let enabled = self.local_extras.lock().unwrap().enabled_plugins.clone();
+        let asked = self.plugins.start_enabled(&enabled);
+        self.drain(asked);
+        // The report is repainted so the first frame after boot already says which plugins run.
+        let page = mods::Page::from_id(&self.mods_page.lock().unwrap());
+        let data = self.plugin_data(page);
+        let mut snapshot = self.latest.lock().unwrap().clone();
+        snapshot.mods = data;
+        self.repaint_with(snapshot);
+    }
+
+    /// Puts what the plugins asked for into effect. Their lines are already in the runtime, which
+    /// is what every card and the Plugin settings page read, so the one thing left to draw is the
+    /// rules a plugin asked for. Returns whether anything changed what the Mods pages show.
+    fn drain(&self, asked: Vec<crate::app::plugins::Asked>) -> bool {
+        let mut changed = false;
+        let mut rules: Vec<serde_json::Value> = Vec::new();
+        for ask in asked {
+            match ask {
+                crate::app::plugins::Asked::Log(line, stopped) => {
+                    changed = true;
+                    self.say_plugin_line(&line, stopped);
+                }
+                crate::app::plugins::Asked::Theme(more) => {
+                    rules.extend(more);
+                    changed = true;
+                }
+                crate::app::plugins::Asked::Changed => changed = true,
+            }
+        }
+        if !rules.is_empty() {
+            self.install_plugin_theme(&rules);
+        }
+        changed
+    }
+
+    /// Says one plugin line where a person can see it. A line that stopped the plugin is the
+    /// plugin's reason, and reasons belong on the card and on the settings page, which are drawn
+    /// from the runtime; this puts the same words in the window's notice so they are seen even
+    /// when the user is on another page when the plugin fails.
+    fn say_plugin_line(&self, line: &crate::plumbing::plugin::LogLine, stopped: bool) {
+        if !stopped {
+            return;
+        }
+        let notice = mods::Notice::failed(format!("A plugin stopped: {}", line.text));
+        let mut snapshot = self.latest.lock().unwrap().clone();
+        snapshot.mods.notice = notice.clone();
+        *self.latest.lock().unwrap() = snapshot.clone();
+        let _ = self.window.upgrade_in_event_loop(move |window| {
+            let _ = &window;
+        });
+        self.repaint_with(snapshot);
+    }
+
+    /// Draws the window with the rules a plugin asked for, and reports what this app could not
+    /// understand back into the plugin's own state, where its card shows it.
+    fn install_plugin_theme(&self, rules: &[serde_json::Value]) {
+        let rules = rules.to_vec();
+        let _ = self.window.upgrade_in_event_loop(move |window| {
+            let warnings = theme::install(&window, &rules);
+            if !warnings.is_empty() {
+                // Nothing to print to: the app has no console a person can read, so a rule this
+                // app cannot draw is left out. The plugin's own log is where it said it wanted it.
+            }
+        });
+    }
+
+    /// A press in the Plugin settings page's left list: the page is read for the plugin picked,
+    /// and anything typed for the one before is thrown away, because it is no longer on screen.
+    fn pick_plugin(&self, filename: String) {
+        {
+            let mut edits = self.mods_edits.lock().unwrap();
+            *edits = if filename.is_empty() {
+                mods::settings::Edits::default()
+            } else {
+                mods::settings::edits(&self.data_dir, &filename)
+            };
+        }
+        let enabled = self
+            .local_extras
+            .lock()
+            .unwrap()
+            .enabled_plugins
+            .contains(&filename);
+        *self.mods_enabled.lock().unwrap() = enabled;
+        *self.mods_plugin.lock().unwrap() = filename;
+        self.after_mod_action(None);
+    }
+
+    /// A press in one control: the value goes into the page, not the file. Each kind of control
+    /// reports the kind of value it holds, so a toggle cannot hand the page a string. A text box
+    /// waits for a pause before the page is drawn again, so the letters after the first are typed
+    /// into the editor the frame did not replace; every other control is a single press and is
+    /// drawn straight away.
+    fn edit_plugin_setting(&self, key: String, value: serde_json::Value, text: bool) {
+        {
+            let mut edits = self.mods_edits.lock().unwrap();
+            mods::settings::set_value(&mut edits, &key, &value);
+        }
+        if text {
+            self.draw_typing();
+        } else {
+            self.after_mod_action(None);
+        }
+    }
+
+    /// Something was typed: the page is drawn once typing pauses. Every press counts, and the
+    /// last count to be seen after the pause is the one drawn, so a key typed while the timer ran
+    /// is never lost.
+    fn draw_typing(&self) {
+        if self.mods_typed.running() {
+            return;
+        }
+        let (window, latest, images) = (
+            self.window.clone(),
+            self.latest.clone(),
+            self.images.clone(),
+        );
+        self.mods_typed.start(
+            slint::TimerMode::SingleShot,
+            std::time::Duration::from_millis(TYPING_PAUSE_MS),
+            move || {
+                // Drawn without a notice: typing is not an action worth one, and the notice is
+                // what a saved page says.
+                let snapshot = latest.lock().unwrap().clone();
+                shell::show(&window, snapshot, &images);
+            },
+        );
+    }
+
+    /// The Revert press: every value goes back to what the plugin's file holds.
+    fn revert_plugin_settings(&self) {
+        let mut edits = self.mods_edits.lock().unwrap();
+        mods::settings::revert(&mut edits);
+        drop(edits);
+        self.after_mod_action(Some(mods::Notice::said(
+            "Reverted to the saved values. Nothing was written.",
+        )));
+    }
+
+    /// The Save press: every changed value is written to the plugin's settings file, and the
+    /// plugin's own `onSettingsSaved` callbacks are handed the file. Nothing is written when
+    /// nothing changed, so a press on a page nobody touched leaves the file alone.
+    fn save_plugin_settings(&self) {
+        let (filename, saved) = {
+            let mut edits = self.mods_edits.lock().unwrap();
+            if edits.filename.is_empty() {
+                return;
+            }
+            let filename = edits.filename.clone();
+            if !edits.dirty() {
+                drop(edits);
+                self.after_mod_action(Some(mods::Notice::said("Nothing to save.")));
+                return;
+            }
+            let saved = mods::settings::save(&self.data_dir, &mut edits);
+            (filename, saved)
+        };
+        if !saved.written {
+            self.after_mod_action(Some(mods::Notice::failed(format!(
+                "{filename}: {}",
+                saved.error
+            ))));
+            return;
+        }
+        self.drain(self.plugins.settings_saved(&filename, saved.values));
+        self.after_mod_action(Some(mods::Notice::said(format!("Saved {filename}."))));
+    }
+
+    /// The Mods screen for `page`, with what the plugin runtime holds folded in.
+    fn plugin_data(&self, page: mods::Page) -> mods::Data {
+        mods::data(&self.data_dir)
+            .with_page(page)
+            .with_plugins(&self.plugins)
+            .with_edits(
+                self.mods_plugin.lock().unwrap().clone(),
+                self.mods_edits.lock().unwrap().clone(),
+                *self.mods_enabled.lock().unwrap(),
+            )
     }
 
     /// The Remove button of a mod card. Its first press arms the card and deletes nothing; its
@@ -1501,7 +1717,7 @@ impl Wiring {
     /// read again, and the action's own line is what the notice says.
     fn after_mod_action(&self, notice: Option<mods::Notice>) {
         let page = mods::Page::from_id(&self.mods_page.lock().unwrap());
-        let mut data = mods::data(&self.data_dir).with_page(page);
+        let mut data = self.plugin_data(page);
         if let Some(notice) = notice {
             data.notice = notice;
         } else {
@@ -2118,6 +2334,46 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
     {
         let wiring = wiring.clone();
         window.on_dismiss_mods_remove(move || wiring.dismiss_mods_remove());
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_pick_mods_settings_plugin(move |filename| {
+            wiring.pick_plugin(filename.to_string());
+        });
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_edit_mods_setting_toggle(move |key, on| {
+            wiring.edit_plugin_setting(key.to_string(), serde_json::Value::Bool(on), false);
+        });
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_edit_mods_setting_text(move |key, text| {
+            wiring.edit_plugin_setting(
+                key.to_string(),
+                serde_json::Value::String(text.to_string()),
+                true,
+            );
+        });
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_edit_mods_setting_number(move |key, number| {
+            // A slider reports a float; a JSON number that will not take one is no press.
+            let value = serde_json::Number::from_f64(f64::from(number))
+                .map(serde_json::Value::Number)
+                .unwrap_or(serde_json::Value::Null);
+            wiring.edit_plugin_setting(key.to_string(), value, false);
+        });
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_save_mods_settings(move || wiring.save_plugin_settings());
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_revert_mods_settings(move || wiring.revert_plugin_settings());
     }
     {
         let wiring = wiring.clone();

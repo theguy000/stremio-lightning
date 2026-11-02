@@ -184,7 +184,7 @@ fn set<T>(slot: &mut Option<T>, value: Option<T>) -> bool {
     understood
 }
 
-fn parse_declarations(body: &str, rule: &str, warnings: &mut Vec<String>) -> Style {
+pub fn parse_declarations(body: &str, rule: &str, warnings: &mut Vec<String>) -> Style {
     let mut style = Style::default();
     for declaration in body.split(';').map(str::trim).filter(|d| !d.is_empty()) {
         let Some((property, value)) = declaration.split_once(':') else {
@@ -268,6 +268,16 @@ pub fn parse_theme(css: &str) -> Theme {
         theme.rules.push(Rule { selectors, style });
     }
     theme
+}
+
+/// One rule from one selector and one style, for a rule that arrives as data rather than as CSS.
+/// A selector this app does not understand makes no rule at all.
+pub fn rule(selector: &str, style: Style) -> Option<Rule> {
+    let selector = parse_selector(selector)?;
+    Some(Rule {
+        selectors: vec![selector],
+        style,
+    })
 }
 
 /// One merged style per entry of `elements`, each entry being the web classes one element

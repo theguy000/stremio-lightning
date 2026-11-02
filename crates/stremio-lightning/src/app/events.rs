@@ -59,6 +59,15 @@ pub(crate) struct Context {
     /// an addon asks for its catalogs and a growing list asks for the rows beyond the old one.
     pub(crate) board_catalogs: Arc<Mutex<Option<BoardCatalogRange>>>,
     pub(crate) auth: auth::Generation,
+    /// The plugins the app is running: the Mods pages say what each one is doing, and every
+    /// snapshot is drawn from what it holds now.
+    pub(crate) plugins: Arc<crate::app::plugins::Runtime>,
+    /// The plugin the Plugin settings page is showing, and what it holds for it.
+    pub(crate) mods_plugin: Arc<Mutex<String>>,
+    pub(crate) mods_edits: Arc<Mutex<crate::screens::mods::settings::Edits>>,
+    /// Whether the plugin that page is showing is switched on, which decides whether its state
+    /// line says anything at all.
+    pub(crate) mods_enabled: Arc<Mutex<bool>>,
     /// Repaint now, with whatever the cache holds. Used when an image arrives.
     pub(crate) repaint: Arc<dyn Fn() + Send + Sync>,
 }
@@ -201,6 +210,12 @@ fn snapshot(model: &AppModel, context: &Context) -> Snapshot {
             .with_page(crate::screens::mods::Page::from_id(
                 &context.mods_page.lock().unwrap(),
             ))
+            .with_plugins(&context.plugins)
+            .with_edits(
+                context.mods_plugin.lock().unwrap().clone(),
+                context.mods_edits.lock().unwrap().clone(),
+                *context.mods_enabled.lock().unwrap(),
+            )
             // The line about the last action belongs to the section, not to the folders: it is read
             // back with the rest so a core event -- a library update, a catalog arriving -- does
             // not take the answer to a press off the screen before it was read.

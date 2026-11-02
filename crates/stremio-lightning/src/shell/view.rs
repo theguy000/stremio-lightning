@@ -18,7 +18,7 @@ use crate::{
     AddonData, AddonPendingData, CalendarData, CalendarDay, CalendarSlot, CatalogRow, LibraryCard,
     LibrarySort, LinkGroup, MainWindow, ModCardData, ModsNavItem, ModsViewData, PlayerEpisode,
     PlayerOption, PlayerTrack, PosterData, PreviewData, SelectInputData, SelectOption,
-    SettingsViewData, StreamData, VideoRow,
+    SettingsFieldData, SettingsPluginData, SettingsViewData, StreamData, VideoRow,
 };
 
 /// Copies everything a snapshot describes onto the window. Runs on the window's thread.
@@ -378,10 +378,19 @@ pub(crate) fn mods_view(data: &crate::screens::mods::Data) -> ModsViewData {
             description: card.description.clone().into(),
             unreadable: mods::catalogue::unreadable(card).into(),
             warnings: ModelRc::new(VecModel::from(
-                card.warnings
-                    .iter()
-                    .map(|warning| SharedString::from(warning.clone()))
-                    .collect::<Vec<_>>(),
+                if kind == mods::catalogue::Kind::Theme {
+                    card.warnings.clone()
+                } else {
+                    // A plugin's state line: whether it runs, why it stopped, or its last warning.
+                    // A card the runtime has not been asked about says nothing.
+                    match card.running.said(card.enabled) {
+                        line if line.is_empty() => Vec::new(),
+                        line => vec![line],
+                    }
+                }
+                .into_iter()
+                .map(SharedString::from)
+                .collect::<Vec<_>>(),
             )),
             enabled: card.enabled,
             armed: armed_here,
@@ -416,6 +425,146 @@ pub(crate) fn mods_view(data: &crate::screens::mods::Data) -> ModsViewData {
         )),
         plugins_note: data.plugins_note.clone().into(),
         themes_note: data.themes_note.clone().into(),
+        settings_plugins: ModelRc::new(VecModel::from(
+            data.settings_plugins
+                .iter()
+                .map(settings_plugin)
+                .collect::<Vec<_>>(),
+        )),
+        settings_plugin: data.plugin.clone().into(),
+        settings_fields: ModelRc::new(VecModel::from(
+            data.edits
+                .controls
+                .iter()
+                .map(settings_field)
+                .collect::<Vec<_>>(),
+        )),
+        settings_trouble: ModelRc::new(VecModel::from(
+            trouble(data)
+                .into_iter()
+                .map(SharedString::from)
+                .collect::<Vec<_>>(),
+        )),
+        settings_empty: empty_settings(data).into(),
+        settings_plugin_running: data.picked_state.running,
+        settings_state: state_said(data).into(),
+        settings_state_failed: data.picked_enabled && !data.picked_state.running,
+        settings_dirty: data.edits.dirty(),
+    }
+}
+
+/// One row of the Plugin settings page's left list.
+fn settings_plugin(plugin: &mods::settings::Plugin) -> SettingsPluginData {
+    SettingsPluginData {
+        filename: plugin.filename.clone().into(),
+        name: plugin.name.clone().into(),
+        controls: match plugin.fields {
+            0 => "no controls".to_owned(),
+            1 => "1 control".to_owned(),
+            count => format!("{count} controls"),
+        }
+        .into(),
+        enabled: plugin.enabled,
+    }
+}
+
+/// What a control on the Plugin settings page holds: the value the user is editing, made into
+/// what its kind of control draws. The value the file holds is the screen's business.
+pub(crate) fn settings_field(control: &mods::settings::Control) -> SettingsFieldData {
+    // A kind this app cannot draw shows its label and says so, and offers no control.
+    let mut field = SettingsFieldData {
+        key: control.field.key().into(),
+        label: control.field.label().into(),
+        kind: "unsupported".into(),
+        hint: "This app cannot draw this kind of setting.".into(),
+        on: false,
+        text: "".into(),
+        options: ModelRc::new(VecModel::from(Vec::<SharedString>::new())),
+        number: 0.0,
+        min: 0.0,
+        max: 1.0,
+        shown: "".into(),
+    };
+    match &control.field {
+        mods::plugin_schema::Field::Toggle { .. } => {
+            field.kind = "toggle".into();
+            field.hint = mods::plugin_schema::hint(&control.field).into();
+            field.on = control.edited.as_bool().unwrap_or(false);
+        }
+        mods::plugin_schema::Field::Text { .. } => {
+            field.kind = "text".into();
+            field.hint = mods::plugin_schema::hint(&control.field).into();
+            field.text = control.edited.as_str().unwrap_or_default().into();
+        }
+        mods::plugin_schema::Field::Select { options, .. } => {
+            field.kind = "select".into();
+            // The field's own hint names every option; under a select the list is already on
+            // screen, so the hint says what picking one does.
+            field.hint = "One of the options above.".into();
+            field.text = control.edited.as_str().unwrap_or_default().into();
+            field.options = ModelRc::new(VecModel::from(
+                options
+                    .iter()
+                    .map(|option| SharedString::from(option.clone()))
+                    .collect::<Vec<_>>(),
+            ));
+        }
+        mods::plugin_schema::Field::Range { min, max, .. } => {
+            field.kind = "range".into();
+            field.hint = mods::plugin_schema::hint(&control.field).into();
+            let number = control.edited.as_f64().unwrap_or(*min).clamp(*min, *max);
+            field.number = number as f32;
+            field.min = *min as f32;
+            field.max = *max as f32;
+            field.shown = match serde_json::Number::from_f64(number) {
+                Some(number) => number.to_string(),
+                None => String::new(),
+            }
+            .into();
+        }
+    }
+    field
+}
+
+/// What the Plugin settings page's name line says about the plugin picked: the runtime's own
+/// sentence for a plugin that is on, and nothing for one that is off.
+fn state_said(data: &crate::screens::mods::Data) -> String {
+    if data.plugin.is_empty() {
+        return String::new();
+    }
+    data.picked_state.said(data.picked_enabled)
+}
+
+/// What the Plugin settings page says is wrong with itself: a schema that cannot be used, a file
+/// that cannot be read, and values typed and not saved.
+fn trouble(data: &crate::screens::mods::Data) -> Vec<String> {
+    let edits = &data.edits;
+    let mut said = Vec::new();
+    if !edits.filename.is_empty() {
+        if !edits.trouble.is_empty() {
+            said.push(edits.trouble.clone());
+        }
+        if !edits.error.is_empty() {
+            said.push(edits.error.clone());
+        }
+        if edits.dirty() {
+            said.push(
+                "Typed and not saved. Press Save to write it, or Revert to drop it.".to_owned(),
+            );
+        }
+    }
+    said
+}
+
+/// What the Plugin settings page says when it holds no control: nothing picked, or a plugin that
+/// registered none.
+fn empty_settings(data: &crate::screens::mods::Data) -> String {
+    if data.plugin.is_empty() {
+        mods::settings::NOTHING_PICKED.to_owned()
+    } else if data.edits.controls.is_empty() {
+        mods::settings::NO_SCHEMA.to_owned()
+    } else {
+        String::new()
     }
 }
 

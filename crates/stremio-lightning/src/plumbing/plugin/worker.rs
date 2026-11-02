@@ -331,9 +331,8 @@ impl<H: Host + 'static> Worker<H> {
             let period = timer.period;
             let due = timer.due;
             self.timers.remove(&id);
-            let settled = self.settle(|this| {
-                this.context.with(|ctx| globals::handed(&ctx, &code, ()))
-            });
+            let settled =
+                self.settle(|this| this.context.with(|ctx| globals::handed(&ctx, &code, ())));
             // `finish` runs what this step asked for and every timer it made due, so its answer
             // already holds this step's lines.
             let step = self.finish(settled);

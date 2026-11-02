@@ -3,12 +3,14 @@
 //!
 //! The window's Mods section is a menu of six pages on the left and one page's content on the
 //! right. This file owns the menu and the two pages that work offline: Plugins and Themes.
-//! `catalogue` reads what is installed and turns it into cards; `plugins` and `themes` hold what
-//! pressing a card's buttons does. The Marketplace, Plugin settings, Logs and About pages come
-//! later and get their own files beside these.
+//! `catalogue` reads what is installed and turns it into cards; `plugins`, `themes` and `settings`
+//! hold what pressing a page's controls does. The Marketplace, Logs and About pages come later and
+//! get their own files beside these.
 //!
 //! Nothing here executes a plugin. Turning one on writes its file name to `enabled_plugins` in
 //! the shell's own `settings.json`; what reading that list means is the plugin runtime's business.
+//! The Plugin settings page edits the plugin's own settings file, and the runtime is what hands
+//! the saved values back to the plugin.
 
 use std::path::Path;
 
@@ -17,6 +19,7 @@ use crate::screens::settings::LocalExtras;
 pub mod catalogue;
 pub mod plugin_schema;
 pub mod plugins;
+pub mod settings;
 pub mod themes;
 
 pub use catalogue::{ModCard, Notice};
@@ -93,6 +96,9 @@ pub struct NavItem {
 
 #[derive(Clone, Debug)]
 pub struct Data {
+    /// Where the plugins and themes folders are. The plugin runtime is asked for the state of
+    /// each plugin, so the screen needs the folder to name them.
+    pub data_dir: std::path::PathBuf,
     /// The id of the page on screen.
     pub page: String,
     /// The six pages, with the one on screen marked.
@@ -106,20 +112,83 @@ pub struct Data {
     /// way whichever way the list looks.
     pub plugins_note: String,
     pub themes_note: String,
+    /// What every plugin the app is running is doing, by file name. Read from the plugin runtime
+    /// rather than from the folder, because a file can only say what it was written to do.
+    pub running: std::collections::HashMap<String, settings::Running>,
+    /// The Plugin settings page: the plugins on its left list, and what it holds for the one
+    /// picked.
+    pub settings_plugins: Vec<settings::Plugin>,
+    pub plugin: String,
+    pub edits: settings::Edits,
+    /// Whether the plugin picked on that page is running, and why not: the same state its card
+    /// carries, said in full on the page where its settings are. `picked_enabled` is whether that
+    /// plugin is switched on, which is what decides whether the page says anything about running
+    /// at all.
+    pub picked_state: settings::Running,
+    pub picked_enabled: bool,
 }
 
 impl Data {
     /// Nothing read yet: what the window shows before the first snapshot arrives.
     pub fn empty() -> Self {
         Self {
+            data_dir: std::path::PathBuf::new(),
             page: Page::default().id().to_owned(),
             menu: menu(Page::default()),
             notice: Notice::default(),
             plugins: Vec::new(),
             themes: Vec::new(),
-            plugins_note: plugins::NOT_RUNNING.to_owned(),
+            plugins_note: plugins::NOTE.to_owned(),
             themes_note: themes::NONE_ON.to_owned(),
+            running: std::collections::HashMap::new(),
+            settings_plugins: Vec::new(),
+            plugin: String::new(),
+            edits: settings::Edits::default(),
+            picked_state: settings::Running::default(),
+            picked_enabled: false,
         }
+    }
+
+    /// The same screen with what the plugin runtime holds folded in: the Plugins page says which
+    /// plugins run, and the Plugin settings page lists the plugins that can be configured.
+    #[must_use]
+    pub fn with_plugins(mut self, plugins: &crate::app::plugins::Runtime) -> Self {
+        let extras = LocalExtras::load(&self.data_dir);
+        match settings::plugins(&self.data_dir, &extras) {
+            Ok(list) => self.settings_plugins = list,
+            Err(error) => self.notice = Notice::unreadable(error),
+        }
+        for plugin in &self.settings_plugins {
+            self.running.insert(
+                plugin.filename.clone(),
+                plugins.state(&plugin.filename, plugin.enabled),
+            );
+        }
+        for card in &mut self.plugins {
+            if let Some(state) = self.running.get(&card.filename) {
+                card.running = state.clone();
+            }
+        }
+        self.plugins.sort_by(|a, b| a.filename.cmp(&b.filename));
+        self
+    }
+
+    /// The same screen with what the Plugin settings page holds: the plugin picked, its schema
+    /// with the values on screen, and where that plugin stands. The switch the user pressed last
+    /// is the one that counts, not the folder's copy of it, which the core's own events can be
+    /// holding from before the press.
+    #[must_use]
+    pub fn with_edits(mut self, plugin: String, edits: settings::Edits, enabled: bool) -> Self {
+        self.picked_state = self.running.get(&plugin).cloned().unwrap_or_default();
+        self.picked_enabled = enabled;
+        for entry in &mut self.settings_plugins {
+            if entry.filename == plugin {
+                entry.enabled = enabled;
+            }
+        }
+        self.plugin = plugin;
+        self.edits = edits;
+        self
     }
 
     /// The same screen after the user chose `page`, nothing else changed.
@@ -180,6 +249,7 @@ pub fn menu(page: Page) -> Vec<NavItem> {
 pub fn data(data_dir: &Path) -> Data {
     let extras = LocalExtras::load(data_dir);
     let mut data = Data::empty();
+    data.data_dir = data_dir.to_path_buf();
     let mut read = |kind: catalogue::Kind, cards: &mut Vec<ModCard>| match catalogue::cards(
         data_dir, kind, &extras,
     ) {
@@ -239,7 +309,19 @@ fn refresh(data: &mut Data, data_dir: &Path) {
             }
         };
         match kind {
-            catalogue::Kind::Plugin => data.plugins = cards,
+            catalogue::Kind::Plugin => {
+                // What the runtime says about each plugin is not in the folder, so it is put back
+                // on the cards the read replaced.
+                data.plugins = cards
+                    .into_iter()
+                    .map(|mut card| {
+                        if let Some(state) = data.running.get(&card.filename) {
+                            card.running = state.clone();
+                        }
+                        card
+                    })
+                    .collect();
+            }
             catalogue::Kind::Theme => data.themes = cards,
         }
     }

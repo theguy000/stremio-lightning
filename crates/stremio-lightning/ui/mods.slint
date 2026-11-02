@@ -8,6 +8,7 @@ import { ClassStyles } from "class-styles.slint";
 import { Theme } from "theme.slint";
 import { ModsNavItem } from "shell.slint";
 import { ScrollBar } from "scroll-bar.slint";
+import { LineEdit, Slider } from "std-widgets.slint";
 
 // One plugin or theme file, as its card draws it.
 export struct ModCardData {
@@ -32,6 +33,40 @@ export struct ModCardData {
     state: string,
 }
 
+// One row of the Plugin settings page's left list.
+export struct SettingsPluginData {
+    /// The file name, which is what every press on the page names the plugin by.
+    filename: string,
+    /// The name the file gives, or the file name when it gives none.
+    name: string,
+    /// How many controls the plugin registered, as the row says it.
+    controls: string,
+    enabled: bool,
+}
+
+// One control on the Plugin settings page. The page draws the field whose `kind` it is, and no
+// other: a field of a kind this app cannot draw arrives as "unsupported" and says so.
+export struct SettingsFieldData {
+    /// The plugin's own key for the value, which is what a press names it by.
+    key: string,
+    label: string,
+    kind: string,
+    /// What a kind this app cannot draw says it is.
+    hint: string,
+    /// The on state of a toggle.
+    on: bool,
+    /// The text of a text field, and the value a select shows.
+    text: string,
+    /// A select's options, one per row.
+    options: [string],
+    /// A slider's position, already on one of its steps.
+    number: float,
+    min: float,
+    max: float,
+    /// The small number the slider shows: the position, without a trailing zero.
+    shown: string,
+}
+
 // What the window holds for the Mods section. Later stages add their fields here and fill them in
 // `shell/view.rs`'s `mods_view`.
 export struct ModsViewData {
@@ -48,6 +83,23 @@ export struct ModsViewData {
     plugins-note: string,
     /// What the Themes page says when no theme is on.
     themes-note: string,
+    /// The Plugin settings page: the plugins on its left list, the one picked, and its controls.
+    settings-plugins: [SettingsPluginData],
+    settings-plugin: string,
+    settings-fields: [SettingsFieldData],
+    /// One line per thing wrong with the page as it stands: a schema that cannot be used, a file
+    /// that cannot be read, values typed and not saved.
+    settings-trouble: [string],
+    settings-empty: string,
+    /// Where the picked plugin stands: whether it runs, why it stopped, and its last warning. The
+    /// page says this in the runtime's own words.
+    settings-plugin-running: bool,
+    /// The whole sentence: "Running.", "Stopped: ...", or empty for a plugin that is off.
+    settings-state: string,
+    /// Whether that sentence is bad news, which draws it in the warning colour.
+    settings-state-failed: bool,
+    /// Whether the page has something typed and not saved. Only this turns Save on.
+    settings-dirty: bool,
 }
 
 // Web: the Settings menu's `.button`, which the Mods menu borrows: a 4rem pill, dim until it is
@@ -341,8 +393,283 @@ component ModCardView inherits Rectangle {
     }
 }
 
-export component ModsContent inherits Rectangle {
-    // The height every card on a page takes: the tallest card the page has to draw, so the list's
+// One row of the Plugin settings page's left list: the plugin's name, and whether it is on.
+// Web: the Settings menu's rows, a pill per plugin rather than per page.
+component SettingsPluginRow inherits Rectangle {
+    in property <SettingsPluginData> entry;
+    in property <bool> selected;
+    in property <length> rem-size;
+    callback clicked();
+
+    property <length> pad: 0.8 * rem-size;
+    height: 5.2 * rem-size;
+    border-radius: 0.75 * rem-size;
+    background: (root.selected || touch.has-hover) ? Theme.overlay : transparent;
+    border-width: 2 * rem-size / 14;
+    border-color: root.selected ? Theme.accent-green : transparent;
+
+    settings-plugin-name := Text {
+        x: root.pad;
+        y: root.pad;
+        width: parent.width - 2 * root.pad;
+        height: 1.6 * rem-size;
+        text: root.entry.name;
+        overflow: elide;
+        vertical-alignment: center;
+        font-size: 1.1 * rem-size;
+        font-weight: root.selected ? 600 : 500;
+        color: Theme.text;
+    }
+    settings-plugin-state := Text {
+        x: root.pad;
+        y: root.pad + 1.8 * rem-size;
+        width: parent.width - 2 * root.pad;
+        height: 1.2 * rem-size;
+        text: (root.entry.enabled ? "On, " : "Off, ") + root.entry.controls;
+        overflow: elide;
+        vertical-alignment: center;
+        font-size: 0.9 * rem-size;
+        color: root.entry.enabled ? Theme.accent-green : Theme.placeholder;
+    }
+    touch := TouchArea {
+        width: 100%;
+        height: 100%;
+        mouse-cursor: pointer;
+        // The file name, so a test presses the row it means. The metadata name on the row can
+        // repeat, the file name cannot.
+        accessible-role: button;
+        accessible-label: root.entry.filename;
+        accessible-checkable: true;
+        accessible-checked: root.selected;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// The box a text setting is typed into. It only writes the window's own value on a press in the
+// box, so a new value the app hands back does not move the cursor under anyone's typing.
+component SettingsTextField inherits LineEdit {
+    in property <length> rem-size;
+    in property <string> label-text;
+    in property <string> shown;
+    callback said(string);
+
+    font-size: 1.1 * root.rem-size;
+    // The label, so a test finds the box it means to type in.
+    accessible-description: root.label-text;
+    // A press in the box first puts what the page holds into it: the editor is then the page's,
+    // and a frame that arrives while it has focus does not overwrite what is being typed.
+    init => {
+        self.text = root.shown;
+    }
+    edited(text) => {
+        root.said(text);
+    }
+}
+
+// One control on the Plugin settings page, drawn as the field's kind. A press in it changes the
+// value on the page; nothing is written until Save.
+component SettingsFieldView inherits Rectangle {
+    in property <SettingsFieldData> field;
+    in property <length> rem-size;
+    callback toggled(bool);
+    callback typed(string);
+    callback picked(string);
+    callback slid(float);
+
+    property <length> pad: 0.8 * rem-size;
+    property <length> label-width: 16 * rem-size;
+    property <length> control-width: Math.max(0px, root.width - root.pad - root.label-width - 2 * rem-size);
+    // Where the field's own control goes: beside its label, under the first line of it.
+    property <length> control-x: root.pad + root.label-width;
+    property <length> control-y: root.pad + 0.2 * rem-size;
+
+    // The row: the label, the control beside it, and the hint under the control. Every row is this
+    // height, so the rows of the page's `for` line up.
+    height: 6.4 * rem-size;
+
+    settings-field-label := Text {
+        x: root.pad;
+        y: root.pad + 0.2 * rem-size;
+        width: root.label-width - 2 * rem-size;
+        height: 2 * rem-size;
+        text: root.field.label;
+        wrap: word-wrap;
+        overflow: elide;
+        vertical-alignment: top;
+        font-size: 1.1 * rem-size;
+        color: Theme.text;
+    }
+    // Every kind says what it is under its control, in one line: the range, the options, or what
+    // the app makes of a kind it cannot draw. A kind it cannot draw has no control at all.
+    settings-field-hint := Text {
+        x: root.control-x;
+        y: root.pad + 3.4 * rem-size;
+        width: root.control-width;
+        height: 1.2 * rem-size;
+        text: root.field.hint;
+        overflow: elide;
+        font-size: 0.9 * rem-size;
+        color: root.field.kind == "unsupported" ? Theme.accent-yellow : Theme.placeholder;
+    }
+
+    if root.field.kind == "toggle": settings-field-toggle := Rectangle {
+        x: root.control-x;
+        y: root.control-y;
+        width: 3.2 * root.rem-size;
+        height: 1.8 * root.rem-size;
+        border-radius: self.height / 2;
+        border-width: 1px;
+        border-color: root.field.on ? Theme.accent-green : Theme.placeholder;
+        background: root.field.on ? Theme.accent-green : transparent;
+
+        knob := Rectangle {
+            x: root.field.on ? parent.width - self.width - 2 * root.rem-size / 14 : 2 * root.rem-size / 14;
+            y: (parent.height - self.height) / 2;
+            width: parent.height - 4 * root.rem-size / 14;
+            height: self.width;
+            border-radius: self.width / 2;
+            background: root.field.on ? Theme.on-accent : Theme.placeholder;
+        }
+        touch := TouchArea {
+            width: 100%;
+            height: 100%;
+            mouse-cursor: pointer;
+            // Named for what the press will do, so a test presses the step it means.
+            accessible-role: switch;
+            accessible-label: (root.field.on ? "Turn off " : "Turn on ") + root.field.label;
+            accessible-checkable: true;
+            accessible-checked: root.field.on;
+            clicked => {
+                root.toggled(!root.field.on);
+            }
+        }
+    }
+    if root.field.kind == "text": settings-field-text := SettingsTextField {
+        x: root.control-x;
+        y: root.control-y;
+        width: root.control-width;
+        height: 2.4 * root.rem-size;
+        rem-size: root.rem-size;
+        label-text: root.field.label;
+        shown: root.field.text;
+        said(text) => {
+            root.typed(text);
+        }
+    }
+    if root.field.kind == "select": settings-field-select := HorizontalLayout {
+        x: root.control-x;
+        y: root.control-y;
+        width: root.control-width;
+        height: 2.4 * root.rem-size;
+        spacing: 0.6 * root.rem-size;
+        alignment: start;
+
+        // One pill per option, the one the field holds marked. A select with many options wraps
+        // past the row rather than being cut off: the hint under it says the whole list too.
+        for option[index] in root.field.options: option-pill := Rectangle {
+            width: option-label.width + 1.6 * root.rem-size;
+            height: parent.height;
+            border-radius: self.height / 2;
+            border-width: 1px;
+            border-color: option == root.field.text ? Theme.accent-green : Theme.placeholder;
+            background: (option == root.field.text || option-touch.has-hover) ? Theme.overlay : transparent;
+
+            option-label := Text {
+                x: 0.8 * root.rem-size;
+                y: (parent.height - self.height) / 2;
+                width: self.preferred-width;
+                text: option;
+                font-size: root.rem-size;
+                color: option == root.field.text ? Theme.accent-green : Theme.text;
+            }
+            option-touch := TouchArea {
+                width: 100%;
+                height: 100%;
+                mouse-cursor: pointer;
+                // The field's key and the option, so a test presses the option it means.
+                accessible-role: radio-button;
+                accessible-label: root.field.label + ": " + option;
+                accessible-checkable: true;
+                accessible-checked: option == root.field.text;
+                clicked => {
+                    root.picked(option);
+                }
+            }
+        }
+    }
+    if root.field.kind == "range": settings-field-range := Slider {
+        x: root.control-x;
+        y: root.control-y;
+        width: root.control-width - 8 * root.rem-size;
+        height: 2.4 * root.rem-size;
+        minimum: root.field.min;
+        maximum: root.field.max > root.field.min ? root.field.max : root.field.min + 1;
+        value: root.field.number;
+        // The label, so a test finds the slider it means.
+        accessible-description: root.field.label;
+        changed(value) => {
+            root.slid(value);
+        }
+    }
+    if root.field.kind == "range": settings-field-number := Text {
+        x: root.control-x + parent.width - 8 * root.rem-size;
+        y: root.control-y;
+        width: 7 * root.rem-size;
+        height: 2.4 * root.rem-size;
+        text: root.field.shown;
+        horizontal-alignment: right;
+        vertical-alignment: center;
+        font-size: root.rem-size;
+        color: Theme.text;
+    }
+}
+
+// A pill button on the Plugin settings page. Save and Revert are the page's only two, drawn the
+// same way so neither is the one a person presses by mistake.
+component SettingsButton inherits Rectangle {
+    in property <string> label-text;
+    in property <bool> enabled;
+    in property <bool> primary;
+    in property <string> name;
+    in property <length> rem-size;
+    callback clicked();
+
+    height: 3 * rem-size;
+    width: settings-button-label.width + 2 * rem-size;
+    border-radius: self.height / 2;
+    border-width: 2px;
+    border-color: root.primary && root.enabled ? Theme.accent-green : Theme.text;
+    background: (root.enabled && root.primary) ? Theme.accent-green
+        : (root.enabled && settings-button-touch.has-hover) ? Theme.overlay : transparent;
+    opacity: root.enabled ? 1.0 : 0.3;
+
+    settings-button-label := Text {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: self.preferred-width;
+        text: root.label-text;
+        font-size: rem-size;
+        font-weight: 700;
+        color: root.primary && root.enabled ? Theme.on-accent : Theme.text;
+    }
+    settings-button-touch := TouchArea {
+        width: 100%;
+        height: 100%;
+        // A button that would do nothing is not a target: it says so and presses do not reach it.
+        mouse-cursor: root.enabled ? pointer : default;
+        accessible-role: button;
+        accessible-label: root.name;
+        clicked => {
+            if root.enabled {
+                root.clicked();
+            }
+        }
+    }
+}
+
+export component ModsContent inherits Rectangle {    // The height every card on a page takes: the tallest card the page has to draw, so the list's
     // row pitch matches what each card draws.
     pure function tallest(cards: [ModCardData], rem-size: length) -> length {
         return Math.max(10 * rem-size, cards.length == 0 ? 0px : 5.2 * rem-size + 1.5 * rem-size
@@ -365,6 +692,19 @@ export component ModsContent inherits Rectangle {
     callback remove-mod(string);
     /// Any other press on a card, which takes back an armed Remove.
     callback dismiss-remove();
+    /// The Plugin settings page's left list, naming the file picked. Empty means nothing is
+    /// picked.
+    callback pick-settings-plugin(string);
+    /// A press in one control: the plugin's key for the value, and the value it now holds. One
+    /// callback per kind of control, because a toggle's on state, a text's string and a slider's
+    /// number are three kinds of value.
+    callback edit-settings-toggle(string, bool);
+    callback edit-settings-text(string, string);
+    callback edit-settings-number(string, float);
+    /// The Save press: what the page holds goes into the plugin's settings file.
+    callback save-settings();
+    /// The Revert press: what is typed goes back to what the file holds.
+    callback revert-settings();
 
     property <length> rem-size: Theme.rem-size(root.viewport-width);
     property <length> menu-width: 18 * root.rem-size;
@@ -378,8 +718,13 @@ export component ModsContent inherits Rectangle {
     property <length> card-height: root.on-plugins ? tallest(root.data.plugins, root.rem-size)
         : root.on-themes ? tallest(root.data.themes, root.rem-size) : 10 * root.rem-size;
     property <length> card-pitch: root.card-height + 0.75 * root.rem-size;
+
     property <bool> on-plugins: root.data.page == "plugins";
     property <bool> on-themes: root.data.page == "themes";
+    property <bool> on-settings: root.data.page == "settings";
+    // The left list of the Plugin settings page: a column 18rem wide beside the page's controls.
+    property <length> choice-width: 18 * root.rem-size;
+    property <length> fields-width: Math.max(0px, root.page-width - root.choice-width - 2 * root.rem-size);
 
     mods-menu-container := Rectangle {
         x: 0px;
@@ -458,7 +803,7 @@ export component ModsContent inherits Rectangle {
             text: root.on-plugins ? root.data.plugins-note
                 : root.on-themes ? root.data.themes-note
                 : root.data.page == "marketplace" ? "The Marketplace arrives in a later release."
-                : root.data.page == "settings" ? "A plugin's own settings arrive with plugin support in the next release."
+                : root.data.page == "settings" ? "Pick a plugin on the left. Its settings are saved only when you press Save."
                 : root.data.page == "logs" ? "The Logs page arrives in a later release."
                 : "The About page arrives in a later release.";
             wrap: word-wrap;
@@ -550,6 +895,168 @@ export component ModsContent inherits Rectangle {
             view-height: root.list-height;
             content-height: mods-list.content-height;
             offset <=> mods-list.content-y;
+            visible: root.on-plugins || root.on-themes;
+        }
+
+        // ---- Plugin settings ------------------------------------------------------------
+        // The installed plugins on the left, the picked one's schema on the right. The page only
+        // edits: Save writes the plugin's settings file, Revert reads it back, and nothing here
+        // deletes a value or the schema itself.
+        if root.on-settings: settings-choice := Flickable {
+            x: root.page-padding;
+            y: root.list-top;
+            width: root.choice-width;
+            height: root.list-height;
+            content-width: self.width;
+            content-height: root.data.settings-plugins.length * 5.95 * root.rem-size;
+
+            for entry[index] in root.data.settings-plugins: SettingsPluginRow {
+                x: 0px;
+                y: index * 5.95 * root.rem-size;
+                width: settings-choice.width - 8px;
+                rem-size: root.rem-size;
+                entry: entry;
+                selected: entry.filename == root.data.settings-plugin;
+                clicked => {
+                    root.pick-settings-plugin(entry.filename);
+                }
+            }
+        }
+        if root.on-settings && root.data.settings-plugins.length == 0: settings-empty := Text {
+            x: root.page-padding;
+            y: root.list-top;
+            width: root.choice-width;
+            height: 3 * root.rem-size;
+            text: "No plugins are installed.";
+            font-size: 1.1 * root.rem-size;
+            color: Theme.text;
+            opacity: 0.8;
+        }
+
+        if root.on-settings: Rectangle {
+            x: root.page-padding + root.choice-width + 2 * root.rem-size;
+            y: root.list-top;
+            width: root.fields-width;
+            height: root.list-height;
+
+            settings-fields := Flickable {
+                x: 0px;
+                y: 0px;
+                width: parent.width;
+                height: parent.height;
+                content-width: self.width;
+                // The picked plugin's name and state, then what is wrong with the page, then Save and
+                // Revert, then one row per control.
+                content-height: settings-name.height + (settings-state.text == "" ? 0px : 2.4 * root.rem-size)
+                    + 2 * 1.2 * root.rem-size + 4 * root.rem-size
+                    + root.data.settings-fields.length * (6.4 * root.rem-size + 0.75 * root.rem-size);
+
+                settings-name := Text {
+                    x: 0px;
+                    y: 0px;
+                    width: parent.width - 8px;
+                    height: 3 * root.rem-size;
+                    text: root.data.settings-plugin;
+                    overflow: elide;
+                    vertical-alignment: center;
+                    font-size: 1.6 * root.rem-size;
+                    font-weight: 700;
+                    color: Theme.text;
+                }
+                settings-state := Text {
+                    x: 0px;
+                    y: settings-name.height;
+                    width: parent.width - 8px;
+                    height: 2.4 * root.rem-size;
+                    // Running, why it stopped, or nothing at all for a plugin that is off: the
+                    // runtime's own sentence, never this page's guess.
+                    text: root.data.settings-state;
+                    wrap: word-wrap;
+                    vertical-alignment: top;
+                    font-size: root.rem-size;
+                    color: root.data.settings-state-failed ? Theme.accent-red : Theme.accent-green;
+                }
+                // What is wrong with the page: a schema this app cannot use, a file it cannot read,
+                // values typed and not saved. Save is still on while values are typed.
+                for trouble[index] in root.data.settings-trouble: settings-trouble := Text {
+                    x: 0px;
+                    y: settings-name.height + (settings-state.text == "" ? 0px : 2.4 * root.rem-size) + index * 1.2 * root.rem-size;
+                    width: parent.width - 8px;
+                    height: 1.2 * root.rem-size;
+                    text: trouble;
+                    overflow: elide;
+                    font-size: 0.9 * root.rem-size;
+                    color: Theme.accent-red;
+                }
+                settings-buttons := HorizontalLayout {
+                    x: 0px;
+                    y: settings-name.height + (settings-state.text == "" ? 0px : 2.4 * root.rem-size)
+                        + 2 * 1.2 * root.rem-size;
+                    width: parent.width - 8px;
+                    height: 3 * root.rem-size;
+                    spacing: 1.2 * root.rem-size;
+                    alignment: start;
+
+                    SettingsButton {
+                        rem-size: root.rem-size;
+                        label-text: "Save";
+                        name: "Save " + root.data.settings-plugin;
+                        primary: true;
+                        enabled: root.data.settings-dirty;
+                        clicked => {
+                            root.save-settings();
+                        }
+                    }
+                    SettingsButton {
+                        rem-size: root.rem-size;
+                        label-text: "Revert";
+                        name: "Revert " + root.data.settings-plugin;
+                        primary: false;
+                        enabled: root.data.settings-dirty;
+                        clicked => {
+                            root.revert-settings();
+                        }
+                    }
+                }
+                for field[index] in root.data.settings-fields: SettingsFieldView {
+                    x: 0px;
+                    y: settings-buttons.y + settings-buttons.height + index * (6.4 * root.rem-size + 0.75 * root.rem-size);
+                    width: parent.width - 8px;
+                    rem-size: root.rem-size;
+                    field: field;
+                    toggled(value) => {
+                        root.edit-settings-toggle(field.key, value);
+                    }
+                    typed(text) => {
+                        root.edit-settings-text(field.key, text);
+                    }
+                    picked(option) => {
+                        root.edit-settings-text(field.key, option);
+                    }
+                    slid(value) => {
+                        root.edit-settings-number(field.key, value);
+                    }
+                }
+                if root.data.settings-empty != "": settings-said := Text {
+                    x: 0px;
+                    y: settings-buttons.y + settings-buttons.height;
+                    width: parent.width - 8px;
+                    height: 3 * root.rem-size;
+                    text: root.data.settings-empty;
+                    wrap: word-wrap;
+                    font-size: root.rem-size;
+                    color: Theme.text;
+                    opacity: 0.7;
+                }
+            }
+            ScrollBar {
+                x: parent.width - 8px;
+                y: 0px;
+                height: parent.height;
+                view-height: parent.height;
+                content-height: settings-fields.content-height;
+                offset <=> settings-fields.content-y;
+            }
         }
     }
 }

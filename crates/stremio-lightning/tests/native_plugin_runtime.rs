@@ -134,7 +134,7 @@ fn a_plugin_that_throws_says_why_and_stops() {
     );
     // A plugin that stopped stays stopped and says why on every later call.
     let outcome = running.settings_saved(json!({}));
-    assert_eq!(outcome.run.failed(), true);
+    assert!(outcome.run.failed());
     assert_eq!(running.stopped(), outcome.run.said());
 }
 
@@ -177,7 +177,8 @@ fn settings_round_trip_through_the_page_and_back_to_the_plugin() {
     assert!(!outcome.run.failed(), "stopped: {}", outcome.run.said());
     let said = lines(&outcome.logs);
     assert!(
-        said.iter().any(|line| line == "info: saved for ada was ada"),
+        said.iter()
+            .any(|line| line == "info: saved for ada was ada"),
         "the plugin saw: {said:?}"
     );
     assert_eq!(temp.stored("rounded")["name"], json!("ada"));

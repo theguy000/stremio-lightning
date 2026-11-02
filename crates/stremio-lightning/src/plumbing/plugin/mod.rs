@@ -50,6 +50,9 @@ const MEMORY_LIMIT: usize = 8 * 1024 * 1024;
 /// The most timers one plugin may have waiting at once. A plugin that sets one from a timer is a
 /// plugin that never finishes, however short each of its steps is.
 const MAX_TIMERS: usize = 256;
+/// The most lines the app keeps for one plugin, newest last. The Logs page reads these; a plugin
+/// that runs for hours does not grow the list without end.
+pub const LOG_LINES: usize = 200;
 /// How long the app waits for the plugin's thread to answer a call. The interpreter stops its own
 /// code after [`BUDGET`]; this waits for a thread that answers nothing at all.
 const ANSWER_WAIT: Duration = Duration::from_millis(700);
@@ -74,7 +77,7 @@ pub struct LogLine {
 }
 
 impl LogLine {
-    fn new(level: &str, text: impl Into<String>) -> Self {
+    pub(crate) fn new(level: &str, text: impl Into<String>) -> Self {
         Self {
             level: level.to_owned(),
             text: text.into(),
@@ -91,14 +94,23 @@ impl LogLine {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Event {
     /// A Video started playing: the core's own id for it.
-    PlaybackStarted { video_id: String },
+    PlaybackStarted {
+        video_id: String,
+    },
     PlaybackStopped,
     /// The window went fullscreen or left it.
-    Fullscreen { on: bool },
+    Fullscreen {
+        on: bool,
+    },
     /// The streaming server started or stopped.
-    ServerRunning { running: bool },
+    ServerRunning {
+        running: bool,
+    },
     /// A catalogue arrived from the core.
-    CatalogLoaded { id: String, count: usize },
+    CatalogLoaded {
+        id: String,
+        count: usize,
+    },
 }
 
 impl Event {

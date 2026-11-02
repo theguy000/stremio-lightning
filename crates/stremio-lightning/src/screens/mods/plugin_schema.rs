@@ -200,10 +200,10 @@ fn field(object: &Map<String, Json>, key: &str) -> Option<Field> {
             if max <= min {
                 return None;
             }
-            let step = number(object, "step").filter(|step| *step > 0.0).unwrap_or(1.0);
-            let default = number(object, "default")
-                .unwrap_or(min)
-                .clamp(min, max);
+            let step = number(object, "step")
+                .filter(|step| *step > 0.0)
+                .unwrap_or(1.0);
+            let default = number(object, "default").unwrap_or(min).clamp(min, max);
             Field::Range {
                 key,
                 label,
@@ -244,10 +244,18 @@ pub fn fields_json(fields: &[Field]) -> Json {
 
 fn field_json(field: &Field) -> Json {
     match field {
-        Field::Toggle { key, label, default } => {
+        Field::Toggle {
+            key,
+            label,
+            default,
+        } => {
             json!({ "key": key, "label": label, "type": "toggle", "default": default })
         }
-        Field::Text { key, label, default } => {
+        Field::Text {
+            key,
+            label,
+            default,
+        } => {
             json!({ "key": key, "label": label, "type": "text", "default": default })
         }
         Field::Select {
@@ -286,9 +294,7 @@ pub fn hint(field: &Field) -> String {
         Field::Select { options, .. } => {
             format!("One of {}.", options.join(", "))
         }
-        Field::Range {
-            min, max, step, ..
-        } => {
+        Field::Range { min, max, step, .. } => {
             if *step == 1.0 {
                 format!("A whole number from {min} to {max}.")
             } else {

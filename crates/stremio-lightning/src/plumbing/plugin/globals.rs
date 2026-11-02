@@ -167,12 +167,9 @@ impl World {
             return Err(Stop::Logs);
         }
         let id = self.next_timer.fetch_add(1, Ordering::SeqCst);
-        requests.timers.push((
-            id,
-            millis(after),
-            period.map(millis),
-            function,
-        ));
+        requests
+            .timers
+            .push((id, millis(after), period.map(millis), function));
         Ok(id)
     }
 
@@ -432,10 +429,12 @@ pub(super) fn handed<'js>(
 /// Every argument of a log call, one after another, the way `console.log` shows them.
 fn logged(args: &[Value<'_>]) -> String {
     args.iter()
-        .map(|value| match value.as_string().and_then(|text| text.to_string().ok()) {
-            Some(text) => text,
-            None => from_js(value).to_string(),
-        })
+        .map(
+            |value| match value.as_string().and_then(|text| text.to_string().ok()) {
+                Some(text) => text,
+                None => from_js(value).to_string(),
+            },
+        )
         .collect::<Vec<_>>()
         .join(" ")
 }
@@ -494,8 +493,14 @@ pub(super) fn install(ctx: &Ctx<'_>) -> rquickjs::Result<()> {
     globals.set("logger", logger)?;
 
     // The three settings functions, which reach the plugin's own settings file.
-    globals.set("getSetting", Function::new(ctx.clone(), getting)?.with_name("getSetting")?)?;
-    globals.set("saveSetting", Function::new(ctx.clone(), saving)?.with_name("saveSetting")?)?;
+    globals.set(
+        "getSetting",
+        Function::new(ctx.clone(), getting)?.with_name("getSetting")?,
+    )?;
+    globals.set(
+        "saveSetting",
+        Function::new(ctx.clone(), saving)?.with_name("saveSetting")?,
+    )?;
     globals.set(
         "registerSettings",
         Function::new(ctx.clone(), registering)?.with_name("registerSettings")?,
@@ -506,7 +511,10 @@ pub(super) fn install(ctx: &Ctx<'_>) -> rquickjs::Result<()> {
         "onSettingsSaved",
         Function::new(ctx.clone(), keeping_saved)?.with_name("onSettingsSaved")?,
     )?;
-    globals.set("on", Function::new(ctx.clone(), keeping_event)?.with_name("on")?)?;
+    globals.set(
+        "on",
+        Function::new(ctx.clone(), keeping_event)?.with_name("on")?,
+    )?;
     globals.set(
         "applyTheme",
         Function::new(ctx.clone(), theming)?.with_name("applyTheme")?,
@@ -581,7 +589,11 @@ fn keeping_saved<'js>(ctx: Ctx<'js>, callback: Value<'js>) -> rquickjs::Result<V
 
 /// `on(event, callback)`: the thread keeps the callback under the event's name, and hands it to
 /// the plugin when the app says the event happened.
-fn keeping_event<'js>(ctx: Ctx<'js>, event: Value<'js>, callback: Value<'js>) -> rquickjs::Result<Value<'js>> {
+fn keeping_event<'js>(
+    ctx: Ctx<'js>,
+    event: Value<'js>,
+    callback: Value<'js>,
+) -> rquickjs::Result<Value<'js>> {
     let event = name_of(&event);
     match world(&ctx) {
         Ok(this) => guarded(&this, || {
@@ -611,12 +623,20 @@ fn theming<'js>(ctx: Ctx<'js>, rules: Value<'js>) -> rquickjs::Result<Value<'js>
 }
 
 /// `setTimeout(code, after)`: the thread calls `code` once, after `after` milliseconds.
-fn armed_once<'js>(ctx: Ctx<'js>, code: Value<'js>, after: Value<'js>) -> rquickjs::Result<Value<'js>> {
+fn armed_once<'js>(
+    ctx: Ctx<'js>,
+    code: Value<'js>,
+    after: Value<'js>,
+) -> rquickjs::Result<Value<'js>> {
     arming(ctx, code, after, None)
 }
 
 /// `setInterval(code, after)`: the thread calls `code` every `after` milliseconds.
-fn armed_again<'js>(ctx: Ctx<'js>, code: Value<'js>, after: Value<'js>) -> rquickjs::Result<Value<'js>> {
+fn armed_again<'js>(
+    ctx: Ctx<'js>,
+    code: Value<'js>,
+    after: Value<'js>,
+) -> rquickjs::Result<Value<'js>> {
     arming(ctx, code, after, Some(()))
 }
 

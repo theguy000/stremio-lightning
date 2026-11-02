@@ -1,9 +1,11 @@
 //! The Plugins page: the plugin files installed on this computer, the switch that turns one on,
 //! and the button that removes it.
 //!
-//! The switch only writes a name into `enabled_plugins` in the shell's own `settings.json`. This
-//! build does not load or run plugin code, and the page says so above the list, so nobody reads
-//! the switch as "this plugin is working now".
+//! The switch writes a name into `enabled_plugins` in the shell's own `settings.json`, and the
+//! plugin runtime starts or stops the file when the page is left. What the page says about a
+//! plugin is what the runtime says: running, stopped with the sentence the interpreter gave, or
+//! on the way up. A plugin that failed stays failed and says why until it is switched off and on
+//! again, so a broken file never looks like a working one.
 
 use std::path::Path;
 
@@ -11,13 +13,13 @@ use super::catalogue::{self, Kind, Notice};
 use crate::screens::settings::LocalExtras;
 
 /// What the Plugins page says about its own switch. One sentence, above the list.
-pub const NOT_RUNNING: &str =
-    "This build does not run plugin code yet, so enabling a plugin only remembers the choice.";
+pub const NOTE: &str =
+    "Switching a plugin on starts it now and at every start of the app. A plugin that fails says why on its card.";
 /// What an empty Plugins folder shows.
 pub const NONE_INSTALLED: &str = "No plugins are installed.";
 
 fn switched_on(filename: &str) -> String {
-    format!("{filename} is enabled. It will run once plugin support arrives.")
+    format!("{filename} is enabled and starting.")
 }
 
 fn switched_off_notice(filename: &str) -> String {
@@ -53,4 +55,20 @@ pub fn remove(data_dir: &Path, extras: &mut LocalExtras, filename: &str) -> Noti
         extras.enabled_plugins.retain(|name| name != filename);
     }
     notice
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_switch_keeps_one_plugin_from_reordering_another() {
+        let mut extras = LocalExtras::default();
+        set_enabled(&mut extras, "a.plugin.js", true);
+        set_enabled(&mut extras, "b.plugin.js", true);
+        set_enabled(&mut extras, "a.plugin.js", false);
+        set_enabled(&mut extras, "a.plugin.js", true);
+        assert_eq!(extras.enabled_plugins, ["b.plugin.js", "a.plugin.js"]);
+        assert!(set_enabled(&mut extras, "a.plugin.js", true).is_none());
+    }
 }
