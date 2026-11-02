@@ -65,6 +65,9 @@ pub struct MenuOption {
 pub struct Data {
     /// Whether a Stream is selected: the player is the screen on show.
     pub open: bool,
+    /// The Video on screen: the id the core keeps for it, which is what a plugin listening for
+    /// playback news is told. Empty when nothing is playing.
+    pub video_id: String,
     pub title: String,
     pub logo: Option<String>,
     pub background: Option<String>,
@@ -577,6 +580,7 @@ pub fn data(model: &AppModel, wanted_season: Option<usize>) -> Data {
 
     Data {
         open: true,
+        video_id: video_id.clone().unwrap_or_default(),
         title: meta
             .map(|meta| title_of(meta, video_id.as_deref()))
             .unwrap_or_default(),

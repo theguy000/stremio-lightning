@@ -121,6 +121,11 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
     // The Mods page on screen. The wiring moves it and every snapshot the core produces carries
     // it, so a core event leaves the user on the page they picked.
     let mods_page = Arc::new(Mutex::new(screens::mods::Page::default().id().to_owned()));
+    // The plugins the app runs. Created before the window is shown and started below, once the
+    // lists the app reads are in place.
+    let plugins = app::plugins::Runtime::new(data_dir.clone());
+    let mods_plugin: Arc<Mutex<String>> = Default::default();
+    let mods_edits: Arc<Mutex<screens::mods::settings::Edits>> = Default::default();
 
     let wiring = shell::wiring::Wiring {
         window: window.as_weak(),
@@ -158,6 +163,10 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
         mods_page: mods_page.clone(),
         mods_armed: Default::default(),
         mods_disarm: Default::default(),
+        plugins: plugins.clone(),
+        mods_plugin: mods_plugin.clone(),
+        mods_edits: mods_edits.clone(),
+        mods_typed: Default::default(),
     };
     shell::wire(&window, wiring.clone());
     // The wheel is taken from the window itself: left to a Slint Flickable it costs a whole
@@ -189,6 +198,16 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
             shell::show(&window, snapshot, &images);
         })
     };
+    // A plugin's timers only run while the app is calling into it, and the app has nothing to
+    // report most of the time. The pump asks the plugins every few tenths of a second for that
+    // reason, and what they say is drawn here; see `app::events::pump`.
+    let put_plugins = shell::wiring::Wiring::puts_plugins(
+        &plugins,
+        &latest,
+        &window.as_weak(),
+        &wiring.images,
+        &data_dir,
+    );
     tokio.spawn(app::events::pump(
         events,
         app::events::Context {
@@ -206,14 +225,24 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
             local_extras,
             data_dir: data_dir.clone(),
             mods_page: mods_page.clone(),
+            plugins: plugins.clone(),
+            // The wiring's columns and the event pump's are the same two: a press writes through
+            // one, and every snapshot the core draws reads through the other.
+            mods_plugin: mods_plugin.clone(),
+            mods_edits: mods_edits.clone(),
             playback_error,
             auth: wiring.auth.clone(),
             board_catalogs: wiring.board_catalogs.clone(),
+            said_catalogs: Default::default(),
             repaint,
+            put_plugins,
         },
     ));
 
     wiring.report_server_state(server.start());
+    // Every plugin `settings.json` names starts now, on its own thread, so a plugin that throws
+    // or loops is a line on the Plugins page rather than a window that never finishes opening.
+    wiring.start_enabled_plugins();
     app::build::load_everything(&runtime);
     // The same pulls the window repeats whenever it comes back to the front: the web does this
     // once on mount too, so a mark made elsewhere is there before the first frame settles.

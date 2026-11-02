@@ -232,6 +232,47 @@ pub fn apply_enabled(window: &MainWindow, data_dir: &Path) {
     }
 }
 
+/// The web classes a plugin's `applyTheme` rules may select, in the order the element table lists
+/// them. A plugin that names anything else is told so when its file loads.
+pub fn classes() -> Vec<&'static str> {
+    CLASSES
+        .iter()
+        .flat_map(|classes| classes.iter().copied())
+        .collect()
+}
+
+/// Draws the window with the rules a plugin asked for: the same understood selectors and
+/// properties a theme file has, read from JSON rather than CSS. A rule this app does not
+/// understand is left out and said in the list this returns, one line each.
+pub fn install(window: &MainWindow, rules: &[serde_json::Value]) -> Vec<String> {
+    let mut warnings = Vec::new();
+    let mut parsed = Vec::new();
+    for rule in rules {
+        let (Some(selector), Some(property), Some(value)) = (
+            rule.get("selector").and_then(serde_json::Value::as_str),
+            rule.get("property").and_then(serde_json::Value::as_str),
+            rule.get("value").and_then(serde_json::Value::as_str),
+        ) else {
+            warnings.push(
+                "a rule needs `selector`, `property` and `value` strings, so it was left out."
+                    .to_owned(),
+            );
+            continue;
+        };
+        let mut said = Vec::new();
+        let style = parse::parse_declarations(&format!("{property}: {value}"), selector, &mut said);
+        warnings.extend(said);
+        parsed.extend(parse::rule(selector, style));
+    }
+    let (styles, unmatched) = parse::resolve(&parsed, CLASSES);
+    warnings.extend(unmatched);
+    let globals = window.global::<ClassStyles>();
+    for ((_, set_element), style) in ELEMENTS.iter().zip(styles) {
+        set_element(&globals, to_slint(style));
+    }
+    warnings
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

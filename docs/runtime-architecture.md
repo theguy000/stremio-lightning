@@ -49,8 +49,9 @@ Slint components live in `ui/`; a screen's Rust module and its Slint file share 
 ### The Mods section
 
 Mods has a page menu on the left and one page on the right. The menu lists six pages: Plugins,
-Themes, Marketplace, Plugin settings, Logs and About. `screens/mods/` owns the menu and the two
-pages that work offline; the other four show a heading and a line saying they arrive later.
+Themes, Marketplace, Plugin settings, Logs and About. `screens/mods/` owns the menu, the two pages
+that list installed files and the settings page; Marketplace, Logs and About show a heading and a
+line saying they arrive later.
 `screens/mods/catalogue.rs` reads the plugin and theme folders under `<app data>/stremio-lightning/`
 and turns each file into a card. Everything a card says comes from the file: its metadata comment,
 or its file name when the comment is missing, plus the theme `parse` warnings for a theme.
@@ -65,8 +66,31 @@ Plugins and themes are switched on by writing their file names to `enabled_plugi
 `enabled_themes` in the shell's own `settings.json`. A name that is absent means off. Turning a
 theme on replaces the whole theme list with that one name, so one theme is on at a time.
 `plumbing::theme::apply_enabled` reads that list and draws the window with it, both at boot and
-whenever the choice changes. This build does not run plugin code; the Plugins page says so above
-its list, and turning a plugin on only remembers the choice for the plugin runtime.
+whenever the choice changes.
+
+Turning a plugin on starts it: `shell/wiring` calls `app::plugins::Runtime::start`, which reads the
+file and hands it to `plumbing/plugin`, an embedded JavaScript engine (rquickjs, a vendored build of
+QuickJS). Every plugin runs on its own thread. Nothing a plugin does runs on the window's thread,
+and a plugin that keeps running past its budget is abandoned rather than waited for. What a plugin
+can reach is fixed in `plumbing/plugin/globals.rs` and written down in `docs/plugin-api.md`. A line
+a plugin logs, a settings schema it registers and rules it asks the window to draw arrive at
+`app::plugins` as plain data, and `shell/wiring` acts on them: lines land on the plugin's state,
+rules go through `plumbing::theme::install`, and a schema is stored in the plugin's own settings
+file. Nothing is written to stderr.
+
+`Runtime` keeps what it knows about each plugin in three places: the running ones with the lines
+they logged, the ones that stopped with the sentence that says why, and a count that changes on
+every log line and every start. The Mods pages read the runtime when a snapshot is built, so a
+Plugins card says `Running.`, `Stopped: ...` or the last warning the plugin logged, and a plugin
+that is off says nothing about running.
+
+The Plugin settings page lists the installed plugins on the left and the picked one's schema on the
+right. A schema is read from the plugin's settings file (`__schema`), so the page draws it after a
+restart without running the plugin first. A control is a toggle, a text box, a select row or a
+slider; a field of any other kind is reported and left out. A press changes the page and writes
+nothing. Save writes the changed values through `settings::save_setting`, keeps every key the schema
+does not name, and hands the file to the running plugin's `onSettingsSaved`. Revert reads the file
+again and drops the typing. Nothing on the page deletes a value or the schema.
 
 ### The player
 

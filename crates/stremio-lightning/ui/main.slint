@@ -104,6 +104,14 @@ export component MainWindow inherits Window {
     callback remove-mods-mod(string);
     /// Any other press on a Mods card takes back an armed Remove.
     callback dismiss-mods-remove();
+    /// The Plugin settings page: the plugin picked, a press in one of its controls, Save and
+    /// Revert. Every one names the plugin by the file name the page shows.
+    callback pick-mods-settings-plugin(string);
+    callback edit-mods-setting-toggle(string, bool);
+    callback edit-mods-setting-text(string, string);
+    callback edit-mods-setting-number(string, float);
+    callback save-mods-settings();
+    callback revert-mods-settings();
 
     in-out property <bool> details-open: false;
     in property <PreviewData> details-preview;
@@ -736,6 +744,15 @@ export component MainWindow inherits Window {
             themes: root.mods.themes,
             plugins-note: root.mods.plugins-note,
             themes-note: root.mods.themes-note,
+            settings-plugins: root.mods.settings-plugins,
+            settings-plugin: root.mods.settings-plugin,
+            settings-fields: root.mods.settings-fields,
+            settings-trouble: root.mods.settings-trouble,
+            settings-empty: root.mods.settings-empty,
+            settings-plugin-running: root.mods.settings-plugin-running,
+            settings-state: root.mods.settings-state,
+            settings-state-failed: root.mods.settings-state-failed,
+            settings-dirty: root.mods.settings-dirty,
         };
         select-page(page) => {
             root.select-mods-page(page);
@@ -748,6 +765,24 @@ export component MainWindow inherits Window {
         }
         dismiss-remove => {
             root.dismiss-mods-remove();
+        }
+        pick-settings-plugin(filename) => {
+            root.pick-mods-settings-plugin(filename);
+        }
+        edit-settings-toggle(key, on) => {
+            root.edit-mods-setting-toggle(key, on);
+        }
+        edit-settings-text(key, text) => {
+            root.edit-mods-setting-text(key, text);
+        }
+        edit-settings-number(key, number) => {
+            root.edit-mods-setting-number(key, number);
+        }
+        save-settings => {
+            root.save-mods-settings();
+        }
+        revert-settings => {
+            root.revert-mods-settings();
         }
     }
 

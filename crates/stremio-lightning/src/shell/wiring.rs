@@ -21,6 +21,7 @@ use crate::plumbing::clipboard;
 use crate::plumbing::images::Images;
 use crate::plumbing::links;
 use crate::plumbing::player::VideoPlayer;
+use crate::plumbing::plugin::Event;
 use crate::plumbing::stream_server::{self, Supervisor};
 use crate::plumbing::theme;
 use crate::screens::player::{auto_subtitle, SubtitleChoice, SubtitleTrackFacts};
@@ -77,6 +78,55 @@ fn drawn_range(visible: &Mutex<(usize, usize)>) -> (usize, usize) {
     match grid {
         Some(grid) => discover::settled_range(grid.scroll, grid.height, grid.pitch, grid.columns),
         None => *visible.lock().unwrap(),
+    }
+}
+
+/// The plugin runtime and the few things a look at it needs, in a shape that can leave the
+/// window's thread. A call into a plugin can wait out the interpreter's answer window, so the
+/// event task and the server's task make those calls and hand the result back to the window;
+/// this is what they hold instead of the wiring, which holds `Rc`s and cannot go with them.
+#[derive(Clone)]
+pub(crate) struct Plugins {
+    pub(crate) runtime: Arc<crate::app::plugins::Runtime>,
+    pub(crate) latest: Arc<Mutex<Snapshot>>,
+    pub(crate) window: Weak<MainWindow>,
+    pub(crate) images: Images,
+    pub(crate) data_dir: std::path::PathBuf,
+}
+
+impl Plugins {
+    /// Puts what the plugins asked for into effect: the rules a theme asked for, and a fresh
+    /// Mods page for anything that logged. A line is already in the runtime's own record, which
+    /// is what every card and the Logs page read, so there is nothing here to log twice.
+    pub(crate) fn put(&self, asked: Vec<crate::app::plugins::Asked>) {
+        let mut theme: Vec<serde_json::Value> = Vec::new();
+        let mut changed = false;
+        for ask in asked {
+            match ask {
+                crate::app::plugins::Asked::Log(line, stopped) => {
+                    let _ = (line, stopped);
+                    changed = true;
+                }
+                crate::app::plugins::Asked::Theme(more) => {
+                    theme.extend(more);
+                    changed = true;
+                }
+                crate::app::plugins::Asked::Changed => changed = true,
+            }
+        }
+        if !changed {
+            return;
+        }
+        if !theme.is_empty() {
+            let rules = theme.clone();
+            let _ = self.window.upgrade_in_event_loop(move |window| {
+                let _ = theme::install(&window, &rules);
+            });
+        }
+        let mut snapshot = self.latest.lock().unwrap().clone();
+        snapshot.mods = crate::screens::mods::data(&self.data_dir).refresh(&self.runtime);
+        *self.latest.lock().unwrap() = snapshot.clone();
+        crate::shell::show(&self.window, snapshot, &self.images);
     }
 }
 
@@ -153,6 +203,19 @@ pub(crate) struct Wiring {
     /// timer firing clears it; the second press is the one that removes the file.
     pub(crate) mods_armed: Arc<Mutex<Option<ArmedMod>>>,
     pub(crate) mods_disarm: Arc<Timer>,
+    /// The plugins the app is running. Every switch, save and Remove on the Mods screen goes
+    /// through it, and so does everything a plugin asks the app for.
+    pub(crate) plugins: Arc<crate::app::plugins::Runtime>,
+    /// The plugin the Plugin settings page is showing, by file name. It opens on the first
+    /// plugin installed, and says so when none is.
+    pub(crate) mods_plugin: Arc<Mutex<String>>,
+    /// What the settings page holds for the plugin on screen: its schema, the values its file
+    /// holds, and anything typed since. The page is built from this rather than read again on
+    /// every press, so a control cannot lose what was typed while another was pressed.
+    pub(crate) mods_edits: Arc<Mutex<crate::screens::mods::settings::Edits>>,
+    /// Delays drawing while a text box is typed in. The page writes typed text on every press,
+    /// and redrawing it on every press would take the editor out from under the next letter.
+    pub(crate) mods_typed: Arc<Timer>,
 }
 
 /// A Mods card that is one press away from its file being deleted, with the page it was on. A
@@ -162,6 +225,10 @@ pub(crate) struct ArmedMod {
     pub(crate) id: String,
     pub(crate) page: String,
 }
+
+/// How long typing has to pause before the page draws what was typed. A tenth of a second is
+/// under what a person sees and over what the window takes to draw.
+const TYPING_PAUSE_MS: u64 = 100;
 
 /// How long an armed Remove stays armed. Long enough to press twice on purpose, short enough that
 /// a card left alone never deletes anything on a later, unrelated press.
@@ -191,6 +258,9 @@ pub(crate) struct Playback {
     pub(crate) sent_time: f64,
     pub(crate) paused: Option<bool>,
     pub(crate) scale: stremio_core::types::player::VideoScale,
+    /// The Video the plugins were last told is playing, empty when they were told it stopped.
+    /// mpv reports the same file forty times a second, and a plugin hears about it once.
+    pub(crate) said: String,
 }
 
 impl Default for Playback {
@@ -201,6 +271,7 @@ impl Default for Playback {
             sent_time: 0.0,
             paused: None,
             scale: stremio_core::types::player::VideoScale::Contain,
+            said: String::new(),
         }
     }
 }
@@ -573,6 +644,7 @@ impl Wiring {
         }
         window.set_player_subtitles_enabled(status.subtitles.iter().any(|track| track.selected));
         window.set_player_subtitles_size((status.subtitles_scale * 100.0) as f32);
+        self.tell_playback(status.loaded);
         window.set_player_subtitles_offset((status.subtitles_delay * 1000.0) as f32);
         window.set_player_subtitles_position(status.subtitles_position as f32);
 
@@ -650,6 +722,30 @@ impl Wiring {
         }
     }
 
+    /// Tells the plugins what the player is doing, when it has changed: a file that has loaded
+    /// for the Video on screen started playing, and one that came off (or loaded with nothing on
+    /// screen) stopped. mpv says the same thing many times a second, so the Video id the plugins
+    /// last heard is kept here and a plugin hears each change once.
+    fn tell_playback(&self, loaded: bool) {
+        let video = if loaded {
+            self.latest.lock().unwrap().player.video_id.clone()
+        } else {
+            String::new()
+        };
+        let event = {
+            let mut playback = self.playback.lock().unwrap();
+            if playback.said == video {
+                return;
+            }
+            playback.said = video.clone();
+            match video.is_empty() {
+                true => Event::PlaybackStopped,
+                false => Event::PlaybackStarted { video_id: video },
+            }
+        };
+        self.drain(self.plugins.deliver(event));
+    }
+
     /// The stream reached its end. Binge watching carries on to the next Video; anything else
     /// goes back to where the player was opened from, as the web's back navigation does.
     fn ended(&self) {
@@ -673,7 +769,15 @@ impl Wiring {
         self.video.show(false);
         *self.player_loaded.lock().unwrap() = String::new();
         *self.playback_error.lock().unwrap() = String::new();
-        *self.playback.lock().unwrap() = Playback::default();
+        let was_playing = {
+            let mut playback = self.playback.lock().unwrap();
+            let was = !playback.said.is_empty();
+            *playback = Playback::default();
+            was
+        };
+        if was_playing {
+            self.drain(self.plugins.deliver(Event::PlaybackStopped));
+        }
         self.player_season
             .store(player::NO_SEASON, Ordering::Relaxed);
         player::unload(&self.runtime);
@@ -1353,7 +1457,9 @@ impl Wiring {
         if let Some(window) = self.window.upgrade() {
             window.set_mods_page(page.id().into());
         }
-        let data = mods::data(&self.data_dir).with_page(page);
+        // The screen's own data with the plugins folded in, as on every later event: the Plugin
+        // settings page reads the folder here too, so opening it is not a page with nothing on it.
+        let data = self.plugin_data(page);
         let mut snapshot = self.latest.lock().unwrap().clone();
         snapshot.mods = data.with_notice(snapshot.mods.notice.clone());
         // The section's own properties are set here, not only posted: the press is on the
@@ -1393,7 +1499,236 @@ impl Wiring {
         if kind == mods::catalogue::Kind::Theme {
             self.apply_themes();
         }
+        if kind == mods::catalogue::Kind::Plugin {
+            // The switch is the start and the stop: a plugin that is on runs, and one that is off
+            // has no interpreter at all.
+            let asked = if enabled {
+                self.plugins.start(&filename)
+            } else {
+                self.plugins.stop(&filename)
+            };
+            self.drain(asked);
+        }
         self.after_mod_action(notice);
+    }
+
+    /// Starts every plugin `settings.json` names. Called once at boot, after the window is up.
+    pub(crate) fn start_enabled_plugins(&self) {
+        let enabled = self.local_extras.lock().unwrap().enabled_plugins.clone();
+        // The Plugin settings page opens on the plugin picked, which is the first one in the list
+        // when the app has just started. The pick is remembered here; whether the plugin is
+        // switched on is read from the folder with every snapshot.
+        let page = self.plugin_data(mods::Page::Plugins);
+        *self.mods_plugin.lock().unwrap() = page.plugin;
+        let asked = self.plugins.start_enabled(&enabled);
+        self.drain(asked);
+        // The report is repainted so the first frame after boot already says which plugins run.
+        let page = mods::Page::from_id(&self.mods_page.lock().unwrap());
+        let data = self.plugin_data(page);
+        let mut snapshot = self.latest.lock().unwrap().clone();
+        snapshot.mods = data;
+        self.repaint_with(snapshot);
+    }
+
+    /// What the event task does with a plugin's asks, built from the wiring's `Send` parts only:
+    /// the event task is not the window's thread, and the wiring holds `Rc`s. This is where a
+    /// line a plugin logged from a timer, and rules it asked for there, reach the window.
+    pub(crate) fn puts_plugins(
+        plugins: &Arc<crate::app::plugins::Runtime>,
+        latest: &Arc<Mutex<Snapshot>>,
+        window: &Weak<MainWindow>,
+        images: &Images,
+        data_dir: &std::path::Path,
+    ) -> Arc<dyn Fn(Vec<crate::app::plugins::Asked>) + Send + Sync> {
+        let plugins = Plugins {
+            runtime: plugins.clone(),
+            latest: latest.clone(),
+            window: window.clone(),
+            images: images.clone(),
+            data_dir: data_dir.to_path_buf(),
+        };
+        Arc::new(move |asked| plugins.put(asked))
+    }
+
+    /// What the event task and the server's task do with a plugin's asks. Built from the wiring's
+    /// `Send` parts alone: those tasks are not on the window's thread, and the wiring holds `Rc`s.
+    pub(crate) fn put_plugins(&self) -> Arc<dyn Fn(Vec<crate::app::plugins::Asked>) + Send + Sync> {
+        Wiring::puts_plugins(
+            &self.plugins,
+            &self.latest,
+            &self.window,
+            &self.images,
+            &self.data_dir,
+        )
+    }
+
+    /// Puts what the plugins asked for into effect. Their lines are already in the runtime, which
+    /// is what every card and the Plugin settings page read, so the one thing left to draw is the
+    /// rules a plugin asked for. Returns whether anything changed what the Mods pages show.
+    fn drain(&self, asked: Vec<crate::app::plugins::Asked>) -> bool {
+        let mut changed = false;
+        let mut rules: Vec<serde_json::Value> = Vec::new();
+        for ask in asked {
+            match ask {
+                crate::app::plugins::Asked::Log(line, stopped) => {
+                    changed = true;
+                    self.say_plugin_line(&line, stopped);
+                }
+                crate::app::plugins::Asked::Theme(more) => {
+                    rules.extend(more);
+                    changed = true;
+                }
+                crate::app::plugins::Asked::Changed => changed = true,
+            }
+        }
+        if !rules.is_empty() {
+            self.install_plugin_theme(&rules);
+        }
+        changed
+    }
+
+    /// Says one plugin line where a person can see it. A line that stopped the plugin is the
+    /// plugin's reason, and reasons belong on the card and on the settings page, which are drawn
+    /// from the runtime; this puts the same words in the window's notice so they are seen even
+    /// when the user is on another page when the plugin fails.
+    fn say_plugin_line(&self, line: &crate::plumbing::plugin::LogLine, stopped: bool) {
+        if !stopped {
+            return;
+        }
+        let notice = mods::Notice::failed(format!("A plugin stopped: {}", line.text));
+        let mut snapshot = self.latest.lock().unwrap().clone();
+        snapshot.mods.notice = notice.clone();
+        *self.latest.lock().unwrap() = snapshot.clone();
+        let _ = self.window.upgrade_in_event_loop(move |window| {
+            let _ = &window;
+        });
+        self.repaint_with(snapshot);
+    }
+
+    /// Draws the window with the rules a plugin asked for, and reports what this app could not
+    /// understand back into the plugin's own state, where its card shows it.
+    fn install_plugin_theme(&self, rules: &[serde_json::Value]) {
+        let rules = rules.to_vec();
+        let _ = self.window.upgrade_in_event_loop(move |window| {
+            let warnings = theme::install(&window, &rules);
+            if !warnings.is_empty() {
+                // Nothing to print to: the app has no console a person can read, so a rule this
+                // app cannot draw is left out. The plugin's own log is where it said it wanted it.
+            }
+        });
+    }
+
+    /// A press in the Plugin settings page's left list: the page is read for the plugin picked,
+    /// and anything typed for the one before is thrown away, because it is no longer on screen.
+    fn pick_plugin(&self, filename: String) {
+        {
+            let mut edits = self.mods_edits.lock().unwrap();
+            *edits = if filename.is_empty() {
+                mods::settings::Edits::default()
+            } else {
+                mods::settings::edits(&self.data_dir, &filename)
+            };
+        }
+        *self.mods_plugin.lock().unwrap() = filename;
+        self.after_mod_action(None);
+    }
+
+    /// A press in one control: the value goes into the page, not the file. Each kind of control
+    /// reports the kind of value it holds, so a toggle cannot hand the page a string. A text box
+    /// waits for a pause before the page is drawn again, so the letters after the first are typed
+    /// into the editor the frame did not replace; every other control is a single press and is
+    /// drawn straight away.
+    fn edit_plugin_setting(&self, key: String, value: serde_json::Value, text: bool) {
+        {
+            let mut edits = self.mods_edits.lock().unwrap();
+            mods::settings::set_value(&mut edits, &key, &value);
+        }
+        if text {
+            self.draw_typing();
+        } else {
+            self.after_mod_action(None);
+        }
+    }
+
+    /// Something was typed: the page is drawn once typing pauses. Every press counts, and the
+    /// last count to be seen after the pause is the one drawn, so a key typed while the timer ran
+    /// is never lost.
+    fn draw_typing(&self) {
+        if self.mods_typed.running() {
+            return;
+        }
+        let (window, latest, images) = (
+            self.window.clone(),
+            self.latest.clone(),
+            self.images.clone(),
+        );
+        self.mods_typed.start(
+            slint::TimerMode::SingleShot,
+            std::time::Duration::from_millis(TYPING_PAUSE_MS),
+            move || {
+                // Drawn without a notice: typing is not an action worth one, and the notice is
+                // what a saved page says.
+                let snapshot = latest.lock().unwrap().clone();
+                shell::show(&window, snapshot, &images);
+            },
+        );
+    }
+
+    /// The Revert press: every value goes back to what the plugin's file holds.
+    fn revert_plugin_settings(&self) {
+        let mut edits = self.mods_edits.lock().unwrap();
+        mods::settings::revert(&mut edits);
+        drop(edits);
+        self.after_mod_action(Some(mods::Notice::said(
+            "Reverted to the saved values. Nothing was written.",
+        )));
+    }
+
+    /// The Save press: every changed value is written to the plugin's settings file, and the
+    /// plugin's own `onSettingsSaved` callbacks are handed the file. Nothing is written when
+    /// nothing changed, so a press on a page nobody touched leaves the file alone.
+    fn save_plugin_settings(&self) {
+        let (filename, saved) = {
+            let mut edits = self.mods_edits.lock().unwrap();
+            if edits.filename.is_empty() {
+                return;
+            }
+            let filename = edits.filename.clone();
+            if !edits.dirty() {
+                drop(edits);
+                self.after_mod_action(Some(mods::Notice::said("Nothing to save.")));
+                return;
+            }
+            let saved = mods::settings::save(&self.data_dir, &mut edits);
+            (filename, saved)
+        };
+        if !saved.written {
+            self.after_mod_action(Some(mods::Notice::failed(format!(
+                "{filename}: {}",
+                saved.error
+            ))));
+            return;
+        }
+        self.drain(self.plugins.settings_saved(&filename, saved.values));
+        self.after_mod_action(Some(mods::Notice::said(format!("Saved {filename}."))));
+    }
+
+    /// The Mods screen for `page`, with what the plugin runtime holds folded in, and the plugin
+    /// the Plugin settings page has picked. The picked plugin is what the user last chose, so the
+    /// page it opens on is read from the runtime rather than from the folder every time.
+    fn plugin_data(&self, page: mods::Page) -> mods::Data {
+        // The lock is taken before the screen is built: a guard alive across the `with_plugins`
+        // call would sit on the same line as the screen's own fields.
+        let pick = self.mods_plugin.lock().unwrap().clone();
+        let screen = mods::data(&self.data_dir)
+            .with_page(page)
+            .with_plugins(&self.plugins);
+        let pick = if pick.is_empty() {
+            screen.plugin.clone()
+        } else {
+            pick
+        };
+        screen.with_edits(pick, self.mods_edits.lock().unwrap().clone())
     }
 
     /// The Remove button of a mod card. Its first press arms the card and deletes nothing; its
@@ -1501,7 +1836,7 @@ impl Wiring {
     /// read again, and the action's own line is what the notice says.
     fn after_mod_action(&self, notice: Option<mods::Notice>) {
         let page = mods::Page::from_id(&self.mods_page.lock().unwrap());
-        let mut data = mods::data(&self.data_dir).with_page(page);
+        let mut data = self.plugin_data(page);
         if let Some(notice) = notice {
             data.notice = notice;
         } else {
@@ -1579,12 +1914,20 @@ impl Wiring {
 
     /// Waits for the server to answer and shows which of the possible things happened.
     pub(crate) fn report_server_state(&self, started: Result<(), String>) {
-        // Only the window handle and the server cross into the task: `VideoPlayer` holds `Rc`s
-        // and is not `Send`.
+        // Only the window handle, the server, the plugin runtime and the line's own reporter
+        // cross into the task: `VideoPlayer` holds `Rc`s and is not `Send`.
         let (window, server) = (self.window.clone(), self.server.clone());
+        let (plugins, put) = (self.plugins.clone(), self.put_plugins());
         self.handle.spawn(async move {
             let state = stream_server::wait_until_answering(&server, started).await;
             let text = settings::server_status(&state);
+            let running = matches!(state, crate::plumbing::stream_server::State::Ready);
+            // The plugins hear the server's own verdict, not the boot's hope: this task waits
+            // until the server answers or gives up, which is when the fact is known. What they
+            // ask for is drained here, so a line from their callback is on the Plugins page even
+            // if no core event ever follows.
+            let asked = plugins.deliver(Event::ServerRunning { running });
+            put(asked);
             let _ =
                 window.upgrade_in_event_loop(move |window| window.set_server_status(text.into()));
         });
@@ -1828,11 +2171,19 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
     {
         let wiring = wiring.clone();
         window.on_player_toggle_fullscreen(move || {
-            let _ = wiring.window.upgrade_in_event_loop(|window| {
-                let fullscreen = !window.window().is_fullscreen();
-                window.window().set_fullscreen(fullscreen);
-                window.set_player_fullscreen(fullscreen);
-            });
+            let Some(window) = wiring.window.upgrade() else {
+                return;
+            };
+            let wanted = !window.window().is_fullscreen();
+            window.window().set_fullscreen(wanted);
+            // The window is the only thing that knows whether it went: a compositor can refuse,
+            // and the plugin hears what happened rather than what was asked for.
+            let fullscreen = window.window().is_fullscreen();
+            window.set_player_fullscreen(fullscreen);
+            // Drained here rather than at the next repaint: a plugin that logs from this callback
+            // or asks for a colour has its answer on screen before the press is over.
+            let asked = wiring.plugins.deliver(Event::Fullscreen { on: fullscreen });
+            wiring.drain(asked);
         });
     }
     {
@@ -2118,6 +2469,46 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
     {
         let wiring = wiring.clone();
         window.on_dismiss_mods_remove(move || wiring.dismiss_mods_remove());
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_pick_mods_settings_plugin(move |filename| {
+            wiring.pick_plugin(filename.to_string());
+        });
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_edit_mods_setting_toggle(move |key, on| {
+            wiring.edit_plugin_setting(key.to_string(), serde_json::Value::Bool(on), false);
+        });
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_edit_mods_setting_text(move |key, text| {
+            wiring.edit_plugin_setting(
+                key.to_string(),
+                serde_json::Value::String(text.to_string()),
+                true,
+            );
+        });
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_edit_mods_setting_number(move |key, number| {
+            // A slider reports a float; a JSON number that will not take one is no press.
+            let value = serde_json::Number::from_f64(f64::from(number))
+                .map(serde_json::Value::Number)
+                .unwrap_or(serde_json::Value::Null);
+            wiring.edit_plugin_setting(key.to_string(), value, false);
+        });
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_save_mods_settings(move || wiring.save_plugin_settings());
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_revert_mods_settings(move || wiring.revert_plugin_settings());
     }
     {
         let wiring = wiring.clone();

@@ -46,9 +46,12 @@ pub struct ModCard {
     pub version: String,
     pub description: String,
     pub enabled: bool,
-    /// Whether the file carries a settings page. Plugin settings arrive with the plugin runtime,
-    /// so every card says no for now.
+    /// Whether the plugin registered a settings page. Always false for a theme.
     pub has_settings: bool,
+    /// What the plugin runtime says about a plugin: whether it runs, and why not. Unset for a
+    /// card the runtime has not been asked about, which is what a test that only reads the
+    /// folder gets.
+    pub running: crate::screens::mods::settings::Running,
     /// What reading the file said it does not understand, one line each. Themes fill this in;
     /// plugins are not read yet.
     pub warnings: Vec<String>,
@@ -84,6 +87,7 @@ impl Notice {
 /// Every plugin or theme installed under `data_dir`, sorted by file name, with the enabled list
 /// applied. A file that will not read still gets a card: the folder is the answer, not the file.
 pub fn cards(data_dir: &Path, kind: Kind, extras: &LocalExtras) -> Result<Vec<ModCard>, String> {
+    let mods_dir = stremio_lightning_core::mods::mods_dir(data_dir, kind.mod_type());
     let enabled = match kind {
         Kind::Plugin => &extras.enabled_plugins,
         Kind::Theme => &extras.enabled_themes,
@@ -102,6 +106,12 @@ pub fn cards(data_dir: &Path, kind: Kind, extras: &LocalExtras) -> Result<Vec<Mo
                     .unwrap_or_else(|error| vec![error]),
                 Kind::Plugin => Vec::new(),
             };
+            let has_settings = kind == Kind::Plugin
+                && crate::screens::mods::plugin_schema::stored(
+                    &mods_dir,
+                    &crate::plumbing::plugin::name_of(&file.filename),
+                )
+                .is_ok_and(|fields| !fields.is_empty());
             let (name, author, version, description) = match file.metadata {
                 Some(metadata) => (
                     non_empty_or(metadata.name, &file.filename),
@@ -126,7 +136,8 @@ pub fn cards(data_dir: &Path, kind: Kind, extras: &LocalExtras) -> Result<Vec<Mo
                 version,
                 description,
                 enabled: is_on,
-                has_settings: false,
+                has_settings,
+                running: crate::screens::mods::settings::Running::default(),
                 warnings,
             }
         })
