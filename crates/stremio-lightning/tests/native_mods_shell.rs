@@ -19,6 +19,16 @@ mod support;
 
 use support::ui_driver::{self, Outcome};
 
+/// The theme cards the page holds now, by name.
+fn on_screen(window: &MainWindow) -> Vec<String> {
+    window
+        .get_mods()
+        .themes
+        .iter()
+        .map(|card| card.name.to_string())
+        .collect()
+}
+
 /// Presses whatever says `label`, through the element rather than at the coordinates it reports:
 /// the element maps the press to the window itself, so a control inside a scrolled list is
 /// pressed where it is drawn however far the list has scrolled. `Err` says what is on screen.
@@ -535,31 +545,35 @@ fn the_window_opens_every_page_and_removes_a_theme_in_two_presses() {
     verdict("the first press did not arm the card", &first);
 
     // ---- the second press on the same card deletes the file ----------------------------------
+    // What the page holds is read when the press lands, not after it. The file is deleted inside
+    // the press, so a snapshot built afterwards cannot list the card whether the window was told
+    // to draw it gone or not; the check is that the card that was there is not there now.
+    let before: Vec<String> = on_screen(window);
+    let pressed = click(window, "Confirm removing red.theme.css");
     let mut second: Vec<Outcome> = Vec::new();
     second = step(
         second,
         "the Confirm remove button is pressed, and the file goes",
-        click(window, "Confirm removing red.theme.css").and_then(|_| {
-            wait(window, Duration::from_secs(10), |window| {
-                if !red.exists() {
-                    return Ok("the file is gone".to_owned());
+        pressed.and_then(|_| {
+            wait(window, Duration::from_secs(10), |_| {
+                if red.exists() {
+                    return Err("the file is still there".to_owned());
                 }
-                if window.get_mods().themes.row_count() == 0 {
-                    Ok("the card went first".to_owned())
-                } else {
-                    Err("the card is still on the page".to_owned())
-                }
+                Ok("the file is gone".to_owned())
             })
         }),
     );
     second = step(
         second,
         "the card leaves the page",
-        wait(window, Duration::from_secs(10), |window| {
-            if window.get_mods().themes.row_count() == 0 {
+        wait(window, Duration::from_secs(10), move |window| {
+            let now = on_screen(window);
+            if before == ["Red"] && now.is_empty() {
                 Ok("the page is empty".to_owned())
             } else {
-                Err("the card is still on the page".to_owned())
+                Err(format!(
+                    "the page listed {before:?} before the press and {now:?} after"
+                ))
             }
         }),
     );
