@@ -78,7 +78,16 @@ impl Field {
             Self::Toggle { default, .. } => json!(default),
             Self::Text { default, .. } => json!(default),
             Self::Select { default, .. } => json!(default),
-            Self::Range { default, .. } => json!(default),
+            // The slider holds an `f64`, but a whole-number slider reports whole numbers, and the
+            // page writes what it draws. A default of `3` therefore stays `3` and does not become
+            // `3.0`.
+            Self::Range {
+                min,
+                max,
+                step,
+                default,
+                ..
+            } => whole(*min, *max, *step, *default),
         }
     }
 
@@ -102,26 +111,30 @@ impl Field {
                 let step = if *step > 0.0 { *step } else { 1.0 };
                 let number = number.as_f64().unwrap_or(*min).clamp(*min, *max);
                 let number = min + ((number - min) / step).round() * step;
-                // A slider set in whole numbers stays in whole numbers: the third position of a
-                // 1-to-10 slider is "3", not "3.0" or "3.0000000001".
-                let number = if min.fract() == 0.0 && step.fract() == 0.0 {
-                    let whole = number.round();
-                    if whole.abs() <= i64::MAX as f64 {
-                        return Json::Number((whole as i64).into());
-                    }
-                    whole
-                } else {
-                    number
-                };
-                match serde_json::Number::from_f64(number) {
-                    Some(number) => Json::Number(number),
-                    None => self.default(),
-                }
+                whole(*min, *max, step, number)
             }
             (Self::Toggle { .. }, Json::Number(number)) => Json::Bool(number.as_f64() != Some(0.0)),
             (_, other) if self.accepts(other) => other.clone(),
             (field, _) => field.default(),
         }
+    }
+}
+
+/// A slider value as JSON. A slider set in whole numbers stays in whole numbers: the third
+/// position of a 1-to-10 slider is `3`, not `3.0` or `3.0000000001`.
+fn whole(min: f64, max: f64, step: f64, number: f64) -> Json {
+    let number = if min.fract() == 0.0 && step.fract() == 0.0 {
+        let rounded = number.round();
+        if rounded.abs() <= i64::MAX as f64 {
+            return Json::Number((rounded as i64).into());
+        }
+        rounded
+    } else {
+        number
+    };
+    match serde_json::Number::from_f64(number.clamp(min, max)) {
+        Some(number) => Json::Number(number),
+        None => Json::Null,
     }
 }
 
@@ -276,10 +289,10 @@ fn field_json(field: &Field) -> Json {
             min,
             max,
             step,
-            default,
+            ..
         } => json!({
             "key": key, "label": label, "type": "range",
-            "min": min, "max": max, "step": step, "default": default
+            "min": min, "max": max, "step": step, "default": field.default()
         }),
     }
 }

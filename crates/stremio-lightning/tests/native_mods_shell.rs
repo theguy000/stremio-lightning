@@ -583,6 +583,17 @@ fn the_window_opens_every_page_and_removes_a_theme_in_two_presses() {
         r#"{"enabled_plugins":["throws.plugin.js"]}"#,
     )
     .expect("the settings file");
+    // The page reads the same file, so a file it cannot parse would leave the plugin off and the
+    // card with nothing to say. Prove the switch is on before the app opens.
+    let installed = stremio_lightning::screens::mods::data(&data_dir).plugins;
+    assert_eq!(
+        installed
+            .iter()
+            .map(|card| (card.filename.as_str(), card.enabled))
+            .collect::<Vec<_>>(),
+        [("throws.plugin.js", true)],
+        "the settings file names the plugin and the card says it is on"
+    );
     let red = data_dir
         .join("stremio-lightning")
         .join("themes")
