@@ -42,7 +42,19 @@ pub struct Started {
 }
 
 impl Started {
+    /// A plugin whose file is being loaded: it is on its way to running, and it has nothing to
+    /// say about itself yet.
+    fn starting() -> Self {
+        Self {
+            running: Running::starting(),
+            last_error: String::new(),
+            lines: Vec::new(),
+        }
+    }
+
     fn record(&mut self, outcome: &Outcome) {
+        // The outcome's lines reach the plugin's log only through here. A plugin's card reads the
+        // runtime's state, and the Logs page reads `Runtime::lines`, which reads this.
         for line in &outcome.logs {
             self.lines.push(line.clone());
             if line.level == "warn" || line.level == "error" {
@@ -111,8 +123,16 @@ impl Runtime {
     /// Starts `filename` if it is not running: reads its file, hands the thread a host, and
     /// remembers whatever the load did. Returns what the app was asked to look at because of it.
     pub fn start(self: &Arc<Self>, filename: &str) -> Vec<Asked> {
-        if lock(&self.started).contains_key(filename) {
-            return Vec::new();
+        // The plugin is put in the running set before its file is loaded, not after. A load can
+        // take most of a second, and a second press on the switch inside that window used to
+        // find nothing running and start a second interpreter for the same file. The place is
+        // taken with a cell that says it is starting; the load fills it in or takes it out.
+        let cell = Arc::new(Mutex::new(Started::starting()));
+        {
+            let mut started = lock(&self.started);
+            started
+                .entry(filename.to_owned())
+                .or_insert_with(|| Arc::clone(&cell));
         }
         lock(&self.failed).remove(filename);
         let plugins_dir = self.plugins_dir();
@@ -121,6 +141,7 @@ impl Runtime {
         let source = match std::fs::read_to_string(&path) {
             Ok(source) => source,
             Err(error) => {
+                self.withdraw(filename, &cell);
                 let said = format!("{} could not be read: {error}", path.display());
                 self.failed(filename, said.clone());
                 return vec![
@@ -135,12 +156,13 @@ impl Runtime {
             app: Arc::clone(self),
         };
         let (running, outcome) = Running::start(source, &name, host);
-        let mut started = Started {
-            running,
-            last_error: settings::last_error(&outcome.logs),
-            lines: Vec::new(),
+        let live = {
+            let mut entry = lock(&cell);
+            entry.running = running;
+            entry.last_error = settings::last_error(&outcome.logs);
+            entry.record(&outcome);
+            entry.running.running()
         };
-        started.record(&outcome);
         let mut asked = Vec::new();
         if let Some(rules) = &outcome.theme {
             asked.push(Asked::Theme(rules.clone()));
@@ -149,14 +171,26 @@ impl Runtime {
             asked.push(Asked::Log(line.clone(), false));
         }
         asked.push(Asked::Changed);
-        if started.running.running() {
-            lock(&self.started).insert(filename.to_owned(), Arc::new(Mutex::new(started)));
+        if live {
+            self.bump();
         } else {
+            self.withdraw(filename, &cell);
             self.failed(filename, outcome.run.said());
             asked.push(Asked::Log(LogLine::new("error", outcome.run.said()), true));
         }
-        self.bump();
         asked
+    }
+
+    /// Takes a plugin that never got going out of the running set, if the place it took is still
+    /// the one it was given.
+    fn withdraw(&self, filename: &str, cell: &Arc<Mutex<Started>>) {
+        let mut started = lock(&self.started);
+        if started
+            .get(filename)
+            .is_some_and(|held| Arc::ptr_eq(held, cell))
+        {
+            started.remove(filename);
+        }
     }
 
     /// Stops `filename`, if it is running: the plugin's thread is let go, and the state that said
@@ -191,7 +225,10 @@ impl Runtime {
         self.finish(asked)
     }
 
-    /// One thing that happened in the app, told to every plugin that listens for it.
+    /// One thing that happened in the app, told to every plugin that listens for it. Returns
+    /// everything the plugins asked for while they heard it, which is what the caller draws: a
+    /// plugin that logs from an event callback or sets a setting there has its line on its card
+    /// without waiting for the next load or save.
     pub fn deliver(&self, event: Event) -> Vec<Asked> {
         let cells: Vec<(String, Arc<Mutex<Started>>)> = lock(&self.started)
             .iter()
@@ -211,10 +248,12 @@ impl Runtime {
     }
 
     /// Moves a plugin that stopped out of the running set, so every page says why rather than
-    /// going on claiming it runs.
+    /// going on claiming it runs. A plugin that answered its call is still running, and a reason
+    /// one of its earlier calls recorded is no longer true, so it is taken away.
     fn close(&self, filename: &str, cell: &Arc<Mutex<Started>>) {
         let running = lock(cell).running.running();
         if running {
+            lock(&self.failed).remove(filename);
             return;
         }
         let reason = lock(cell).running.stopped().to_owned();
@@ -244,7 +283,8 @@ impl Runtime {
         std::mem::take(&mut *lock(&self.asked))
     }
 
-    /// What the settings page says about one plugin.
+    /// What the settings page says about one plugin. A plugin still loading is running: its
+    /// switch is on, and the line it gives once it has loaded replaces this one.
     pub fn state(&self, filename: &str, enabled: bool) -> State {
         if let Some(cell) = lock(&self.started).get(filename) {
             return State {
@@ -264,8 +304,9 @@ impl Runtime {
         }
     }
 
-    /// The lines every running plugin has logged, oldest first, as the Logs page shows them: the
-    /// plugin's name, then the line.
+    /// The lines every running plugin has logged, oldest first and by plugin, as the Logs page
+    /// shows them: the plugin's name, then the line. This is the Logs page's only source; nothing
+    /// else keeps a plugin's lines, and the list is in memory for this run of the app.
     pub fn lines(&self) -> Vec<(String, LogLine)> {
         let started = lock(&self.started);
         let mut all: Vec<(String, LogLine)> = started

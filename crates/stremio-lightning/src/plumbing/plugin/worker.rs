@@ -27,6 +27,18 @@ pub struct Running {
 }
 
 impl Running {
+    /// A plugin whose file is still being loaded. Nothing has called into it yet, so it has no
+    /// answer to give and no reason to have stopped.
+    pub fn starting() -> Self {
+        Self {
+            channel: Channel {
+                calls: None,
+                closed: None,
+            },
+            stopped: String::new(),
+        }
+    }
+
     /// Starts the plugin on its own thread and loads `source`. `plugin` is the plugin's file name.
     /// The host is what its settings calls reach: a folder in a test, the app in the shell.
     /// Returns the plugin and what the load did: its lines, and whether it stopped.
@@ -92,10 +104,16 @@ impl Running {
         outcome
     }
 
+    /// Keeps the plugin's state up to date with what one call did. A call that went through
+    /// leaves it running, whatever a call before it said: the reason a call stopped is about that
+    /// call, and a plugin that answered this one is not stopped. A failure replaces the reason
+    /// with its own.
     fn record(&mut self, outcome: &Outcome) {
-        if outcome.run.failed() {
-            self.stopped = outcome.run.said();
-        }
+        self.stopped = if outcome.run.failed() {
+            outcome.run.said()
+        } else {
+            String::new()
+        };
     }
 }
 
@@ -496,6 +514,52 @@ mod tests {
         fn log(&mut self, _plugin: &str, _line: LogLine, _stopped: bool) {}
     }
 
+    /// A plugin's own folder: the settings file its callbacks read.
+    fn folder() -> Folder {
+        let dir =
+            std::env::temp_dir().join(format!("stremio-lightning-worker-{}", std::process::id()));
+        let folder = Folder::new(&dir);
+        let plugins = folder.data_dir.join("stremio-lightning").join("plugins");
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::create_dir_all(plugins);
+        folder
+    }
+
+    #[test]
+    fn a_plugin_that_is_on_its_way_to_running_is_not_started_twice() {
+        let dir = folder();
+        let path = dir.data_dir.join("stremio-lightning").join("plugins");
+        let _ = std::fs::create_dir_all(&path);
+        // A tenth of a second of loading: wider than a second press arriving together with the
+        // first, and well inside the 200 ms a step is given.
+        std::fs::write(
+            path.join("slow.plugin.js"),
+            "const until = Date.now() + 100; while (Date.now() < until) {} logger.info('loaded once');",
+        )
+        .expect("the plugin file");
+        let runtime = crate::app::plugins::Runtime::new(dir.data_dir.clone());
+
+        // Two threads press the switch at the same time, inside the window the load takes.
+        let handlers: Vec<_> = (0..2)
+            .map(|_| {
+                let runtime = Arc::clone(&runtime);
+                std::thread::spawn(move || runtime.start("slow.plugin.js"))
+            })
+            .collect();
+        for handler in handlers {
+            let _ = handler.join().expect("the press did not panic");
+        }
+
+        // One interpreter, so the file's line is in the plugin's log once.
+        let lines: Vec<String> = runtime
+            .lines()
+            .into_iter()
+            .filter(|(file, _)| file == "slow.plugin.js")
+            .map(|(_, line)| line.text)
+            .collect();
+        assert_eq!(lines, vec!["loaded once".to_owned()], "lines: {lines:?}");
+    }
+
     #[test]
     fn a_panic_under_the_plugin_is_reported_and_later_calls_hear_it_at_once() {
         let (mut running, outcome) =
@@ -517,8 +581,7 @@ mod tests {
         assert_eq!(running.stopped(), later.run.said());
         // And a plugin on a host that does not fail still runs, so one panic did not take the
         // thread machinery with it.
-        let (runs, outcome) =
-            Running::start("logger.info('fine');".to_owned(), "fine", Folder::default());
+        let (runs, outcome) = Running::start("logger.info('fine');".to_owned(), "fine", folder());
         assert!(runs.running(), "stopped: {}", runs.stopped());
         assert_eq!(outcome.run, Run::Clean);
     }
