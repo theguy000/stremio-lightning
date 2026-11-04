@@ -77,6 +77,15 @@ pub(crate) struct Context {
     /// Where the diagnostics file was written last, which the About page shows until the app
     /// closes. Held by the window, read back here so a core event does not take it off the page.
     pub(crate) mods_export: Arc<Mutex<Option<String>>>,
+    /// The Marketplace's registry, the search box's text and the page's own lines. A core event
+    /// -- a catalog arriving, a library update -- builds the section again from the folder, and
+    /// a registry read lives only in the window: without these the cards come off the page.
+    pub(crate) market_listing: Arc<Mutex<Option<crate::screens::mods::marketplace::Listing>>>,
+    pub(crate) market_search: Arc<Mutex<String>>,
+    pub(crate) market_summary: Arc<Mutex<Vec<crate::screens::mods::Notice>>>,
+    pub(crate) market_installing: Arc<Mutex<String>>,
+    /// What the update check made of the installed files, for the cards on either page.
+    pub(crate) market_updates: Arc<Mutex<crate::screens::mods::marketplace::Updates>>,
     /// Repaint now, with whatever the cache holds. Used when an image arrives.
     pub(crate) repaint: Arc<dyn Fn() + Send + Sync>,
     /// What a plugin's ask means for the window, built from the wiring's `Send` parts: the theme
@@ -351,6 +360,16 @@ fn snapshot(model: &AppModel, context: &Context) -> Snapshot {
                 &context.local_extras.lock().unwrap().clone(),
                 &context.plugins,
                 context.mods_export.lock().unwrap().as_ref(),
+            )
+            // The Marketplace's registry, kept by the window rather than the folder, and the
+            // check's answer. A core event redraws the section, and a page rebuilt without them
+            // would take the registry's cards off a page that is showing them.
+            .with_updates(context.market_updates.lock().unwrap().clone())
+            .with_market_parts(
+                context.market_listing.lock().unwrap().as_ref(),
+                &context.market_search.lock().unwrap(),
+                &context.market_summary.lock().unwrap(),
+                &context.market_installing.lock().unwrap(),
             ),
         player,
     }

@@ -187,6 +187,12 @@ fn discover_free_port() -> String {
     )
 }
 
+/// Held for as long as a test is reading a registry, so the two tests in this file never point the
+/// process at two servers at once. Cargo runs a binary's tests on several threads by default, and
+/// the address is one variable for the whole process: without this a test that is still finishing
+/// hands the window test the other server's registry, and the page opens with no cards on it.
+static REGISTRY: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// This test binary's own view of the registry address. Setting the variable is what makes the
 /// app read the local server, so every test in this file sets it to its own server before it
 /// reads anything, and the tests in this file run one at a time.
@@ -219,6 +225,7 @@ impl Drop for RegistryAddress {
 
 #[test]
 fn the_marketplace_reads_its_registry_installs_checks_and_tells_the_user_what_failed() {
+    let _registry = REGISTRY.lock().unwrap_or_else(|error| error.into_inner());
     let mut outcomes: Vec<Outcome> = Vec::new();
     let data_dir = temp_dir("screen");
     // A server answers from a table fixed when it starts, so the addresses a registry names have
@@ -706,6 +713,7 @@ fn the_marketplace_reads_its_registry_installs_checks_and_tells_the_user_what_fa
 #[cfg(unix)]
 #[test]
 fn the_window_installs_a_plugin_from_the_marketplace_and_leaves_it_off() {
+    let _registry = REGISTRY.lock().unwrap_or_else(|error| error.into_inner());
     i_slint_backend_testing::init_integration_test_with_mock_time();
     let data_dir = temp_dir("window");
     // The plugin's address is on the server's own port, so the port is asked for first.
