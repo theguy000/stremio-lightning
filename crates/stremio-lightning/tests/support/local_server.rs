@@ -193,14 +193,24 @@ fn answer(mut stream: TcpStream, pages: &[(String, Page)], asked: &std::sync::Mu
         500 => "Internal Server Error",
         _ => "Unknown",
     };
-    let response = format!(
-        "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-        page.status,
-        reason,
-        page.content_type,
-        page.body.len(),
-        page.body
-    );
+    let response = if page.status == 302 {
+        // A redirect names the address to follow in full. A relative one makes the client resolve
+        // it against the request's own address, which turns "/registry.json" into
+        // "/downloads/registry.json": the test then reads the registry from the installed file.
+        format!(
+            "HTTP/1.1 302 Found\r\nLocation: {}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            page.body
+        )
+    } else {
+        format!(
+            "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            page.status,
+            reason,
+            page.content_type,
+            page.body.len(),
+            page.body
+        )
+    };
     let _ = stream.write_all(response.as_bytes());
     let _ = stream.flush();
 }

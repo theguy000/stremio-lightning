@@ -237,6 +237,13 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
             // one, and every snapshot the core draws reads through the other.
             mods_plugin: mods_plugin.clone(),
             mods_edits: mods_edits.clone(),
+            // The Marketplace's own state, written through the wiring's columns and read back by
+            // every snapshot, for the same reason the page and the plugin are.
+            market_listing: wiring.market_listing.clone(),
+            market_updates: wiring.market_updates.clone(),
+            market_search: wiring.market_search.clone(),
+            market_summary: wiring.market_summary.clone(),
+            market_installing: wiring.market_installing.clone(),
             playback_error,
             auth: wiring.auth.clone(),
             board_catalogs: wiring.board_catalogs.clone(),

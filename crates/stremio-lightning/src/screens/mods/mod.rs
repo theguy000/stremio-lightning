@@ -180,6 +180,25 @@ impl Data {
         self
     }
 
+    /// The same screen with everything the Marketplace page draws that is not in the folder: the
+    /// registry it read, its search box, the lines under its list and the card being fetched. A
+    /// registry that has not been read yet leaves the page as the folder alone makes it.
+    #[must_use]
+    pub fn with_market_parts(
+        mut self,
+        listing: Option<&marketplace::Listing>,
+        search: &str,
+        summary: &[Notice],
+        installing: &str,
+    ) -> Self {
+        if let Some(listing) = listing {
+            self = self.with_market(listing, search);
+        }
+        self.market.summary = summary.to_vec();
+        self.market.installing = installing.to_owned();
+        self
+    }
+
     /// The same screen with the registry read again, except that it has not been read yet. A card
     /// read here still says nothing about running, so the window is handed the cards it had.
     #[must_use]

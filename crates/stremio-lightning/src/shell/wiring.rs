@@ -323,11 +323,12 @@ impl MarketSettler {
         let page = mods::Page::from_id(&self.mods_page.lock().unwrap());
         let mut data = mods::data(&held.mods.data_dir).with_page(page);
         data.updates = self.updates.lock().unwrap().clone();
-        if let Some(listing) = self.listing.lock().unwrap().clone() {
-            data = data.with_market(&listing, &self.search.lock().unwrap());
-        }
-        data.market.summary = self.summary.lock().unwrap().clone();
-        data.market.installing = self.installing.lock().unwrap().clone();
+        data = data.with_market_parts(
+            self.listing.lock().unwrap().as_ref(),
+            &self.search.lock().unwrap(),
+            &self.summary.lock().unwrap(),
+            &self.installing.lock().unwrap(),
+        );
         data.notice = held.mods.notice.clone();
         held.mods = data;
         let snapshot = held.clone();
@@ -424,6 +425,13 @@ impl Wiring {
     /// in while the first one, requested during a real core update, arrived at once.
     fn repaint_with(&self, snapshot: Snapshot) {
         *self.latest.lock().unwrap() = snapshot.clone();
+        // The Mods section is written before the rest of the window. `shell::show` posts its own
+        // copy of the same snapshot, which repaints the Mods section from it when it lands; a
+        // marketplace card pressed by then would be pressed on the copy this write had just
+        // replaced.
+        if let Some(window) = self.window.upgrade() {
+            shell::view::show_mods(&window, &snapshot.mods);
+        }
         shell::show(&self.window, snapshot.clone(), &self.images);
         self.remember_wanted();
         let visible = *self.visible.lock().unwrap();
@@ -1967,16 +1975,13 @@ impl Wiring {
     /// search box's text, and the check's answer. Used wherever a screen is built off the snapshot
     /// rather than off the folder alone.
     fn with_market_state(&self, data: mods::Data) -> mods::Data {
-        let listing = self.market_listing.lock().unwrap().clone();
-        let search = self.market_search.lock().unwrap().clone();
         let updates = self.market_updates.lock().unwrap().clone();
-        let mut data = data.with_updates(updates);
-        if let Some(listing) = listing {
-            data = data.with_market(&listing, &search);
-        }
-        data.market.summary = self.market_summary.lock().unwrap().clone();
-        data.market.installing = self.market_installing.lock().unwrap().clone();
-        data
+        data.with_updates(updates).with_market_parts(
+            self.market_listing.lock().unwrap().as_ref(),
+            &self.market_search.lock().unwrap(),
+            &self.market_summary.lock().unwrap(),
+            &self.market_installing.lock().unwrap(),
+        )
     }
 
     /// The Mods screen after an action that changed the folders or `settings.json`: the lists are
