@@ -48,4 +48,6 @@ fi
 # second instead of after a seven minute round trip.
 cargo fmt --all --check
 
-exec xvfb-run -a cargo test -p stremio-lightning "$@"
+# Every crate CI tests, not just the app: the core's own unit tests are what caught a wrong
+# expectation on a clean machine after the app's suite was already green.
+exec xvfb-run -a cargo test -p stremio-lightning -p stremio-lightning-core "$@"

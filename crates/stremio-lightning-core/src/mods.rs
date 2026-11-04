@@ -639,6 +639,9 @@ pub fn installed_filename(entry: &RegistryEntry, mod_type: ModType) -> Result<St
     match filename_from_url(&entry.download) {
         Ok(filename) if filename.ends_with(mod_type.file_extension()) => Ok(filename),
         _ => {
+            // Every character the folder does not accept becomes a separator, and the separators
+            // at either end go: "Cool theme!" is stored as "Cool-theme.theme.css", not
+            // "Cool-theme-.theme.css". A name with nothing left cannot name a file.
             let name: String = entry
                 .name
                 .chars()
@@ -650,7 +653,11 @@ pub fn installed_filename(entry: &RegistryEntry, mod_type: ModType) -> Result<St
                     }
                 })
                 .collect();
-            let filename = format!("{}{}", name.trim_matches('-'), mod_type.file_extension());
+            let name = name.trim_matches('-');
+            if name.is_empty() {
+                return Err("The registry gives this mod no name to store it under".to_string());
+            }
+            let filename = format!("{name}{}", mod_type.file_extension());
             validate_mod_filename(&filename, mod_type)?;
             Ok(filename)
         }
@@ -866,7 +873,7 @@ mod tests {
                 ModType::Theme
             )
             .unwrap(),
-            "Cool-theme-.theme.css"
+            "Cool-theme.theme.css"
         );
         assert!(
             installed_filename(&entry("", "https://example.com/latest"), ModType::Plugin).is_err(),
