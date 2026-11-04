@@ -71,8 +71,7 @@ pub(crate) struct Context {
     /// The registry the Marketplace page last read, and what the update check made of the
     /// installed files. Every snapshot carries them, so a snapshot drawn for a core event shows
     /// the Marketplace with its cards rather than the page it drew before the read landed.
-    pub(crate) market_listing:
-        Arc<Mutex<Option<crate::screens::mods::marketplace::Listing>>>,
+    pub(crate) market_listing: Arc<Mutex<Option<crate::screens::mods::marketplace::Listing>>>,
     pub(crate) market_updates: Arc<Mutex<crate::screens::mods::marketplace::Updates>>,
     /// What the Marketplace page's search box holds, and the lines under its list.
     pub(crate) market_search: Arc<Mutex<String>>,

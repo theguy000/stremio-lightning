@@ -44,4 +44,8 @@ if [ "${1:-}" = "check" ]; then
     exec cargo check --tests -p stremio-lightning "$@"
 fi
 
+# CI fails the run on a formatting diff before it builds anything, so this catches that in a
+# second instead of after a seven minute round trip.
+cargo fmt --all --check
+
 exec xvfb-run -a cargo test -p stremio-lightning "$@"
