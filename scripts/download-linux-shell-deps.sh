@@ -12,9 +12,14 @@ STREAM_SERVER_URL="https://github.com/theguy000/stream-server/releases/download/
 # Static FFmpeg from BtbN/FFmpeg-Builds, which publishes to GitHub releases.
 # The previous source, johnvansickle.com, is not reachable from CI runners.
 # BtbN ships unstripped binaries, so they are stripped below before packaging.
-FFMPEG_RELEASE="autobuild-2026-10-20-13-08"
-FFMPEG_ASSET="ffmpeg-n9.0.2-29-g6dfaba896f-linux64-gpl-9.0.tar.xz"
-FFMPEG_SHA256="6a40dd0b5a020854573aa8bf11449694fabd4fdff1be09b43f6713ca8a2abab1"
+#
+# The release is their rolling `latest` rather than a dated `autobuild-...` tag: BtbN deletes old
+# dated builds, and the tag pinned here for four days returned 404 until this changed. `latest`
+# is republished, so the checksum below has to be moved with it when packaging is next touched;
+# a mismatch fails the download rather than shipping a different binary.
+FFMPEG_RELEASE="latest"
+FFMPEG_ASSET="ffmpeg-n9.0-latest-linux64-gpl-9.0.tar.xz"
+FFMPEG_SHA256="269410922a0d1a9d5e27e2efc07fc2a3a20f0e15b68606573a6bb2f91c2445df"
 FFMPEG_LINUX_URL="https://github.com/BtbN/FFmpeg-Builds/releases/download/$FFMPEG_RELEASE/$FFMPEG_ASSET"
 
 LINUX_DIR="crates/stremio-lightning-linux"
