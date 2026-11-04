@@ -19,6 +19,7 @@ use crate::screens::settings::LocalExtras;
 pub mod about;
 pub mod catalogue;
 pub mod logs;
+pub mod marketplace;
 pub mod plugin_schema;
 pub mod plugins;
 pub mod settings;
@@ -141,6 +142,13 @@ pub struct Data {
     pub log_empty: String,
     pub log_detail: Vec<String>,
     pub log_clear_armed: bool,
+    /// The Marketplace page: the registry the shell last read, what the search box holds, the
+    /// lines under its list, and the card being fetched. Read from the shell's own state, because
+    /// the registry is not on disk.
+    pub market: marketplace::Data,
+    pub market_search: String,
+    /// What the update check made of the installed files, so a card says where it stands.
+    pub updates: marketplace::Updates,
     /// The About page: what this build is, where it keeps the two folders, what is installed, and
     /// the path of the diagnostics file written last.
     pub about: about::Data,
@@ -172,7 +180,98 @@ impl Data {
             log_empty: logs::NONE.to_owned(),
             log_detail: Vec::new(),
             log_clear_armed: false,
+            market: marketplace::Data::default(),
+            market_search: String::new(),
+            updates: marketplace::Updates::default(),
             about: about::Data::default(),
+        }
+    }
+
+    /// is what turns Update all on: with nothing ready, the press has nothing to do.
+    #[must_use]
+    pub fn updates_ready(&self) -> bool {
+        self.updates.any_ready()
+    }
+
+    /// The same screen with the registry the shell last read on its Marketplace page, and what
+    /// the search box holds. The cards come from the folder as it is now, so a mod installed
+    /// since the registry was read already says so.
+    #[must_use]
+    pub fn with_market(mut self, listing: &marketplace::Listing, search: &str) -> Self {
+        self.market = marketplace::data(&self.data_dir, listing, search, &self.updates);
+        self.market_search = search.to_owned();
+        self
+    }
+
+    /// The same screen with everything the Marketplace page draws that is not in the folder: the
+    /// registry it read, its search box, the lines under its list and the card being fetched. A
+    /// registry that has not been read yet leaves the page as the folder alone makes it.
+    #[must_use]
+    pub fn with_market_parts(
+        mut self,
+        listing: Option<&marketplace::Listing>,
+        search: &str,
+        summary: &[Notice],
+        installing: &str,
+    ) -> Self {
+        if let Some(listing) = listing {
+            self = self.with_market(listing, search);
+        }
+        self.market.summary = summary.to_vec();
+        self.market.installing = installing.to_owned();
+        self
+    }
+
+    /// The same screen with the registry read again, except that it has not been read yet. A card
+    /// read here still says nothing about running, so the window is handed the cards it had.
+    #[must_use]
+    pub fn with_listing(mut self, listing: &marketplace::Listing) -> Self {
+        let search = self.market_search.clone();
+        let market = marketplace::data(&self.data_dir, listing, &search, &self.updates);
+        self.market = marketplace::Data {
+            summary: self.market.summary,
+            installing: self.market.installing,
+            ..market
+        };
+        self
+    }
+
+    /// The same screen with what the update check made of the installed files: the cards on both
+    /// pages say it, and the Marketplace cards offer Update where it applies.
+    #[must_use]
+    pub fn with_updates(mut self, updates: marketplace::Updates) -> Self {
+        self.updates = updates;
+        self.read_update_states();
+        self
+    }
+
+    /// Puts the check's sentence on each of the two pages' cards, and on the Marketplace's cards,
+    /// without reading the folder again: the lists are already what the folder holds.
+    fn read_update_states(&mut self) {
+        for kind in [catalogue::Kind::Plugin, catalogue::Kind::Theme] {
+            let known = self.updates.of(kind);
+            for card in self.cards_of_mut(kind) {
+                card.update = marketplace::state(kind, known.get(&card.filename));
+            }
+        }
+        // The sentence above each list says what the check found, and nothing about it before the
+        // first check has answered.
+        self.plugins_note = if self.updates.is_empty() {
+            plugins::NOTE.to_owned()
+        } else {
+            plugins::note(&self.plugins)
+        };
+        self.themes_note = if self.updates.is_empty() {
+            themes::NONE_ON.to_owned()
+        } else {
+            themes::note(self.themes.iter().any(|card| card.enabled), &self.themes)
+        };
+    }
+
+    fn cards_of_mut(&mut self, kind: catalogue::Kind) -> &mut Vec<ModCard> {
+        match kind {
+            catalogue::Kind::Plugin => &mut self.plugins,
+            catalogue::Kind::Theme => &mut self.themes,
         }
     }
 

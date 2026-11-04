@@ -55,6 +55,9 @@ pub struct ModCard {
     /// What reading the file said it does not understand, one line each. Themes fill this in;
     /// plugins are not read yet.
     pub warnings: Vec<String>,
+    /// What the update check said about this file, already a sentence: empty until a check has
+    /// answered for it, which is why a card the folder alone produced says nothing.
+    pub update: String,
 }
 
 /// One line a Mods page shows about the last action. `failed` draws it in the warning colour.
@@ -139,6 +142,7 @@ pub fn cards(data_dir: &Path, kind: Kind, extras: &LocalExtras) -> Result<Vec<Mo
                 has_settings,
                 running: crate::screens::mods::settings::Running::default(),
                 warnings,
+                update: String::new(),
             }
         })
         .collect())

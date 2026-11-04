@@ -14,6 +14,20 @@ pub const NONE_ON: &str = "No theme is on, so the app draws its own colours.";
 /// What an empty Themes folder shows.
 pub const NONE_INSTALLED: &str = "No themes are installed.";
 
+/// What the Themes page says above its list once the update check has answered: the page's own
+/// sentence, then what the check found.
+pub fn note(only_on: bool, cards: &[super::catalogue::ModCard]) -> String {
+    let said = if only_on {
+        "This theme is on."
+    } else {
+        NONE_ON
+    };
+    if cards.is_empty() {
+        return said.to_owned();
+    }
+    format!("{said} {}", super::marketplace::update_note(cards))
+}
+
 fn switched_on(filename: &str) -> String {
     format!("{filename} is now the theme this app draws with.")
 }

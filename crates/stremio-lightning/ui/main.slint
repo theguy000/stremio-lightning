@@ -112,6 +112,14 @@ export component MainWindow inherits Window {
     callback edit-mods-setting-number(string, float);
     callback save-mods-settings();
     callback revert-mods-settings();
+    /// The Marketplace page: a press in its search box, its cards' one button, and Check for
+    /// updates. Update and Update all replace a file with its newer version on either page.
+    callback search-mods-market(string);
+    callback install-mods-market(string);
+    callback update-mods-mod(string);
+    callback update-all-mods-mods();
+    callback check-mods-updates();
+    callback dismiss-mods-market();
     /// The Logs page's filter: which part of it ("source" or "level") and the id picked, empty
     /// for every one; the search box, where each change is a press; a press on a record, which
     /// opens its full text; and Clear, whose second press empties the list.
@@ -778,6 +786,15 @@ export component MainWindow inherits Window {
             about-enabled: root.mods.about-enabled,
             about-license: root.mods.about-license,
             about-export: root.mods.about-export,
+            market-note: root.mods.market-note,
+            market-summary: root.mods.market-summary,
+            market-trouble: root.mods.market-trouble,
+            market-plugins: root.mods.market-plugins,
+            market-themes: root.mods.market-themes,
+            market-empty: root.mods.market-empty,
+            market-search: root.mods.market-search,
+            market-checking: root.mods.market-checking,
+            updates-ready: root.mods.updates-ready,
         };
         select-page(page) => {
             root.select-mods-page(page);
@@ -808,6 +825,24 @@ export component MainWindow inherits Window {
         }
         revert-settings => {
             root.revert-mods-settings();
+        }
+        search-market(text) => {
+            root.search-mods-market(text);
+        }
+        install-market(id) => {
+            root.install-mods-market(id);
+        }
+        update-mod(filename) => {
+            root.update-mods-mod(filename);
+        }
+        update-all-mods => {
+            root.update-all-mods-mods();
+        }
+        check-mods-updates => {
+            root.check-mods-updates();
+        }
+        dismiss-market => {
+            root.dismiss-mods-market();
         }
         filter-logs(part, value) => {
             root.filter-mods-logs(part, value);

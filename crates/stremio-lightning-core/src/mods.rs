@@ -260,14 +260,22 @@ pub fn write_mod_content(
     std::fs::write(dir.join(filename), content).map_err(|e| format!("Failed to write file: {e}"))
 }
 
+/// The file a download is stored as. `filename` is the name the caller wants it under, which
+/// `install_mod` works out from the registry entry; `None` asks for the name the url ends with,
+/// which is what a caller that has only a url can know.
+///
 /// # Errors
-/// Returns an error when the mod cannot be downloaded or written to disk.
-pub async fn download_mod(
+/// Returns an error when the url gives no usable file name.
+pub async fn download_mod_as(
     app_data_dir: &Path,
     url: &str,
     mod_type: ModType,
+    filename: Option<&str>,
 ) -> Result<String, String> {
-    let filename = filename_from_url(url)?;
+    let filename = match filename {
+        Some(filename) => filename.to_string(),
+        None => filename_from_url(url)?,
+    };
     validate_mod_filename(&filename, mod_type)?;
 
     let response = crate::http::client()
@@ -291,6 +299,41 @@ pub async fn download_mod(
     Ok(filename)
 }
 
+/// The body at `url`, read into memory and written nowhere. An update is fetched with this so a
+/// body that is not a mod is known before it can replace a working file.
+///
+/// # Errors
+/// Returns an error when the request fails or answers with a status other than success.
+pub async fn fetch_text(url: &str) -> Result<String, String> {
+    let response = crate::http::client()
+        .get(url)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to download: {e}"))?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "Download failed with status: {}",
+            response.status()
+        ));
+    }
+    response
+        .text()
+        .await
+        .map_err(|e| format!("Failed to read response body: {e}"))
+}
+
+/// Downloads `url` into the folder for `mod_type` under the name the url ends with.
+///
+/// # Errors
+/// Returns an error when the mod cannot be downloaded or written to disk.
+pub async fn download_mod(
+    app_data_dir: &Path,
+    url: &str,
+    mod_type: ModType,
+) -> Result<String, String> {
+    download_mod_as(app_data_dir, url, mod_type, None).await
+}
+
 /// # Errors
 /// Returns an error when the filename is invalid or the mod cannot be removed.
 pub fn delete_mod(app_data_dir: &Path, filename: &str, mod_type: ModType) -> Result<(), String> {
@@ -309,7 +352,13 @@ pub fn delete_mod(app_data_dir: &Path, filename: &str, mod_type: ModType) -> Res
     Ok(())
 }
 
-struct RegistryCache {
+/// One read of the registry and the instant it was read, kept for five minutes so the shell's
+/// every look at the Marketplace page is not a request.
+///
+/// The cache belongs to the address it was read from, so a test that points the registry at its
+/// own server is never answered with the copy another test's server handed over.
+pub struct RegistryCache {
+    url: String,
     registry: Registry,
     fetched_at: std::time::Instant,
 }
@@ -317,9 +366,15 @@ struct RegistryCache {
 static REGISTRY_CACHE: OnceLock<std::sync::Mutex<Option<RegistryCache>>> = OnceLock::new();
 static REGISTRY_FETCH_MUTEX: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
 
-fn cached_registry(cache_mutex: &std::sync::Mutex<Option<RegistryCache>>) -> Option<Registry> {
+fn cached_registry(
+    cache_mutex: &std::sync::Mutex<Option<RegistryCache>>,
+    url: &str,
+) -> Option<Registry> {
     let guard = cache_mutex.lock().ok()?;
     let cache = guard.as_ref()?;
+    if cache.url != url {
+        return None;
+    }
     if cache.fetched_at.elapsed() < std::time::Duration::from_secs(300) {
         Some(cache.registry.clone())
     } else {
@@ -332,9 +387,11 @@ fn cached_registry(cache_mutex: &std::sync::Mutex<Option<RegistryCache>>) -> Opt
 pub async fn fetch_registry() -> Result<Registry, String> {
     let cache_mutex = REGISTRY_CACHE.get_or_init(|| std::sync::Mutex::new(None));
     let fetch_mutex = REGISTRY_FETCH_MUTEX.get_or_init(|| tokio::sync::Mutex::new(()));
+    let url = registry_url()?;
 
-    // 1. Fast path: return cached registry if it exists and is less than 5 minutes old
-    if let Some(registry) = cached_registry(cache_mutex) {
+    // 1. Fast path: return cached registry if it exists, is for this address, and is less than
+    // 5 minutes old
+    if let Some(registry) = cached_registry(cache_mutex, &url) {
         return Ok(registry);
     }
 
@@ -342,26 +399,70 @@ pub async fn fetch_registry() -> Result<Registry, String> {
     let _guard = fetch_mutex.lock().await;
 
     // 3. Double-check cache inside the lock
-    if let Some(registry) = cached_registry(cache_mutex) {
+    if let Some(registry) = cached_registry(cache_mutex, &url) {
         return Ok(registry);
     }
 
     // 4. Fetch over network on cache miss
-    let url = concat!(
-        "https://raw.githubusercontent.com/theguy000/",
-        "stremio-lightning-registry/refs/heads/main/registry.json",
-    );
+    fetch_registry_from(&url, cache_mutex).await
+}
+
+/// Where the registry is read from, unless a test names another address.
+const REGISTRY_URL: &str = concat!(
+    "https://raw.githubusercontent.com/theguy000/",
+    "stremio-lightning-registry/refs/heads/main/registry.json",
+);
+
+/// The address the registry is read from: `REGISTRY_URL`, or the address a test set.
+///
+/// # Errors
+/// Returns an error when a test set an address that is not an absolute http or https url.
+pub fn registry_url() -> Result<String, String> {
+    let name = std::env::var(REGISTRY_URL_VAR).ok();
+    registry_url_from(name.as_deref(), REGISTRY_URL)
+}
+
+/// The environment variable a test sets to have the registry read from its own server. The shell
+/// never sets it, and it is read on every fetch so one test cannot hand another its server.
+pub const REGISTRY_URL_VAR: &str = "STREMIO_LIGHTNING_REGISTRY_URL";
+
+/// `registry_url` as a plain function of the variable's value, so the rule can be checked without
+/// setting an environment variable other tests share.
+///
+/// # Errors
+/// Returns an error when the named address is not an absolute http or https url.
+pub fn registry_url_from(named: Option<&str>, default: &str) -> Result<String, String> {
+    let Some(named) = named.map(str::trim).filter(|named| !named.is_empty()) else {
+        return Ok(default.to_string());
+    };
+    let lower = named.to_ascii_lowercase();
+    if lower.starts_with("http://") || lower.starts_with("https://") {
+        Ok(named.to_string())
+    } else {
+        Err(format!(
+            "{REGISTRY_URL_VAR} must be an http or https address, not {named}"
+        ))
+    }
+}
+
+/// Reads and caches the registry at `url`. The cache is the caller's, so a test's own server can
+/// be read again with no wait.
+///
+/// # Errors
+/// Returns an error when the registry cannot be fetched or parsed.
+pub async fn fetch_registry_from(
+    url: &str,
+    cache_mutex: &std::sync::Mutex<Option<RegistryCache>>,
+) -> Result<Registry, String> {
     let response = crate::http::client()
         .get(url)
         .send()
         .await
         .map_err(|e| format!("Failed to fetch registry: {e}"))?;
 
-    if !response.status().is_success() {
-        return Err(format!(
-            "Registry fetch failed with status: {}",
-            response.status()
-        ));
+    let status = response.status();
+    if !status.is_success() {
+        return Err(format!("Registry fetch failed with status: {status}"));
     }
 
     let registry = response
@@ -369,9 +470,9 @@ pub async fn fetch_registry() -> Result<Registry, String> {
         .await
         .map_err(|e| format!("Failed to parse registry: {e}"))?;
 
-    // 5. Save registry to cache
     if let Ok(mut guard) = cache_mutex.lock() {
         *guard = Some(RegistryCache {
+            url: url.to_string(),
             registry: registry.clone(),
             fetched_at: std::time::Instant::now(),
         });
@@ -528,6 +629,108 @@ pub fn filename_from_url(url: &str) -> Result<String, String> {
         .ok_or_else(|| "Could not extract filename from URL".to_string())
 }
 
+/// The file name a registry download is stored under: the name its URL already ends with when
+/// that name carries the mod's extension, and otherwise the name the registry gives it, so a
+/// download URL such as `.../latest` lands on disk as `name.plugin.js`.
+///
+/// # Errors
+/// Returns an error when neither part gives a name the mod folder allows.
+pub fn installed_filename(entry: &RegistryEntry, mod_type: ModType) -> Result<String, String> {
+    match filename_from_url(&entry.download) {
+        Ok(filename) if filename.ends_with(mod_type.file_extension()) => Ok(filename),
+        _ => {
+            // Every character the folder does not accept becomes a separator, and the separators
+            // at either end go: "Cool theme!" is stored as "Cool-theme.theme.css", not
+            // "Cool-theme-.theme.css". A name with nothing left cannot name a file.
+            let name: String = entry
+                .name
+                .chars()
+                .map(|c| {
+                    if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                        c
+                    } else {
+                        '-'
+                    }
+                })
+                .collect();
+            let name = name.trim_matches('-');
+            if name.is_empty() {
+                return Err("The registry gives this mod no name to store it under".to_string());
+            }
+            let filename = format!("{name}{}", mod_type.file_extension());
+            validate_mod_filename(&filename, mod_type)?;
+            Ok(filename)
+        }
+    }
+}
+
+/// Whether a mod file expects its next update to arrive from `url`: the url's file name is the
+/// mod's file name, or the file's own metadata names the url as its `updateUrl`. The first test
+/// is how a registry entry finds the file it installed; the second is all a file has otherwise.
+#[must_use]
+pub fn same_mod_file(filename: &str, metadata: Option<&ModMetadata>, url: &str) -> bool {
+    if filename_from_url(url).ok().as_deref() == Some(filename) {
+        return true;
+    }
+    metadata
+        .and_then(|metadata| metadata.update_url.as_deref())
+        .is_some_and(|update_url| update_url == url)
+}
+
+/// Downloads `url` into the folder for `mod_type` under `filename`, which `installed_filename`
+/// works out, and returns that name. The bytes must be a file of that kind: a page that answered
+/// where a mod should be is refused rather than written, and the sentence says what arrived.
+///
+/// # Errors
+/// Returns the same sentences `download_mod` does, plus the one for a body that is not the kind
+/// of file the folder holds.
+pub async fn install_mod(
+    app_data_dir: &Path,
+    url: &str,
+    mod_type: ModType,
+    filename: &str,
+) -> Result<String, String> {
+    validate_mod_filename(filename, mod_type)?;
+    let written = download_mod(app_data_dir, url, mod_type).await?;
+    let content = read_mod_content(app_data_dir, &written, mod_type)?;
+    // A url that named its own file is the one `download_mod` wrote, and that name is what the
+    // folder holds now: nothing is renamed under a running plugin.
+    let filename = written.clone();
+    if !looks_like(&content, mod_type) {
+        let _ = delete_mod(app_data_dir, &filename, mod_type);
+        return Err(wrong_file_said(mod_type));
+    }
+    Ok(filename)
+}
+
+/// The sentence for a download that arrived but is not a mod of the kind that was asked for. The
+/// page shows it as it is, so it names the file type and what it found instead.
+#[must_use]
+pub fn wrong_file_said(mod_type: ModType) -> String {
+    match mod_type {
+        ModType::Plugin => {
+            "The download was not a plugin. A plugin file is JavaScript with the extension .plugin.js and a comment that names it.".to_string()
+        }
+        ModType::Theme => {
+            "The download was not a theme. A theme file is CSS with the extension .theme.css and a comment that names it.".to_string()
+        }
+    }
+}
+
+/// Whether a downloaded body is a mod of the kind asked for, rather than an error page: it carries
+/// the metadata comment every card reads its name from, and nothing an HTML page would start with.
+#[must_use]
+pub fn looks_like(content: &str, mod_type: ModType) -> bool {
+    if parse_metadata(content).is_none() {
+        return false;
+    }
+    let start = content.trim_start().to_ascii_lowercase();
+    match mod_type {
+        ModType::Plugin => !start.starts_with("<!doctype") && !start.starts_with("<html"),
+        ModType::Theme => true,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -632,6 +835,113 @@ mod tests {
             Some(vec!["a".to_string(), "b".to_string()])
         );
         assert_eq!(json!(metadata)["update_url"], serde_json::Value::Null);
+    }
+
+    fn entry(name: &str, download: &str) -> RegistryEntry {
+        RegistryEntry {
+            name: name.to_string(),
+            author: "Alice".to_string(),
+            description: None,
+            version: "1.0.0".to_string(),
+            repo: "https://example.com/repo".to_string(),
+            download: download.to_string(),
+            preview: None,
+        }
+    }
+
+    #[test]
+    fn a_download_url_that_does_not_end_in_the_extension_is_stored_under_the_registrys_name() {
+        assert_eq!(
+            installed_filename(
+                &entry("Cool Plugin", "https://example.com/a/cool.plugin.js"),
+                ModType::Plugin
+            )
+            .unwrap(),
+            "cool.plugin.js"
+        );
+        assert_eq!(
+            installed_filename(
+                &entry("Cool Plugin", "https://example.com/latest/download"),
+                ModType::Plugin
+            )
+            .unwrap(),
+            "Cool-Plugin.plugin.js"
+        );
+        assert_eq!(
+            installed_filename(
+                &entry("Cool theme!", "https://example.com/theme.min.css"),
+                ModType::Theme
+            )
+            .unwrap(),
+            "Cool-theme.theme.css"
+        );
+        assert!(
+            installed_filename(&entry("", "https://example.com/latest"), ModType::Plugin).is_err(),
+            "a name with nothing in it cannot be stored"
+        );
+    }
+
+    #[test]
+    fn a_mod_file_is_recognised_by_its_name_or_by_its_own_update_url() {
+        let named = ModMetadata {
+            name: "Renamed".to_string(),
+            description: "Demo".to_string(),
+            author: "Alice".to_string(),
+            version: "1.0.0".to_string(),
+            update_url: Some("https://example.com/renamed.plugin.js".to_string()),
+            source: None,
+            license: None,
+            homepage: None,
+            requirements: None,
+        };
+        assert!(same_mod_file(
+            "renamed.plugin.js",
+            Some(&named),
+            "https://mirror.example/renamed.plugin.js"
+        ));
+        assert!(same_mod_file(
+            "other.plugin.js",
+            Some(&named),
+            "https://example.com/renamed.plugin.js"
+        ));
+        assert!(!same_mod_file(
+            "other.plugin.js",
+            None,
+            "https://example.com/renamed.plugin.js"
+        ));
+    }
+
+    #[test]
+    fn a_download_that_is_not_a_mod_is_not_written() {
+        let plugin =
+            "/**\n * @name Fine\n * @description Demo\n * @author Alice\n * @version 1.0.0\n */\n";
+        assert!(looks_like(plugin, ModType::Plugin));
+        assert!(
+            !looks_like(
+                "<!DOCTYPE html><html><body>404</body></html>",
+                ModType::Plugin
+            ),
+            "an error page is not a plugin"
+        );
+        assert!(
+            !looks_like("console.log(1)", ModType::Plugin),
+            "a file with no metadata has no name to give"
+        );
+        assert!(wrong_file_said(ModType::Plugin).contains(".plugin.js"));
+    }
+
+    #[test]
+    fn the_registry_address_is_cores_unless_a_test_names_one() {
+        assert_eq!(registry_url_from(None, REGISTRY_URL).unwrap(), REGISTRY_URL);
+        assert_eq!(
+            registry_url_from(Some("  "), REGISTRY_URL).unwrap(),
+            REGISTRY_URL
+        );
+        assert_eq!(
+            registry_url_from(Some("http://127.0.0.1:9/registry.json"), REGISTRY_URL).unwrap(),
+            "http://127.0.0.1:9/registry.json"
+        );
+        assert!(registry_url_from(Some("file:///etc/passwd"), REGISTRY_URL).is_err());
     }
 
     #[test]

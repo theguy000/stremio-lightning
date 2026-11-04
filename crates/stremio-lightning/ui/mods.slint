@@ -29,9 +29,33 @@ export struct ModCardData {
     armed: bool,
     /// What this page calls the on state: "enabled" for a plugin, "on" for a theme.
     state: string,
+    /// What the update check found for this file: "Up to date.", "Update to 1.2.0", or a
+    /// sentence about a check that could not answer. Empty until a check has answered.
+    update: string,
 }
 
 // One row of the Plugin settings page's left list.
+// One thing the registry offers, as its card on the Marketplace page.
+export struct MarketCardData {
+    /// The entry's download, which is what its buttons name it by.
+    id: string,
+    /// "plugin" or "theme".
+    kind: string,
+    name: string,
+    author: string,
+    version: string,
+    description: string,
+    /// The file it is installed as, empty when it is not installed.
+    filename: string,
+    /// The card's one button: "install", "uninstall", or "update".
+    action: string,
+    /// Whether this card's Uninstall button has been pressed once and waits for the second press.
+    armed: bool,
+    /// Whether this card's file is being fetched right now, which turns its button into a
+    /// sentence and stops every other press on it.
+    installing: bool,
+}
+
 export struct SettingsPluginData {
     /// The file name, which is what every press on the page names the plugin by.
     filename: string,
@@ -126,6 +150,18 @@ export struct ModsViewData {
     settings-state-failed: bool,
     /// Whether the page has something typed and not saved. Only this turns Save on.
     settings-dirty: bool,
+    /// The Marketplace page: the sentence above its list, the lines about the last presses, the
+    /// trouble it could not get past, the registry's plugins and themes as cards, the search box,
+    /// and the answers the update check made.
+    market-note: string,
+    market-summary: [string],
+    market-trouble: string,
+    market-plugins: [MarketCardData],
+    market-themes: [MarketCardData],
+    market-empty: string,
+    market-search: string,
+    market-checking: bool,
+    updates-ready: bool,
     /// The Logs page: the filter's two lists of choices with the picked one marked, what the search
     /// box holds, the header that says how many records are held, the rows, and the full text of
     /// the one record that is open.
@@ -270,11 +306,75 @@ component ModRemoveButton inherits Rectangle {
 
 // Web: an addon card's shape, for a plugin or a theme: the name and the version on the first
 // line, the description under them, the switch and Remove on the right.
+component MarketButton inherits Rectangle {
+    in property <string> label-text;
+    /// The whole name a press is found by: "Install Example", "Check for updates".
+    in property <string> name;
+    in property <bool> enabled;
+    in property <bool> primary;
+    in property <length> rem-size;
+    callback clicked();
+
+    height: 3 * rem-size;
+    width: market-button-label.width + 2 * rem-size;
+    border-radius: self.height / 2;
+    border-width: 2px;
+    border-color: (root.primary && root.enabled) ? Theme.accent-green : Theme.text;
+    background: ClassStyles.background-or(ClassStyles.market-button,
+        (root.enabled && root.primary) ? Theme.accent-green
+        : (root.enabled && market-button-touch.has-hover) ? Theme.overlay : transparent);
+    opacity: ClassStyles.opacity-or(ClassStyles.market-button, root.enabled ? 1.0 : 0.3);
+    visible: !ClassStyles.market-button.hidden;
+
+    market-button-label := Text {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: self.preferred-width;
+        text: root.label-text;
+        overflow: elide;
+        font-size: root.rem-size;
+        font-weight: 700;
+        color: ClassStyles.color-or(ClassStyles.market-button-label,
+            (root.primary && root.enabled) ? Theme.on-accent : Theme.text);
+        visible: !ClassStyles.market-button-label.hidden;
+    }
+    market-button-touch := TouchArea {
+        width: 100%;
+        height: 100%;
+        // A button that would do nothing is not a target.
+        mouse-cursor: root.enabled ? pointer : default;
+        accessible-role: button;
+        accessible-label: root.name;
+        clicked => {
+            if root.enabled {
+                root.clicked();
+            }
+        }
+    }
+}
+
+// The sentence a card shows in place of its button while its file is being fetched.
+component MarketProgress inherits Text {
+    in property <length> rem-size;
+    height: 3 * rem-size;
+    text: "Installing…";
+    horizontal-alignment: right;
+    vertical-alignment: center;
+    font-size: rem-size;
+    color: ClassStyles.color-or(ClassStyles.mod-notice, Theme.text);
+    opacity: ClassStyles.opacity-or(ClassStyles.mod-notice, 0.7);
+    visible: !ClassStyles.mod-notice.hidden;
+}
+
+// Web: an addon card's shape, for a plugin or a theme: the name and the version on the first
+// line, the description under them, the switch and Remove on the right.
 component ModCardView inherits Rectangle {
     in property <ModCardData> data;
     in property <length> rem-size;
     callback toggle();
     callback remove();
+    // The card's Update button, which only an update makes visible.
+    callback update();
     // A press that is not the Remove button's second press: it takes back any armed card.
     callback dismiss();
 
@@ -415,6 +515,21 @@ component ModCardView inherits Rectangle {
             }
         }
 
+        // What the update check found for this file. It sits under the byline, on a card with or
+        // without anything else on it, because a card that says nothing here has not been checked.
+        if root.data.update != "": mod-update := Text {
+            x: parent.width - root.pad - root.buttons-width - root.text-width;
+            y: root.pad + 1.5 * root.rem-size;
+            width: root.text-width;
+            height: 1.2 * root.rem-size;
+            text: root.data.update;
+            overflow: elide;
+            font-size: 0.9 * root.rem-size;
+            color: ClassStyles.color-or(ClassStyles.mod-update, Theme.placeholder);
+            opacity: ClassStyles.opacity-or(ClassStyles.mod-update, 1.0);
+            visible: !ClassStyles.mod-update.hidden;
+        }
+
         if root.data.armed: mod-armed-note := Text {
             x: parent.width - root.pad - root.buttons-width - root.text-width;
             y: root.pad + 2.2 * root.rem-size;
@@ -426,6 +541,20 @@ component ModCardView inherits Rectangle {
             color: Theme.accent-red;
         }
 
+        // Update is above Remove, and only on a card the check found a newer version for. It is
+        // not a destructive press: the new file replaces the old one and the switch stays as it is.
+        if root.data.update.starts-with("Update to "): MarketButton {
+            x: parent.width - root.pad - self.width;
+            y: parent.height - root.pad - self.height - self.height - 0.6 * root.rem-size;
+            rem-size: root.rem-size;
+            label-text: "Update";
+            name: "Update " + root.data.filename;
+            enabled: true;
+            primary: false;
+            clicked => {
+                root.update();
+            }
+        }
         ModRemoveButton {
             x: parent.width - root.pad - self.width;
             y: parent.height - root.pad - self.height;
@@ -872,6 +1001,114 @@ component ModsAboutRow inherits Rectangle {
     }
 }
 
+component MarketCardView inherits Rectangle {
+    in property <MarketCardData> data;
+    in property <length> rem-size;
+    callback pressed();
+    callback dismiss();
+
+    property <length> pad: 1.5 * root.rem-size;
+    property <length> buttons-width: 10 * root.rem-size;
+    property <length> text-width: root.width - 2 * root.pad - root.buttons-width - root.rem-size;
+    height: Math.max(10 * root.rem-size, 5.2 * root.rem-size + root.pad + (root.data.description == "" ? 0px : 2 * root.rem-size));
+
+    market-card := Rectangle {
+        width: parent.width;
+        height: parent.height;
+        border-radius: 0.75 * root.rem-size;
+        border-width: 2 * root.rem-size / 14;
+        // An armed card is outlined in the warning colour: its second press deletes a file.
+        border-color: root.data.armed ? Theme.accent-red : transparent;
+        background: ClassStyles.background-or(ClassStyles.market-card, Theme.overlay);
+        opacity: ClassStyles.opacity-or(ClassStyles.market-card, 1.0);
+        visible: !ClassStyles.market-card.hidden;
+
+        body-touch := TouchArea {
+            width: 100%;
+            height: 100%;
+            clicked => {
+                root.dismiss();
+            }
+        }
+
+        market-title := Text {
+            x: root.pad;
+            y: root.pad;
+            width: root.text-width;
+            height: 2 * root.rem-size;
+            text: root.data.name;
+            overflow: elide;
+            vertical-alignment: center;
+            font-size: 1.6 * root.rem-size;
+            color: ClassStyles.color-or(ClassStyles.market-title, Theme.text);
+            opacity: ClassStyles.opacity-or(ClassStyles.market-title, 1.0);
+            visible: !ClassStyles.market-title.hidden;
+        }
+        market-byline := Text {
+            x: root.pad;
+            y: root.pad + 2 * root.rem-size;
+            width: root.text-width;
+            height: 1.2 * root.rem-size;
+            // The author and the version the registry gives it.
+            text: root.data.author + " v" + root.data.version;
+            overflow: elide;
+            vertical-alignment: center;
+            font-size: root.rem-size;
+            color: ClassStyles.color-or(ClassStyles.market-byline, Theme.text);
+            opacity: ClassStyles.opacity-or(ClassStyles.market-byline, 0.6);
+            visible: !ClassStyles.market-byline.hidden;
+        }
+        market-description := Text {
+            x: root.pad;
+            y: root.pad + 3.6 * root.rem-size;
+            width: root.text-width;
+            height: 2 * root.rem-size;
+            text: root.data.description;
+            wrap: word-wrap;
+            overflow: elide;
+            vertical-alignment: top;
+            font-size: root.rem-size;
+            color: ClassStyles.color-or(ClassStyles.market-description, Theme.text);
+            opacity: ClassStyles.opacity-or(ClassStyles.market-description, 1.0);
+            visible: root.data.description != "" && !ClassStyles.market-description.hidden;
+        }
+        // What the second press will delete, in the same words the Plugins and Themes cards use.
+        if root.data.armed: market-armed-note := Text {
+            x: parent.width - root.pad - root.buttons-width - root.text-width;
+            y: root.pad + 2.2 * root.rem-size;
+            width: root.text-width;
+            height: 2.4 * root.rem-size;
+            text: "Pressing Confirm uninstall deletes " + root.data.filename + " from this computer.";
+            wrap: word-wrap;
+            font-size: 0.9 * root.rem-size;
+            color: Theme.accent-red;
+        }
+
+        if root.data.installing: MarketProgress {
+            x: parent.width - root.pad - self.width;
+            y: parent.height - root.pad - self.height;
+            rem-size: root.rem-size;
+        }
+        if !root.data.installing: MarketButton {
+            x: parent.width - root.pad - self.width;
+            y: parent.height - root.pad - self.height;
+            rem-size: root.rem-size;
+            // The button says what it is when it is ready: uninstalling is two presses, so its
+            // second step is the one that says Confirm.
+            label-text: root.data.action == "uninstall" ? (root.data.armed ? "Confirm uninstall" : "Uninstall")
+                : root.data.action == "update" ? "Install update" : "Install";
+            // Every press of the one button is an Install: of a mod already installed, of a newer
+            // version, or of a mod that is not here yet. Only Uninstall is a different press.
+            name: (root.data.action == "uninstall" ? (root.data.armed ? "Confirm uninstalling " : "Uninstall ") : "Install ") + root.data.name + " (" + root.data.version + ")";
+            enabled: true;
+            primary: root.data.action == "install";
+            clicked => {
+                root.pressed();
+            }
+        }
+    }
+}
+
 export component ModsContent inherits Rectangle {    // The height every card on a page takes: the tallest card the page has to draw, so the list's
     // row pitch matches what each card draws.
     pure function tallest(cards: [ModCardData], rem-size: length) -> length {
@@ -893,6 +1130,8 @@ export component ModsContent inherits Rectangle {    // The height every card on
     // A card's Remove button. The first press of a card arms it and removes nothing; the second
     // press of the same card removes the file.
     callback remove-mod(string);
+    /// A press on Update on a Plugin or Theme card, naming the file.
+    callback update-mod(string);
     /// Any other press on a card, which takes back an armed Remove.
     callback dismiss-remove();
     /// The Plugin settings page's left list, naming the file picked. Empty means nothing is
@@ -908,6 +1147,17 @@ export component ModsContent inherits Rectangle {    // The height every card on
     callback save-settings();
     /// The Revert press: what is typed goes back to what the file holds.
     callback revert-settings();
+    /// A press in the Marketplace's search box: the text it now holds.
+    callback search-market(string);
+    /// A Marketplace card's one button, naming the entry by its download. An installed card's
+    /// Uninstall arms on the first press and removes on the second; every other press is the
+    /// install it says.
+    callback install-market(string);
+    /// Update all on the Plugins or Themes page, and Check for updates, which checks both pages.
+    callback update-all-mods();
+    callback check-mods-updates();
+    /// Any other press on a Marketplace card, which takes back an armed Uninstall.
+    callback dismiss-market();
     /// A press on one of the Logs page's filter pills: which part of the filter ("source" or
     /// "level") and the id picked, empty for "every one".
     callback filter-logs(string, string);
@@ -938,6 +1188,11 @@ export component ModsContent inherits Rectangle {    // The height every card on
 
     property <bool> on-plugins: root.data.page == "plugins";
     property <bool> on-themes: root.data.page == "themes";
+    property <bool> on-market: root.data.page == "marketplace";
+    // The lines a press left on the Marketplace page, and the line for a registry that could not
+    // be read: one row each, so the list starts below all of them.
+    property <length> market-lines-height: root.data.market-summary.length * 1.4 * root.rem-size
+        + (root.data.market-trouble == "" ? 0px : 2.4 * root.rem-size);
     property <bool> on-settings: root.data.page == "settings";
     property <bool> on-logs: root.data.page == "logs";
     property <bool> on-about: root.data.page == "about";
@@ -1021,7 +1276,7 @@ export component ModsContent inherits Rectangle {    // The height every card on
             height: 4 * root.rem-size;
             text: root.on-plugins ? root.data.plugins-note
                 : root.on-themes ? root.data.themes-note
-                : root.data.page == "marketplace" ? "The Marketplace arrives in a later release."
+                : root.on-market ? root.data.market-note
                 : root.data.page == "settings" ? "Pick a plugin on the left. Its settings are saved only when you press Save."
                 : root.data.page == "logs" ? root.data.log-held
                 : "What this build is and what it keeps.";
@@ -1086,6 +1341,9 @@ export component ModsContent inherits Rectangle {    // The height every card on
                 dismiss => {
                     root.dismiss-remove();
                 }
+                update => {
+                    root.update-mod(entry.filename);
+                }
             }
             for entry[index] in root.data.themes: ModCardView {
                 x: root.page-padding;
@@ -1103,6 +1361,9 @@ export component ModsContent inherits Rectangle {    // The height every card on
                 }
                 dismiss => {
                     root.dismiss-remove();
+                }
+                update => {
+                    root.update-mod(entry.filename);
                 }
             }
         }
@@ -1560,6 +1821,163 @@ export component ModsContent inherits Rectangle {    // The height every card on
                 view-height: about-body.height;
                 content-height: about-body.content-height;
                 offset <=> about-body.content-y;
+            }
+        }
+        // ---- Marketplace ----------------------------------------------------------------
+        // The registry's plugins and themes as two lists with one search box above them, and Check
+        // for updates in the corner. Every press here is one the shell turns into a fetch and a
+        // write; the page itself says what happened, one sentence a line.
+        if root.on-market: market-search := LineEdit {
+            x: root.page-padding;
+            y: root.list-top;
+            width: Math.min(root.page-width - 12 * root.rem-size, 28 * root.rem-size);
+            height: 3 * root.rem-size;
+            font-size: 1.1 * root.rem-size;
+            placeholder-text: "Search the registry";
+            accessible-description: "Search the registry";
+            init => {
+                self.text = root.data.market-search;
+            }
+            edited(text) => {
+                root.search-market(text);
+            }
+        }
+        if root.on-market: MarketButton {
+            x: parent.width - root.page-padding - self.width;
+            y: root.list-top;
+            rem-size: root.rem-size;
+            label-text: root.data.market-checking ? "Checking…" : "Check for updates";
+            name: "Check for updates";
+            enabled: !root.data.market-checking;
+            primary: false;
+            clicked => {
+                root.check-mods-updates();
+            }
+        }
+        if root.on-market: market-lines := Rectangle {
+            x: root.page-padding;
+            y: root.list-top + 3.6 * root.rem-size;
+            width: root.page-width;
+            height: root.market-lines-height;
+            background: transparent;
+
+            if root.data.market-trouble != "": market-trouble := Text {
+                x: 0px;
+                y: 0px;
+                width: parent.width;
+                height: 2.4 * root.rem-size;
+                text: root.data.market-trouble;
+                wrap: word-wrap;
+                vertical-alignment: top;
+                font-size: root.rem-size;
+                color: ClassStyles.color-or(ClassStyles.mod-notice, Theme.accent-red);
+                opacity: ClassStyles.opacity-or(ClassStyles.mod-notice, 1.0);
+                visible: !ClassStyles.mod-notice.hidden;
+            }
+            for line[index] in root.data.market-summary: market-summary-line := Text {
+                x: 0px;
+                y: (root.data.market-trouble == "" ? 0px : 2.4 * root.rem-size) + index * 1.4 * root.rem-size;
+                width: parent.width;
+                height: 1.4 * root.rem-size;
+                text: line;
+                overflow: elide;
+                font-size: root.rem-size;
+                color: ClassStyles.color-or(ClassStyles.mod-notice, Theme.text);
+                opacity: ClassStyles.opacity-or(ClassStyles.mod-notice, 0.8);
+                visible: !ClassStyles.mod-notice.hidden;
+            }
+        }
+        // One heading per kind, then its cards. The list is one Flickable so a search that leaves
+        // both kinds full scrolls as one page; a card's height is the tallest one the page draws.
+        if root.on-market: market-list-view := Flickable {
+            x: 0px;
+            y: root.list-top + 3.6 * root.rem-size + root.market-lines-height + 0.6 * root.rem-size;
+            width: parent.width;
+            height: Math.max(root.height - self.y, 0px);
+            content-width: self.width;
+            content-height: 4.4 * root.rem-size + root.data.market-plugins.length * root.card-pitch
+                + 4.4 * root.rem-size + root.data.market-themes.length * root.card-pitch;
+
+            market-plugins-heading := Text {
+                x: root.page-padding;
+                y: 0px;
+                width: root.page-width;
+                height: 2.6 * root.rem-size;
+                text: "Plugins";
+                vertical-alignment: center;
+                font-size: 1.4 * root.rem-size;
+                font-weight: 700;
+                color: ClassStyles.color-or(ClassStyles.market-heading, Theme.text);
+                opacity: ClassStyles.opacity-or(ClassStyles.market-heading, 1.0);
+                visible: !ClassStyles.market-heading.hidden;
+            }
+            for entry[index] in root.data.market-plugins: MarketCardView {
+                x: root.page-padding;
+                y: 3 * root.rem-size + index * root.card-pitch;
+                width: root.page-width - 8px;
+                rem-size: root.rem-size;
+                height: root.card-height;
+                data: entry;
+                pressed => {
+                    root.install-market(entry.id);
+                }
+                dismiss => {
+                    root.dismiss-market();
+                }
+            }
+            market-themes-heading := Text {
+                x: root.page-padding;
+                y: 3 * root.rem-size + root.data.market-plugins.length * root.card-pitch + 1 * root.rem-size;
+                width: root.page-width;
+                height: 2.6 * root.rem-size;
+                text: "Themes";
+                vertical-alignment: center;
+                font-size: 1.4 * root.rem-size;
+                font-weight: 700;
+                color: ClassStyles.color-or(ClassStyles.market-heading, Theme.text);
+                opacity: ClassStyles.opacity-or(ClassStyles.market-heading, 1.0);
+                visible: !ClassStyles.market-heading.hidden;
+            }
+            for entry[index] in root.data.market-themes: MarketCardView {
+                x: root.page-padding;
+                y: 3 * root.rem-size + root.data.market-plugins.length * root.card-pitch + 4 * root.rem-size + index * root.card-pitch;
+                width: root.page-width - 8px;
+                rem-size: root.rem-size;
+                height: root.card-height;
+                data: entry;
+                pressed => {
+                    root.install-market(entry.id);
+                }
+                dismiss => {
+                    root.dismiss-market();
+                }
+            }
+        }
+        if root.on-market && root.data.market-empty != "": market-empty := Text {
+            x: root.page-padding;
+            y: root.list-top + 4.8 * root.rem-size + root.market-lines-height;
+            width: root.page-width;
+            height: 3 * root.rem-size;
+            text: root.data.market-empty;
+            wrap: word-wrap;
+            font-size: 1.4 * root.rem-size;
+            color: ClassStyles.color-or(ClassStyles.mods-empty, Theme.text);
+            opacity: ClassStyles.opacity-or(ClassStyles.mods-empty, 0.8);
+            visible: !ClassStyles.mods-empty.hidden;
+        }
+        // Update all sits above the Plugins and Themes lists, on the right, beside the sentence
+        // that says what the check found. It is drawn only once a check has answered: before that
+        // there is nothing to update.
+        if (root.on-plugins || root.on-themes) && root.data.updates-ready: MarketButton {
+            x: parent.width - root.page-padding - self.width;
+            y: root.page-top + 0.4 * root.rem-size;
+            rem-size: root.rem-size;
+            label-text: "Update all";
+            name: "Update all";
+            enabled: true;
+            primary: false;
+            clicked => {
+                root.update-all-mods();
             }
         }
     }

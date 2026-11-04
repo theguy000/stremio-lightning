@@ -145,12 +145,21 @@ impl Plugins {
         // app's records, which a line a plugin logged from a timer has just changed. The page on
         // screen and the last notice are the ones the window holds, so a plugin's line never
         // costs the user their page.
+        //
+        // The Marketplace's registry and the check's answer come off the snapshot as well. They
+        // are the shell's, not the folder's: a page built from the folder alone would take the
+        // registry's cards off a page that is showing them.
         let mut snapshot = self.latest.lock().unwrap().clone();
         let page = crate::screens::mods::Page::from_id(&snapshot.mods.page);
         let notice = snapshot.mods.notice.clone();
+        let market = snapshot.mods.market.clone();
+        let updates = snapshot.mods.updates.clone();
+        let search = snapshot.mods.market_search.clone();
         snapshot.mods = crate::screens::mods::data(&self.data_dir)
             .with_page(page)
             .refresh(&self.runtime)
+            .with_updates(updates)
+            .with_market_parts(None, &search, &market.summary, &market.installing)
             .with_logs(&self.logs, false)
             .with_about(
                 &crate::screens::settings::LocalExtras::load(&self.data_dir),
@@ -158,6 +167,12 @@ impl Plugins {
                 self.export.lock().unwrap().as_ref(),
             )
             .with_notice(notice);
+        // The cards themselves come from the registry the page was drawn from, read again
+        // against the folder as it is now, so a plugin's line does not empty the list either.
+        snapshot.mods.market.note = market.note;
+        snapshot.mods.market.empty = market.empty;
+        snapshot.mods.market.plugins = market.plugins;
+        snapshot.mods.market.themes = market.themes;
         *self.latest.lock().unwrap() = snapshot.clone();
         crate::shell::show(&self.window, snapshot, &self.images);
     }
@@ -249,6 +264,24 @@ pub(crate) struct Wiring {
     /// Delays drawing while a text box is typed in. The page writes typed text on every press,
     /// and redrawing it on every press would take the editor out from under the next letter.
     pub(crate) mods_typed: Arc<Timer>,
+    /// The registry the Marketplace page last read, kept by the window: reading it again is a
+    /// request, so the page opens on what was read until Check for updates asks again. `None`
+    /// until the page has been opened once.
+    pub(crate) market_listing: Arc<Mutex<Option<mods::marketplace::Listing>>>,
+    /// A registry read that is in flight, so a page shown again never asks for a second.
+    pub(crate) market_asked: Arc<Mutex<bool>>,
+    /// What the Marketplace's search box holds. Filtering happens on the page's own thread; the
+    /// box asks nothing of the registry.
+    pub(crate) market_search: Arc<Mutex<String>>,
+    /// What one check made of the installed files, for the two installed pages and for whether a
+    /// Marketplace card offers Update.
+    pub(crate) market_updates: Arc<Mutex<mods::marketplace::Updates>>,
+    /// A check that is in flight, so Check for updates is one request however often it is pressed.
+    pub(crate) market_check_asked: Arc<Mutex<bool>>,
+    /// The lines the Marketplace page shows about its presses, newest last.
+    pub(crate) market_summary: Arc<Mutex<Vec<mods::Notice>>>,
+    /// The card being fetched right now, by its download, empty when none is.
+    pub(crate) market_installing: Arc<Mutex<String>>,
     /// The app's log records, which the Logs page lists. Shared with the plugin runtime, which
     /// records every line its plugins log, and with the rest of the shell where an error is worth
     /// a record.
@@ -271,6 +304,115 @@ pub(crate) struct ArmedMod {
 /// How long typing has to pause before the page draws what was typed. A tenth of a second is
 /// under what a person sees and over what the window takes to draw.
 const TYPING_PAUSE_MS: u64 = 100;
+
+/// How long the window's thread waits after the Marketplace's news before it draws it. A registry
+/// read and a check land as two pieces of news within a few milliseconds of each other, and
+/// drawing after each would draw the page twice with half of it out of date. One short wait lets
+/// both land, and a worst case of a blocked thread, land before the page is worked out on it.
+const MARKET_SETTLE_MS: u64 = 20;
+
+thread_local! {
+    /// The timer that starts the Marketplace's draw, made on the window's thread because Slint's
+    /// timers are bound to the thread that made them.
+    static TIMER: Timer = Timer::default();
+}
+
+/// The Marketplace draws that have landed and not been drawn yet, oldest first.
+static PENDING: Mutex<Vec<MarketSettler>> = Mutex::new(Vec::new());
+
+/// What a task that is not the window's thread holds so it can ask for the Marketplace to be
+/// drawn once its news has landed. It holds only `Send` parts of the wiring, because the wiring
+/// itself holds `Rc`s. The draw is asked for through a timer on the window's thread: that is
+/// where the page is worked out and shown, so the snapshot and the screen never disagree.
+///
+/// Slint's `Timer` belongs to the thread that made it, so a task leaves itself in `PENDING` and
+/// posts one starter; the starter runs on the window's thread and the timer it starts draws the
+/// last of what was left.
+#[derive(Clone)]
+struct MarketSettler {
+    window: Weak<MainWindow>,
+    latest: Arc<Mutex<Snapshot>>,
+    images: Images,
+    mods_page: Arc<Mutex<String>>,
+    listing: Arc<Mutex<Option<mods::marketplace::Listing>>>,
+    search: Arc<Mutex<String>>,
+    updates: Arc<Mutex<mods::marketplace::Updates>>,
+    summary: Arc<Mutex<Vec<mods::Notice>>>,
+    installing: Arc<Mutex<String>>,
+}
+
+impl MarketSettler {
+    /// Asks the window to draw the Marketplace once the news that has just landed settles. The
+    /// news is already in the shared state, so the timer callback reads it; this adds nothing.
+    ///
+    /// The timer lives on the window's thread, so a task cannot start it: it leaves its callback
+    /// in a slot and posts one starter for the thread, which runs every callback left by then. A
+    /// registry read and a check land a few milliseconds apart, and the starter they share waits
+    /// long enough for both.
+    fn settle(&self) {
+        let window = self.window.clone();
+        let mut slot = PENDING.lock().unwrap();
+        slot.push(self.clone());
+        if slot.len() == 1 {
+            let _ = window.upgrade_in_event_loop(move |_| {
+                let waiting: Vec<MarketSettler> = std::mem::take(&mut *PENDING.lock().unwrap());
+                let Some(last) = waiting.last() else {
+                    return;
+                };
+                let last = last.clone();
+                TIMER.with(|timer| {
+                    timer.start(
+                        slint::TimerMode::SingleShot,
+                        std::time::Duration::from_millis(MARKET_SETTLE_MS),
+                        move || last.draw(),
+                    );
+                });
+            });
+        }
+    }
+
+    /// Works the page out from the state as it is now and shows it.
+    fn draw(&self) {
+        let Some(window) = self.window.upgrade() else {
+            return;
+        };
+        let mut held = self.latest.lock().unwrap();
+        let page = mods::Page::from_id(&self.mods_page.lock().unwrap());
+        let mut data = mods::data(&held.mods.data_dir).with_page(page);
+        data.updates = self.updates.lock().unwrap().clone();
+        data = data.with_market_parts(
+            self.listing.lock().unwrap().as_ref(),
+            &self.search.lock().unwrap(),
+            &self.summary.lock().unwrap(),
+            &self.installing.lock().unwrap(),
+        );
+        data.notice = held.mods.notice.clone();
+        held.mods = data;
+        let snapshot = held.clone();
+        drop(held);
+        // One write of the window's snapshot, and the section drawn from that same snapshot, so
+        // the page the window shows is the page the next event will work from.
+        *self.latest.lock().unwrap() = snapshot.clone();
+        shell::show(&self.window, snapshot.clone(), &self.images);
+        shell::view::show_mods(&window, &snapshot.mods);
+    }
+}
+
+/// Draws the Mods section after an install has landed: the folder read again, the line about the
+/// install in the page's summary, and the card now saying Uninstall. Nothing is turned on.
+fn after_install(latest: &Arc<Mutex<Snapshot>>, settle: &MarketSettler, notice: mods::Notice) {
+    let mut held = latest.lock().unwrap();
+    let data_dir = held.mods.data_dir.clone();
+    // The folder is read again, which is what turns the card from Install to Uninstall. Only the
+    // folder's lists are written here: the page, the registry and the check's answer are left as
+    // the snapshot has them, so news that landed while the fetch ran is not lost.
+    let data = mods::data(&data_dir);
+    held.mods.plugins = data.plugins;
+    held.mods.themes = data.themes;
+    held.mods.notice = notice;
+    drop(held);
+    settle.settle();
+}
 
 /// How long an armed Remove stays armed. Long enough to press twice on purpose, short enough that
 /// a card left alone never deletes anything on a later, unrelated press.
@@ -340,6 +482,13 @@ impl Wiring {
     /// in while the first one, requested during a real core update, arrived at once.
     fn repaint_with(&self, snapshot: Snapshot) {
         *self.latest.lock().unwrap() = snapshot.clone();
+        // The Mods section is written before the rest of the window. `shell::show` posts its own
+        // copy of the same snapshot, which repaints the Mods section from it when it lands; a
+        // marketplace card pressed by then would be pressed on the copy this write had just
+        // replaced.
+        if let Some(window) = self.window.upgrade() {
+            shell::view::show_mods(&window, &snapshot.mods);
+        }
         shell::show(&self.window, snapshot.clone(), &self.images);
         self.remember_wanted();
         let visible = *self.visible.lock().unwrap();
@@ -1502,6 +1651,11 @@ impl Wiring {
         let page = mods::Page::from_id(&id);
         self.disarm_mods();
         *self.mods_page.lock().unwrap() = page.id().to_owned();
+        if page == mods::Page::Marketplace {
+            // The registry is read the one time the page is opened, and the update check runs
+            // with it, off this thread: what the page draws now is the folder as it is.
+            self.market_shown();
+        }
         // The page the window holds now, before the folders are read: the menu's own selection
         // follows the press without waiting for a snapshot, and the read below cannot lose it.
         if let Some(window) = self.window.upgrade() {
@@ -1950,17 +2104,19 @@ impl Wiring {
         } else {
             pick
         };
-        // The rest of the section: the Logs page's rows, the About page's counts, and the Clear
-        // button's arm. Every press on the section builds its page through here, so no page is
-        // ever drawn from a stale list.
-        screen
-            .with_edits(pick, self.mods_edits.lock().unwrap().clone())
-            .with_logs(&self.logs, *self.mods_clearing.lock().unwrap())
-            .with_about(
-                &self.local_extras.lock().unwrap().clone(),
-                &self.plugins,
-                self.mods_export.lock().unwrap().as_ref(),
-            )
+        // The rest of the section: the Marketplace's registry and check, the Logs page's rows, the
+        // About page's counts, and the Clear button's arm. Every press on the section builds its
+        // page through here, so no page is ever drawn from a stale list.
+        self.with_market_state(
+            screen
+                .with_edits(pick, self.mods_edits.lock().unwrap().clone())
+                .with_logs(&self.logs, *self.mods_clearing.lock().unwrap())
+                .with_about(
+                    &self.local_extras.lock().unwrap().clone(),
+                    &self.plugins,
+                    self.mods_export.lock().unwrap().as_ref(),
+                ),
+        )
     }
 
     /// The Remove button of a mod card. Its first press arms the card and deletes nothing; its
@@ -2086,6 +2242,19 @@ impl Wiring {
             .record(source, filename, level, notice.text.clone());
     }
 
+    /// The Mods screen for `page` with what the Marketplace has read folded in: the registry, the
+    /// search box's text, and the check's answer. Used wherever a screen is built off the snapshot
+    /// rather than off the folder alone.
+    fn with_market_state(&self, data: mods::Data) -> mods::Data {
+        let updates = self.market_updates.lock().unwrap().clone();
+        data.with_updates(updates).with_market_parts(
+            self.market_listing.lock().unwrap().as_ref(),
+            &self.market_search.lock().unwrap(),
+            &self.market_summary.lock().unwrap(),
+            &self.market_installing.lock().unwrap(),
+        )
+    }
+
     /// The Mods screen after an action that changed the folders or `settings.json`: the lists are
     /// read again, and the action's own line is what the notice says.
     fn after_mod_action(&self, notice: Option<mods::Notice>) {
@@ -2096,9 +2265,315 @@ impl Wiring {
         } else {
             data.notice = self.latest.lock().unwrap().mods.notice.clone();
         }
+        // A press on one page leaves the Marketplace page as it was: its lines about the presses
+        // made there, and the card that is still being fetched.
+        if page != mods::Page::Marketplace {
+            data.market = self.latest.lock().unwrap().mods.market.clone();
+        }
         let mut snapshot = self.latest.lock().unwrap().clone();
         snapshot.mods = data;
         self.repaint_with(snapshot);
+    }
+
+    // ---- Marketplace and updates ---------------------------------------------
+
+    /// Reads the registry off the window's thread, once per press of Check for updates. Opening
+    /// the page reads it too, through `market_shown`.
+    fn read_registry(&self) {
+        {
+            let mut asked = self.market_asked.lock().unwrap();
+            if *asked {
+                return;
+            }
+            *asked = true;
+        }
+        let (listing, settle, task) = (
+            self.market_listing.clone(),
+            self.market_settler(),
+            self.handle.clone(),
+        );
+        task.spawn(async move {
+            let read = mods::marketplace::fetch().await;
+            *listing.lock().unwrap() = Some(match read {
+                Ok(registry) => mods::marketplace::Listing::from_registry(registry),
+                Err(error) => {
+                    mods::marketplace::Listing::failed(mods::marketplace::registry_failed(&error))
+                }
+            });
+            // Drawn only now, so the page never shows the registry it is still waiting for.
+            settle.settle();
+        });
+    }
+
+    /// The page is on screen: the registry is read if it has not been, and the update check runs
+    /// once, so both installed pages say where they stand without a press.
+    fn market_shown(&self) {
+        if self.market_listing.lock().unwrap().is_none() {
+            self.read_registry();
+        }
+        self.check_updates(false);
+    }
+
+    /// Draws the Mods section again from the folder, the registry read so far and the check's
+    /// answer, and the search box's text.
+    ///
+    /// The page is worked out while the window's snapshot is held, and written back to that same
+    /// snapshot. A registry read landing between a copy and the write would otherwise be dropped
+    /// by it, and the page would keep the empty list it drew first.
+    fn repaint_market(&self) {
+        let mut held = self.latest.lock().unwrap();
+        let page = mods::Page::from_id(&self.mods_page.lock().unwrap());
+        let mut data = self.with_market_state(self.plugin_data(page));
+        data.notice = held.mods.notice.clone();
+        held.mods = data;
+        let snapshot = held.clone();
+        drop(held);
+        self.repaint_with(snapshot);
+    }
+
+    /// The parts the Marketplace's tasks need to ask for a draw.
+    fn market_settler(&self) -> MarketSettler {
+        MarketSettler {
+            window: self.window.clone(),
+            latest: self.latest.clone(),
+            images: self.images.clone(),
+            mods_page: self.mods_page.clone(),
+            listing: self.market_listing.clone(),
+            search: self.market_search.clone(),
+            updates: self.market_updates.clone(),
+            summary: self.market_summary.clone(),
+            installing: self.market_installing.clone(),
+        }
+    }
+
+    /// A press in the Marketplace's search box. The list is filtered from what the window already
+    /// read, so typing asks the registry nothing.
+    fn search_market(&self, text: String) {
+        *self.market_search.lock().unwrap() = text;
+        self.repaint_market();
+    }
+
+    /// A press on a Marketplace card's one button. An installed card's Uninstall arms on the first
+    /// press and removes on the second; every other press fetches the entry and installs it.
+    fn install_market(&self, id: String) {
+        if !self.market_installing.lock().unwrap().is_empty() {
+            // One fetch at a time: a second press while one is in flight is not a second install.
+            return;
+        }
+        let Some((kind, entry)) = self.market_entry(&id) else {
+            return;
+        };
+        let data_dir = self.data_dir.clone();
+        let installed = mods::marketplace::installed_file(&data_dir, kind, &entry);
+        match installed {
+            Some(filename) => {
+                if shell::view::armed_market().as_deref() != Some(id.as_str()) {
+                    // The first press asks for the second. Nothing is deleted here.
+                    shell::view::arm_market(Some(&id));
+                    self.restart_disarm_market();
+                    self.repaint_market();
+                    return;
+                }
+                shell::view::arm_market(None);
+                self.mods_disarm.stop();
+                let (row, notice) = mods::marketplace::uninstall(&data_dir, kind, &filename);
+                self.push_market_line(notice.clone());
+                // The folder is read again by `repaint_market`; the notice is the answer to this
+                // press and stays on screen with it. The snapshot is edited where it is, not
+                // copied and written back, so a draw that landed in between is not undone.
+                let mut held = self.latest.lock().unwrap();
+                held.mods.notice = notice;
+                held.mods.plugins = row.plugins;
+                held.mods.themes = row.themes;
+                drop(held);
+                self.repaint_market();
+            }
+            None => self.start_install(id, kind, entry),
+        }
+    }
+
+    /// Fetches `entry` and writes it into its folder, with the card saying "Installing…" until the
+    /// answer lands. Nothing is turned on: a new mod is off until its switch is pressed.
+    fn start_install(
+        &self,
+        id: String,
+        kind: mods::catalogue::Kind,
+        entry: stremio_lightning_core::mods::RegistryEntry,
+    ) {
+        shell::view::arm_market(None);
+        shell::view::set_installing(Some(&id));
+        *self.market_installing.lock().unwrap() = id.clone();
+        // The card is drawn waiting before the fetch starts, so the press has an answer at once.
+        self.repaint_market();
+        let (data_dir, task) = (self.data_dir.clone(), self.handle.clone());
+        let (latest, settle) = (self.latest.clone(), self.market_settler());
+        let summary = self.market_summary.clone();
+        let installing = self.market_installing.clone();
+        task.spawn(async move {
+            let outcome = mods::marketplace::install(&data_dir, kind, &entry).await;
+            let notice = match outcome {
+                Ok(filename) => mods::Notice::said(format!(
+                    "Installed {filename}. It is off until you turn it on in {}.",
+                    match kind {
+                        mods::catalogue::Kind::Plugin => "Plugins",
+                        mods::catalogue::Kind::Theme => "Themes",
+                    }
+                )),
+                Err(error) => {
+                    mods::Notice::failed(mods::marketplace::download_failed(&entry.name, &error))
+                }
+            };
+            installing.lock().unwrap().clear();
+            shell::view::set_installing(None);
+            summary.lock().unwrap().push(notice.clone());
+            // The listing is unchanged, so the page is built from the folder it now has.
+            after_install(&latest, &settle, notice);
+        });
+    }
+
+    /// The registry entry a Marketplace press names, and the page it belongs to. A card's id is
+    /// the entry's download, which is what the press carries.
+    fn market_entry(
+        &self,
+        id: &str,
+    ) -> Option<(
+        mods::catalogue::Kind,
+        stremio_lightning_core::mods::RegistryEntry,
+    )> {
+        let listing = self.market_listing.lock().unwrap().clone()?;
+        for kind in [mods::catalogue::Kind::Plugin, mods::catalogue::Kind::Theme] {
+            if let Some(entry) = listing
+                .entries(kind)
+                .iter()
+                .find(|entry| entry.download == id)
+            {
+                return Some((kind, entry.clone()));
+            }
+        }
+        None
+    }
+
+    /// One more line in the Marketplace page's summary.
+    fn push_market_line(&self, notice: mods::Notice) {
+        self.market_summary.lock().unwrap().push(notice);
+    }
+
+    /// Starts the five seconds a Marketplace card's Uninstall stays armed.
+    fn restart_disarm_market(&self) {
+        let (latest, window, images) = (
+            self.latest.clone(),
+            self.window.clone(),
+            self.images.clone(),
+        );
+        self.mods_disarm.start(
+            slint::TimerMode::SingleShot,
+            std::time::Duration::from_millis(DISARM_MS),
+            move || {
+                if shell::view::armed_market().is_none() {
+                    return;
+                }
+                shell::view::arm_market(None);
+                let snapshot = latest.lock().unwrap().clone();
+                shell::show(&window, snapshot, &images);
+            },
+        );
+    }
+
+    /// A press anywhere else on a Marketplace card takes its Uninstall back.
+    fn dismiss_market(&self) {
+        if shell::view::armed_market().is_some() {
+            shell::view::arm_market(None);
+            self.mods_disarm.stop();
+            self.repaint_market();
+        }
+    }
+
+    /// Check for updates, off the window's thread. A check already running is not asked for
+    /// again. The registry is read with it when `registry` is true, which is what Check for
+    /// updates means: both the list and the installed mods are looked at again.
+    fn check_updates(&self, registry: bool) {
+        {
+            let mut asked = self.market_check_asked.lock().unwrap();
+            if *asked {
+                return;
+            }
+            *asked = true;
+        }
+        if registry {
+            self.read_registry();
+        }
+        shell::view::set_checking(true);
+        let (updates, data_dir, task) = (
+            self.market_updates.clone(),
+            self.data_dir.clone(),
+            self.handle.clone(),
+        );
+        let (latest, settle) = (self.latest.clone(), self.market_settler());
+        task.spawn(async move {
+            let answer = mods::marketplace::Updates::check(&data_dir).await;
+            match answer {
+                Ok(now) => *updates.lock().unwrap() = now,
+                Err(error) => {
+                    // A folder that cannot be read is one line on the Marketplace page, where the
+                    // press was made, and the check is not asked for again until the next press.
+                    latest.lock().unwrap().mods.market.trouble = error;
+                }
+            }
+            shell::view::set_checking(false);
+            settle.settle();
+        });
+        self.repaint_market();
+    }
+
+    /// Update all on the page on screen, or one card's Update, which names its file.
+    fn update_mods(&self, filename: Option<String>) {
+        let page = mods::Page::from_id(&self.mods_page.lock().unwrap());
+        let Some(kind) = page.kind() else {
+            return;
+        };
+        let updates = self.market_updates.lock().unwrap().clone();
+        let cards = mods::marketplace::with_updates(&self.data_dir, kind, &updates);
+        let (mut wanted, refused) = mods::marketplace::wanted(&cards, &updates, kind);
+        if let Some(filename) = &filename {
+            wanted.retain(|want| &want.filename == filename);
+        }
+        if wanted.is_empty() {
+            let notice = match refused.into_iter().next() {
+                Some(refused) => refused,
+                None => mods::Notice::said("Nothing needed an update."),
+            };
+            // The line stays on the Marketplace page after the card that was pressed is gone from
+            // it, beside the page's own copy of it.
+            self.push_market_line(notice.clone());
+            self.after_mod_action(Some(notice));
+            return;
+        }
+        let (data_dir, task) = (self.data_dir.clone(), self.handle.clone());
+        let (latest, settle) = (self.latest.clone(), self.market_settler());
+        let (summary, updates) = (self.market_summary.clone(), self.market_updates.clone());
+        let pressed = wanted.len();
+        task.spawn(async move {
+            let mut results = Vec::new();
+            for want in wanted {
+                let outcome =
+                    mods::marketplace::update_file(&data_dir, kind, &want.filename, &want.url)
+                        .await;
+                results.push(
+                    outcome
+                        .map_err(|error| mods::marketplace::update_failed(&want.filename, &error)),
+                );
+            }
+            let mut notice = mods::marketplace::updated(pressed, results);
+            for refused in refused {
+                notice.text = format!("{} {}", notice.text, refused.text);
+                notice.failed |= refused.failed;
+            }
+            // The check is asked again so the cards say the new versions are the current ones.
+            *updates.lock().unwrap() = mods::marketplace::Updates::default();
+            summary.lock().unwrap().push(notice.clone());
+            latest.lock().unwrap().mods.notice = notice;
+            settle.settle();
+        });
     }
 
     /// Draws the window with the themes `settings.json` now names, and records what each one says
@@ -2781,6 +3256,35 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
     {
         let wiring = wiring.clone();
         window.on_revert_mods_settings(move || wiring.revert_plugin_settings());
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_search_mods_market(move |text| wiring.search_market(text.to_string()));
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_install_mods_market(move |id| wiring.install_market(id.to_string()));
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_update_mods_mod(move |filename| {
+            wiring.update_mods(Some(filename.to_string()));
+        });
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_update_all_mods_mods(move || wiring.update_mods(None));
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_check_mods_updates(move || {
+            *wiring.market_check_asked.lock().unwrap() = false;
+            wiring.check_updates(true);
+        });
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_dismiss_mods_market(move || wiring.dismiss_market());
     }
     {
         let wiring = wiring.clone();
