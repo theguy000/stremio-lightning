@@ -69,7 +69,7 @@ descendant selectors such as `.a .b`, sizes, margins, gradients and hover states
 | `text` | the sentence of one point | yes | | yes | yes |
 | `button`, `button-container` | the Log in button. Hover (outline, clear background) is not themable | yes | yes | yes | yes |
 | `label` | the name under a side nav icon (Board, Discover, ...), shown only while the tab is hovered; also the text of the Uninstall and Share addon buttons | yes | | | yes |
-| `addon`, `addon-container` | one installed addon card on Addons. Hover border is not themable | | yes | yes | yes |
+| `addon`, `addon-container`, `animation-fade-in` | one installed addon card on Addons. Hover border and the web's fade-in are not themable | | yes | yes | yes |
 | `selectable-inputs-container` | the bar above the list (menus, Add addon, search) | | yes | yes | yes |
 | `add-button-container` | the green Add addon pill. Hover (ring, clear fill) is not themable | | yes | yes | yes |
 | `add-button-label` | "Add addon" | yes | | yes | yes |
@@ -80,6 +80,7 @@ descendant selectors such as `.a .b`, sizes, margins, gradients and hover states
 | `description-container` | the addon description | yes | | yes | yes |
 | `action-buttons-container` | the row that holds Uninstall | | | yes | yes |
 | `uninstall-button-container` | the Uninstall pill. Hover (full opacity) is not themable | | yes | yes | yes |
+| `install-button-container`, `button-container` | the green Install pill on a Marketplace addon. Hover (full opacity) is not themable | | | yes | yes |
 | `share-button-container` | the Share addon button. Hover underline is not themable | | yes | yes | yes |
 | `search` | the text typed in the Addons search box | yes | | | |
 | `message-container` | the text shown when no addon matches | yes | | yes | yes |
@@ -126,7 +127,17 @@ descendant selectors such as `.a .b`, sizes, margins, gradients and hover states
 | `mod-toggle` | the switch itself | yes | yes | yes | yes |
 | `mod-remove-button` | the Remove / "Confirm remove" button | | yes | yes | yes |
 | `mod-remove-button-label` | the word on it | yes | | yes | yes |
+| `videos-list-container` | the Details page's Videos list | | | | yes |
+| `video-container` | one row of that list. Hover overrides its background, as on the web | | yes | | |
 | `mods-empty` | "No plugins are installed." / "No themes are installed." | yes | | yes | yes |
+| `market-card` | one card of a registry entry on Mods > Marketplace | | yes | yes | yes |
+| `market-title` | a Marketplace card's name | yes | | yes | yes |
+| `market-byline` | a Marketplace card's author and version | yes | | yes | yes |
+| `market-description` | a Marketplace card's description | yes | | yes | yes |
+| `market-heading` | the "Plugins" and "Themes" headings of the Marketplace list | yes | | yes | yes |
+| `mod-update` | a card's Update line, and the Update button on a Plugins or Themes card | yes | | yes | yes |
+| `market-button` | Install, Uninstall, Update, Update all and Check for updates | yes | yes | yes | yes |
+| `market-button-label` | the word on those buttons | yes | | yes | yes |
 | `mods-log-filter` | one choice of the Logs page's filter | yes | | yes | yes |
 | `mods-log-time` | a record's time column | yes | | yes | yes |
 | `mods-log-source` | a record's source column | yes | | yes | yes |
@@ -137,7 +148,7 @@ descendant selectors such as `.a .b`, sizes, margins, gradients and hover states
 | `mods-about-label` | a label on the About page | yes | | yes | yes |
 | `mods-about-value` | a value or the licence line on the About page | yes | | yes | yes |
 
-The intro/login and registration screen, the Board, the top bar, the side nav, Discover's filter menus, the logged-out Library and Calendar screens, the installed-addons list on Addons, General and Interface on Settings, and the Plugins and Themes pages of Mods, and the Logs and About pages are wired. On the intro screen, `title-container` is the Stremio brand title, `logo-container` is the logo wrapper, and `logo` is the logo image. On Settings, `button` is also the side menu buttons and the Authenticate button, `option` is also an option row and `label` is also a section or option label, as on the web. Details, Player and the other sections have element ids but no class styles yet. The `selected` and `active` states, hover and focus are not themable, and `icon` does not reach the selected nav icon or the caret next to the avatar. `.plugin.js` plugins do not run in the app.
+The intro/login and registration screen, the Board, the top bar, the side nav, Discover's filter menus, the logged-out Library and Calendar screens, the installed-addons list on Addons, General and Interface on Settings, every page of Mods, and the Logs and About pages are wired. On the intro screen, `title-container` is the Stremio brand title, `logo-container` is the logo wrapper, and `logo` is the logo image. On Settings, `button` is also the side menu buttons and the Authenticate button, `option` is also an option row and `label` is also a section or option label, as on the web. Details, Player and the other sections have element ids but no class styles yet. The `selected` and `active` states, hover and focus are not themable, and `icon` does not reach the selected nav icon or the caret next to the avatar. `.plugin.js` plugins do not run in the app.
 
 ## Elements with several web classes
 

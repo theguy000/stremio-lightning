@@ -99,6 +99,7 @@ elements! {
     set_description_container => ["description-container"],
     set_action_buttons_container => ["action-buttons-container"],
     set_uninstall_button_container => ["uninstall-button-container", "button-container"],
+    set_install_button_container => ["install-button-container", "button-container"],
     set_share_button_container => ["share-button-container", "button-container"],
     set_search => ["search", "text"],
     set_message_container => ["message-container"],

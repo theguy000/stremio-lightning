@@ -320,6 +320,10 @@ thread_local! {
 /// The Marketplace draws that have landed and not been drawn yet, oldest first.
 static PENDING: Mutex<Vec<MarketSettler>> = Mutex::new(Vec::new());
 
+/// Whether a starter is posted, or the timer it armed is still to run. Guarded together with
+/// `PENDING` by `ASKING`, so the two are always read and written as one fact.
+static ASKING: Mutex<bool> = Mutex::new(false);
+
 /// What a task that is not the window's thread holds so it can ask for the Marketplace to be
 /// drawn once its news has landed. It holds only `Send` parts of the wiring, because the wiring
 /// itself holds `Rc`s. The draw is asked for through a timer on the window's thread: that is
@@ -328,6 +332,38 @@ static PENDING: Mutex<Vec<MarketSettler>> = Mutex::new(Vec::new());
 /// Slint's `Timer` belongs to the thread that made it, so a task leaves itself in `PENDING` and
 /// posts one starter; the starter runs on the window's thread and the timer it starts draws the
 /// last of what was left.
+/// Runs on the window's thread: takes what is waiting and arms the timer that draws it. Called
+/// again by that timer if news landed while the page was being drawn.
+fn ask() {
+    let last = {
+        // One lock for the pair, so a `settle` that lands here is either drawn by this take or
+        // sees the flag clear and posts a starter of its own. Never both, never neither.
+        let mut asking = ASKING.lock().unwrap();
+        let mut pending = PENDING.lock().unwrap();
+        let last = pending.last().cloned();
+        pending.clear();
+        if last.is_none() {
+            *asking = false;
+        }
+        last
+    };
+    let Some(last) = last else {
+        return;
+    };
+    TIMER.with(|timer| {
+        timer.start(
+            slint::TimerMode::SingleShot,
+            std::time::Duration::from_millis(MARKET_SETTLE_MS),
+            move || {
+                last.draw();
+                // Drawn on the window's thread, so the next draw is armed from here: posting a
+                // starter from this thread would wait for an event loop this callback holds.
+                ask();
+            },
+        );
+    });
+}
+
 #[derive(Clone)]
 struct MarketSettler {
     window: Weak<MainWindow>,
@@ -345,30 +381,21 @@ impl MarketSettler {
     /// Asks the window to draw the Marketplace once the news that has just landed settles. The
     /// news is already in the shared state, so the timer callback reads it; this adds nothing.
     ///
-    /// The timer lives on the window's thread, so a task cannot start it: it leaves its callback
-    /// in a slot and posts one starter for the thread, which runs every callback left by then. A
-    /// registry read and a check land a few milliseconds apart, and the starter they share waits
-    /// long enough for both.
+    /// `ASKING` is what decides whether a starter is needed, not how many items are waiting: a
+    /// second piece of news has to keep its own starter, and counting the queue dropped one when
+    /// the first starter drained the first item before the second was pushed.
     fn settle(&self) {
         let window = self.window.clone();
-        let mut slot = PENDING.lock().unwrap();
-        slot.push(self.clone());
-        if slot.len() == 1 {
-            let _ = window.upgrade_in_event_loop(move |_| {
-                let waiting: Vec<MarketSettler> = std::mem::take(&mut *PENDING.lock().unwrap());
-                let Some(last) = waiting.last() else {
-                    return;
-                };
-                let last = last.clone();
-                TIMER.with(|timer| {
-                    timer.start(
-                        slint::TimerMode::SingleShot,
-                        std::time::Duration::from_millis(MARKET_SETTLE_MS),
-                        move || last.draw(),
-                    );
-                });
-            });
+        let mut asking = ASKING.lock().unwrap();
+        PENDING.lock().unwrap().push(self.clone());
+        if *asking {
+            return;
         }
+        *asking = true;
+        drop(asking);
+        // Posted after the flag is set: the starter is allowed to take it straight back if it
+        // runs at once, which is what a starter posted to the thread that is already running does.
+        let _ = window.upgrade_in_event_loop(|_| ask());
     }
 
     /// Works the page out from the state as it is now and shows it.
