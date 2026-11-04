@@ -44,4 +44,10 @@ if [ "${1:-}" = "check" ]; then
     exec cargo check --tests -p stremio-lightning "$@"
 fi
 
-exec xvfb-run -a cargo test -p stremio-lightning "$@"
+# CI fails the run on a formatting diff before it builds anything, so this catches that in a
+# second instead of after a seven minute round trip.
+cargo fmt --all --check
+
+# Every crate CI tests, not just the app: the core's own unit tests are what caught a wrong
+# expectation on a clean machine after the app's suite was already green.
+exec xvfb-run -a cargo test -p stremio-lightning -p stremio-lightning-core "$@"

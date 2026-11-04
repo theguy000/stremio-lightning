@@ -16,4 +16,5 @@ pub fn init_slint_backend() {
     INIT.call_once(i_slint_backend_testing::init_no_event_loop);
 }
 
+pub mod local_server;
 pub mod ui_driver;

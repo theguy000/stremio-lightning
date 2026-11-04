@@ -50,8 +50,8 @@ Slint components live in `ui/`; a screen's Rust module and its Slint file share 
 
 Mods has a page menu on the left and one page on the right. The menu lists six pages: Plugins,
 Themes, Marketplace, Plugin settings, Logs and About. `screens/mods/` owns the menu, the two pages
-that list installed files and the settings page; Marketplace, Logs and About show a heading and a
-line saying they arrive later.
+that list installed files, the settings page and the Marketplace page; Logs and About show a
+heading and a line saying they arrive later.
 `screens/mods/catalogue.rs` reads the plugin and theme folders under `<app data>/stremio-lightning/`
 and turns each file into a card. Everything a card says comes from the file: its metadata comment,
 or its file name when the comment is missing, plus the theme `parse` warnings for a theme.
@@ -61,6 +61,41 @@ a press on the menu only says which page was picked and the wiring repaints with
 Remove is window state too: the first press of a card's Remove button arms that card and the
 second press, on the same card, deletes the file. Pressing any other card, changing page, or five
 seconds passing takes the arm back.
+
+### The Marketplace
+
+`screens/mods/marketplace.rs` is the page's data and its actions. It reads the folder and the
+registry, but it never starts a thread and never touches a window: its fetches are `async`
+functions the shell runs for it. The registry is
+`stremio_lightning_core::mods::fetch_registry`, which reads `REGISTRY_URL` unless
+`STREMIO_LIGHTNING_REGISTRY_URL` names another address; core reads that variable on every fetch,
+and only tests set it. The registry is read the first time the page is
+opened, never at boot, and again when Check for updates is pressed. `shell/wiring` runs both the
+read and the check on the shell's runtime handle and repaints when they land, so the window's
+thread never waits on the network. A read that fails becomes one sentence on the page,
+`Listing::failed`, and the list stays empty rather than showing the registry it could not read.
+
+What "installed" means is decided by the folder, not by the registry. An entry is installed when a
+file in its folder is the one its download is stored as, which is the file name
+`mods::installed_filename` gives (the URL's own name when that name carries the extension,
+otherwise the entry's name with spaces and punctuation replaced) or a file whose `@updateUrl` is
+that download. A different mod with the same name and author is not counted, which is what
+matching metadata would have done.
+
+Install is `mods::download_mod_as` under that name. The body is then checked with
+`mods::looks_like`: it must carry a metadata comment and must not start with `<!doctype` or
+`<html` for a plugin. A page that answered where a mod should be is deleted and the sentence says
+what arrived. Nothing is switched on afterwards: a new mod is off until its switch is pressed on
+Plugins or Themes, and the page says so in its summary line.
+
+The update check is `mods::check_mod_updates` for both kinds, off the window's thread, when the
+Marketplace page is shown and on Check for updates. Each installed card on Plugins and Themes
+carries the result as a sentence (`Up to date.`, `Update to 2.0.0`, or what the check could not
+read), and the page's note counts the ones that are ready. Update and Update all fetch a file's
+new version into memory with `mods::fetch_text`, check it the same way an install is checked, and
+only then write it over the old file, so a bad body never replaces a working mod. Uninstall is the
+same two-press arm the installed pages use, and the file is deleted by the same function they
+call.
 
 Plugins and themes are switched on by writing their file names to `enabled_plugins` and
 `enabled_themes` in the shell's own `settings.json`. A name that is absent means off. Turning a

@@ -68,6 +68,15 @@ pub(crate) struct Context {
     /// The plugin the Plugin settings page is showing, and what it holds for it.
     pub(crate) mods_plugin: Arc<Mutex<String>>,
     pub(crate) mods_edits: Arc<Mutex<crate::screens::mods::settings::Edits>>,
+    /// The registry the Marketplace page last read, and what the update check made of the
+    /// installed files. Every snapshot carries them, so a snapshot drawn for a core event shows
+    /// the Marketplace with its cards rather than the page it drew before the read landed.
+    pub(crate) market_listing: Arc<Mutex<Option<crate::screens::mods::marketplace::Listing>>>,
+    pub(crate) market_updates: Arc<Mutex<crate::screens::mods::marketplace::Updates>>,
+    /// What the Marketplace page's search box holds, and the lines under its list.
+    pub(crate) market_search: Arc<Mutex<String>>,
+    pub(crate) market_summary: Arc<Mutex<Vec<crate::screens::mods::Notice>>>,
+    pub(crate) market_installing: Arc<Mutex<String>>,
     /// Repaint now, with whatever the cache holds. Used when an image arrives.
     pub(crate) repaint: Arc<dyn Fn() + Send + Sync>,
     /// What a plugin's ask means for the window, built from the wiring's `Send` parts: the theme
@@ -308,7 +317,14 @@ fn snapshot(model: &AppModel, context: &Context) -> Snapshot {
             // The line about the last action belongs to the section, not to the folders: it is read
             // back with the rest so a core event -- a library update, a catalog arriving -- does
             // not take the answer to a press off the screen before it was read.
-            .with_notice(context.latest.lock().unwrap().mods.notice.clone()),
+            .with_notice(context.latest.lock().unwrap().mods.notice.clone())
+            .with_updates(context.market_updates.lock().unwrap().clone())
+            .with_market_parts(
+                context.market_listing.lock().unwrap().as_ref(),
+                &context.market_search.lock().unwrap(),
+                &context.market_summary.lock().unwrap(),
+                &context.market_installing.lock().unwrap(),
+            ),
         player,
     }
 }
