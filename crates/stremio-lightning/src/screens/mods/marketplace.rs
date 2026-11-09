@@ -372,6 +372,11 @@ pub fn with_updates(data_dir: &Path, kind: Kind, updates: &Updates) -> Vec<ModCa
     let known = updates.of(kind);
     let mut cards = catalogue::cards(data_dir, kind, &extras).unwrap_or_default();
     for card in &mut cards {
+        // A built-in ships with the app: there is no registry entry to compare it with, and its
+        // card does not carry an update line.
+        if card.builtin {
+            continue;
+        }
         card.update = state(kind, known.get(&card.filename));
     }
     cards

@@ -39,16 +39,16 @@ fn switched_off_notice(filename: &str) -> String {
 /// `enabled_plugins`, with false it is taken out. The list keeps the order files were enabled in,
 /// so one plugin never reorders another. Returns `None` when the list already said so.
 pub fn set_enabled(extras: &mut LocalExtras, filename: &str, enabled: bool) -> Option<Notice> {
-    if filename == super::catalogue::BUILTIN_SKIP {
-        if extras.skip_intros == enabled {
+    if let Some(builtin) = super::builtin::get(filename) {
+        if builtin.switch.reads(extras) == enabled {
             return None;
         }
-        extras.skip_intros = enabled;
-        return Some(Notice::said(if enabled {
-            "AniSkip is on."
-        } else {
-            "AniSkip is off."
-        }));
+        builtin.switch.writes(extras, enabled);
+        return Some(Notice::said(format!(
+            "{} is {}.",
+            builtin.name,
+            if enabled { "on" } else { "off" }
+        )));
     }
     let list = &mut extras.enabled_plugins;
     let known = list.iter().any(|name| name == filename);
@@ -70,8 +70,11 @@ pub fn set_enabled(extras: &mut LocalExtras, filename: &str, enabled: bool) -> O
 /// Removes the plugin file. A plugin that was named in `enabled_plugins` stops being named, so the
 /// settings do not point at a file that is gone.
 pub fn remove(data_dir: &Path, extras: &mut LocalExtras, filename: &str) -> Notice {
-    if filename == super::catalogue::BUILTIN_SKIP {
-        return Notice::failed("AniSkip is built into the app, so there is no file to remove.");
+    if let Some(builtin) = super::builtin::get(filename) {
+        return Notice::failed(format!(
+            "{} is built into the app, so there is no file to remove.",
+            builtin.name
+        ));
     }
     let notice = catalogue::remove(data_dir, Kind::Plugin, filename);
     if !notice.failed {

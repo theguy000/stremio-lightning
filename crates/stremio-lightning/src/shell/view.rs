@@ -380,18 +380,17 @@ pub(crate) fn mods_view(data: &crate::screens::mods::Data) -> ModsViewData {
             description: card.description.clone().into(),
             unreadable: mods::catalogue::unreadable(card).into(),
             warnings: ModelRc::new(VecModel::from(
-                if kind == mods::catalogue::Kind::Theme {
+                if card.builtin {
+                    // A built-in shows its name, its version and what it does, and nothing else.
+                    Vec::new()
+                } else if kind == mods::catalogue::Kind::Theme {
                     card.warnings.clone()
                 } else {
                     // A plugin's state line: whether it runs, why it stopped, or its last warning.
                     // A card the runtime has not been asked about says nothing.
-                    if !card.removable {
-                        vec!["Built into the app.".to_owned()]
-                    } else {
-                        match card.running.said(card.enabled) {
-                            line if line.is_empty() => Vec::new(),
-                            line => vec![line],
-                        }
+                    match card.running.said(card.enabled) {
+                        line if line.is_empty() => Vec::new(),
+                        line => vec![line],
                     }
                 }
                 .into_iter()

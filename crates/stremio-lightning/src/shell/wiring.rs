@@ -998,6 +998,18 @@ impl Wiring {
                     let for_video = video;
                     self.handle.spawn(async move {
                         let found = skip::segments(&meta_id, season, episode, duration, nominal).await;
+                        let listing = found
+                            .iter()
+                            .map(|segment| {
+                                format!(
+                                    "{} {:.1}-{:.1}",
+                                    segment.kind.label(),
+                                    segment.start,
+                                    segment.end
+                                )
+                            })
+                            .collect::<Vec<_>>()
+                            .join(", ");
                         logs.record(
                             crate::plumbing::logs::Source::App,
                             "Skip",
@@ -1007,7 +1019,7 @@ impl Wiring {
                                     "AniSkip has no skip times for {meta_id} season {season} episode {episode}"
                                 ),
                                 count => format!(
-                                    "AniSkip answered {count} segment(s) for {meta_id} season {season} episode {episode}"
+                                    "AniSkip answered {count} segment(s) for {meta_id} season {season} episode {episode}: {listing}"
                                 ),
                             },
                         );
