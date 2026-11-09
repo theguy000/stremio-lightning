@@ -255,7 +255,6 @@ export component MainWindow inherits Window {
     callback search-addons(string);
     callback select-setting-option(string, int);
     callback toggle-setting-option(string, bool);
-    callback toggle-skip-intros(bool);
     callback open-settings-link(string);
     callback reload-streaming-server();
     callback logout-user();
@@ -893,7 +892,6 @@ callback player-skip();
         open-external-link(kind) => { root.open-settings-link(kind); }
         select-setting-option(key, option) => { root.select-setting-option(key, option); }
         toggle-setting-option(key, enabled) => { root.toggle-setting-option(key, enabled); }
-        toggle-skip-intros(enabled) => { root.toggle-skip-intros(enabled); }
         reload-streaming-server => { root.reload-streaming-server(); }
     }
 

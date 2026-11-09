@@ -58,7 +58,14 @@ pub struct ModCard {
     /// What the update check said about this file, already a sentence: empty until a check has
     /// answered for it, which is why a card the folder alone produced says nothing.
     pub update: String,
+    /// Whether the card has a Remove button. A feature built into the app has none: there is no
+    /// file behind it.
+    pub removable: bool,
 }
+
+/// The one feature built into the app that the Plugins page lists. It is not a file, so nothing
+/// installs, removes or updates it; the page only turns it on and off.
+pub const BUILTIN_SKIP: &str = "builtin:aniskip";
 
 /// One line a Mods page shows about the last action. `failed` draws it in the warning colour.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -97,8 +104,12 @@ pub fn cards(data_dir: &Path, kind: Kind, extras: &LocalExtras) -> Result<Vec<Mo
     };
     let mut installed = list_mods(data_dir, kind.mod_type())?;
     installed.sort_by(|a, b| a.filename.cmp(&b.filename));
-    Ok(installed
-        .into_iter()
+    let mut cards = if kind == Kind::Plugin {
+        builtin_cards(extras)
+    } else {
+        Vec::new()
+    };
+    cards.extend(installed.into_iter()
         .map(|file| {
             let is_on = enabled.contains(&file.filename);
             // A theme's card can say what the file does, so the file is read here. A plugin is not
@@ -143,9 +154,33 @@ pub fn cards(data_dir: &Path, kind: Kind, extras: &LocalExtras) -> Result<Vec<Mo
                 running: crate::screens::mods::settings::Running::default(),
                 warnings,
                 update: String::new(),
+                removable: true,
             }
-        })
-        .collect())
+        }));
+    Ok(cards)
+}
+
+/// The Plugins page's built-in entries, above the files: a feature the app ships and the user can
+/// still switch off, with no file to install, update or remove.
+fn builtin_cards(extras: &LocalExtras) -> Vec<ModCard> {
+    vec![ModCard {
+        id: BUILTIN_SKIP.to_owned(),
+        filename: BUILTIN_SKIP.to_owned(),
+        name: "AniSkip".to_owned(),
+        author: "the app".to_owned(),
+        version: env!("CARGO_PKG_VERSION").to_owned(),
+        description: "Skip anime openings, endings and recaps, read from AniSkip v2.".to_owned(),
+        enabled: extras.skip_intros,
+        has_settings: false,
+        running: crate::screens::mods::settings::Running {
+            running: true,
+            stopped: String::new(),
+            last_error: String::new(),
+        },
+        warnings: Vec::new(),
+        update: String::new(),
+        removable: false,
+    }]
 }
 
 /// A name the file left empty is no name, so the file name stands in for it.

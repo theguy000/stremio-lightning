@@ -32,6 +32,8 @@ export struct ModCardData {
     /// What the update check found for this file: "Up to date.", "Update to 1.2.0", or a
     /// sentence about a check that could not answer. Empty until a check has answered.
     update: string,
+    /// Whether the card draws Remove. A feature built into the app has no file to remove.
+    removable: bool,
 }
 
 // One row of the Plugin settings page's left list.
@@ -379,11 +381,21 @@ component ModCardView inherits Rectangle {
     callback dismiss();
 
     property <length> pad: 1.5 * root.rem-size;
-    property <length> buttons-width: 9 * root.rem-size;
+    // Wide enough for the switch and the longest state it names ("Not enabled"), which the card
+    // draws beside it on one line.
+    property <length> buttons-width: 10 * root.rem-size;
     property <length> text-width: root.width - 2 * root.pad - root.buttons-width - root.rem-size;
     // What the card says under its title block: the description, then why it has no name, then
-    // one line per warning. The card grows to fit them, so no line is cut off.
+    // one line per warning, then the update check's answer. The card grows to fit them, so no
+    // line is cut off.
     property <length> body-height: (root.data.description == "" ? 0px : 2 * root.rem-size)
+        + (root.data.unreadable == "" ? 0px : 2 * root.rem-size)
+        + root.data.warnings.length * 1.2 * root.rem-size
+        + (root.data.update == "" ? 0px : 1.4 * root.rem-size);
+    // Where the lines under the description start: the description's own slot, the unreadable
+    // note's, and one row per warning.
+    property <length> body-end: root.pad + 3.6 * root.rem-size
+        + (root.data.description == "" ? 0px : 2 * root.rem-size)
         + (root.data.unreadable == "" ? 0px : 2 * root.rem-size)
         + root.data.warnings.length * 1.2 * root.rem-size;
     // The list gives every card the row's height, so this default is only what a card drawn on
@@ -515,11 +527,12 @@ component ModCardView inherits Rectangle {
             }
         }
 
-        // What the update check found for this file. It sits under the byline, on a card with or
-        // without anything else on it, because a card that says nothing here has not been checked.
-        if root.data.update != "": mod-update := Text {
-            x: parent.width - root.pad - root.buttons-width - root.text-width;
-            y: root.pad + 1.5 * root.rem-size;
+        // What the update check found for this file. It sits under everything else the card says,
+        // because a card that says nothing here has not been checked. It steps aside while a
+        // removal is armed, which says more than an update does.
+        if root.data.update != "" && !root.data.armed: mod-update := Text {
+            x: root.pad;
+            y: root.body-end + 0.2 * root.rem-size;
             width: root.text-width;
             height: 1.2 * root.rem-size;
             text: root.data.update;
@@ -531,8 +544,8 @@ component ModCardView inherits Rectangle {
         }
 
         if root.data.armed: mod-armed-note := Text {
-            x: parent.width - root.pad - root.buttons-width - root.text-width;
-            y: root.pad + 2.2 * root.rem-size;
+            x: root.pad;
+            y: root.body-end + 0.2 * root.rem-size;
             width: root.text-width;
             height: 2.4 * root.rem-size;
             text: "Pressing Confirm remove deletes " + root.data.filename + " from this computer.";
@@ -555,7 +568,7 @@ component ModCardView inherits Rectangle {
                 root.update();
             }
         }
-        ModRemoveButton {
+        if root.data.removable: ModRemoveButton {
             x: parent.width - root.pad - self.width;
             y: parent.height - root.pad - self.height;
             rem-size: root.rem-size;
@@ -1010,7 +1023,10 @@ component MarketCardView inherits Rectangle {
     property <length> pad: 1.5 * root.rem-size;
     property <length> buttons-width: 10 * root.rem-size;
     property <length> text-width: root.width - 2 * root.pad - root.buttons-width - root.rem-size;
-    height: Math.max(10 * root.rem-size, 5.2 * root.rem-size + root.pad + (root.data.description == "" ? 0px : 2 * root.rem-size));
+    property <length> body-end: root.pad + 3.6 * root.rem-size
+        + (root.data.description == "" ? 0px : 2 * root.rem-size);
+    height: Math.max(10 * root.rem-size, 5.2 * root.rem-size + root.pad
+        + (root.data.description == "" ? 0px : 2 * root.rem-size));
 
     market-card := Rectangle {
         width: parent.width;
@@ -1074,8 +1090,8 @@ component MarketCardView inherits Rectangle {
         }
         // What the second press will delete, in the same words the Plugins and Themes cards use.
         if root.data.armed: market-armed-note := Text {
-            x: parent.width - root.pad - root.buttons-width - root.text-width;
-            y: root.pad + 2.2 * root.rem-size;
+            x: root.pad;
+            y: root.body-end + 0.2 * root.rem-size;
             width: root.text-width;
             height: 2.4 * root.rem-size;
             text: "Pressing Confirm uninstall deletes " + root.data.filename + " from this computer.";
@@ -1115,7 +1131,8 @@ export component ModsContent inherits Rectangle {    // The height every card on
         return Math.max(10 * rem-size, cards.length == 0 ? 0px : 5.2 * rem-size + 1.5 * rem-size
             + (cards[0].description == "" ? 0px : 2 * rem-size)
             + (cards[0].unreadable == "" ? 0px : 2 * rem-size)
-            + cards[0].warnings.length * 1.2 * rem-size);
+            + cards[0].warnings.length * 1.2 * rem-size
+            + (cards[0].update == "" ? 0px : 1.4 * rem-size));
     }
 
     in property <ModsViewData> data;
@@ -1177,7 +1194,10 @@ export component ModsContent inherits Rectangle {    // The height every card on
     property <length> menu-width: 18 * root.rem-size;
     property <length> page-padding: 3 * root.rem-size;
     property <length> page-width: root.width - root.menu-width - 2 * root.page-padding;
-    property <length> page-top: 2 * root.rem-size + (root.data.notice == "" ? 0px : 3.4 * root.rem-size);
+    // Where the page's own sentence starts. The title is 2rem..5rem, so the sentence follows it at
+    // 5.4rem, and the line about the last action (when there is one) pushes it down by the same
+    // 3.4rem it is offset by.
+    property <length> page-top: 5.4 * root.rem-size + (root.data.notice == "" ? 0px : 3.4 * root.rem-size);
     property <length> list-top: root.page-top + 6 * root.rem-size;
     property <length> list-height: Math.max(root.height - root.list-top, 0px);
     // A card plus the 0.75rem under it. Every card is the height of the tallest one on screen,

@@ -795,20 +795,6 @@ impl Wiring {
         self.repaint_with(snapshot);
     }
 
-    /// The Settings switch: whether the player offers the skip button. A choice of this shell,
-    /// so it goes to `settings.json` and the screen only has to redraw.
-    fn toggle_skip_intros(&self, on: bool) {
-        let skip = {
-            let mut extras = self.local_extras.lock().unwrap();
-            extras.skip_intros = on;
-            extras.save(&self.data_dir);
-            extras.skip_intros
-        };
-        let mut snapshot = self.latest.lock().unwrap().clone();
-        snapshot.settings.skip_intros = skip;
-        self.repaint_with(snapshot);
-    }
-
     /// A Stream was clicked: the player screen opens on it, and the core loads the rest.
     fn play_stream(&self, index: i32) {
         let index = usize::try_from(index).unwrap_or(usize::MAX);
@@ -967,35 +953,82 @@ impl Wiring {
         }
         // The skip button. The segments are fetched once per Video, once its length is known
         // (AniSkip's answer depends on it), and every status decides whether the play head is
-        // inside one. A source that does not answer leaves the button away, not an error.
+        // inside one. A source that does not answer leaves the button away, not an error. Each
+        // step says what it did on the Logs page: a button that never appears has to be able to
+        // say why.
         let video = self.latest.lock().unwrap().player.video_id.clone();
         let skip_wanted = self.local_extras.lock().unwrap().skip_intros;
         {
             let mut playback = self.playback.lock().unwrap();
             if !skip_wanted {
+                if !playback.skip.is_empty() {
+                    self.logs.record(
+                        crate::plumbing::logs::Source::App,
+                        "Skip",
+                        crate::plumbing::logs::Level::Info,
+                        "Skip intros is switched off; the segments are dropped.",
+                    );
+                }
                 playback.skip.clear();
                 playback.skip_for.clear();
-            } else if playback.skip_for != video {
+            } else if playback.skip_for != video && !video.is_empty() {
                 playback.skip.clear();
-                playback.skip_for = String::new();
-                if status.loaded && duration > 0.0 && !video.is_empty() {
-                    if let Some((meta_id, season, episode)) = self.skip_target() {
-                        playback.skip_for = video.clone();
-                        let playback = Arc::clone(&self.playback);
-                        let for_video = video.clone();
-                        self.handle.spawn(async move {
-                            let found = skip::segments(&meta_id, season, episode, duration).await;
-                            if let Ok(mut playback) = playback.lock() {
-                                // The player may have moved to another Video while the source
-                                // was answering, and its segments are not this one's.
-                                if playback.skip_for == for_video {
-                                    playback.skip = found;
+                playback.skip_for.clear();
+                if status.loaded && duration > 0.0 {
+                    match self.skip_target() {
+                        Some((meta_id, season, episode)) => {
+                            playback.skip_for = video.clone();
+                            self.logs.record(
+                                crate::plumbing::logs::Source::App,
+                                "Skip",
+                                crate::plumbing::logs::Level::Info,
+                                format!(
+                                    "Asking AniSkip for {meta_id} season {season} episode {episode} ({duration:.0}s)"
+                                ),
+                            );
+                            let playback = Arc::clone(&self.playback);
+                            let logs = Arc::clone(&self.logs);
+                            let for_video = video.clone();
+                            self.handle.spawn(async move {
+                                let found =
+                                    skip::segments(&meta_id, season, episode, duration).await;
+                                logs.record(
+                                    crate::plumbing::logs::Source::App,
+                                    "Skip",
+                                    crate::plumbing::logs::Level::Info,
+                                    match found.len() {
+                                        0 => format!(
+                                            "AniSkip has no skip times for {meta_id} season {season} episode {episode}"
+                                        ),
+                                        count => format!(
+                                            "AniSkip answered {count} segment(s) for {meta_id} season {season} episode {episode}"
+                                        ),
+                                    },
+                                );
+                                if let Ok(mut playback) = playback.lock() {
+                                    // The player may have moved to another Video while the source
+                                    // was answering, and its segments are not this one's.
+                                    if playback.skip_for == for_video {
+                                        playback.skip = found;
+                                    }
                                 }
-                            }
-                        });
+                            });
+                        }
+                        None => {
+                            // Not an Episode: there is nothing for AniSkip to name. Said once per
+                            // Video, so a film is not a line a second.
+                            playback.skip_for = video.clone();
+                            self.logs.record(
+                                crate::plumbing::logs::Source::App,
+                                "Skip",
+                                crate::plumbing::logs::Level::Debug,
+                                format!("No Episode information for {video}; nothing to ask for."),
+                            );
+                        }
                     }
                 }
             }
+            let before = playback.skip_now.map(|segment| segment.kind);
             playback.skip_now = if skip_wanted {
                 playback
                     .skip
@@ -1005,6 +1038,23 @@ impl Wiring {
             } else {
                 None
             };
+            if before != playback.skip_now.map(|segment| segment.kind) {
+                if let Some(segment) = playback.skip_now {
+                    self.logs.record(
+                        crate::plumbing::logs::Source::App,
+                        "Skip",
+                        crate::plumbing::logs::Level::Info,
+                        format!("Offering {:?} at {time:.0}s", segment.kind.label()),
+                    );
+                } else {
+                    self.logs.record(
+                        crate::plumbing::logs::Source::App,
+                        "Skip",
+                        crate::plumbing::logs::Level::Debug,
+                        format!("The skip button is away at {time:.0}s"),
+                    );
+                }
+            }
             window.set_player_skip_visible(playback.skip_now.is_some());
             window.set_player_skip_label(
                 playback
@@ -1014,6 +1064,7 @@ impl Wiring {
                     .into(),
             );
         }
+
         if status.paused.is_some() && status.paused != was_paused {
             player::paused_changed(&self.runtime, status.paused.unwrap_or(false));
         }
@@ -3299,10 +3350,6 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
         window.on_toggle_setting_option(move |key, enabled| {
             wiring.toggle_setting_option(key.to_string(), enabled)
         });
-    }
-    {
-        let wiring = wiring.clone();
-        window.on_toggle_skip_intros(move |on| wiring.toggle_skip_intros(on));
     }
     {
         let wiring = wiring.clone();

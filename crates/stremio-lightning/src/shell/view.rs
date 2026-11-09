@@ -385,9 +385,13 @@ pub(crate) fn mods_view(data: &crate::screens::mods::Data) -> ModsViewData {
                 } else {
                     // A plugin's state line: whether it runs, why it stopped, or its last warning.
                     // A card the runtime has not been asked about says nothing.
-                    match card.running.said(card.enabled) {
-                        line if line.is_empty() => Vec::new(),
-                        line => vec![line],
+                    if !card.removable {
+                        vec!["Built into the app.".to_owned()]
+                    } else {
+                        match card.running.said(card.enabled) {
+                            line if line.is_empty() => Vec::new(),
+                            line => vec![line],
+                        }
                     }
                 }
                 .into_iter()
@@ -398,6 +402,7 @@ pub(crate) fn mods_view(data: &crate::screens::mods::Data) -> ModsViewData {
             armed: armed_here,
             state: state.into(),
             update: card.update.clone().into(),
+            removable: card.removable,
         }
     };
     ModsViewData {
@@ -851,7 +856,6 @@ pub(crate) fn settings_view(data: &SettingsData) -> SettingsViewData {
         caching: select(data.caching.clone()),
         torrent_profile: select(data.torrent_profile.clone()),
         transcoding_profile: select(data.transcoding_profile.clone()),
-        skip_intros: data.skip_intros,
     }
 }
 

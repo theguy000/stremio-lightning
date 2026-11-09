@@ -145,8 +145,6 @@ pub struct Data {
     pub player_config: PlayerConfig,
     /// Whether the Streams list wraps its descriptions.
     pub wrap_streams: bool,
-    /// Whether the player offers the AniSkip button.
-    pub skip_intros: bool,
 }
 
 /// A switch that starts on: a file written before the switch existed still has the feature.
@@ -228,7 +226,6 @@ pub(crate) fn data_from_profile(profile: &Profile, extras: &LocalExtras) -> Data
         transcoding_profile: input("transcodingProfile"),
         player_config,
         wrap_streams: extras.wrap_streams,
-        skip_intros: extras.skip_intros,
     }
 }
 

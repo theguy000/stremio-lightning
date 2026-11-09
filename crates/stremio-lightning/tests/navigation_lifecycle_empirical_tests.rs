@@ -42,7 +42,6 @@ fn create_default_settings(logged_in: bool, user_email: &str) -> SettingsViewDat
         caching: empty_select(),
         torrent_profile: empty_select(),
         transcoding_profile: empty_select(),
-        skip_intros: true,
     }
 }
 

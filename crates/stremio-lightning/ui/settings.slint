@@ -34,7 +34,6 @@ export struct SettingsViewData {
     caching: SelectInputData,
     torrent-profile: SelectInputData,
     transcoding-profile: SelectInputData,
-    skip-intros: bool,
 }
 import { ScrollBar } from "scroll-bar.slint";
 import { Theme } from "theme.slint";
@@ -419,7 +418,6 @@ export component SettingsContent inherits Rectangle {
     callback open-external-link(string);
     callback select-setting-option(string, int);
     callback toggle-setting-option(string, bool);
-    callback toggle-skip-intros(bool);
     callback reload-streaming-server();
 
     property <length> rem-size: Theme.rem-size(root.viewport-width);
@@ -430,7 +428,7 @@ export component SettingsContent inherits Rectangle {
     property <length> user-height: 11 * root.rem-size + 1px;
     property <length> links-height: 22 * root.rem-size + 1px;
     property <length> interface-height: 27 * root.rem-size + 1px;
-    property <length> player-height: 92 * root.rem-size + 1px;
+    property <length> player-height: 88 * root.rem-size + 1px;
     property <length> streaming-height: 36 * root.rem-size + 1px;
     property <length> shortcuts-height: 76 * root.rem-size;
     property <length> interface-top: root.user-height + root.links-height;
@@ -803,15 +801,6 @@ export component SettingsContent inherits Rectangle {
                     x: 0px; y: 0px; width: hwdec-opt.content-width;
                     checked: root.data.hardware-decoding; rem-size: root.rem-size;
                     toggled(val) => { root.toggle-setting-option("hardwareDecoding", val); }
-                }
-            }
-            skip-opt := SettingsOption {
-                x: 0px; y: 87.5 * root.rem-size; width: parent.width; height: 3 * root.rem-size; rem-size: root.rem-size;
-                label-text: "Skip intros and recaps";
-                SettingsToggle {
-                    x: 0px; y: 0px; width: skip-opt.content-width;
-                    checked: root.data.skip-intros; rem-size: root.rem-size;
-                    toggled(val) => { root.toggle-skip-intros(val); }
                 }
             }
         }
