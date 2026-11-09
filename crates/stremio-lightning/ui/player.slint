@@ -1152,7 +1152,9 @@ export component PlayerScreen inherits Rectangle {
     // which clears the control bar. It is not part of the controls layer, so fading the controls
     // out does not take the one action on screen with them.
     if root.skip-visible: Rectangle {
-        width: skip-words.preferred-width + 2.4 * root.rem-size;
+        // A fixed width, not the text's: a Text whose width comes from its parent and whose
+        // parent's width comes from the text is a binding loop, and the pill came out empty.
+        width: 10.5 * root.rem-size;
         height: 2.4 * root.rem-size;
         x: root.width - self.width - 1.7 * root.rem-size;
         y: root.height - self.height - 9 * root.rem-size;
@@ -1160,8 +1162,8 @@ export component PlayerScreen inherits Rectangle {
         background: Theme.accent;
 
         skip-words := Text {
-            x: 1.2 * root.rem-size;
-            width: parent.width - 2.4 * root.rem-size;
+            x: 0.6 * root.rem-size;
+            width: parent.width - 1.2 * root.rem-size;
             height: parent.height;
             text: root.skip-label;
             color: Theme.on-accent;

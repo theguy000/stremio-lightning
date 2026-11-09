@@ -234,6 +234,9 @@ impl Filter {
 #[derive(Debug, Default)]
 pub struct Logs {
     entries: Mutex<VecDeque<Entry>>,
+    /// Where every record is also written, line by line, so a log can be read when the window
+    /// cannot be looked at. `None` in tests and in a build that does not want a file.
+    file: Option<std::path::PathBuf>,
     next_id: AtomicU64,
     /// How many records have been recorded since the list was last cleared. Every view of the
     /// list comes from a snapshot, and a view only redraws when this changes.
@@ -251,6 +254,16 @@ pub struct Logs {
 impl Logs {
     pub fn new() -> Logs {
         Logs::default()
+    }
+
+    /// A list that also appends every record to `path`, so the app's own words outlive the
+    /// window. A file that cannot be written is no reason to lose the record: it stays in the
+    /// list either way.
+    pub fn recording_to(path: std::path::PathBuf) -> Logs {
+        Logs {
+            file: Some(path),
+            ..Logs::default()
+        }
     }
 
     /// Records one line, with the time it was recorded, and returns the record as stored.
@@ -273,6 +286,27 @@ impl Logs {
 
     /// Stores a record built elsewhere, dropping the oldest when the list is full.
     pub fn add(&self, entry: Entry) -> Entry {
+        if let Some(path) = &self.file {
+            if let Some(parent) = path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            if let Ok(mut file) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(path)
+            {
+                use std::io::Write;
+                let _ = writeln!(
+                    file,
+                    "{} {} {} {}: {}",
+                    entry.at,
+                    entry.level.id(),
+                    entry.source.id(),
+                    entry.origin,
+                    entry.text
+                );
+            }
+        }
         let mut entries = lock(&self.entries);
         entries.push_back(entry.clone());
         let over = entries.len().saturating_sub(CAPACITY);

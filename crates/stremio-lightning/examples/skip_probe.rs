@@ -11,6 +11,7 @@ async fn main() {
     let episode: u32 = args.get(2).and_then(|value| value.parse().ok()).unwrap_or(1);
     let duration: f64 = args.get(3).and_then(|value| value.parse().ok()).unwrap_or(1440.0);
 
-    let found = stremio_lightning::plumbing::skip::segments(&meta, season, episode, duration).await;
+    let nominal = args.get(4).and_then(|value| value.parse().ok());
+    let found = stremio_lightning::plumbing::skip::segments(&meta, season, episode, duration, nominal).await;
     println!("{meta} season {season} episode {episode} ({duration}s): {found:?}");
 }

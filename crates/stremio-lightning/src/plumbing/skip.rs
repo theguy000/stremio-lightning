@@ -56,11 +56,23 @@ impl Segment {
 ///
 /// `meta_id` is the show's id (`tt0944947`, `kitsu:11614`), `season` the season being watched
 /// (zero when the type has no seasons) and `duration` the episode's length in seconds.
-pub async fn segments(meta_id: &str, season: u32, episode: u32, duration: f64) -> Vec<Segment> {
+///
+/// `nominal` is the show's own runtime ("24 min") when it says one. AniSkip keys its submissions
+/// by the length the release had, and one release's length can match a submission whose times are
+/// wrong: asking with the show's runtime instead of the file's exact length lands on the entry most
+/// releases share. The file's length is the fallback.
+pub async fn segments(
+    meta_id: &str,
+    season: u32,
+    episode: u32,
+    duration: f64,
+    nominal: Option<f64>,
+) -> Vec<Segment> {
     if !(duration.is_finite() && duration > 0.0) || meta_id.is_empty() || episode == 0 {
         return Vec::new();
     }
-    let key = format!("{meta_id}:{season}:{episode}:{}", duration.round() as u64);
+    let asked = nominal.filter(|length| length.is_finite() && *length > 0.0).unwrap_or(duration);
+    let key = format!("{meta_id}:{season}:{episode}:{}", asked.round() as u64);
     if let Some(hit) = cached(&key) {
         return hit;
     }
@@ -73,7 +85,7 @@ pub async fn segments(meta_id: &str, season: u32, episode: u32, duration: f64) -
     } else {
         mal
     };
-    let found = skip_times(mal, episode, duration).await;
+    let found = skip_times(mal, episode, asked).await;
     remember(&key, &found);
     found
 }
@@ -354,6 +366,31 @@ fn segments_of(value: &Value) -> Vec<Segment> {
     found
 }
 
+/// The seconds a runtime string names: "24 min", "1h 24 min", "24m". Anything else is `None`,
+/// and the caller falls back to the file's own length.
+#[must_use]
+pub fn runtime_seconds(text: &str) -> Option<f64> {
+    let mut seconds = 0.0;
+    let mut found = false;
+    for part in text.split_whitespace() {
+        let (number, unit) = match part.find(|c: char| c.is_alphabetic()) {
+            Some(at) => (part[..at].trim(), part[at..].trim()),
+            None => continue,
+        };
+        let Ok(value) = number.parse::<f64>() else {
+            continue;
+        };
+        let factor = match unit {
+            "h" | "hr" | "hrs" | "hour" | "hours" => 3600.0,
+            "m" | "min" | "mins" | "minute" | "minutes" => 60.0,
+            _ => continue,
+        };
+        seconds += value * factor;
+        found = true;
+    }
+    found.then_some(seconds)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -400,6 +437,15 @@ mod tests {
             async move { found }
         }));
         assert_eq!(first, 1);
+    }
+
+    #[test]
+    fn a_runtime_string_becomes_seconds() {
+        assert_eq!(runtime_seconds("24 min"), Some(1440.0));
+        assert_eq!(runtime_seconds("1h 24 min"), Some(5040.0));
+        assert_eq!(runtime_seconds("24m"), Some(1440.0));
+        assert_eq!(runtime_seconds(""), None);
+        assert_eq!(runtime_seconds("feature length"), None);
     }
 
     #[test]

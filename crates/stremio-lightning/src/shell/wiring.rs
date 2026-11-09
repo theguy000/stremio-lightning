@@ -480,6 +480,8 @@ pub(crate) struct Playback {
     pub(crate) skip_for: String,
     /// The segment holding the play head, which is what the button acts on.
     pub(crate) skip_now: Option<skip::Segment>,
+    /// How many segments were last said on the Logs page, so a change is one line.
+    pub(crate) skip_total: usize,
 }
 
 impl Default for Playback {
@@ -494,6 +496,7 @@ impl Default for Playback {
             skip: Vec::new(),
             skip_for: String::new(),
             skip_now: None,
+            skip_total: 0,
         }
     }
 }
@@ -951,82 +954,98 @@ impl Wiring {
             self.playback.lock().unwrap().sent_time = time;
             player::time_changed(&self.runtime, time, duration, "mpv".to_owned());
         }
-        // The skip button. The segments are fetched once per Video, once its length is known
-        // (AniSkip's answer depends on it), and every status decides whether the play head is
-        // inside one. A source that does not answer leaves the button away, not an error. Each
-        // step says what it did on the Logs page: a button that never appears has to be able to
-        // say why.
-        let video = self.latest.lock().unwrap().player.video_id.clone();
+        // The skip button. The segments are fetched once per Video, from the model rather than
+        // the last snapshot: the core knows the Video the moment it is picked, and the snapshot
+        // only after a repaint. Every status then decides whether the play head is inside one.
+        // Each step says what it did on the Logs page, so a button that never appears can say why.
         let skip_wanted = self.local_extras.lock().unwrap().skip_intros;
-        {
+        if !skip_wanted {
             let mut playback = self.playback.lock().unwrap();
-            if !skip_wanted {
-                if !playback.skip.is_empty() {
+            if !playback.skip.is_empty() {
+                self.logs.record(
+                    crate::plumbing::logs::Source::App,
+                    "Skip",
+                    crate::plumbing::logs::Level::Info,
+                    "Skip intros is switched off; the segments are dropped.",
+                );
+            }
+            playback.skip.clear();
+            playback.skip_for.clear();
+        } else if status.loaded && duration > 0.0 {
+            if let Some((video, meta_id, season, episode, nominal)) = self.skip_target() {
+                let ask = {
+                    let mut playback = self.playback.lock().unwrap();
+                    if playback.skip_for == video {
+                        false
+                    } else {
+                        playback.skip.clear();
+                        playback.skip_for = video.clone();
+                        true
+                    }
+                };
+                if ask {
                     self.logs.record(
                         crate::plumbing::logs::Source::App,
                         "Skip",
                         crate::plumbing::logs::Level::Info,
-                        "Skip intros is switched off; the segments are dropped.",
+                        format!(
+                            "Asking AniSkip for {meta_id} season {season} episode {episode} ({}s)",
+                            nominal.map_or_else(|| format!("{duration:.0}"), |n| format!("{n:.0}"))
+                        ),
                     );
-                }
-                playback.skip.clear();
-                playback.skip_for.clear();
-            } else if playback.skip_for != video && !video.is_empty() {
-                playback.skip.clear();
-                playback.skip_for.clear();
-                if status.loaded && duration > 0.0 {
-                    match self.skip_target() {
-                        Some((meta_id, season, episode)) => {
-                            playback.skip_for = video.clone();
-                            self.logs.record(
-                                crate::plumbing::logs::Source::App,
-                                "Skip",
-                                crate::plumbing::logs::Level::Info,
-                                format!(
-                                    "Asking AniSkip for {meta_id} season {season} episode {episode} ({duration:.0}s)"
+                    let playback = Arc::clone(&self.playback);
+                    let logs = Arc::clone(&self.logs);
+                    let for_video = video;
+                    self.handle.spawn(async move {
+                        let found = skip::segments(&meta_id, season, episode, duration, nominal).await;
+                        logs.record(
+                            crate::plumbing::logs::Source::App,
+                            "Skip",
+                            crate::plumbing::logs::Level::Info,
+                            match found.len() {
+                                0 => format!(
+                                    "AniSkip has no skip times for {meta_id} season {season} episode {episode}"
                                 ),
-                            );
-                            let playback = Arc::clone(&self.playback);
-                            let logs = Arc::clone(&self.logs);
-                            let for_video = video.clone();
-                            self.handle.spawn(async move {
-                                let found =
-                                    skip::segments(&meta_id, season, episode, duration).await;
-                                logs.record(
-                                    crate::plumbing::logs::Source::App,
-                                    "Skip",
-                                    crate::plumbing::logs::Level::Info,
-                                    match found.len() {
-                                        0 => format!(
-                                            "AniSkip has no skip times for {meta_id} season {season} episode {episode}"
-                                        ),
-                                        count => format!(
-                                            "AniSkip answered {count} segment(s) for {meta_id} season {season} episode {episode}"
-                                        ),
-                                    },
-                                );
-                                if let Ok(mut playback) = playback.lock() {
-                                    // The player may have moved to another Video while the source
-                                    // was answering, and its segments are not this one's.
-                                    if playback.skip_for == for_video {
-                                        playback.skip = found;
-                                    }
-                                }
-                            });
-                        }
-                        None => {
-                            // Not an Episode: there is nothing for AniSkip to name. Said once per
-                            // Video, so a film is not a line a second.
-                            playback.skip_for = video.clone();
-                            self.logs.record(
+                                count => format!(
+                                    "AniSkip answered {count} segment(s) for {meta_id} season {season} episode {episode}"
+                                ),
+                            },
+                        );
+                        if let Ok(mut playback) = playback.lock() {
+                            // The player may have moved on while the source was answering, and
+                            // its segments are not this Video's.
+                            let same = playback.skip_for == for_video;
+                            if same {
+                                playback.skip = found.clone();
+                            }
+                            logs.record(
                                 crate::plumbing::logs::Source::App,
                                 "Skip",
                                 crate::plumbing::logs::Level::Debug,
-                                format!("No Episode information for {video}; nothing to ask for."),
+                                format!(
+                                    "Kept {} segment(s) for {for_video}: player is on {:?} ({})",
+                                    found.len(),
+                                    playback.skip_for,
+                                    if same { "same Video" } else { "moved on" }
+                                ),
                             );
                         }
-                    }
+                    });
                 }
+            }
+        }
+
+        {
+            let mut playback = self.playback.lock().unwrap();
+            let had = playback.skip.len();
+            if had != playback.skip_total {
+                playback.skip_total = had;
+                self.logs.record(
+                    crate::plumbing::logs::Source::App,
+                    "Skip",
+                    crate::plumbing::logs::Level::Debug,
+                    format!("The player now holds {had} segment(s) for {:?}", playback.skip_for),
+                );
             }
             let before = playback.skip_now.map(|segment| segment.kind);
             playback.skip_now = if skip_wanted {
@@ -1039,21 +1058,20 @@ impl Wiring {
                 None
             };
             if before != playback.skip_now.map(|segment| segment.kind) {
-                if let Some(segment) = playback.skip_now {
-                    self.logs.record(
+                match playback.skip_now {
+                    Some(segment) => self.logs.record(
                         crate::plumbing::logs::Source::App,
                         "Skip",
                         crate::plumbing::logs::Level::Info,
-                        format!("Offering {:?} at {time:.0}s", segment.kind.label()),
-                    );
-                } else {
-                    self.logs.record(
+                        format!("Offering {} at {time:.0}s", segment.kind.label()),
+                    ),
+                    None => self.logs.record(
                         crate::plumbing::logs::Source::App,
                         "Skip",
                         crate::plumbing::logs::Level::Debug,
                         format!("The skip button is away at {time:.0}s"),
-                    );
-                }
+                    ),
+                };
             }
             window.set_player_skip_visible(playback.skip_now.is_some());
             window.set_player_skip_label(
@@ -1143,15 +1161,33 @@ impl Wiring {
         let _ = player::next(&self.runtime);
     }
 
-    /// What the skip source needs to name the Episode on screen: the show's own id (not the
-    /// Video's), the season and the episode. Anything that is not an Episode has none.
-    fn skip_target(&self) -> Option<(String, u32, u32)> {
+    /// The Video on screen and what the skip source needs to name its Episode: the show's own id
+    /// (not the Video's), the season and the episode. Anything that is not an Episode has none.
+    fn skip_target(&self) -> Option<(String, String, u32, u32, Option<f64>)> {
         let model = self.runtime.model().ok()?;
+        let video = model
+            .player
+            .selected
+            .as_ref()?
+            .stream_request
+            .as_ref()?
+            .path
+            .id
+            .clone();
         let series = model.player.series_info.as_ref()?;
         let Loadable::Ready(meta) = model.player.meta_item.as_ref()?.content.as_ref()? else {
             return None;
         };
-        Some((meta.preview.id.to_string(), series.season, series.episode))
+        Some((
+            video,
+            meta.preview.id.to_string(),
+            series.season,
+            series.episode,
+            meta.preview
+                .runtime
+                .as_deref()
+                .and_then(skip::runtime_seconds),
+        ))
     }
 
     /// The skip button: the picture goes to the end of the segment the play head is inside,

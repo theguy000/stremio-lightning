@@ -85,7 +85,9 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
     shell::window_icon::install(&window);
     // The app's log records, made before anything that has something to say: the theme reader,
     // the plugin runtime, this shell's own errors and the streaming server all record into it.
-    let logs = Arc::new(plumbing::logs::Logs::new());
+    let logs = Arc::new(plumbing::logs::Logs::recording_to(
+        data_dir.join("logs").join("app.log"),
+    ));
     // Only the themes the Mods screen has turned on, so a freshly installed theme file changes
     // nothing until someone picks it. What a theme says that the app cannot use is recorded here,
     // which is what puts it on the Logs page as well as on its card.
