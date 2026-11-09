@@ -202,6 +202,10 @@ export component MainWindow inherits Window {
     in property <string> player-next-label;
     in property <bool> player-has-next: false;
     in property <float> player-next-notice: 35;
+    /// The skip button above the control bar: its words, and whether the play head is
+    /// inside a segment AniSkip knows about.
+    in property <bool> player-skip-visible: false;
+    in property <string> player-skip-label;
     in-out property <Section> section: Section.board;
     in-out property <bool> auth-open: false;
     in-out property <string> auth-error: "";
@@ -251,6 +255,7 @@ export component MainWindow inherits Window {
     callback search-addons(string);
     callback select-setting-option(string, int);
     callback toggle-setting-option(string, bool);
+    callback toggle-skip-intros(bool);
     callback open-settings-link(string);
     callback reload-streaming-server();
     callback logout-user();
@@ -276,6 +281,7 @@ export component MainWindow inherits Window {
     callback player-toggle-fullscreen();
     callback player-play-pause();
     callback player-play-next();
+callback player-skip();
     callback player-seek(float);
     callback player-seek-by(float);
     callback player-set-volume(float);
@@ -491,6 +497,8 @@ export component MainWindow inherits Window {
         next-label: root.player-next-label;
         has-next: root.player-has-next;
         next-notice: root.player-next-notice;
+        skip-visible: root.player-skip-visible;
+        skip-label: root.player-skip-label;
         init => {
             self.focus-player();
         }
@@ -505,6 +513,9 @@ export component MainWindow inherits Window {
         }
         play-next => {
             root.player-play-next();
+        }
+        skip => {
+            root.player-skip();
         }
         seek(time) => {
             root.player-seek(time);
@@ -882,6 +893,7 @@ export component MainWindow inherits Window {
         open-external-link(kind) => { root.open-settings-link(kind); }
         select-setting-option(key, option) => { root.select-setting-option(key, option); }
         toggle-setting-option(key, enabled) => { root.toggle-setting-option(key, enabled); }
+        toggle-skip-intros(enabled) => { root.toggle-skip-intros(enabled); }
         reload-streaming-server => { root.reload-streaming-server(); }
     }
 

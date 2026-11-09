@@ -660,6 +660,10 @@ export component PlayerScreen inherits Rectangle {
     in property <bool> has-next;
     /// How close to the end the next Video is offered, in seconds.
     in property <float> next-notice: 35;
+    /// The skip button: its words while the play head is inside a segment, and whether
+    /// it is. The shell decides both; the screen only draws them.
+    in property <bool> skip-visible: false;
+    in property <string> skip-label;
 
     // `""`, "speed", "audio", "subtitles" or "options".
     in-out property <string> menu;
@@ -717,6 +721,7 @@ export component PlayerScreen inherits Rectangle {
     callback toggle-fullscreen();
     callback play-pause();
     callback play-next();
+    callback skip();
     callback seek(float);
     callback seek-by(float);
     callback set-volume(float);
@@ -1139,6 +1144,36 @@ export component PlayerScreen inherits Rectangle {
             clicked => {
                 root.drawer-open = true;
                 root.menu = "";
+            }
+        }
+    }
+
+    // The skip button, where the web's AniSkip popup sat: against the right edge, nine rem up,
+    // which clears the control bar. It is not part of the controls layer, so fading the controls
+    // out does not take the one action on screen with them.
+    if root.skip-visible: Rectangle {
+        width: skip-words.preferred-width + 2.4 * root.rem-size;
+        height: 2.4 * root.rem-size;
+        x: root.width - self.width - 1.7 * root.rem-size;
+        y: root.height - self.height - 9 * root.rem-size;
+        border-radius: self.height / 2;
+        background: Theme.accent;
+
+        skip-words := Text {
+            x: 1.2 * root.rem-size;
+            width: parent.width - 2.4 * root.rem-size;
+            height: parent.height;
+            text: root.skip-label;
+            color: Theme.on-accent;
+            font-size: 0.95 * root.rem-size;
+            font-weight: 700;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+        skip-touch := TouchArea {
+            mouse-cursor: pointer;
+            clicked => {
+                root.skip();
             }
         }
     }

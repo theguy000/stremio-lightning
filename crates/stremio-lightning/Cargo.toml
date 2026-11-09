@@ -25,7 +25,7 @@ getrandom = "0.3"
 # HTTP/2 for the image hosts: they answer with h2 (measured over ALPN on images.metahub.space), so
 # a catalog's posters can multiplex one connection instead of taking six HTTP/1.1 lanes' worth of
 # handshakes.
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "http2"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "http2", "json"] }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 libmpv2 = "5.0.3"
 url = "2"

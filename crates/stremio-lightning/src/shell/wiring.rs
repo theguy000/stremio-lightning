@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 
 use slint::{ComponentHandle, ModelRc, Timer, VecModel, Weak};
 use stremio_core::models::catalog_with_filters::Selected as CatalogSelected;
+use stremio_core::models::common::Loadable;
 use stremio_core::models::library_with_filters::Selected as LibrarySelected;
 use stremio_core::runtime::msg::{
     Action, ActionCatalogWithFilters, ActionCtx, ActionLibraryWithFilters, ActionLoad,
@@ -22,6 +23,7 @@ use crate::plumbing::images::Images;
 use crate::plumbing::links;
 use crate::plumbing::player::VideoPlayer;
 use crate::plumbing::plugin::Event;
+use crate::plumbing::skip;
 use crate::plumbing::stream_server::{self, Supervisor};
 use crate::plumbing::theme;
 use crate::screens::player::{auto_subtitle, SubtitleChoice, SubtitleTrackFacts};
@@ -472,6 +474,12 @@ pub(crate) struct Playback {
     /// The Video the plugins were last told is playing, empty when they were told it stopped.
     /// mpv reports the same file forty times a second, and a plugin hears about it once.
     pub(crate) said: String,
+    /// The skip segments of the Video on screen, and which Video they were fetched for: a Video
+    /// that has none keeps its id here so nothing is asked for it twice.
+    pub(crate) skip: Vec<skip::Segment>,
+    pub(crate) skip_for: String,
+    /// The segment holding the play head, which is what the button acts on.
+    pub(crate) skip_now: Option<skip::Segment>,
 }
 
 impl Default for Playback {
@@ -483,6 +491,9 @@ impl Default for Playback {
             paused: None,
             scale: stremio_core::types::player::VideoScale::Contain,
             said: String::new(),
+            skip: Vec::new(),
+            skip_for: String::new(),
+            skip_now: None,
         }
     }
 }
@@ -784,6 +795,20 @@ impl Wiring {
         self.repaint_with(snapshot);
     }
 
+    /// The Settings switch: whether the player offers the skip button. A choice of this shell,
+    /// so it goes to `settings.json` and the screen only has to redraw.
+    fn toggle_skip_intros(&self, on: bool) {
+        let skip = {
+            let mut extras = self.local_extras.lock().unwrap();
+            extras.skip_intros = on;
+            extras.save(&self.data_dir);
+            extras.skip_intros
+        };
+        let mut snapshot = self.latest.lock().unwrap().clone();
+        snapshot.settings.skip_intros = skip;
+        self.repaint_with(snapshot);
+    }
+
     /// A Stream was clicked: the player screen opens on it, and the core loads the rest.
     fn play_stream(&self, index: i32) {
         let index = usize::try_from(index).unwrap_or(usize::MAX);
@@ -940,6 +965,55 @@ impl Wiring {
             self.playback.lock().unwrap().sent_time = time;
             player::time_changed(&self.runtime, time, duration, "mpv".to_owned());
         }
+        // The skip button. The segments are fetched once per Video, once its length is known
+        // (AniSkip's answer depends on it), and every status decides whether the play head is
+        // inside one. A source that does not answer leaves the button away, not an error.
+        let video = self.latest.lock().unwrap().player.video_id.clone();
+        let skip_wanted = self.local_extras.lock().unwrap().skip_intros;
+        {
+            let mut playback = self.playback.lock().unwrap();
+            if !skip_wanted {
+                playback.skip.clear();
+                playback.skip_for.clear();
+            } else if playback.skip_for != video {
+                playback.skip.clear();
+                playback.skip_for = String::new();
+                if status.loaded && duration > 0.0 && !video.is_empty() {
+                    if let Some((meta_id, season, episode)) = self.skip_target() {
+                        playback.skip_for = video.clone();
+                        let playback = Arc::clone(&self.playback);
+                        let for_video = video.clone();
+                        self.handle.spawn(async move {
+                            let found = skip::segments(&meta_id, season, episode, duration).await;
+                            if let Ok(mut playback) = playback.lock() {
+                                // The player may have moved to another Video while the source
+                                // was answering, and its segments are not this one's.
+                                if playback.skip_for == for_video {
+                                    playback.skip = found;
+                                }
+                            }
+                        });
+                    }
+                }
+            }
+            playback.skip_now = if skip_wanted {
+                playback
+                    .skip
+                    .iter()
+                    .copied()
+                    .find(|segment| segment.holds(time))
+            } else {
+                None
+            };
+            window.set_player_skip_visible(playback.skip_now.is_some());
+            window.set_player_skip_label(
+                playback
+                    .skip_now
+                    .map(|segment| segment.kind.label())
+                    .unwrap_or_default()
+                    .into(),
+            );
+        }
         if status.paused.is_some() && status.paused != was_paused {
             player::paused_changed(&self.runtime, status.paused.unwrap_or(false));
         }
@@ -1016,6 +1090,29 @@ impl Wiring {
 
     fn player_play_next(&self) {
         let _ = player::next(&self.runtime);
+    }
+
+    /// What the skip source needs to name the Episode on screen: the show's own id (not the
+    /// Video's), the season and the episode. Anything that is not an Episode has none.
+    fn skip_target(&self) -> Option<(String, u32, u32)> {
+        let model = self.runtime.model().ok()?;
+        let series = model.player.series_info.as_ref()?;
+        let Loadable::Ready(meta) = model.player.meta_item.as_ref()?.content.as_ref()? else {
+            return None;
+        };
+        Some((meta.preview.id.to_string(), series.season, series.episode))
+    }
+
+    /// The skip button: the picture goes to the end of the segment the play head is inside,
+    /// a breath past it so the segment is behind the play head rather than on its edge.
+    fn player_skip(&self) {
+        let (end, time) = {
+            let playback = self.playback.lock().unwrap();
+            (playback.skip_now.map(|segment| segment.end), playback.time)
+        };
+        if let Some(end) = end.filter(|end| *end > time) {
+            self.player_seek((end + 0.5) as f32);
+        }
     }
 
     fn player_seek(&self, time: f32) {
@@ -2874,6 +2971,10 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
     }
     {
         let wiring = wiring.clone();
+        window.on_player_skip(move || wiring.player_skip());
+    }
+    {
+        let wiring = wiring.clone();
         window.on_player_seek(move |time| wiring.player_seek(time));
     }
     {
@@ -3198,6 +3299,10 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
         window.on_toggle_setting_option(move |key, enabled| {
             wiring.toggle_setting_option(key.to_string(), enabled)
         });
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_toggle_skip_intros(move |on| wiring.toggle_skip_intros(on));
     }
     {
         let wiring = wiring.clone();

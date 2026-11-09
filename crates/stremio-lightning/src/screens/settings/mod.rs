@@ -54,7 +54,7 @@ impl Default for PlayerConfig {
 // written: `save` rewrites the whole file from this struct. Ignoring it is what keeps a
 // `settings.json` from another build from taking the choices this one reads down with it; without
 // that, one unknown key turned every plugin and theme the user had switched on back off.
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct LocalExtras {
     pub overrides: HashMap<String, Value>,
@@ -63,6 +63,10 @@ pub struct LocalExtras {
     /// written by an older build still load.
     #[serde(default)]
     pub wrap_streams: bool,
+    /// Whether the player offers the AniSkip button. A feature of this shell, so it lives beside
+    /// the other local choices and not in the profile.
+    #[serde(default = "yes")]
+    pub skip_intros: bool,
     /// The plugin files the Mods screen has switched on, by file name. This build does not run
     /// plugin code, so the list is a remembered choice. Absent means none.
     #[serde(default)]
@@ -72,6 +76,18 @@ pub struct LocalExtras {
     /// means none.
     #[serde(default)]
     pub enabled_themes: Vec<String>,
+}
+
+impl Default for LocalExtras {
+    fn default() -> Self {
+        Self {
+            overrides: HashMap::new(),
+            wrap_streams: false,
+            skip_intros: true,
+            enabled_plugins: Vec::new(),
+            enabled_themes: Vec::new(),
+        }
+    }
 }
 
 impl LocalExtras {
@@ -129,6 +145,13 @@ pub struct Data {
     pub player_config: PlayerConfig,
     /// Whether the Streams list wraps its descriptions.
     pub wrap_streams: bool,
+    /// Whether the player offers the AniSkip button.
+    pub skip_intros: bool,
+}
+
+/// A switch that starts on: a file written before the switch existed still has the feature.
+fn yes() -> bool {
+    true
 }
 
 fn merged_settings_value(settings: &ProfileSettings, extras: &LocalExtras) -> Value {
@@ -205,6 +228,7 @@ pub(crate) fn data_from_profile(profile: &Profile, extras: &LocalExtras) -> Data
         transcoding_profile: input("transcodingProfile"),
         player_config,
         wrap_streams: extras.wrap_streams,
+        skip_intros: extras.skip_intros,
     }
 }
 

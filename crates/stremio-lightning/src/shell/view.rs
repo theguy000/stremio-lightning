@@ -851,6 +851,7 @@ pub(crate) fn settings_view(data: &SettingsData) -> SettingsViewData {
         caching: select(data.caching.clone()),
         torrent_profile: select(data.torrent_profile.clone()),
         transcoding_profile: select(data.transcoding_profile.clone()),
+        skip_intros: data.skip_intros,
     }
 }
 
