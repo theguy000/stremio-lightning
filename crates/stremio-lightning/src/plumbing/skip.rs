@@ -371,22 +371,29 @@ fn segments_of(value: &Value) -> Vec<Segment> {
 #[must_use]
 pub fn runtime_seconds(text: &str) -> Option<f64> {
     let mut seconds = 0.0;
+    let mut number: Option<f64> = None;
     let mut found = false;
+    // "24 min" is a number and a unit in two words; "24min" is one. Both are read.
     for part in text.split_whitespace() {
-        let (number, unit) = match part.find(|c: char| c.is_alphabetic()) {
-            Some(at) => (part[..at].trim(), part[at..].trim()),
-            None => continue,
+        let (digits, unit) = match part.find(|c: char| c.is_alphabetic()) {
+            Some(at) => (&part[..at], &part[at..]),
+            None => (part, ""),
         };
-        let Ok(value) = number.parse::<f64>() else {
+        if let Ok(value) = digits.parse::<f64>() {
+            number = Some(value);
+        }
+        if unit.is_empty() {
             continue;
-        };
+        }
         let factor = match unit {
             "h" | "hr" | "hrs" | "hour" | "hours" => 3600.0,
             "m" | "min" | "mins" | "minute" | "minutes" => 60.0,
             _ => continue,
         };
-        seconds += value * factor;
-        found = true;
+        if let Some(value) = number.take() {
+            seconds += value * factor;
+            found = true;
+        }
     }
     found.then_some(seconds)
 }
