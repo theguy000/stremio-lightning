@@ -202,10 +202,9 @@ export component MainWindow inherits Window {
     in property <string> player-next-label;
     in property <bool> player-has-next: false;
     in property <float> player-next-notice: 35;
-    /// The skip button above the control bar: its words, and whether the play head is
-    /// inside a segment AniSkip knows about.
+    /// The skip button above the control bar: whether the play head is inside a segment
+    /// AniSkip knows about.
     in property <bool> player-skip-visible: false;
-    in property <string> player-skip-label;
     /// Where those segments sit on the seek bar, as fractions of the length.
     in property <[SkipMark]> player-skip-marks;
     in-out property <Section> section: Section.board;
@@ -500,7 +499,6 @@ callback player-skip();
         next-notice: root.player-next-notice;
         skip-visible: root.player-skip-visible;
         skip-marks: root.player-skip-marks;
-        skip-label: root.player-skip-label;
         init => {
             self.focus-player();
         }

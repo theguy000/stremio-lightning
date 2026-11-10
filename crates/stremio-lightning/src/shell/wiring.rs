@@ -1090,13 +1090,6 @@ impl Wiring {
                 };
             }
             window.set_player_skip_visible(playback.skip_now.is_some());
-            window.set_player_skip_label(
-                playback
-                    .skip_now
-                    .map(|segment| segment.kind.label())
-                    .unwrap_or_default()
-                    .into(),
-            );
             // The bar's own record of the segments: fractions of the length, so it marks an
             // Opening before the button offers it. The marks belong to the Video they were fetched
             // for, which is the one in the player only while `skip_for` says so.

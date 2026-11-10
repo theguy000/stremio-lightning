@@ -207,7 +207,7 @@ component PlayerSlider inherits Rectangle {
         width: Math.max(0.15 * root.rem-size, parent.width * (mark.end - mark.start));
         height: root.track-size;
         border-radius: root.track-size;
-        background: Theme.accent;
+        background: Theme.accent-yellow;
     }
     // Web: `:hover .thumb { transform: scale(1.2) }`, a circle growing about its own middle.
     Rectangle {
@@ -679,10 +679,9 @@ export component PlayerScreen inherits Rectangle {
     in property <bool> has-next;
     /// How close to the end the next Video is offered, in seconds.
     in property <float> next-notice: 35;
-    /// The skip button: its words while the play head is inside a segment, and whether
-    /// it is. The shell decides both; the screen only draws them.
+    /// The skip button: whether the play head is inside a segment. The shell decides it; the
+    /// screen only draws the disc.
     in property <bool> skip-visible: false;
-    in property <string> skip-label;
     /// Where the skip segments sit on the bar, as fractions of the length.
     in property <[SkipMark]> skip-marks;
 
@@ -1173,25 +1172,27 @@ export component PlayerScreen inherits Rectangle {
     // which clears the control bar. It is not part of the controls layer, so fading the controls
     // out does not take the one action on screen with them.
     if root.skip-visible: Rectangle {
-        // A fixed width, not the text's: a Text whose width comes from its parent and whose
-        // parent's width comes from the text is a binding loop, and the pill came out empty.
-        width: 10.5 * root.rem-size;
-        height: 2.4 * root.rem-size;
+        // A disc, not a pill: the words are gone and the glyph says what the press does. The
+        // border is the control bar's hairline; the yellow is the accent the seek bar marks with,
+        // so the button and its stretch are one colour.
+        width: 3.2 * root.rem-size;
+        height: 3.2 * root.rem-size;
         x: root.width - self.width - 1.7 * root.rem-size;
         y: root.height - self.height - 9 * root.rem-size;
-        border-radius: self.height / 2;
-        background: Theme.accent;
+        border-radius: self.width / 2;
+        background: Theme.accent-yellow;
+        border-width: 1px;
+        border-color: #ffffff40;
+        drop-shadow-blur: 26px;
+        drop-shadow-color: #00000055;
 
-        skip-words := Text {
-            x: 0.6 * root.rem-size;
-            width: parent.width - 1.2 * root.rem-size;
-            height: parent.height;
-            text: root.skip-label;
-            color: Theme.on-accent;
-            font-size: 0.95 * root.rem-size;
-            font-weight: 700;
-            horizontal-alignment: center;
-            vertical-alignment: center;
+        skip-glyph := Image {
+            width: 1.7 * root.rem-size;
+            height: self.width;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            source: @image-url("icons/skip-forward.svg");
+            colorize: Theme.on-accent;
         }
         skip-touch := TouchArea {
             mouse-cursor: pointer;
