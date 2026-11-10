@@ -27,7 +27,7 @@ pub enum Kind {
 }
 
 impl Kind {
-    /// The words the player's button shows.
+    /// The words the Logs page uses for this kind.
     pub fn label(self) -> &'static str {
         match self {
             Self::Opening => "Skip Opening",
@@ -55,23 +55,14 @@ impl Segment {
 /// The skip times for one episode, empty when there are none or nothing answered.
 ///
 /// `meta_id` is the show's id (`tt0944947`, `kitsu:11614`), `season` the season being watched
-/// (zero when the type has no seasons) and `duration` the episode's length in seconds.
-///
-/// `nominal` is the show's own runtime ("24 min") when it says one. AniSkip keys its submissions
-/// by the length the release had, and one release's length can match a submission whose times are
-/// wrong: asking with the show's runtime instead of the file's exact length lands on the entry most
-/// releases share. The file's length is the fallback.
-pub async fn segments(
-    meta_id: &str,
-    season: u32,
-    episode: u32,
-    duration: f64,
-    nominal: Option<f64>,
-) -> Vec<Segment> {
+/// (zero when the type has no seasons) and `duration` the episode's length in seconds. The length
+/// is what AniSkip keys its submissions by, so it is the file's own length and never the show's
+/// nominal runtime: a submission answers for the release it was measured on.
+pub async fn segments(meta_id: &str, season: u32, episode: u32, duration: f64) -> Vec<Segment> {
     if !(duration.is_finite() && duration > 0.0) || meta_id.is_empty() || episode == 0 {
         return Vec::new();
     }
-    let asked = nominal.filter(|length| length.is_finite() && *length > 0.0).unwrap_or(duration);
+    let asked = duration;
     let key = format!("{meta_id}:{season}:{episode}:{}", asked.round() as u64);
     if let Some(hit) = cached(&key) {
         return hit;
@@ -328,15 +319,23 @@ async fn skip_times(mal: u32, episode: u32, duration: f64) -> Vec<Segment> {
     );
     get_json(&url)
         .await
-        .map(|value| segments_of(&value))
+        .map(|value| segments_of(&value, duration))
         .unwrap_or_default()
 }
 
-fn segments_of(value: &Value) -> Vec<Segment> {
+/// The segments one AniSkip answer holds, fitted to the file they are for.
+///
+/// The API matches a file to the nearest release by length, and one answer can carry segments
+/// from more than one release. So the answer is read a release at a time, the release closest to
+/// the file's own length is the one that answers, and its ending is pinned to the end of the
+/// file: releases differ mostly in how much ending they carry, and a file that runs 18 seconds
+/// shorter than the submission has its ending 18 seconds earlier while the opening stays where
+/// the submission put it.
+fn segments_of(value: &Value, duration: f64) -> Vec<Segment> {
     if value.get("found").and_then(Value::as_bool) != Some(true) {
         return Vec::new();
     }
-    let mut found = Vec::new();
+    let mut releases: Vec<(f64, Vec<Segment>)> = Vec::new();
     for result in value
         .get("results")
         .and_then(Value::as_array)
@@ -358,44 +357,42 @@ fn segments_of(value: &Value) -> Vec<Segment> {
         let Some(end) = result.pointer("/interval/endTime").and_then(Value::as_f64) else {
             continue;
         };
-        if end > start {
-            found.push(Segment { kind, start, end });
-        }
-    }
-    found.sort_by(|a, b| a.start.total_cmp(&b.start));
-    found
-}
-
-/// The seconds a runtime string names: "24 min", "1h 24 min", "24m". Anything else is `None`,
-/// and the caller falls back to the file's own length.
-#[must_use]
-pub fn runtime_seconds(text: &str) -> Option<f64> {
-    let mut seconds = 0.0;
-    let mut number: Option<f64> = None;
-    let mut found = false;
-    // "24 min" is a number and a unit in two words; "24min" is one. Both are read.
-    for part in text.split_whitespace() {
-        let (digits, unit) = match part.find(|c: char| c.is_alphabetic()) {
-            Some(at) => (&part[..at], &part[at..]),
-            None => (part, ""),
-        };
-        if let Ok(value) = digits.parse::<f64>() {
-            number = Some(value);
-        }
-        if unit.is_empty() {
+        if !(end > start) {
             continue;
         }
-        let factor = match unit {
-            "h" | "hr" | "hrs" | "hour" | "hours" => 3600.0,
-            "m" | "min" | "mins" | "minute" | "minutes" => 60.0,
-            _ => continue,
-        };
-        if let Some(value) = number.take() {
-            seconds += value * factor;
-            found = true;
+        let length = result
+            .get("episodeLength")
+            .and_then(Value::as_f64)
+            .unwrap_or(duration);
+        // One release per tenth of a second: two submissions of the same release carry the same
+        // length to the tenth, and two releases do not.
+        match releases
+            .iter_mut()
+            .find(|(known, _)| (known * 10.0).round() == (length * 10.0).round())
+        {
+            Some((_, segments)) => segments.push(Segment { kind, start, end }),
+            None => releases.push((length, vec![Segment { kind, start, end }])),
         }
     }
-    found.then_some(seconds)
+    let Some((length, mut found)) = releases.into_iter().min_by(|(a, _), (b, _)| {
+        (a - duration).abs().total_cmp(&(b - duration).abs())
+    }) else {
+        return Vec::new();
+    };
+    for segment in &mut found {
+        if segment.kind == Kind::Ending && (duration - length).abs() > 1.0 {
+            let span = segment.end - segment.start;
+            segment.end = duration;
+            segment.start = (duration - span).max(0.0);
+        }
+    }
+    found.retain(|segment| segment.start < duration);
+    for segment in &mut found {
+        segment.end = segment.end.min(duration);
+    }
+    found.retain(|segment| segment.end > segment.start);
+    found.sort_by(|a, b| a.start.total_cmp(&b.start));
+    found
 }
 
 #[cfg(test)]
@@ -447,15 +444,6 @@ mod tests {
     }
 
     #[test]
-    fn a_runtime_string_becomes_seconds() {
-        assert_eq!(runtime_seconds("24 min"), Some(1440.0));
-        assert_eq!(runtime_seconds("1h 24 min"), Some(5040.0));
-        assert_eq!(runtime_seconds("24m"), Some(1440.0));
-        assert_eq!(runtime_seconds(""), None);
-        assert_eq!(runtime_seconds("feature length"), None);
-    }
-
-    #[test]
     fn skip_times_are_read_in_order() {
         let value = json!({
             "found": true,
@@ -465,12 +453,50 @@ mod tests {
                 { "skipType": "mixed", "interval": { "startTime": 1.0, "endTime": 2.0 } }
             ]
         });
-        let found = segments_of(&value);
+        let found = segments_of(&value, 1440.0);
         assert_eq!(found.len(), 2);
         assert_eq!(found[0].kind, Kind::Opening);
         assert!(found[0].holds(150.0));
         assert!(!found[0].holds(220.0));
         assert_eq!(found[1].kind, Kind::Ending);
-        assert_eq!(segments_of(&json!({ "found": false })).len(), 0);
+        assert_eq!(segments_of(&json!({ "found": false }), 1440.0).len(), 0);
+    }
+
+    #[test]
+    fn the_ending_follows_a_file_that_runs_short() {
+        let value = json!({
+            "found": true,
+            "results": [
+                { "skipType": "op", "interval": { "startTime": 194.0, "endTime": 284.0 }, "episodeLength": 1381.0 },
+                { "skipType": "ed", "interval": { "startTime": 1291.0, "endTime": 1381.0 }, "episodeLength": 1381.0 }
+            ]
+        });
+        let found = segments_of(&value, 1363.0);
+        assert_eq!(found.len(), 2);
+        assert_eq!(
+            found[0],
+            Segment { kind: Kind::Opening, start: 194.0, end: 284.0 }
+        );
+        assert_eq!(
+            found[1],
+            Segment { kind: Kind::Ending, start: 1273.0, end: 1363.0 }
+        );
+    }
+
+    #[test]
+    fn the_release_closest_to_the_file_answers_alone() {
+        let value = json!({
+            "found": true,
+            "results": [
+                { "skipType": "op", "interval": { "startTime": 112.0, "endTime": 202.0 }, "episodeLength": 1440.065 },
+                { "skipType": "ed", "interval": { "startTime": 1342.0, "endTime": 1431.0 }, "episodeLength": 1431.984 }
+            ]
+        });
+        let found = segments_of(&value, 1363.0);
+        // The nearer release carries only the ending; the opening belonged to the other release
+        // and is not borrowed from it.
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].kind, Kind::Ending);
+        assert_eq!(found[0].end, 1363.0);
     }
 }

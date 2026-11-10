@@ -976,7 +976,7 @@ impl Wiring {
             playback.skip.clear();
             playback.skip_for.clear();
         } else if status.loaded && duration > 0.0 {
-            if let Some((video, meta_id, season, episode, nominal)) = self.skip_target() {
+            if let Some((video, meta_id, season, episode)) = self.skip_target() {
                 let ask = {
                     let mut playback = self.playback.lock().unwrap();
                     if playback.skip_for == video {
@@ -993,15 +993,14 @@ impl Wiring {
                         "Skip",
                         crate::plumbing::logs::Level::Info,
                         format!(
-                            "Asking AniSkip for {meta_id} season {season} episode {episode} ({}s)",
-                            nominal.map_or_else(|| format!("{duration:.0}"), |n| format!("{n:.0}"))
+                            "Asking AniSkip for {meta_id} season {season} episode {episode} ({duration:.0}s)"
                         ),
                     );
                     let playback = Arc::clone(&self.playback);
                     let logs = Arc::clone(&self.logs);
                     let for_video = video;
                     self.handle.spawn(async move {
-                        let found = skip::segments(&meta_id, season, episode, duration, nominal).await;
+                        let found = skip::segments(&meta_id, season, episode, duration).await;
                         let listing = found
                             .iter()
                             .map(|segment| {
@@ -1203,7 +1202,7 @@ impl Wiring {
 
     /// The Video on screen and what the skip source needs to name its Episode: the show's own id
     /// (not the Video's), the season and the episode. Anything that is not an Episode has none.
-    fn skip_target(&self) -> Option<(String, String, u32, u32, Option<f64>)> {
+    fn skip_target(&self) -> Option<(String, String, u32, u32)> {
         let model = self.runtime.model().ok()?;
         let video = model
             .player
@@ -1223,10 +1222,6 @@ impl Wiring {
             meta.preview.id.to_string(),
             series.season,
             series.episode,
-            meta.preview
-                .runtime
-                .as_deref()
-                .and_then(skip::runtime_seconds),
         ))
     }
 
