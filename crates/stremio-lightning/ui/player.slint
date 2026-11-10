@@ -1420,10 +1420,10 @@ export component PlayerScreen inherits Rectangle {
                 }
             }
 
-            // The timing panel, left of the menu cluster. The web had no such button -- AniSkip
+            // The timing panel, right of the speed button. The web had no such button -- AniSkip
             // lived in an extension -- so it takes the place the cluster grows into.
             if root.skip-submit: PlayerButton {
-                x: bar.last - (root.has-episodes ? 6 : 5) * bar.step;
+                x: bar.last - (root.has-episodes ? 5 : 4) * bar.step;
                 rem-size: root.rem-size;
                 glyph: @image-url("icons/thumbs-up.svg");
                 lit: root.menu == "skip";
@@ -1439,9 +1439,9 @@ export component PlayerScreen inherits Rectangle {
             }
 
             // Web: the menu cluster, right-aligned: speed, subtitles, audio, episodes, scale, and
-            // the options menu.
+            // the options menu. The timing button above sits between speed and subtitles.
             PlayerButton {
-                x: bar.last - (root.has-episodes ? 5 : 4) * bar.step;
+                x: bar.last - (root.has-episodes ? 6 : 5) * bar.step;
                 rem-size: root.rem-size;
                 glyph: @image-url("icons/speed.svg");
                 lit: root.menu == "speed";
