@@ -253,6 +253,10 @@ impl Data {
         for kind in [catalogue::Kind::Plugin, catalogue::Kind::Theme] {
             let known = self.updates.of(kind);
             for card in self.cards_of_mut(kind) {
+                // A built-in ships with the app: no registry entry, no update line.
+                if card.builtin {
+                    continue;
+                }
                 card.update = marketplace::state(kind, known.get(&card.filename));
             }
         }

@@ -253,7 +253,8 @@ component ModToggle inherits Rectangle {
         width: parent.height - 4 * root.rem-size / 14;
         height: self.width;
         border-radius: self.width / 2;
-        background: root.on ? Theme.on-accent : Theme.placeholder;
+        // The knob is white in both positions: the track alone says which state the switch is in.
+        background: Theme.text;
     }
     touch := TouchArea {
         width: 100%;
@@ -321,7 +322,9 @@ component ModSettingsButton inherits Rectangle {
     width: 3 * root.rem-size;
     height: 3 * root.rem-size;
     border-radius: self.width / 2;
-    background: touch.has-hover ? Theme.overlay : transparent;
+    // A disc behind the gear, so the button reads as a control of the page rather than an icon
+    // that happens to be on the card.
+    background: touch.has-hover ? #ffffff24 : #ffffff14;
 
     Image {
         x: (parent.width - self.width) / 2;
@@ -421,9 +424,8 @@ component ModCardView inherits Rectangle {
     callback dismiss();
 
     property <length> pad: 1.5 * root.rem-size;
-    // Wide enough for the switch and the longest state it names ("Not enabled"), which the card
-    // draws beside it on one line.
-    property <length> buttons-width: 10 * root.rem-size;
+    // Just the switch: the card does not name the state in words, the switch is the state.
+    property <length> buttons-width: 3.2 * root.rem-size;
     property <length> text-width: root.width - 2 * root.pad - root.buttons-width - root.rem-size;
     // What the card says under its title block: the description, then why it has no name, then
     // one line per warning, then the update check's answer. The card grows to fit them, so no
@@ -554,17 +556,6 @@ component ModCardView inherits Rectangle {
                     root.toggle();
                 }
             }
-            mod-state := Text {
-                x: mod-toggle.width + 0.6 * root.rem-size;
-                y: 0px;
-                width: parent.width - self.x;
-                height: parent.height;
-                text: (root.data.enabled ? "" : "Not ") + root.data.state;
-                overflow: elide;
-                vertical-alignment: center;
-                font-size: root.rem-size;
-                color: ClassStyles.color-or(ClassStyles.mod-toggle-container, root.data.enabled ? Theme.accent-green : Theme.text);
-            }
         }
 
         // What the update check found for this file. It sits under everything else the card says,
@@ -665,33 +656,31 @@ component SettingsFieldView inherits Rectangle {
     callback slid(float);
 
     property <length> pad: 0.8 * rem-size;
-    property <length> label-width: 16 * rem-size;
-    property <length> control-width: Math.max(0px, root.width - root.pad - root.label-width - 2 * rem-size);
-    // Where the field's own control goes: beside its label, under the first line of it.
-    property <length> control-x: root.pad + root.label-width;
-    property <length> control-y: root.pad + 0.2 * rem-size;
+    // A setting is a block: its label, its control under it, and the hint under that. The control
+    // keeps a readable width instead of stretching across a page this wide.
+    property <length> control-width: Math.min(Math.max(0px, root.width - 2 * root.pad), 36 * rem-size);
+    property <length> control-x: root.pad;
+    property <length> control-y: root.pad + 2.2 * rem-size;
 
-    // The row: the label, the control beside it, and the hint under the control. Every row is this
-    // height, so the rows of the page's `for` line up.
-    height: 6.4 * rem-size;
+    height: 7.2 * rem-size;
 
     settings-field-label := Text {
         x: root.pad;
-        y: root.pad + 0.2 * rem-size;
-        width: root.label-width - 2 * rem-size;
-        height: 2 * rem-size;
+        y: root.pad;
+        width: parent.width - 2 * root.pad;
+        height: 1.6 * rem-size;
         text: root.field.label;
-        wrap: word-wrap;
         overflow: elide;
-        vertical-alignment: top;
-        font-size: 1.1 * rem-size;
+        vertical-alignment: center;
+        font-size: 1.05 * rem-size;
+        font-weight: 600;
         color: Theme.text;
     }
     // Every kind says what it is under its control, in one line: the range, the options, or what
     // the app makes of a kind it cannot draw. A kind it cannot draw has no control at all.
     settings-field-hint := Text {
         x: root.control-x;
-        y: root.pad + 3.4 * rem-size;
+        y: root.control-y + 2.8 * rem-size;
         width: root.control-width;
         height: 1.2 * rem-size;
         text: root.field.hint;
@@ -716,7 +705,7 @@ component SettingsFieldView inherits Rectangle {
             width: parent.height - 4 * root.rem-size / 14;
             height: self.width;
             border-radius: self.width / 2;
-            background: root.field.on ? Theme.on-accent : Theme.placeholder;
+            background: Theme.text;
         }
         touch := TouchArea {
             width: 100%;
@@ -1434,11 +1423,21 @@ export component ModsContent inherits Rectangle {    // The height every card on
             }
         }
 
-        if root.on-settings: Rectangle {
+        if root.on-settings: settings-box := Rectangle {
             x: root.page-padding;
             y: root.list-top + 3.6 * root.rem-size;
             width: root.page-width;
             height: Math.max(root.list-height - 3.6 * root.rem-size, 0px);
+
+            // The page uses the whole viewport: a header row with the name and the two buttons,
+            // then one full-width block per field. The old split layout sized every row for a
+            // 16rem label column beside its control, which left most of this width empty.
+            property <length> header-height: 3.2 * root.rem-size;
+            property <length> state-height: root.data.settings-state == "" ? 0px : 2.6 * root.rem-size;
+            property <length> trouble-height: root.data.settings-trouble.length * 1.2 * root.rem-size;
+            property <length> fields-y: settings-box.header-height + settings-box.state-height
+                + settings-box.trouble-height
+                + (settings-box.trouble-height == 0px ? 0.4 * root.rem-size : 0.8 * root.rem-size);
 
             settings-fields := Flickable {
                 x: 0px;
@@ -1446,58 +1445,27 @@ export component ModsContent inherits Rectangle {    // The height every card on
                 width: parent.width;
                 height: parent.height;
                 content-width: self.width;
-                // The picked plugin's name and state, then what is wrong with the page, then Save and
-                // Revert, then one row per control.
-                content-height: settings-name.height + (settings-state.text == "" ? 0px : 2.4 * root.rem-size)
-                    + 2 * 1.2 * root.rem-size + 4 * root.rem-size
-                    + root.data.settings-fields.length * (6.4 * root.rem-size + 0.75 * root.rem-size);
+                content-height: settings-box.fields-y
+                    + root.data.settings-fields.length * 8 * root.rem-size
+                    + 2 * root.rem-size;
 
-                settings-name := Text {
+                settings-header := HorizontalLayout {
                     x: 0px;
                     y: 0px;
                     width: parent.width - 8px;
-                    height: 3 * root.rem-size;
-                    text: root.data.settings-title;
-                    overflow: elide;
-                    vertical-alignment: center;
-                    font-size: 1.6 * root.rem-size;
-                    font-weight: 700;
-                    color: Theme.text;
-                }
-                settings-state := Text {
-                    x: 0px;
-                    y: settings-name.height;
-                    width: parent.width - 8px;
-                    height: 2.4 * root.rem-size;
-                    // Running, why it stopped, or nothing at all for a plugin that is off: the
-                    // runtime's own sentence, never this page's guess.
-                    text: root.data.settings-state;
-                    wrap: word-wrap;
-                    vertical-alignment: top;
-                    font-size: root.rem-size;
-                    color: root.data.settings-state-failed ? Theme.accent-red : Theme.accent-green;
-                }
-                // What is wrong with the page: a schema this app cannot use, a file it cannot read,
-                // values typed and not saved. Save is still on while values are typed.
-                for trouble[index] in root.data.settings-trouble: settings-trouble := Text {
-                    x: 0px;
-                    y: settings-name.height + (settings-state.text == "" ? 0px : 2.4 * root.rem-size) + index * 1.2 * root.rem-size;
-                    width: parent.width - 8px;
-                    height: 1.2 * root.rem-size;
-                    text: trouble;
-                    overflow: elide;
-                    font-size: 0.9 * root.rem-size;
-                    color: Theme.accent-red;
-                }
-                settings-buttons := HorizontalLayout {
-                    x: 0px;
-                    y: settings-name.height + (settings-state.text == "" ? 0px : 2.4 * root.rem-size)
-                        + 2 * 1.2 * root.rem-size;
-                    width: parent.width - 8px;
-                    height: 3 * root.rem-size;
+                    height: settings-box.header-height;
                     spacing: 1.2 * root.rem-size;
                     alignment: start;
 
+                    Text {
+                        horizontal-stretch: 1;
+                        text: root.data.settings-title;
+                        overflow: elide;
+                        vertical-alignment: center;
+                        font-size: 1.6 * root.rem-size;
+                        font-weight: 700;
+                        color: Theme.text;
+                    }
                     SettingsButton {
                         rem-size: root.rem-size;
                         label-text: "Save";
@@ -1519,9 +1487,33 @@ export component ModsContent inherits Rectangle {    // The height every card on
                         }
                     }
                 }
+                settings-state := Text {
+                    x: 0px;
+                    y: settings-box.header-height;
+                    width: parent.width - 8px;
+                    height: settings-box.state-height;
+                    // Running, why it stopped, or nothing at all: the runtime's own sentence.
+                    text: root.data.settings-state;
+                    wrap: word-wrap;
+                    vertical-alignment: top;
+                    font-size: root.rem-size;
+                    color: root.data.settings-state-failed ? Theme.accent-red : Theme.accent-green;
+                }
+                // What is wrong with the page: a schema this app cannot use, a file it cannot read,
+                // values typed and not saved.
+                for trouble[index] in root.data.settings-trouble: settings-trouble := Text {
+                    x: 0px;
+                    y: settings-box.header-height + settings-box.state-height + index * 1.2 * root.rem-size;
+                    width: parent.width - 8px;
+                    height: 1.2 * root.rem-size;
+                    text: trouble;
+                    overflow: elide;
+                    font-size: 0.9 * root.rem-size;
+                    color: Theme.accent-red;
+                }
                 for field[index] in root.data.settings-fields: SettingsFieldView {
                     x: 0px;
-                    y: settings-buttons.y + settings-buttons.height + index * (6.4 * root.rem-size + 0.75 * root.rem-size);
+                    y: settings-box.fields-y + index * 8 * root.rem-size;
                     width: parent.width - 8px;
                     rem-size: root.rem-size;
                     field: field;
@@ -1540,7 +1532,7 @@ export component ModsContent inherits Rectangle {    // The height every card on
                 }
                 if root.data.settings-empty != "": settings-said := Text {
                     x: 0px;
-                    y: settings-buttons.y + settings-buttons.height;
+                    y: settings-box.fields-y + root.data.settings-fields.length * 8 * root.rem-size;
                     width: parent.width - 8px;
                     height: 3 * root.rem-size;
                     text: root.data.settings-empty;
