@@ -12,8 +12,8 @@ import { SettingsContent, SettingsViewData } from "settings.slint";
 import { SelectOption } from "multiselect-menu.slint";
 import { LinkGroup, PreviewData } from "meta-preview.slint";
 import { DetailsScreen, StreamData } from "details-screen.slint";
-import { LanguageOption, PlayerScreen, PlayerEpisode, PlayerOption, PlayerTrack } from "player.slint";
-export { PlayerEpisode, PlayerOption, PlayerTrack }
+import { LanguageOption, PlayerScreen, PlayerEpisode, PlayerOption, PlayerTrack, SkipMark } from "player.slint";
+export { PlayerEpisode, PlayerOption, PlayerTrack, SkipMark }
 import { VideoRow } from "videos-list.slint";
 export { AddonData, LanguageOption, LibraryCard, LibrarySort, LinkGroup, ModCardData, ModsNavItem, ModsViewData, PreviewData, SelectInputData, SelectOption, SettingsViewData, StreamData, VideoRow }
 import { ClassStyle, ClassStyles } from "class-styles.slint";
@@ -206,6 +206,8 @@ export component MainWindow inherits Window {
     /// inside a segment AniSkip knows about.
     in property <bool> player-skip-visible: false;
     in property <string> player-skip-label;
+    /// Where those segments sit on the seek bar, as fractions of the length.
+    in property <[SkipMark]> player-skip-marks;
     in-out property <Section> section: Section.board;
     in-out property <bool> auth-open: false;
     in-out property <string> auth-error: "";
@@ -497,6 +499,7 @@ callback player-skip();
         has-next: root.player-has-next;
         next-notice: root.player-next-notice;
         skip-visible: root.player-skip-visible;
+        skip-marks: root.player-skip-marks;
         skip-label: root.player-skip-label;
         init => {
             self.focus-player();

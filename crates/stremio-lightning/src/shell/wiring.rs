@@ -482,6 +482,9 @@ pub(crate) struct Playback {
     pub(crate) skip_now: Option<skip::Segment>,
     /// How many segments were last said on the Logs page, so a change is one line.
     pub(crate) skip_total: usize,
+    /// The marks last handed to the seek bar, as fractions of the length. Kept so a bar that has
+    /// not changed is not handed a fresh model forty times a second.
+    pub(crate) skip_marks: Vec<(f32, f32)>,
 }
 
 impl Default for Playback {
@@ -497,6 +500,7 @@ impl Default for Playback {
             skip_for: String::new(),
             skip_now: None,
             skip_total: 0,
+            skip_marks: Vec::new(),
         }
     }
 }
@@ -1093,6 +1097,37 @@ impl Wiring {
                     .unwrap_or_default()
                     .into(),
             );
+            // The bar's own record of the segments: fractions of the length, so it marks an
+            // Opening before the button offers it. The marks belong to the Video they were fetched
+            // for, which is the one in the player only while `skip_for` says so.
+            let same_video = self
+                .skip_target()
+                .is_some_and(|(video, ..)| video == playback.skip_for);
+            let marks: Vec<(f32, f32)> = if skip_wanted && same_video && duration > 0.0 {
+                playback
+                    .skip
+                    .iter()
+                    .filter_map(|segment| {
+                        let start = (segment.start / duration).clamp(0.0, 1.0) as f32;
+                        let end = (segment.end / duration).clamp(0.0, 1.0) as f32;
+                        (end > start).then_some((start, end))
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            if marks != playback.skip_marks {
+                playback.skip_marks = marks.clone();
+                window.set_player_skip_marks(ModelRc::new(VecModel::from(
+                    marks
+                        .iter()
+                        .map(|(start, end)| crate::SkipMark {
+                            start: *start,
+                            end: *end,
+                        })
+                        .collect::<Vec<_>>(),
+                )));
+            }
         }
 
         if status.paused.is_some() && status.paused != was_paused {

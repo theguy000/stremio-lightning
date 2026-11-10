@@ -59,6 +59,13 @@ export struct PlayerOption {
     action: string,
 }
 
+/// A stretch of the seek bar the shell can skip over, as fractions of the whole length. The bar
+/// draws one for each so the skip button's arrival is expected rather than sudden.
+export struct SkipMark {
+    start: float,
+    end: float,
+}
+
 // Web: SeekBar/formatTime.js -- always hours, minutes, seconds, never a shortened form. Slint
 // has no functions outside a component or a global, so the two the whole screen shares live here.
 export global PlayerText {
@@ -147,6 +154,8 @@ component PlayerSlider inherits Rectangle {
     in property <bool> boost: false;
     /// Whether the pointer's position is announced above the track, as the seek bar's is.
     in property <bool> tooltip: false;
+    /// Stretches the bar marks, as fractions of the whole length.
+    in property <[SkipMark]> marks;
     /// Whether the thumb is the speed menu's ringed one rather than a solid dot.
     in property <bool> ring: false;
     callback slid(float);
@@ -189,6 +198,16 @@ component PlayerSlider inherits Rectangle {
         height: root.track-size;
         border-radius: root.track-size;
         background: root.boost ? @linear-gradient(90deg, Theme.text 0%, Theme.text 50%, Theme.accent-yellow 75%, Theme.accent-red 100%) : Theme.text;
+    }
+    // The stretches the shell can skip, drawn over the played part so one stays visible while it
+    // is being played: the bar says a skip is coming before the button says it is here.
+    for mark in root.marks: Rectangle {
+        x: parent.width * mark.start;
+        y: (parent.height - root.track-size) / 2;
+        width: Math.max(0.15 * root.rem-size, parent.width * (mark.end - mark.start));
+        height: root.track-size;
+        border-radius: root.track-size;
+        background: Theme.accent;
     }
     // Web: `:hover .thumb { transform: scale(1.2) }`, a circle growing about its own middle.
     Rectangle {
@@ -664,6 +683,8 @@ export component PlayerScreen inherits Rectangle {
     /// it is. The shell decides both; the screen only draws them.
     in property <bool> skip-visible: false;
     in property <string> skip-label;
+    /// Where the skip segments sit on the bar, as fractions of the length.
+    in property <[SkipMark]> skip-marks;
 
     // `""`, "speed", "audio", "subtitles" or "options".
     in-out property <string> menu;
@@ -1238,6 +1259,7 @@ export component PlayerScreen inherits Rectangle {
                 buffered: root.buffered;
                 enabled: root.can-seek;
                 tooltip: true;
+                marks: root.skip-marks;
                 slid(value) => {
                     root.drag-time = value;
                 }
