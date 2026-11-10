@@ -206,6 +206,15 @@ export component MainWindow inherits Window {
     in property <bool> player-skip-visible: false;
     /// Where those segments sit on the seek bar, as fractions of the length.
     in property <[SkipMark]> player-skip-marks;
+    /// The timing panel: whether its button is offered, what AniSkip holds for the category
+    /// picked, the form's starting text, and what the shell last said.
+    in property <bool> player-skip-submit: true;
+    in property <string> player-skip-kind: "op";
+    in property <string> player-skip-existing: "";
+    in property <string> player-skip-id: "";
+    in property <string> player-skip-start: "";
+    in property <string> player-skip-end: "";
+    in property <string> player-skip-notice: "";
     in-out property <Section> section: Section.board;
     in-out property <bool> auth-open: false;
     in-out property <string> auth-error: "";
@@ -281,6 +290,10 @@ export component MainWindow inherits Window {
     callback player-play-pause();
     callback player-play-next();
 callback player-skip();
+    callback player-open-skip();
+    callback player-pick-skip-kind(string);
+    callback player-submit-skip(string, string, string);
+    callback player-vote-skip(string, bool);
     callback player-seek(float);
     callback player-seek-by(float);
     callback player-set-volume(float);
@@ -498,6 +511,13 @@ callback player-skip();
         next-notice: root.player-next-notice;
         skip-visible: root.player-skip-visible;
         skip-marks: root.player-skip-marks;
+        skip-submit: root.player-skip-submit;
+        skip-kind: root.player-skip-kind;
+        skip-existing: root.player-skip-existing;
+        skip-id: root.player-skip-id;
+        skip-start: root.player-skip-start;
+        skip-end: root.player-skip-end;
+        skip-notice: root.player-skip-notice;
         init => {
             self.focus-player();
         }
@@ -515,6 +535,18 @@ callback player-skip();
         }
         skip => {
             root.player-skip();
+        }
+        open-skip => {
+            root.player-open-skip();
+        }
+        pick-skip-kind(kind) => {
+            root.player-pick-skip-kind(kind);
+        }
+        submit-skip(kind, start, end) => {
+            root.player-submit-skip(kind, start, end);
+        }
+        vote-skip(id, up) => {
+            root.player-vote-skip(id, up);
         }
         seek(time) => {
             root.player-seek(time);

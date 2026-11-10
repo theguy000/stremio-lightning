@@ -248,6 +248,12 @@ pub(crate) struct Wiring {
     /// Which page of the Mods menu is on screen. The shell owns the choice, as it owns which
     /// section is showing; the Mods screen only describes each page's content.
     pub(crate) mods_page: Arc<Mutex<String>>,
+    /// The skip category the timing panel is about, kept across a redraw so a fetch that answers
+    /// while the panel is open fills the same category it was showing.
+    pub(crate) skip_kind: Arc<Mutex<String>>,
+    /// Whether the AniSkip page's switch offers the timing button, and with it whether the skip
+    /// times are fetched even when the button that skips them is off.
+    pub(crate) skip_submit: Arc<Mutex<bool>>,
     /// The Mods card whose Remove button was pressed once and waits for the second press, with
     /// the page and the button it was pressed on. Pressing anything else, changing page, or this
     /// timer firing clears it; the second press is the one that removes the file.
@@ -481,6 +487,12 @@ pub(crate) struct Playback {
     /// The marks last handed to the seek bar, as fractions of the length. Kept so a bar that has
     /// not changed is not handed a fresh model forty times a second.
     pub(crate) skip_marks: Vec<(f32, f32)>,
+    /// The same answer as `skip`, row by row, with the id a vote names. What the timing panel
+    /// lists; empty until the fetch answers.
+    pub(crate) skip_rates: Vec<skip::Rate>,
+    /// The rows last handed to the panel, so a panel that has not changed is not handed a fresh
+    /// model every tick.
+    pub(crate) skip_rates_sent: Vec<skip::Rate>,
 }
 
 impl Default for Playback {
@@ -497,6 +509,8 @@ impl Default for Playback {
             skip_now: None,
             skip_total: 0,
             skip_marks: Vec::new(),
+            skip_rates: Vec::new(),
+            skip_rates_sent: Vec::new(),
         }
     }
 }
@@ -959,7 +973,10 @@ impl Wiring {
         // only after a repaint. Every status then decides whether the play head is inside one.
         // Each step says what it did on the Logs page, so a button that never appears can say why.
         let skip_wanted = self.local_extras.lock().unwrap().skip_intros;
-        if !skip_wanted {
+        // The timing panel needs the same answer even when the skip button is off: it lists what
+        // AniSkip holds and votes on it without the button ever offering it.
+        let rates_wanted = skip_wanted || *self.skip_submit.lock().unwrap();
+        if !rates_wanted {
             let mut playback = self.playback.lock().unwrap();
             if !playback.skip.is_empty() {
                 self.logs.record(
@@ -970,6 +987,7 @@ impl Wiring {
                 );
             }
             playback.skip.clear();
+            playback.skip_rates.clear();
             playback.skip_for.clear();
         } else if status.loaded && duration > 0.0 {
             if let Some((video, meta_id, season, episode, nominal)) = self.skip_target() {
@@ -979,6 +997,7 @@ impl Wiring {
                         false
                     } else {
                         playback.skip.clear();
+                        playback.skip_rates.clear();
                         playback.skip_for = video.clone();
                         true
                     }
@@ -996,15 +1015,15 @@ impl Wiring {
                     let logs = Arc::clone(&self.logs);
                     let for_video = video;
                     self.handle.spawn(async move {
-                        let found = skip::segments(&meta_id, season, episode, duration, nominal).await;
+                        let found = skip::rates(&meta_id, season, episode, duration, nominal).await;
                         let listing = found
                             .iter()
-                            .map(|segment| {
+                            .map(|rate| {
                                 format!(
                                     "{} {:.1}-{:.1}",
-                                    segment.kind.label(),
-                                    segment.start,
-                                    segment.end
+                                    rate.kind.label(),
+                                    rate.start,
+                                    rate.end
                                 )
                             })
                             .collect::<Vec<_>>()
@@ -1027,7 +1046,8 @@ impl Wiring {
                             // its segments are not this Video's.
                             let same = playback.skip_for == for_video;
                             if same {
-                                playback.skip = found.clone();
+                                playback.skip = found.iter().map(skip::Rate::segment).collect();
+                                playback.skip_rates = found;
                             }
                             logs.record(
                                 crate::plumbing::logs::Source::App,
@@ -1118,6 +1138,27 @@ impl Wiring {
                         })
                         .collect::<Vec<_>>(),
                 )));
+            }
+        }
+
+        // A fetch can answer while the panel is open: fill it again for the category on screen.
+        {
+            let refresh = {
+                let mut playback = self.playback.lock().unwrap();
+                let fresh = playback.skip_rates != playback.skip_rates_sent;
+                if fresh {
+                    playback.skip_rates_sent = playback.skip_rates.clone();
+                }
+                fresh
+            };
+            if refresh {
+                let kind = self.skip_kind.lock().unwrap().clone();
+                let kind = if kind.is_empty() {
+                    "op".to_owned()
+                } else {
+                    kind
+                };
+                self.show_skip_panel(&kind);
             }
         }
 
@@ -1226,6 +1267,203 @@ impl Wiring {
                 .as_deref()
                 .and_then(skip::runtime_seconds),
         ))
+    }
+
+    /// A press on the timing button: the panel opens on the category last looked at, filled with
+    /// what AniSkip holds for it and the form's starting text.
+    fn open_skip(&self) {
+        let kind = self.skip_kind.lock().unwrap().clone();
+        let kind = if kind.is_empty() {
+            "op".to_owned()
+        } else {
+            kind
+        };
+        *self.skip_kind.lock().unwrap() = kind.clone();
+        self.show_skip_panel(&kind);
+    }
+
+    /// A press on one of the panel's categories.
+    fn pick_skip_kind(&self, kind: String) {
+        *self.skip_kind.lock().unwrap() = kind.clone();
+        self.show_skip_panel(&kind);
+    }
+
+    /// Fills the panel's properties for `kind`: the row AniSkip holds, its id, and the form's
+    /// starting text -- the row's own times when there is one, the play head when there is not.
+    fn show_skip_panel(&self, kind: &str) {
+        let Some(window) = self.window.upgrade() else {
+            return;
+        };
+        let (existing, id, start, end) = {
+            let playback = self.playback.lock().unwrap();
+            match playback
+                .skip_rates
+                .iter()
+                .find(|rate| rate.kind.api() == kind)
+            {
+                Some(rate) => (
+                    format!("{} – {}", clock(rate.start), clock(rate.end)),
+                    rate.id.clone(),
+                    clock(rate.start),
+                    clock(rate.end),
+                ),
+                None => (
+                    String::new(),
+                    String::new(),
+                    clock(playback.time),
+                    clock(playback.time),
+                ),
+            }
+        };
+        window.set_player_skip_kind(kind.into());
+        window.set_player_skip_existing(existing.into());
+        window.set_player_skip_id(id.into());
+        window.set_player_skip_start(start.into());
+        window.set_player_skip_end(end.into());
+        window.set_player_skip_notice("".into());
+    }
+
+    /// The Submit press: the two boxes become a timing AniSkip is asked to keep. The answer is
+    /// said in the panel; a timing that is kept is inserted into the player at once, so the skip
+    /// button and the panel offer it without another fetch.
+    fn submit_skip(&self, kind: String, start: String, end: String) {
+        let Some(window) = self.window.upgrade() else {
+            return;
+        };
+        let Some(kind) = api_kind(&kind) else {
+            window.set_player_skip_notice("Pick Opening, Ending or Recap.".into());
+            return;
+        };
+        let (Some(start), Some(end)) = (parse_clock(&start), parse_clock(&end)) else {
+            window.set_player_skip_notice("Times read as 12:34 or 92.".into());
+            return;
+        };
+        let duration = self.playback.lock().unwrap().duration;
+        if duration <= 0.0 {
+            window.set_player_skip_notice("The picture has not loaded yet.".into());
+            return;
+        }
+        if !(end > start) || end > duration + 1.5 {
+            window.set_player_skip_notice(
+                format!(
+                    "The end has to be after the start and inside the file ({}).",
+                    clock(duration)
+                )
+                .into(),
+            );
+            return;
+        }
+        // A time rounded up to the second may sit a fraction past the file; the submission counts
+        // the file as that long, which is inside the margin AniSkip matches lengths by.
+        let length = duration.max(end);
+        let Some((video, meta_id, season, episode, _)) = self.skip_target() else {
+            window.set_player_skip_notice("AniSkip has no show for this video.".into());
+            return;
+        };
+        let (provider, submitter) = {
+            let extras = self.local_extras.lock().unwrap();
+            let provider = builtin_text(&extras, "provider_name");
+            let provider = if provider.is_empty() {
+                "Stremio Lightning".to_owned()
+            } else {
+                provider
+            };
+            (provider, mods::builtin::submitter(&extras))
+        };
+        let Some(submitter) = submitter else {
+            window.set_player_skip_notice("Set a submitter ID in AniSkip's settings first.".into());
+            return;
+        };
+        window.set_player_skip_notice("Sending…".into());
+        let (logs, playback, weak) = (
+            self.logs.clone(),
+            self.playback.clone(),
+            self.window.clone(),
+        );
+        self.handle.spawn(async move {
+            let answer = skip::submit(
+                &meta_id, season, episode, kind, start, end, length, &provider, &submitter,
+            )
+            .await;
+            match answer {
+                Ok(id) => {
+                    logs.record(
+                        crate::plumbing::logs::Source::App,
+                        "Skip",
+                        crate::plumbing::logs::Level::Info,
+                        format!("AniSkip keeps {start:.1}-{end:.1} as {id}"),
+                    );
+                    if let Ok(mut playback) = playback.lock() {
+                        if playback.skip_for == video {
+                            playback.skip.push(skip::Segment { kind, start, end });
+                            playback.skip.sort_by(|a, b| a.start.total_cmp(&b.start));
+                            playback.skip_rates.push(skip::Rate {
+                                kind,
+                                start,
+                                end,
+                                id: id.clone(),
+                            });
+                        }
+                    }
+                    let _ = weak.upgrade_in_event_loop(move |window| {
+                        window.set_player_skip_existing(
+                            format!("{} – {}", clock(start), clock(end)).into(),
+                        );
+                        window.set_player_skip_id(id.into());
+                        window.set_player_skip_notice("Sent. Thank you.".into());
+                    });
+                }
+                Err(why) => {
+                    logs.record(
+                        crate::plumbing::logs::Source::App,
+                        "Skip",
+                        crate::plumbing::logs::Level::Error,
+                        format!("AniSkip refused a timing: {why}"),
+                    );
+                    let _ = weak.upgrade_in_event_loop(move |window| {
+                        window.set_player_skip_notice(why.into());
+                    });
+                }
+            }
+        });
+    }
+
+    /// A vote on the row AniSkip holds for the category on screen.
+    fn vote_skip(&self, id: String, up: bool) {
+        if id.is_empty() {
+            return;
+        }
+        let Some(window) = self.window.upgrade() else {
+            return;
+        };
+        window.set_player_skip_notice("Sending…".into());
+        let (logs, weak) = (self.logs.clone(), self.window.clone());
+        self.handle.spawn(async move {
+            match skip::vote(&id, up).await {
+                Ok(()) => {
+                    logs.record(
+                        crate::plumbing::logs::Source::App,
+                        "Skip",
+                        crate::plumbing::logs::Level::Info,
+                        format!("{} {id}", if up { "Upvoted" } else { "Downvoted" }),
+                    );
+                    let _ = weak.upgrade_in_event_loop(move |window| {
+                        window.set_player_skip_notice("Thanks for the vote.".into());
+                    });
+                }
+                Err(why) => {
+                    logs.record(
+                        crate::plumbing::logs::Source::App,
+                        "Skip",
+                        crate::plumbing::logs::Level::Error,
+                        format!("A vote was refused: {why}"),
+                    );
+                    let _ = weak.upgrade_in_event_loop(move |window| {
+                        window.set_player_skip_notice(why.into());
+                    });
+                }
+            }
+        });
     }
 
     /// The skip button: the picture goes to the end of the segment the play head is inside,
@@ -1975,6 +2213,25 @@ impl Wiring {
         self.after_mod_action(notice);
     }
 
+    /// The AniSkip page's switch: whether the player offers the timing button. The fetch follows
+    /// the same flag, because the panel lists what the fetch answers.
+    pub(crate) fn apply_skip_submit_button(&self) {
+        let shown = {
+            let extras = self.local_extras.lock().unwrap();
+            mods::builtin::fields("builtin:aniskip")
+                .iter()
+                .find(|field| field.key == "submit_button")
+                .map_or(true, |field| {
+                    mods::builtin::value(&extras, "builtin:aniskip", field)
+                        == serde_json::Value::Bool(true)
+                })
+        };
+        *self.skip_submit.lock().unwrap() = shown;
+        if let Some(window) = self.window.upgrade() {
+            window.set_player_skip_submit(shown);
+        }
+    }
+
     /// Starts every plugin `settings.json` names. Called once at boot, after the window is up.
     pub(crate) fn start_enabled_plugins(&self) {
         let enabled = self.local_extras.lock().unwrap().enabled_plugins.clone();
@@ -1985,6 +2242,7 @@ impl Wiring {
         *self.mods_plugin.lock().unwrap() = page.plugin;
         let asked = self.plugins.start_enabled(&enabled);
         self.drain(asked);
+        self.apply_skip_submit_button();
         // The report is repainted so the first frame after boot already says which plugins run.
         let page = mods::Page::from_id(&self.mods_page.lock().unwrap());
         let data = self.plugin_data(page);
@@ -2307,6 +2565,7 @@ impl Wiring {
             // other screen reads from: the same values go back into it after the page is saved.
             *self.local_extras.lock().unwrap() = extras.clone();
             extras.save(&self.data_dir);
+            self.apply_skip_submit_button();
         }
         if !saved.written {
             self.after_mod_action(Some(mods::Notice::failed(format!(
@@ -3081,6 +3340,24 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
     }
     {
         let wiring = wiring.clone();
+        window.on_player_open_skip(move || wiring.open_skip());
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_player_pick_skip_kind(move |kind| wiring.pick_skip_kind(kind.to_string()));
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_player_submit_skip(move |kind, start, end| {
+            wiring.submit_skip(kind.to_string(), start.to_string(), end.to_string());
+        });
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_player_vote_skip(move |id, up| wiring.vote_skip(id.to_string(), up));
+    }
+    {
+        let wiring = wiring.clone();
         window.on_player_seek(move |time| wiring.player_seek(time));
     }
     {
@@ -3619,6 +3896,49 @@ fn window_is_in_front() -> bool {
     {
         true
     }
+}
+
+/// Seconds as the player's clocks read them, without the hours a file under an hour does not
+/// have.
+fn clock(seconds: f64) -> String {
+    let whole = seconds.max(0.0).round() as u64;
+    let (hours, minutes, seconds) = (whole / 3600, (whole % 3600) / 60, whole % 60);
+    if hours > 0 {
+        format!("{hours}:{minutes:02}:{seconds:02}")
+    } else {
+        format!("{minutes}:{seconds:02}")
+    }
+}
+
+/// A time typed into the panel: seconds, or `m:ss`, or `h:mm:ss`.
+fn parse_clock(text: &str) -> Option<f64> {
+    let mut seconds = 0.0;
+    let mut parts = 0;
+    for part in text.split(':') {
+        seconds = seconds * 60.0 + part.trim().parse::<f64>().ok()?;
+        parts += 1;
+    }
+    (1..=3).contains(&parts).then_some(seconds)
+}
+
+/// The skip kind a panel category names.
+fn api_kind(key: &str) -> Option<skip::Kind> {
+    match key {
+        "op" => Some(skip::Kind::Opening),
+        "ed" => Some(skip::Kind::Ending),
+        "recap" => Some(skip::Kind::Recap),
+        _ => None,
+    }
+}
+
+/// One text setting of the built-in AniSkip, as it is stored.
+fn builtin_text(extras: &crate::screens::settings::LocalExtras, key: &str) -> String {
+    mods::builtin::fields("builtin:aniskip")
+        .iter()
+        .find(|field| field.key == key)
+        .map(|field| mods::builtin::value(extras, "builtin:aniskip", field))
+        .and_then(|value| value.as_str().map(str::to_owned))
+        .unwrap_or_default()
 }
 
 #[cfg(test)]

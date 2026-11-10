@@ -35,6 +35,15 @@ impl Kind {
             Self::Recap => "Skip Recap",
         }
     }
+
+    /// The name AniSkip files this kind under in a submission.
+    pub fn api(self) -> &'static str {
+        match self {
+            Self::Opening => "op",
+            Self::Ending => "ed",
+            Self::Recap => "recap",
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -49,6 +58,28 @@ impl Segment {
     #[must_use]
     pub fn holds(&self, time: f64) -> bool {
         time >= self.start && time < self.end
+    }
+}
+
+/// One row AniSkip holds for an episode, with the id a vote or a report names it by. A `Segment`
+/// is the same row without the id: what the player needs to skip, and nothing else.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Rate {
+    pub kind: Kind,
+    pub start: f64,
+    pub end: f64,
+    /// AniSkip's own id for this row, empty when the answer carried none.
+    pub id: String,
+}
+
+impl Rate {
+    #[must_use]
+    pub fn segment(&self) -> Segment {
+        Segment {
+            kind: self.kind,
+            start: self.start,
+            end: self.end,
+        }
     }
 }
 
@@ -70,6 +101,22 @@ pub async fn segments(
     duration: f64,
     nominal: Option<f64>,
 ) -> Vec<Segment> {
+    rates(meta_id, season, episode, duration, nominal)
+        .await
+        .iter()
+        .map(Rate::segment)
+        .collect()
+}
+
+/// The same answer as [`segments`], row by row, with the id each row votes by. The panel that
+/// rates a timing needs the id; the player needs only the times.
+pub async fn rates(
+    meta_id: &str,
+    season: u32,
+    episode: u32,
+    duration: f64,
+    nominal: Option<f64>,
+) -> Vec<Rate> {
     if !(duration.is_finite() && duration > 0.0) || meta_id.is_empty() || episode == 0 {
         return Vec::new();
     }
@@ -78,13 +125,8 @@ pub async fn segments(
         return hit;
     }
 
-    let Some(mal) = mal_id(meta_id, season).await else {
+    let Some(mal) = mal_for(meta_id, season).await else {
         return Vec::new();
-    };
-    let mal = if season > 0 {
-        season_mal(mal, season).await
-    } else {
-        mal
     };
     let mut found = skip_times(mal, episode, duration).await;
     if found.is_empty() {
@@ -96,6 +138,17 @@ pub async fn segments(
     }
     remember(&key, &found);
     found
+}
+
+/// The MyAnimeList id of the season being watched: the show's own id, walked forward through the
+/// sequels for a season past the first.
+async fn mal_for(meta_id: &str, season: u32) -> Option<u32> {
+    let mal = mal_id(meta_id, season).await?;
+    Some(if season > 0 {
+        season_mal(mal, season).await
+    } else {
+        mal
+    })
 }
 
 fn client() -> Option<&'static reqwest::Client> {
@@ -120,18 +173,18 @@ async fn get_json(url: &str) -> Option<Value> {
     response.json::<Value>().await.ok()
 }
 
-fn cached(key: &str) -> Option<Vec<Segment>> {
+fn cached(key: &str) -> Option<Vec<Rate>> {
     cache().lock().ok()?.get(key).cloned()
 }
 
-fn remember(key: &str, segments: &[Segment]) {
+fn remember(key: &str, rates: &[Rate]) {
     if let Ok(mut cache) = cache().lock() {
-        cache.insert(key.to_owned(), segments.to_vec());
+        cache.insert(key.to_owned(), rates.to_vec());
     }
 }
 
-fn cache() -> &'static Mutex<HashMap<String, Vec<Segment>>> {
-    static CACHE: OnceLock<Mutex<HashMap<String, Vec<Segment>>>> = OnceLock::new();
+fn cache() -> &'static Mutex<HashMap<String, Vec<Rate>>> {
+    static CACHE: OnceLock<Mutex<HashMap<String, Vec<Rate>>>> = OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
@@ -329,14 +382,14 @@ fn relation_cache() -> &'static Mutex<HashMap<u32, Vec<Relation>>> {
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-async fn skip_times(mal: u32, episode: u32, duration: f64) -> Vec<Segment> {
+async fn skip_times(mal: u32, episode: u32, duration: f64) -> Vec<Rate> {
     let url = format!(
         "{ANISKIP}/{mal}/{episode}?types[]=op&types[]=ed&types[]=recap&episodeLength={}",
         duration.round() as u64
     );
     get_json(&url)
         .await
-        .map(|value| segments_of(&value, duration))
+        .map(|value| rates_of(&value, duration))
         .unwrap_or_default()
 }
 
@@ -349,10 +402,17 @@ async fn skip_times(mal: u32, episode: u32, duration: f64) -> Vec<Segment> {
 /// shorter than the submission has its ending 18 seconds earlier while the opening stays where
 /// the submission put it.
 fn segments_of(value: &Value, duration: f64) -> Vec<Segment> {
+    rates_of(value, duration)
+        .iter()
+        .map(Rate::segment)
+        .collect()
+}
+
+fn rates_of(value: &Value, duration: f64) -> Vec<Rate> {
     if value.get("found").and_then(Value::as_bool) != Some(true) {
         return Vec::new();
     }
-    let mut releases: Vec<(f64, Vec<Segment>)> = Vec::new();
+    let mut releases: Vec<(f64, Vec<Rate>)> = Vec::new();
     for result in value
         .get("results")
         .and_then(Value::as_array)
@@ -383,12 +443,30 @@ fn segments_of(value: &Value, duration: f64) -> Vec<Segment> {
             .unwrap_or(duration);
         // One release per tenth of a second: two submissions of the same release carry the same
         // length to the tenth, and two releases do not.
+        let id = result
+            .get("skipId")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned();
         match releases
             .iter_mut()
             .find(|(known, _)| (known * 10.0).round() == (length * 10.0).round())
         {
-            Some((_, segments)) => segments.push(Segment { kind, start, end }),
-            None => releases.push((length, vec![Segment { kind, start, end }])),
+            Some((_, rates)) => rates.push(Rate {
+                kind,
+                start,
+                end,
+                id,
+            }),
+            None => releases.push((
+                length,
+                vec![Rate {
+                    kind,
+                    start,
+                    end,
+                    id,
+                }],
+            )),
         }
     }
     let Some((length, mut found)) = releases
@@ -411,6 +489,75 @@ fn segments_of(value: &Value, duration: f64) -> Vec<Segment> {
     found.retain(|segment| segment.end > segment.start);
     found.sort_by(|a, b| a.start.total_cmp(&b.start));
     found
+}
+
+/// Sends one skip time to AniSkip and returns the id it was filed under. `provider` names the app
+/// in the submission; `submitter` is the UUID this install generated, which is what the API counts
+/// submissions by.
+#[allow(clippy::too_many_arguments)]
+pub async fn submit(
+    meta_id: &str,
+    season: u32,
+    episode: u32,
+    kind: Kind,
+    start: f64,
+    end: f64,
+    length: f64,
+    provider: &str,
+    submitter: &str,
+) -> Result<String, String> {
+    let Some(mal) = mal_for(meta_id, season).await else {
+        return Err("AniSkip does not know this show.".to_owned());
+    };
+    let body = serde_json::json!({
+        "skipType": kind.api(),
+        "providerName": provider,
+        "startTime": start,
+        "endTime": end,
+        "episodeLength": length,
+        "submitterId": submitter,
+    });
+    let answer = post_json(&format!("{ANISKIP}/{mal}/{episode}"), &body).await?;
+    answer
+        .get("skipId")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| "AniSkip took the timing but named no id for it.".to_owned())
+}
+
+/// Upvotes or downvotes one row by its id.
+pub async fn vote(id: &str, up: bool) -> Result<(), String> {
+    let body = serde_json::json!({ "voteType": if up { "upvote" } else { "downvote" } });
+    post_json(&format!("{ANISKIP}/vote/{id}"), &body)
+        .await
+        .map(|_| ())
+}
+
+async fn post_json(url: &str, body: &Value) -> Result<Value, String> {
+    let client = client().ok_or_else(|| "No HTTP client.".to_owned())?;
+    let response = client
+        .post(url)
+        .json(body)
+        .send()
+        .await
+        .map_err(|why| why.to_string())?;
+    let status = response.status();
+    let value = response.json::<Value>().await.unwrap_or(Value::Null);
+    if status.is_success() {
+        return Ok(value);
+    }
+    if status.as_u16() == 429 {
+        return Err(if url.contains("/vote/") {
+            "AniSkip takes four votes an hour from one address.".to_owned()
+        } else {
+            "AniSkip takes ten submissions a day for one episode.".to_owned()
+        });
+    }
+    Err(value
+        .get("message")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .unwrap_or_else(|| format!("AniSkip answered {status}.")))
 }
 
 /// The seconds a runtime string names: "24 min", "1h 24 min", "24m". Anything else is `None`,

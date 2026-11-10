@@ -628,7 +628,7 @@ component ModCardView inherits Rectangle {
 
 // The box a text setting is typed into. It only writes the window's own value on a press in the
 // box, so a new value the app hands back does not move the cursor under anyone's typing.
-component SettingsTextField inherits LineEdit {
+export component SettingsTextField inherits LineEdit {
     in property <length> rem-size;
     in property <string> label-text;
     in property <string> shown;
