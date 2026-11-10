@@ -402,6 +402,7 @@ pub(crate) fn mods_view(data: &crate::screens::mods::Data) -> ModsViewData {
             state: state.into(),
             update: card.update.clone().into(),
             removable: card.removable,
+            has_settings: card.has_settings,
         }
     };
     ModsViewData {
@@ -439,6 +440,14 @@ pub(crate) fn mods_view(data: &crate::screens::mods::Data) -> ModsViewData {
                 .collect::<Vec<_>>(),
         )),
         settings_plugin: data.plugin.clone().into(),
+        settings_title: data
+            .settings_plugins
+            .iter()
+            .find(|entry| entry.filename == data.plugin)
+            .map(|entry| entry.name.clone())
+            .filter(|name| !name.is_empty())
+            .unwrap_or_else(|| data.plugin.clone())
+            .into(),
         settings_fields: ModelRc::new(VecModel::from(
             data.edits
                 .controls

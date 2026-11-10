@@ -76,6 +76,11 @@ pub struct LocalExtras {
     /// means none.
     #[serde(default)]
     pub enabled_themes: Vec<String>,
+    /// The values of the fields a built-in feature declares on its settings page, by the feature's
+    /// id and then by field key. A built-in has no file of its own, so its settings live here,
+    /// beside the switch that turns it on.
+    #[serde(default)]
+    pub builtin_settings: HashMap<String, HashMap<String, Value>>,
 }
 
 impl Default for LocalExtras {
@@ -86,6 +91,7 @@ impl Default for LocalExtras {
             skip_intros: true,
             enabled_plugins: Vec::new(),
             enabled_themes: Vec::new(),
+            builtin_settings: HashMap::new(),
         }
     }
 }

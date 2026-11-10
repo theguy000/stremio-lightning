@@ -29,11 +29,12 @@ pub mod themes;
 pub use catalogue::{ModCard, Notice};
 
 /// The six pages of the Mods section, in the order its menu lists them.
-pub const PAGES: [(&str, &str); 6] = [
+/// The menu's pages. A plugin's settings are not a page of their own: a card's settings button
+/// opens them inside the Plugins page, so the menu never lists them.
+pub const PAGES: [(&str, &str); 5] = [
     ("plugins", "Plugins"),
     ("themes", "Themes"),
     ("marketplace", "Marketplace"),
-    ("settings", "Plugin settings"),
     ("logs", "Logs"),
     ("about", "About"),
 ];
@@ -277,18 +278,15 @@ impl Data {
     }
 
     /// The same screen with what the plugin runtime holds folded in: the Plugins page says which
-    /// plugins run, and the Plugin settings page lists the plugins that can be configured.
+    /// plugins run, and a card's settings button opens that plugin's page.
     ///
-    /// The page opens on the first plugin in the list, switched on or off as the folder says.
+    /// No plugin is picked here. The settings page is opened by a press on a card, so it holds a
+    /// plugin only when that press has happened.
     #[must_use]
     pub fn with_plugins(mut self, plugins: &crate::app::plugins::Runtime) -> Self {
         let extras = LocalExtras::load(&self.data_dir);
         self.read_folder(&extras, plugins);
-        let plugin = match self.settings_plugins.first() {
-            Some(first) => first.filename.clone(),
-            None => String::new(),
-        };
-        self.update(plugin, settings::Edits::default());
+        self.update(String::new(), settings::Edits::default());
         self
     }
 
@@ -312,10 +310,17 @@ impl Data {
             Err(error) => self.notice = Notice::unreadable(error),
         }
         for plugin in &self.settings_plugins {
-            self.running.insert(
-                plugin.filename.clone(),
-                plugins.state(&plugin.filename, plugin.enabled),
-            );
+            // A built-in has no file and no runtime to ask: it ships running, switched on as its
+            // own switch says.
+            let state = if builtin::get(&plugin.filename).is_some() {
+                settings::Running {
+                    running: true,
+                    ..settings::Running::default()
+                }
+            } else {
+                plugins.state(&plugin.filename, plugin.enabled)
+            };
+            self.running.insert(plugin.filename.clone(), state);
         }
         for card in &mut self.plugins {
             if let Some(state) = self.running.get(&card.filename) {
@@ -562,20 +567,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_menu_lists_the_six_pages_in_order() {
+    fn the_menu_lists_the_five_pages_in_order() {
         let items = menu(Page::Themes);
         let ids: Vec<&str> = items.iter().map(|item| item.id.as_str()).collect();
-        assert_eq!(
-            ids,
-            [
-                "plugins",
-                "themes",
-                "marketplace",
-                "settings",
-                "logs",
-                "about"
-            ]
-        );
+        assert_eq!(ids, ["plugins", "themes", "marketplace", "logs", "about"]);
         assert_eq!(
             items.iter().filter(|item| item.selected).count(),
             1,
@@ -603,19 +598,15 @@ mod tests {
         assert!(data.clone().with_page(Page::Themes).cards().is_empty());
     }
 
-    /// The folder is the answer to what the page opens on and whether that plugin is on: the page
-    /// is drawn before anyone presses anything.
+    /// A card's settings button is what picks a plugin: nothing opens the settings page on its own,
+    /// and a plugin the folder names is still off until it is switched on.
     #[test]
-    fn the_settings_page_opens_on_the_first_plugin_the_folder_names() {
+    fn no_plugin_is_picked_until_a_card_asks_for_one() {
         let dir = std::env::temp_dir().join(format!(
             "stremio-lightning-mods-picked-{}",
             std::process::id()
         ));
         let _ = std::fs::remove_dir_all(&dir);
-        let opened = Data::empty().with_plugins(&crate::app::plugins::Runtime::new(dir.clone()));
-        assert!(opened.plugin.is_empty(), "no plugin is installed yet");
-        assert!(!opened.picked_enabled);
-
         let plugins = stremio_lightning_core::mods::mods_dir(
             &dir,
             stremio_lightning_core::mods::ModType::Plugin,
@@ -623,43 +614,22 @@ mod tests {
         std::fs::create_dir_all(&plugins).unwrap();
         std::fs::write(plugins.join("a.plugin.js"), "/**\n * @name A\n */\n").unwrap();
         std::fs::write(plugins.join("b.plugin.js"), "/**\n * @name B\n */\n").unwrap();
-        std::fs::write(
-            dir.join("settings.json"),
-            r#"{"enabled_plugins":["b.plugin.js"]}"#,
-        )
-        .unwrap();
 
-        // What the page holds: the screen's own data, read from the folder, with the runtime folded
-        // in, which is how the wiring builds it.
         let mut page = Data::empty();
         page.data_dir = dir.clone();
         let opened = page.with_plugins(&crate::app::plugins::Runtime::new(dir.clone()));
-        // Both are listed, so the first by file name is the one the page opens on, and the folder
-        // does not name it: the page says the plugin is off rather than saying nothing.
-        assert_eq!(
-            opened.plugin, "a.plugin.js",
-            "opened on {:?}",
-            opened.plugin
-        );
-        // Both are listed, so the first by file name is the one the page opens on, and the folder
-        // does not name it: the page says the plugin is off rather than saying nothing.
-        assert_eq!(
-            opened.plugin,
-            "a.plugin.js",
-            "listed {:?}, notice {:?}, reading {:?}",
-            opened
-                .settings_plugins
-                .iter()
-                .map(|p| p.filename.as_str())
-                .collect::<Vec<_>>(),
-            opened.notice,
-            std::fs::read_dir(&plugins).map(|d| d
-                .filter_map(|e| e.ok())
-                .map(|e| e.file_name())
-                .collect::<Vec<_>>())
-        );
-        assert!(!opened.picked_enabled);
-        assert_eq!(opened.picked_state.stopped, "");
+        assert!(opened.plugin.is_empty(), "no card has been pressed");
+        let listed: Vec<&str> = opened
+            .settings_plugins
+            .iter()
+            .map(|plugin| plugin.filename.as_str())
+            .collect();
+        assert!(listed.contains(&"a.plugin.js"), "listed {listed:?}");
+        assert!(listed.contains(&"b.plugin.js"), "listed {listed:?}");
+
+        let picked = opened.with_edits("a.plugin.js".to_owned(), settings::Edits::default());
+        assert_eq!(picked.plugin, "a.plugin.js");
+        assert!(!picked.picked_enabled);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

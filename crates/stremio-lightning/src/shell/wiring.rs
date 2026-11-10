@@ -2082,19 +2082,21 @@ impl Wiring {
         });
     }
 
-    /// A press in the Plugin settings page's left list: the page is read for the plugin picked,
-    /// and anything typed for the one before is thrown away, because it is no longer on screen.
+    /// A press on a card's settings button: the page is read for that plugin, anything typed for
+    /// the one before is thrown away because it is no longer on screen, and the Plugin settings
+    /// page opens in place of the Plugins list.
     fn pick_plugin(&self, filename: String) {
+        let extras = self.local_extras.lock().unwrap().clone();
         {
             let mut edits = self.mods_edits.lock().unwrap();
             *edits = if filename.is_empty() {
                 mods::settings::Edits::default()
             } else {
-                mods::settings::edits(&self.data_dir, &filename)
+                mods::settings::edits(&self.data_dir, &filename, &extras)
             };
         }
         *self.mods_plugin.lock().unwrap() = filename;
-        self.after_mod_action(None);
+        self.select_mods_page(mods::Page::Settings.id().to_owned());
     }
 
     /// A press in one control: the value goes into the page, not the file. Each kind of control
@@ -2317,7 +2319,7 @@ impl Wiring {
     /// plugin's own `onSettingsSaved` callbacks are handed the file. Nothing is written when
     /// nothing changed, so a press on a page nobody touched leaves the file alone.
     fn save_plugin_settings(&self) {
-        let (filename, saved) = {
+        let (filename, saved, extras) = {
             let mut edits = self.mods_edits.lock().unwrap();
             if edits.filename.is_empty() {
                 return;
@@ -2328,9 +2330,16 @@ impl Wiring {
                 self.after_mod_action(Some(mods::Notice::said("Nothing to save.")));
                 return;
             }
-            let saved = mods::settings::save(&self.data_dir, &mut edits);
-            (filename, saved)
+            let mut extras = self.local_extras.lock().unwrap().clone();
+            let saved = mods::settings::save(&self.data_dir, &mut edits, &mut extras);
+            (filename, saved, extras)
         };
+        if saved.written {
+            // A built-in's page writes into the shell's own settings, which are the copy every
+            // other screen reads from: the same values go back into it after the page is saved.
+            *self.local_extras.lock().unwrap() = extras.clone();
+            extras.save(&self.data_dir);
+        }
         if !saved.written {
             self.after_mod_action(Some(mods::Notice::failed(format!(
                 "{filename}: {}",

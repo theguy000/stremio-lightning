@@ -34,6 +34,9 @@ export struct ModCardData {
     update: string,
     /// Whether the card draws Remove. A feature built into the app has no file to remove.
     removable: bool,
+    /// Whether the card draws a settings button: true for a plugin that declares settings,
+    /// including a built-in whose fields are part of the app.
+    has-settings: bool,
 }
 
 // One row of the Plugin settings page's left list.
@@ -135,9 +138,12 @@ export struct ModsViewData {
     plugins-note: string,
     /// What the Themes page says when no theme is on.
     themes-note: string,
-    /// The Plugin settings page: the plugins on its left list, the one picked, and its controls.
+    /// The Plugin settings page: the one picked, the name its card shows, and its controls.
     settings-plugins: [SettingsPluginData],
     settings-plugin: string,
+    /// What the page's title says: the picked plugin's name, or its file name when the file names
+    /// none.
+    settings-title: string,
     settings-fields: [SettingsFieldData],
     /// One line per thing wrong with the page as it stands: a schema that cannot be used, a file
     /// that cannot be read, values typed and not saved.
@@ -306,6 +312,38 @@ component ModRemoveButton inherits Rectangle {
     }
 }
 
+// A card's settings button: the gear that opens a plugin's settings page in place of the list.
+component ModSettingsButton inherits Rectangle {
+    in property <string> name;
+    in property <length> rem-size;
+    callback clicked();
+
+    width: 3 * root.rem-size;
+    height: 3 * root.rem-size;
+    border-radius: self.width / 2;
+    background: touch.has-hover ? Theme.overlay : transparent;
+
+    Image {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: 1.4 * root.rem-size;
+        height: 1.4 * root.rem-size;
+        source: @image-url("icons/settings.svg");
+        colorize: Theme.text;
+        opacity: touch.has-hover ? 1.0 : 0.7;
+    }
+    touch := TouchArea {
+        width: 100%;
+        height: 100%;
+        mouse-cursor: pointer;
+        accessible-role: button;
+        accessible-label: "Settings for " + root.name;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
 // Web: an addon card's shape, for a plugin or a theme: the name and the version on the first
 // line, the description under them, the switch and Remove on the right.
 component MarketButton inherits Rectangle {
@@ -377,6 +415,8 @@ component ModCardView inherits Rectangle {
     callback remove();
     // The card's Update button, which only an update makes visible.
     callback update();
+    // The card's settings button, drawn only when the plugin declares settings.
+    callback settings();
     // A press that is not the Remove button's second press: it takes back any armed card.
     callback dismiss();
 
@@ -568,8 +608,20 @@ component ModCardView inherits Rectangle {
                 root.update();
             }
         }
-        if root.data.removable: ModRemoveButton {
+        // The gear takes the bottom-right corner the Remove button also wants, so Remove steps
+        // left when both are drawn. A card with settings and no file to remove (a built-in) keeps
+        // the corner to itself.
+        if root.data.has-settings: ModSettingsButton {
             x: parent.width - root.pad - self.width;
+            y: parent.height - root.pad - self.height;
+            rem-size: root.rem-size;
+            name: root.data.filename;
+            clicked => {
+                root.settings();
+            }
+        }
+        if root.data.removable: ModRemoveButton {
+            x: parent.width - root.pad - self.width - (root.data.has-settings ? 3.4 * root.rem-size : 0px);
             y: parent.height - root.pad - self.height;
             rem-size: root.rem-size;
             armed: root.data.armed;
@@ -577,60 +629,6 @@ component ModCardView inherits Rectangle {
             clicked => {
                 root.remove();
             }
-        }
-    }
-}
-
-// One row of the Plugin settings page's left list: the plugin's name, and whether it is on.
-// Web: the Settings menu's rows, a pill per plugin rather than per page.
-component SettingsPluginRow inherits Rectangle {
-    in property <SettingsPluginData> entry;
-    in property <bool> selected;
-    in property <length> rem-size;
-    callback clicked();
-
-    property <length> pad: 0.8 * rem-size;
-    height: 5.2 * rem-size;
-    border-radius: 0.75 * rem-size;
-    background: (root.selected || touch.has-hover) ? Theme.overlay : transparent;
-    border-width: 2 * rem-size / 14;
-    border-color: root.selected ? Theme.accent-green : transparent;
-
-    settings-plugin-name := Text {
-        x: root.pad;
-        y: root.pad;
-        width: parent.width - 2 * root.pad;
-        height: 1.6 * rem-size;
-        text: root.entry.name;
-        overflow: elide;
-        vertical-alignment: center;
-        font-size: 1.1 * rem-size;
-        font-weight: root.selected ? 600 : 500;
-        color: Theme.text;
-    }
-    settings-plugin-state := Text {
-        x: root.pad;
-        y: root.pad + 1.8 * rem-size;
-        width: parent.width - 2 * root.pad;
-        height: 1.2 * rem-size;
-        text: (root.entry.enabled ? "On, " : "Off, ") + root.entry.controls;
-        overflow: elide;
-        vertical-alignment: center;
-        font-size: 0.9 * rem-size;
-        color: root.entry.enabled ? Theme.accent-green : Theme.placeholder;
-    }
-    touch := TouchArea {
-        width: 100%;
-        height: 100%;
-        mouse-cursor: pointer;
-        // The file name, so a test presses the row it means. The metadata name on the row can
-        // repeat, the file name cannot.
-        accessible-role: button;
-        accessible-label: root.entry.filename;
-        accessible-checkable: true;
-        accessible-checked: root.selected;
-        clicked => {
-            root.clicked();
         }
     }
 }
@@ -1364,6 +1362,9 @@ export component ModsContent inherits Rectangle {    // The height every card on
                 update => {
                     root.update-mod(entry.filename);
                 }
+                settings => {
+                    root.pick-settings-plugin(entry.filename);
+                }
             }
             for entry[index] in root.data.themes: ModCardView {
                 x: root.page-padding;
@@ -1402,42 +1403,42 @@ export component ModsContent inherits Rectangle {    // The height every card on
         // The installed plugins on the left, the picked one's schema on the right. The page only
         // edits: Save writes the plugin's settings file, Revert reads it back, and nothing here
         // deletes a value or the schema itself.
-        if root.on-settings: settings-choice := Flickable {
+                // A plugin's settings are a page inside the Plugins section, not an item of the menu: a
+        // card's gear opens them, and this arrow is the way back to the list.
+        if root.on-settings: settings-back := Rectangle {
             x: root.page-padding;
             y: root.list-top;
-            width: root.choice-width;
-            height: root.list-height;
-            content-width: self.width;
-            content-height: root.data.settings-plugins.length * 5.95 * root.rem-size;
+            width: 3 * root.rem-size;
+            height: 3 * root.rem-size;
+            border-radius: 0.5 * root.rem-size;
+            background: settings-back-touch.has-hover ? Theme.overlay : transparent;
 
-            for entry[index] in root.data.settings-plugins: SettingsPluginRow {
-                x: 0px;
-                y: index * 5.95 * root.rem-size;
-                width: settings-choice.width - 8px;
-                rem-size: root.rem-size;
-                entry: entry;
-                selected: entry.filename == root.data.settings-plugin;
+            Image {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                width: 1.5 * root.rem-size;
+                height: 1.5 * root.rem-size;
+                source: @image-url("icons/chevron-back.svg");
+                colorize: Theme.text;
+                opacity: settings-back-touch.has-hover ? 0.8 : 0.6;
+            }
+            settings-back-touch := TouchArea {
+                width: 100%;
+                height: 100%;
+                mouse-cursor: pointer;
+                accessible-role: button;
+                accessible-label: "Back to plugins";
                 clicked => {
-                    root.pick-settings-plugin(entry.filename);
+                    root.select-page("plugins");
                 }
             }
         }
-        if root.on-settings && root.data.settings-plugins.length == 0: settings-empty := Text {
-            x: root.page-padding;
-            y: root.list-top;
-            width: root.choice-width;
-            height: 3 * root.rem-size;
-            text: "No plugins are installed.";
-            font-size: 1.1 * root.rem-size;
-            color: Theme.text;
-            opacity: 0.8;
-        }
 
         if root.on-settings: Rectangle {
-            x: root.page-padding + root.choice-width + 2 * root.rem-size;
-            y: root.list-top;
-            width: root.fields-width;
-            height: root.list-height;
+            x: root.page-padding;
+            y: root.list-top + 3.6 * root.rem-size;
+            width: root.page-width;
+            height: Math.max(root.list-height - 3.6 * root.rem-size, 0px);
 
             settings-fields := Flickable {
                 x: 0px;
@@ -1456,7 +1457,7 @@ export component ModsContent inherits Rectangle {    // The height every card on
                     y: 0px;
                     width: parent.width - 8px;
                     height: 3 * root.rem-size;
-                    text: root.data.settings-plugin;
+                    text: root.data.settings-title;
                     overflow: elide;
                     vertical-alignment: center;
                     font-size: 1.6 * root.rem-size;

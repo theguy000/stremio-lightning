@@ -12,7 +12,7 @@
 
 use std::path::Path;
 
-use serde_json::{Map, Value as Json};
+use serde_json::{json, Map, Value as Json};
 use stremio_lightning_core::mods::{self, ModType};
 use stremio_lightning_core::settings;
 
@@ -126,10 +126,15 @@ pub fn plugins(data_dir: &Path, extras: &LocalExtras) -> Result<Vec<Plugin>, Str
     Ok(cards
         .into_iter()
         .map(|card| {
-            let name = crate::plumbing::plugin::name_of(&card.filename);
-            let fields = plugin_schema::stored(&plugins_dir, &name)
-                .map(|fields| fields.len())
-                .unwrap_or(0);
+            // A built-in keeps its fields in the app, not in a schema file.
+            let fields = if card.builtin {
+                super::builtin::fields(&card.filename).len()
+            } else {
+                let name = crate::plumbing::plugin::name_of(&card.filename);
+                plugin_schema::stored(&plugins_dir, &name)
+                    .map(|fields| fields.len())
+                    .unwrap_or(0)
+            };
             Plugin {
                 name: catalogue::title(&card),
                 fields,
@@ -141,9 +146,41 @@ pub fn plugins(data_dir: &Path, extras: &LocalExtras) -> Result<Vec<Plugin>, Str
 }
 
 /// What the page holds for `filename`: its schema, and for every control the value the file holds
-/// and a copy for the user to edit.
-pub fn edits(data_dir: &Path, filename: &str) -> Edits {
+/// and a copy for the user to edit. A built-in reads its values from the shell's own settings.
+pub fn edits(data_dir: &Path, filename: &str, extras: &LocalExtras) -> Edits {
+    if super::builtin::get(filename).is_some() {
+        return builtin_edits(filename, extras);
+    }
     edits_for(&mods::mods_dir(data_dir, ModType::Plugin), filename)
+}
+
+/// One built-in's page: its declared fields, each holding what the shell's settings say.
+fn builtin_edits(filename: &str, extras: &LocalExtras) -> Edits {
+    let mut edits = Edits {
+        filename: filename.to_owned(),
+        ..Edits::default()
+    };
+    for field in super::builtin::fields(filename) {
+        let schema = match field.kind {
+            super::builtin::FieldKind::Text { default } => Field::Text {
+                key: field.key.to_owned(),
+                label: field.label.to_owned(),
+                default: default.to_owned(),
+            },
+            super::builtin::FieldKind::Toggle { default } => Field::Toggle {
+                key: field.key.to_owned(),
+                label: field.label.to_owned(),
+                default,
+            },
+        };
+        let stored = super::builtin::value(extras, filename, field);
+        edits.controls.push(Control {
+            stored: stored.clone(),
+            edited: stored,
+            field: schema,
+        });
+    }
+    edits
 }
 
 fn edits_for(plugins_dir: &Path, filename: &str) -> Edits {
@@ -200,8 +237,12 @@ pub struct Saved {
 }
 
 /// The Save button: every changed value is written to the plugin's settings file, and the page is
-/// read back from it, so what is on screen and what the file holds are the same again.
-pub fn save(data_dir: &Path, edits: &mut Edits) -> Saved {
+/// read back from it, so what is on screen and what the file holds are the same again. A built-in
+/// writes into the shell's own settings instead, which the caller saves after this returns.
+pub fn save(data_dir: &Path, edits: &mut Edits, extras: &mut LocalExtras) -> Saved {
+    if super::builtin::get(&edits.filename).is_some() {
+        return save_builtin(edits, extras);
+    }
     let name = crate::plumbing::plugin::name_of(&edits.filename);
     let plugins_dir = mods::mods_dir(data_dir, ModType::Plugin);
     let mut error = String::new();
@@ -238,6 +279,40 @@ pub fn save(data_dir: &Path, edits: &mut Edits) -> Saved {
         written: true,
         error: String::new(),
         values,
+    }
+}
+
+/// Saves a built-in's page into the shell's settings. A submitter id that is empty or not a UUID
+/// is made fresh here, so a page that has never had one leaves with one that can be used.
+fn save_builtin(edits: &mut Edits, extras: &mut LocalExtras) -> Saved {
+    for control in &edits.controls {
+        if !control.changed() {
+            continue;
+        }
+        let value = if control.field.key() == "submitter_id" {
+            match control.edited.as_str().map(str::trim) {
+                Some(text) if super::builtin::is_uuid(text) => json!(text),
+                _ => json!(super::builtin::new_submitter()),
+            }
+        } else {
+            control.edited.clone()
+        };
+        super::builtin::set_value(extras, &edits.filename, control.field.key(), value);
+    }
+    // A page saved for the first time also gets a submitter id, even when the user left the field
+    // alone: the field starts empty, and an empty id is no use to a submission.
+    if super::builtin::submitter(extras).is_none() {
+        let id = json!(super::builtin::new_submitter());
+        super::builtin::set_value(extras, &edits.filename, "submitter_id", id);
+    }
+    let fresh = builtin_edits(&edits.filename, extras);
+    edits.controls = fresh.controls;
+    edits.error = String::new();
+    edits.trouble = fresh.trouble;
+    Saved {
+        written: true,
+        error: String::new(),
+        values: Json::Object(edits.values()),
     }
 }
 
@@ -310,6 +385,34 @@ mod tests {
         assert_eq!(edits.values()["on"], json!(true));
         revert(&mut edits);
         assert!(!edits.dirty(), "revert throws away what was typed");
+    }
+
+    #[test]
+    fn a_built_in_page_reads_and_writes_the_shells_settings() {
+        let dir = std::env::temp_dir().join(format!(
+            "stremio-lightning-builtin-settings-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut extras = LocalExtras::default();
+        let mut page = edits(&dir, "builtin:aniskip", &extras);
+        assert_eq!(page.controls.len(), 3);
+        set_value(&mut page, "submit_button", &json!(false));
+        let saved = save(&dir, &mut page, &mut extras);
+        assert!(saved.written, "{}", saved.error);
+        let toggle = super::super::builtin::fields("builtin:aniskip")
+            .iter()
+            .find(|field| field.key == "submit_button")
+            .unwrap();
+        assert_eq!(
+            super::super::builtin::value(&extras, "builtin:aniskip", toggle),
+            json!(false)
+        );
+        assert!(
+            super::super::builtin::submitter(&extras).is_some(),
+            "a save leaves a submitter id"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
