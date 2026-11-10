@@ -1280,6 +1280,47 @@ impl Wiring {
         };
         *self.skip_kind.lock().unwrap() = kind.clone();
         self.show_skip_panel(&kind);
+        self.ask_skip_rates();
+    }
+
+    /// Asks AniSkip for this episode again, for the panel. A timing may have been sent while the
+    /// video played, or the fetch at load may not have answered when the panel opened; the source
+    /// caches by episode and length, so a repeat asks the network only when nothing is known.
+    fn ask_skip_rates(&self) {
+        let duration = self.playback.lock().unwrap().duration;
+        if duration <= 0.0 {
+            return;
+        }
+        let Some((video, meta_id, season, episode, nominal)) = self.skip_target() else {
+            return;
+        };
+        let kind = self.skip_kind.lock().unwrap().clone();
+        let (playback, weak, logs) = (
+            self.playback.clone(),
+            self.window.clone(),
+            self.logs.clone(),
+        );
+        self.handle.spawn(async move {
+            let found = skip::rates(&meta_id, season, episode, duration, nominal).await;
+            let playhead = {
+                let mut playback = playback.lock().unwrap();
+                if playback.skip_for != video {
+                    return;
+                }
+                playback.skip = found.iter().map(skip::Rate::segment).collect();
+                playback.skip_rates = found.clone();
+                playback.time
+            };
+            logs.record(
+                crate::plumbing::logs::Source::App,
+                "Skip",
+                crate::plumbing::logs::Level::Debug,
+                format!("The timing panel asked again: {} row(s)", found.len()),
+            );
+            let _ = weak.upgrade_in_event_loop(move |window| {
+                fill_skip_panel(&window, &found, &kind, playhead);
+            });
+        });
     }
 
     /// A press on one of the panel's categories.
@@ -1294,33 +1335,11 @@ impl Wiring {
         let Some(window) = self.window.upgrade() else {
             return;
         };
-        let (existing, id, start, end) = {
+        let (rates, playhead) = {
             let playback = self.playback.lock().unwrap();
-            match playback
-                .skip_rates
-                .iter()
-                .find(|rate| rate.kind.api() == kind)
-            {
-                Some(rate) => (
-                    format!("{} – {}", clock(rate.start), clock(rate.end)),
-                    rate.id.clone(),
-                    clock(rate.start),
-                    clock(rate.end),
-                ),
-                None => (
-                    String::new(),
-                    String::new(),
-                    clock(playback.time),
-                    clock(playback.time),
-                ),
-            }
+            (playback.skip_rates.clone(), playback.time)
         };
-        window.set_player_skip_kind(kind.into());
-        window.set_player_skip_existing(existing.into());
-        window.set_player_skip_id(id.into());
-        window.set_player_skip_start(start.into());
-        window.set_player_skip_end(end.into());
-        window.set_player_skip_notice("".into());
+        fill_skip_panel(&window, &rates, kind, playhead);
     }
 
     /// The Submit press: the two boxes become a timing AniSkip is asked to keep. The answer is
@@ -3896,6 +3915,31 @@ fn window_is_in_front() -> bool {
     {
         true
     }
+}
+
+/// Fills the timing panel for one category: the row AniSkip holds and its id, and the form's
+/// starting text -- the row's own times when there is one, the play head when there is not.
+fn fill_skip_panel(window: &MainWindow, rates: &[skip::Rate], kind: &str, playhead: f64) {
+    let (existing, id, start, end) = match rates.iter().find(|rate| rate.kind.api() == kind) {
+        Some(rate) => (
+            format!("{} – {}", clock(rate.start), clock(rate.end)),
+            rate.id.clone(),
+            clock(rate.start),
+            clock(rate.end),
+        ),
+        None => (
+            String::new(),
+            String::new(),
+            clock(playhead),
+            clock(playhead),
+        ),
+    };
+    window.set_player_skip_kind(kind.into());
+    window.set_player_skip_existing(existing.into());
+    window.set_player_skip_id(id.into());
+    window.set_player_skip_start(start.into());
+    window.set_player_skip_end(end.into());
+    window.set_player_skip_notice("".into());
 }
 
 /// Seconds as the player's clocks read them, without the hours a file under an hour does not

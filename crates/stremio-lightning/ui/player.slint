@@ -815,7 +815,7 @@ export component PlayerScreen inherits Rectangle {
         : root.menu-list-room;
     property <length> menu-height:
         root.menu == "speed" ? root.rem-size * 12.6
-        : root.menu == "skip" ? root.rem-size * 25.5
+        : root.menu == "skip" ? root.rem-size * 18.8
         : root.menu == "subtitles" ? root.menu-max
         : root.menu == "audio"
         ? Math.min(root.menu-header + root.rows-height(root.audio-tracks.length), root.menu-max)
@@ -1657,18 +1657,13 @@ export component PlayerScreen inherits Rectangle {
             }
 
             // The timing panel: what AniSkip holds for the category picked, a vote on it, and a
-            // form that adds a timing for the file being watched.
+            // form that adds a timing for the file being watched. No heading: the categories and
+            // the times say what the panel is.
             if root.menu == "skip": VerticalLayout {
                 spacing: 0;
                 alignment: start;
-                MenuHeader {
-                    rem-size: root.rem-size;
-                    title: "Skip Times";
-                }
                 VerticalLayout {
-                    padding-left: 1 * root.rem-size;
-                    padding-right: 1 * root.rem-size;
-                    padding-bottom: 1 * root.rem-size;
+                    padding: 1 * root.rem-size;
                     spacing: 0.5 * root.rem-size;
                     alignment: start;
 
