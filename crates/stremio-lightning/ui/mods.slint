@@ -436,13 +436,13 @@ component ModCardView inherits Rectangle {
         + (root.data.update == "" ? 0px : 1.4 * root.rem-size);
     // Where the lines under the description start: the description's own slot, the unreadable
     // note's, and one row per warning.
-    property <length> body-end: root.pad + 3.6 * root.rem-size
+    property <length> body-end: root.pad + 4.4 * root.rem-size
         + (root.data.description == "" ? 0px : 2 * root.rem-size)
         + (root.data.unreadable == "" ? 0px : 2 * root.rem-size)
         + root.data.warnings.length * 1.2 * root.rem-size;
     // The list gives every card the row's height, so this default is only what a card drawn on
     // its own would take. It stays positive whatever the data says.
-    height: Math.max(10 * root.rem-size, 5.2 * root.rem-size + root.pad + root.body-height);
+    height: Math.max(10 * root.rem-size, 6.0 * root.rem-size + root.pad + root.body-height);
 
     mod-card := Rectangle {
         width: parent.width;
@@ -495,7 +495,9 @@ component ModCardView inherits Rectangle {
 
         mod-description := Text {
             x: root.pad;
-            y: root.pad + 3.6 * root.rem-size;
+            // One line of space under the name and version: the description reads as its own
+            // block rather than a third line of the title.
+            y: root.pad + 4.4 * root.rem-size;
             width: root.text-width;
             height: 2 * root.rem-size;
             text: root.data.description;
@@ -1115,7 +1117,7 @@ component MarketCardView inherits Rectangle {
 export component ModsContent inherits Rectangle {    // The height every card on a page takes: the tallest card the page has to draw, so the list's
     // row pitch matches what each card draws.
     pure function tallest(cards: [ModCardData], rem-size: length) -> length {
-        return Math.max(10 * rem-size, cards.length == 0 ? 0px : 5.2 * rem-size + 1.5 * rem-size
+        return Math.max(10 * rem-size, cards.length == 0 ? 0px : 6.0 * rem-size + 1.5 * rem-size
             + (cards[0].description == "" ? 0px : 2 * rem-size)
             + (cards[0].unreadable == "" ? 0px : 2 * rem-size)
             + cards[0].warnings.length * 1.2 * rem-size
