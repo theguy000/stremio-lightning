@@ -263,9 +263,6 @@ pub(crate) struct Wiring {
     /// holds, and anything typed since. The page is built from this rather than read again on
     /// every press, so a control cannot lose what was typed while another was pressed.
     pub(crate) mods_edits: Arc<Mutex<crate::screens::mods::settings::Edits>>,
-    /// Delays drawing while a text box is typed in. The page writes typed text on every press,
-    /// and redrawing it on every press would take the editor out from under the next letter.
-    pub(crate) mods_typed: Arc<Timer>,
     /// The registry the Marketplace page last read, kept by the window: reading it again is a
     /// request, so the page opens on what was read until Check for updates asks again. `None`
     /// until the page has been opened once.
@@ -305,7 +302,6 @@ pub(crate) struct ArmedMod {
 
 /// How long typing has to pause before the page draws what was typed. A tenth of a second is
 /// under what a person sees and over what the window takes to draw.
-const TYPING_PAUSE_MS: u64 = 100;
 
 /// How long the window's thread waits after the Marketplace's news before it draws it. A registry
 /// read and a check land as two pieces of news within a few milliseconds of each other, and
@@ -2104,40 +2100,15 @@ impl Wiring {
     /// waits for a pause before the page is drawn again, so the letters after the first are typed
     /// into the editor the frame did not replace; every other control is a single press and is
     /// drawn straight away.
-    fn edit_plugin_setting(&self, key: String, value: serde_json::Value, text: bool) {
+    fn edit_plugin_setting(&self, key: String, value: serde_json::Value) {
         {
             let mut edits = self.mods_edits.lock().unwrap();
             mods::settings::set_value(&mut edits, &key, &value);
         }
-        if text {
-            self.draw_typing();
-        } else {
-            self.after_mod_action(None);
-        }
-    }
-
-    /// Something was typed: the page is drawn once typing pauses. Every press counts, and the
-    /// last count to be seen after the pause is the one drawn, so a key typed while the timer ran
-    /// is never lost.
-    fn draw_typing(&self) {
-        if self.mods_typed.running() {
-            return;
-        }
-        let (window, latest, images) = (
-            self.window.clone(),
-            self.latest.clone(),
-            self.images.clone(),
-        );
-        self.mods_typed.start(
-            slint::TimerMode::SingleShot,
-            std::time::Duration::from_millis(TYPING_PAUSE_MS),
-            move || {
-                // Drawn without a notice: typing is not an action worth one, and the notice is
-                // what a saved page says.
-                let snapshot = latest.lock().unwrap().clone();
-                shell::show(&window, snapshot, &images);
-            },
-        );
+        // Every press is drawn at once. The field rows are kept across redraws, so a repaint no
+        // longer takes the text box out from under the next letter, and the page's unsaved state
+        // is never waiting for the box to lose focus.
+        self.after_mod_action(None);
     }
 
     /// The Revert press: every value goes back to what the plugin's file holds.
@@ -3492,17 +3463,14 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
     {
         let wiring = wiring.clone();
         window.on_edit_mods_setting_toggle(move |key, on| {
-            wiring.edit_plugin_setting(key.to_string(), serde_json::Value::Bool(on), false);
+            wiring.edit_plugin_setting(key.to_string(), serde_json::Value::Bool(on));
         });
     }
     {
         let wiring = wiring.clone();
         window.on_edit_mods_setting_text(move |key, text| {
-            wiring.edit_plugin_setting(
-                key.to_string(),
-                serde_json::Value::String(text.to_string()),
-                true,
-            );
+            wiring
+                .edit_plugin_setting(key.to_string(), serde_json::Value::String(text.to_string()));
         });
     }
     {
@@ -3512,7 +3480,7 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
             let value = serde_json::Number::from_f64(f64::from(number))
                 .map(serde_json::Value::Number)
                 .unwrap_or(serde_json::Value::Null);
-            wiring.edit_plugin_setting(key.to_string(), value, false);
+            wiring.edit_plugin_setting(key.to_string(), value);
         });
     }
     {

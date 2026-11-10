@@ -183,7 +183,6 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
         plugins: plugins.clone(),
         mods_plugin: mods_plugin.clone(),
         mods_edits: mods_edits.clone(),
-        mods_typed: Default::default(),
         market_listing: Default::default(),
         market_asked: Default::default(),
         market_search: Default::default(),

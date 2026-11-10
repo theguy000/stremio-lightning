@@ -1517,6 +1517,17 @@ export component ModsContent inherits Rectangle {    // The height every card on
                         root.save-settings();
                     }
                 }
+                // Typed and not saved: said as it happens, not once the box loses focus.
+                if root.data.settings-dirty: settings-unsaved := Text {
+                    x: settings-save.width + 1.2 * root.rem-size;
+                    y: settings-box.save-y;
+                    width: parent.width - settings-save.width - 1.2 * root.rem-size - 8px;
+                    height: 3 * root.rem-size;
+                    text: "Unsaved changes";
+                    vertical-alignment: center;
+                    font-size: 0.9 * root.rem-size;
+                    color: Theme.accent-yellow;
+                }
             }
             ScrollBar {
                 x: parent.width - 8px;
