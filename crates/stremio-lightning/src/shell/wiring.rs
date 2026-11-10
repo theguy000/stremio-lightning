@@ -2111,14 +2111,13 @@ impl Wiring {
         self.after_mod_action(None);
     }
 
-    /// The Revert press: every value goes back to what the plugin's file holds.
+    /// The Revert press: every value goes back to what the plugin's file holds. The page shows
+    /// the stored values again; nothing is written and nothing has to be said about it.
     fn revert_plugin_settings(&self) {
         let mut edits = self.mods_edits.lock().unwrap();
         mods::settings::revert(&mut edits);
         drop(edits);
-        self.after_mod_action(Some(mods::Notice::said(
-            "Reverted to the saved values. Nothing was written.",
-        )));
+        self.after_mod_action(None);
     }
 
     // ---- The Logs page -------------------------------------------------------

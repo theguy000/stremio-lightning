@@ -642,10 +642,11 @@ component SettingsTextField inherits LineEdit {
     init => {
         self.text = root.shown;
     }
-    // A value the page hands the box while nobody is typing into it -- after a save normalises
-    // it, or when the page opens on another plugin -- replaces what the box shows.
+    // A value the page hands the box that differs from what it shows -- after a save normalises
+    // it, or on a revert -- replaces the text. The echo of a keystroke is the same text and is
+    // left alone, so typing never fights the page.
     changed shown => {
-        if (!self.has-focus) {
+        if (self.text != root.shown) {
             self.text = root.shown;
         }
     }
@@ -1517,16 +1518,34 @@ export component ModsContent inherits Rectangle {    // The height every card on
                         root.save-settings();
                     }
                 }
-                // Typed and not saved: said as it happens, not once the box loses focus.
-                if root.data.settings-dirty: settings-unsaved := Text {
-                    x: settings-save.width + 1.2 * root.rem-size;
+                // Typed and not saved: the two things that can be done about it, and the reason.
+                if root.data.settings-dirty: Rectangle {
+                    x: settings-save.width + 0.8 * root.rem-size;
                     y: settings-box.save-y;
-                    width: parent.width - settings-save.width - 1.2 * root.rem-size - 8px;
+                    width: parent.width - self.x;
                     height: 3 * root.rem-size;
-                    text: "Unsaved changes";
-                    vertical-alignment: center;
-                    font-size: 0.9 * root.rem-size;
-                    color: Theme.accent-yellow;
+                    background: transparent;
+
+                    settings-revert := SettingsButton {
+                        x: 0px;
+                        y: 0px;
+                        rem-size: root.rem-size;
+                        label-text: "Revert";
+                        name: "Revert " + root.data.settings-plugin;
+                        clicked => {
+                            root.revert-settings();
+                        }
+                    }
+                    settings-unsaved := Text {
+                        x: settings-revert.width + 1.2 * root.rem-size;
+                        y: 0px;
+                        width: parent.width - self.x - 8px;
+                        height: parent.height;
+                        text: "Unsaved changes";
+                        vertical-alignment: center;
+                        font-size: 0.9 * root.rem-size;
+                        color: Theme.accent-yellow;
+                    }
                 }
             }
             ScrollBar {
