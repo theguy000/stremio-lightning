@@ -1898,6 +1898,11 @@ impl Wiring {
     /// by the time the page finishes drawing.
     fn select_mods_page(&self, id: String) {
         let page = mods::Page::from_id(&id);
+        // Leaving the Plugin settings page drops what was typed there: the back arrow is the
+        // page's revert, and nothing typed on it outlives the page.
+        if page != mods::Page::Settings {
+            *self.mods_edits.lock().unwrap() = mods::settings::Edits::default();
+        }
         self.disarm_mods();
         *self.mods_page.lock().unwrap() = page.id().to_owned();
         if page == mods::Page::Marketplace {
@@ -2108,15 +2113,6 @@ impl Wiring {
         // Every press is drawn at once. The field rows are kept across redraws, so a repaint no
         // longer takes the text box out from under the next letter, and the page's unsaved state
         // is never waiting for the box to lose focus.
-        self.after_mod_action(None);
-    }
-
-    /// The Revert press: every value goes back to what the plugin's file holds. The page shows
-    /// the stored values again; nothing is written and nothing has to be said about it.
-    fn revert_plugin_settings(&self) {
-        let mut edits = self.mods_edits.lock().unwrap();
-        mods::settings::revert(&mut edits);
-        drop(edits);
         self.after_mod_action(None);
     }
 
@@ -3485,10 +3481,6 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
     {
         let wiring = wiring.clone();
         window.on_save_mods_settings(move || wiring.save_plugin_settings());
-    }
-    {
-        let wiring = wiring.clone();
-        window.on_revert_mods_settings(move || wiring.revert_plugin_settings());
     }
     {
         let wiring = wiring.clone();

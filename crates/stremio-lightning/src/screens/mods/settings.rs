@@ -4,8 +4,8 @@
 //! The page never guesses. A value on screen is either what the plugin's settings file holds or
 //! what the user has typed since the page was last saved, and the page says which. Saving is the
 //! only thing that writes: a press on Save writes every changed value, then hands the plugin its
-//! own `onSettingsSaved` callbacks with the values the file now holds. Revert reads the file again
-//! and throws the edits away.
+//! own `onSettingsSaved` callbacks with the values the file now holds. Leaving the page throws the
+//! edits away.
 //!
 //! Nothing here deletes: a key the schema no longer mentions stays in the file, and so does the
 //! schema itself.
@@ -223,13 +223,6 @@ pub fn set_value(edits: &mut Edits, key: &str, value: &Json) {
     }
 }
 
-/// The Revert button: everything typed since the last save goes back to what the file holds.
-pub fn revert(edits: &mut Edits) {
-    for control in &mut edits.controls {
-        control.edited = control.stored.clone();
-    }
-}
-
 /// What saving did, as the plugin needs to hear it.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Saved {
@@ -405,8 +398,11 @@ mod tests {
         set_value(&mut edits, "on", &json!(true));
         assert!(edits.dirty());
         assert_eq!(edits.values()["on"], json!(true));
-        revert(&mut edits);
-        assert!(!edits.dirty(), "revert throws away what was typed");
+        edits = Edits::default();
+        assert!(
+            !edits.dirty(),
+            "leaving the page throws away what was typed"
+        );
     }
 
     #[test]

@@ -643,8 +643,8 @@ component SettingsTextField inherits LineEdit {
         self.text = root.shown;
     }
     // A value the page hands the box that differs from what it shows -- after a save normalises
-    // it, or on a revert -- replaces the text. The echo of a keystroke is the same text and is
-    // left alone, so typing never fights the page.
+    // it, or when the page is left -- replaces the text. The echo of a keystroke is the same text
+    // and is left alone, so typing never fights the page.
     changed shown => {
         if (self.text != root.shown) {
             self.text = root.shown;
@@ -814,7 +814,7 @@ component SettingsFieldView inherits Rectangle {
     }
 }
 
-// A pill button on the Plugin settings page. Save and Revert are the page's only two, drawn the
+// A pill button on the Plugin settings page. Save is the page's only action, drawn the
 // same way so neither is the one a person presses by mistake.
 component SettingsButton inherits Rectangle {
     in property <string> label-text;
@@ -1162,8 +1162,6 @@ export component ModsContent inherits Rectangle {    // The height every card on
     callback edit-settings-number(string, float);
     /// The Save press: what the page holds goes into the plugin's settings file.
     callback save-settings();
-    /// The Revert press: what is typed goes back to what the file holds.
-    callback revert-settings();
     /// A press in the Marketplace's search box: the text it now holds.
     callback search-market(string);
     /// A Marketplace card's one button, naming the entry by its download. An installed card's
@@ -1403,8 +1401,8 @@ export component ModsContent inherits Rectangle {    // The height every card on
 
         // ---- Plugin settings ------------------------------------------------------------
         // The installed plugins on the left, the picked one's schema on the right. The page only
-        // edits: Save writes the plugin's settings file, Revert reads it back, and nothing here
-        // deletes a value or the schema itself.
+        // edits: Save writes the plugin's settings file, the back arrow drops the edits, and
+        // nothing here deletes a value or the schema itself.
                 if root.on-settings: settings-box := Rectangle {
             x: root.page-padding;
             // The page brings its own header, so it starts where the section's title would have:
@@ -1516,35 +1514,6 @@ export component ModsContent inherits Rectangle {    // The height every card on
                     enabled: root.data.settings-dirty;
                     clicked => {
                         root.save-settings();
-                    }
-                }
-                // Typed and not saved: the two things that can be done about it, and the reason.
-                if root.data.settings-dirty: Rectangle {
-                    x: settings-save.width + 0.8 * root.rem-size;
-                    y: settings-box.save-y;
-                    width: parent.width - self.x;
-                    height: 3 * root.rem-size;
-                    background: transparent;
-
-                    settings-revert := SettingsButton {
-                        x: 0px;
-                        y: 0px;
-                        rem-size: root.rem-size;
-                        label-text: "Revert";
-                        name: "Revert " + root.data.settings-plugin;
-                        clicked => {
-                            root.revert-settings();
-                        }
-                    }
-                    settings-unsaved := Text {
-                        x: settings-revert.width + 1.2 * root.rem-size;
-                        y: 0px;
-                        width: parent.width - self.x - 8px;
-                        height: parent.height;
-                        text: "Unsaved changes";
-                        vertical-alignment: center;
-                        font-size: 0.9 * root.rem-size;
-                        color: Theme.accent-yellow;
                     }
                 }
             }

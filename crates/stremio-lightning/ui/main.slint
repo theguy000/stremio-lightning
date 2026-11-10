@@ -104,14 +104,13 @@ export component MainWindow inherits Window {
     callback remove-mods-mod(string);
     /// Any other press on a Mods card takes back an armed Remove.
     callback dismiss-mods-remove();
-    /// The Plugin settings page: the plugin picked, a press in one of its controls, Save and
-    /// Revert. Every one names the plugin by the file name the page shows.
+    /// The Plugin settings page: the plugin picked, a press in one of its controls, and Save.
+    /// Every one names the plugin by the file name the page shows.
     callback pick-mods-settings-plugin(string);
     callback edit-mods-setting-toggle(string, bool);
     callback edit-mods-setting-text(string, string);
     callback edit-mods-setting-number(string, float);
     callback save-mods-settings();
-    callback revert-mods-settings();
     /// The Marketplace page: a press in its search box, its cards' one button, and Check for
     /// updates. Update and Update all replace a file with its newer version on either page.
     callback search-mods-market(string);
@@ -833,9 +832,6 @@ callback player-skip();
         }
         save-settings => {
             root.save-mods-settings();
-        }
-        revert-settings => {
-            root.revert-mods-settings();
         }
         search-market(text) => {
             root.search-mods-market(text);

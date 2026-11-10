@@ -683,8 +683,9 @@ fn state_said(data: &crate::screens::mods::Data) -> String {
     data.picked_state.said(data.picked_enabled)
 }
 
-/// What the Plugin settings page says is wrong with itself: a schema that cannot be used, a file
-/// that cannot be read, and values typed and not saved.
+/// What the Plugin settings page says is wrong with itself: a schema that cannot be used and a
+/// file that cannot be read. Typed and unsaved values are not a fault; Save being lit is the
+/// whole of what the page says about them.
 fn trouble(data: &crate::screens::mods::Data) -> Vec<String> {
     let edits = &data.edits;
     let mut said = Vec::new();
@@ -694,11 +695,6 @@ fn trouble(data: &crate::screens::mods::Data) -> Vec<String> {
         }
         if !edits.error.is_empty() {
             said.push(edits.error.clone());
-        }
-        if edits.dirty() {
-            said.push(
-                "Typed and not saved. Press Save to write it, or Revert to drop it.".to_owned(),
-            );
         }
     }
     said
