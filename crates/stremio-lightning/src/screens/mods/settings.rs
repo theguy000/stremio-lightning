@@ -289,21 +289,37 @@ fn save_builtin(edits: &mut Edits, extras: &mut LocalExtras) -> Saved {
         if !control.changed() {
             continue;
         }
-        let value = if control.field.key() == "submitter_id" {
-            match control.edited.as_str().map(str::trim) {
-                Some(text) if super::builtin::is_uuid(text) => json!(text),
-                _ => json!(super::builtin::new_submitter()),
+        let value = match control.field.key() {
+            // The API requires the field and rejects anything that is not a UUID. The app makes
+            // one on the first run, so a blank one here means the user cleared it on purpose:
+            // refuse rather than quietly replacing the id they may have pasted.
+            "submitter_id" => {
+                let text = control.edited.as_str().map(str::trim).unwrap_or_default();
+                if !super::builtin::is_uuid(text) {
+                    let error = "Submitter ID is required: it must be a UUID. Nothing was saved."
+                        .to_owned();
+                    edits.error = error.clone();
+                    return Saved {
+                        written: false,
+                        error,
+                        values: Json::Object(edits.values()),
+                    };
+                }
+                json!(text)
             }
-        } else {
-            control.edited.clone()
+            // The API requires the key but accepts an empty string; a submission is easier to
+            // recognise with a name, so a cleared field falls back to the app's own.
+            "provider_name" => {
+                let text = control.edited.as_str().map(str::trim).unwrap_or_default();
+                if text.is_empty() {
+                    json!("Stremio Lightning")
+                } else {
+                    json!(text)
+                }
+            }
+            _ => control.edited.clone(),
         };
         super::builtin::set_value(extras, &edits.filename, control.field.key(), value);
-    }
-    // A page saved for the first time also gets a submitter id, even when the user left the field
-    // alone: the field starts empty, and an empty id is no use to a submission.
-    if super::builtin::submitter(extras).is_none() {
-        let id = json!(super::builtin::new_submitter());
-        super::builtin::set_value(extras, &edits.filename, "submitter_id", id);
     }
     let fresh = builtin_edits(&edits.filename, extras);
     edits.controls = fresh.controls;
@@ -395,6 +411,10 @@ mod tests {
         ));
         let _ = std::fs::remove_dir_all(&dir);
         let mut extras = LocalExtras::default();
+        assert!(
+            super::super::builtin::ensure_submitter(&mut extras),
+            "the first run makes a submitter id"
+        );
         let mut page = edits(&dir, "builtin:aniskip", &extras);
         assert_eq!(page.controls.len(), 3);
         set_value(&mut page, "submit_button", &json!(false));
@@ -408,10 +428,13 @@ mod tests {
             super::super::builtin::value(&extras, "builtin:aniskip", toggle),
             json!(false)
         );
-        assert!(
-            super::super::builtin::submitter(&extras).is_some(),
-            "a save leaves a submitter id"
-        );
+        assert!(super::super::builtin::submitter(&extras).is_some());
+        // Clearing the id is refused: the API requires a UUID, and the app will not send a
+        // submission under an id that is not one.
+        set_value(&mut page, "submitter_id", &json!(""));
+        let refused = save(&dir, &mut page, &mut extras);
+        assert!(!refused.written);
+        assert!(refused.error.contains("must be a UUID"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

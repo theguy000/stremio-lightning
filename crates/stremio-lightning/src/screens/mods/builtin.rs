@@ -184,6 +184,18 @@ pub fn submitter(extras: &LocalExtras) -> Option<String> {
         .map(str::to_owned)
 }
 
+/// Makes sure the built-in has a submitter id, and says whether it had to make one. The API
+/// rejects a blank or malformed `submitterId`, so the id exists before the first submission and
+/// before the settings page is ever opened.
+pub fn ensure_submitter(extras: &mut LocalExtras) -> bool {
+    if submitter(extras).is_some() {
+        return false;
+    }
+    let id = json!(new_submitter());
+    set_value(extras, "builtin:aniskip", "submitter_id", id);
+    true
+}
+
 /// A fresh UUID v4, in the form the API wants for `submitterId`.
 #[must_use]
 pub fn new_submitter() -> String {

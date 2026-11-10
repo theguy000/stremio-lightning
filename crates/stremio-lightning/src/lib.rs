@@ -112,6 +112,15 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
     // window's thread, where `tokio::spawn` has no runtime to reach for.
     let images = tokio.block_on(async { plumbing::images::Images::default() });
     let local_extras = Arc::new(Mutex::new(screens::settings::LocalExtras::load(&data_dir)));
+    {
+        // AniSkip's submission needs a UUID to send as its submitter, and the API rejects a blank
+        // or malformed one. The first run with the feature makes one and writes it, so the id is
+        // there before a submission and before its settings page is ever opened.
+        let mut extras = local_extras.lock().unwrap();
+        if screens::mods::builtin::ensure_submitter(&mut extras) {
+            extras.save(&data_dir);
+        }
+    }
     let latest: Arc<Mutex<app::Snapshot>> = Default::default();
     let selected = Arc::new(AtomicUsize::new(0));
     // The Discover cards on screen, until the grid says otherwise. A screenful and a bit, so the
