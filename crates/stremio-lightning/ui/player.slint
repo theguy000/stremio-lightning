@@ -352,7 +352,7 @@ component VotePill inherits Rectangle {
         height: 1.1 * root.rem-size;
         source: @image-url("icons/thumbs-up.svg");
         colorize: Theme.text;
-        rotation-angle: root.up ? 0deg : 180deg;
+        transform-rotation: root.up ? 0deg : 180deg;
     }
     vote-touch := TouchArea {
         mouse-cursor: pointer;

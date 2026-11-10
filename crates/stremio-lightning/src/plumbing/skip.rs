@@ -144,7 +144,10 @@ pub async fn rates(
 /// sequels for a season past the first.
 async fn mal_for(meta_id: &str, season: u32) -> Option<u32> {
     let mal = mal_id(meta_id, season).await?;
-    Some(if season > 0 {
+    // The show's own id is its first season's. Walking Jikan's relations for season 1 ends on the
+    // id it started from, and costs two calls to a service that can take its full timeout to
+    // answer -- the first skip ask of a session waited those seconds for nothing.
+    Some(if season > 1 {
         season_mal(mal, season).await
     } else {
         mal
