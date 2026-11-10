@@ -83,6 +83,9 @@ pub struct Control {
     /// What the user is editing. Equal to `stored` until they change it, which is what marks the
     /// page as having something to save.
     pub edited: Json,
+    /// The sentence under the control. A built-in brings its own; an empty one lets the page say
+    /// what the kind of control is.
+    pub hint: String,
 }
 
 impl Control {
@@ -177,6 +180,7 @@ fn builtin_edits(filename: &str, extras: &LocalExtras) -> Edits {
         edits.controls.push(Control {
             stored: stored.clone(),
             edited: stored,
+            hint: field.hint.to_owned(),
             field: schema,
         });
     }
@@ -205,6 +209,7 @@ fn edits_for(plugins_dir: &Path, filename: &str) -> Edits {
         edits.controls.push(Control {
             stored: stored.clone(),
             edited: stored,
+            hint: String::new(),
             field,
         });
     }
@@ -392,6 +397,7 @@ mod tests {
                 field,
                 stored: json!(false),
                 edited: json!(false),
+                hint: String::new(),
             }],
             ..Edits::default()
         };
@@ -454,6 +460,7 @@ mod tests {
                 field,
                 stored: json!(3),
                 edited: json!(3),
+                hint: String::new(),
             }],
             ..Edits::default()
         };

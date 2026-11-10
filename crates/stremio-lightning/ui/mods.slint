@@ -1252,14 +1252,15 @@ export component ModsContent inherits Rectangle {    // The height every card on
             text: root.on-plugins ? "Plugins"
                 : root.on-themes ? "Themes"
                 : root.data.page == "marketplace" ? "Marketplace"
-                : root.data.page == "settings" ? "Plugin settings"
                 : root.data.page == "logs" ? "Logs" : "About";
             vertical-alignment: center;
             font-size: 2.2 * root.rem-size;
             font-weight: 700;
             color: ClassStyles.color-or(ClassStyles.mods-page-title, Theme.text);
             opacity: ClassStyles.opacity-or(ClassStyles.mods-page-title, 1.0);
-            visible: !ClassStyles.mods-page-title.hidden;
+            // A plugin's settings bring their own header, with its own back arrow: the section's
+            // title would be a second heading over the same page.
+            visible: !root.on-settings && !ClassStyles.mods-page-title.hidden;
         }
 
         if root.data.notice != "": mod-notice := Text {
@@ -1286,7 +1287,6 @@ export component ModsContent inherits Rectangle {    // The height every card on
             text: root.on-plugins ? root.data.plugins-note
                 : root.on-themes ? root.data.themes-note
                 : root.on-market ? root.data.market-note
-                : root.data.page == "settings" ? "Pick a plugin on the left. Its settings are saved only when you press Save."
                 : root.data.page == "logs" ? root.data.log-held
                 : "What this build is and what it keeps.";
             wrap: word-wrap;
@@ -1294,7 +1294,7 @@ export component ModsContent inherits Rectangle {    // The height every card on
             font-size: root.rem-size;
             color: ClassStyles.color-or(ClassStyles.mods-page-note, Theme.text);
             opacity: ClassStyles.opacity-or(ClassStyles.mods-page-note, 0.7);
-            visible: !ClassStyles.mods-page-note.hidden;
+            visible: !root.on-settings && !ClassStyles.mods-page-note.hidden;
         }
 
         if root.on-plugins && root.data.plugins.length == 0: mods-empty-plugins := Text {
@@ -1394,42 +1394,13 @@ export component ModsContent inherits Rectangle {    // The height every card on
         // The installed plugins on the left, the picked one's schema on the right. The page only
         // edits: Save writes the plugin's settings file, Revert reads it back, and nothing here
         // deletes a value or the schema itself.
-                // A plugin's settings are a page inside the Plugins section, not an item of the menu: a
-        // card's gear opens them, and this arrow is the way back to the list.
-        if root.on-settings: settings-back := Rectangle {
+                if root.on-settings: settings-box := Rectangle {
             x: root.page-padding;
-            y: root.list-top;
-            width: 3 * root.rem-size;
-            height: 3 * root.rem-size;
-            border-radius: 0.5 * root.rem-size;
-            background: settings-back-touch.has-hover ? Theme.overlay : transparent;
-
-            Image {
-                x: (parent.width - self.width) / 2;
-                y: (parent.height - self.height) / 2;
-                width: 1.5 * root.rem-size;
-                height: 1.5 * root.rem-size;
-                source: @image-url("icons/chevron-back.svg");
-                colorize: Theme.text;
-                opacity: settings-back-touch.has-hover ? 0.8 : 0.6;
-            }
-            settings-back-touch := TouchArea {
-                width: 100%;
-                height: 100%;
-                mouse-cursor: pointer;
-                accessible-role: button;
-                accessible-label: "Back to plugins";
-                clicked => {
-                    root.select-page("plugins");
-                }
-            }
-        }
-
-        if root.on-settings: settings-box := Rectangle {
-            x: root.page-padding;
-            y: root.list-top + 3.6 * root.rem-size;
+            // The page brings its own header, so it starts where the section's title would have:
+            // back arrow and plugin name on one line, at the top of the content area.
+            y: 2 * root.rem-size;
             width: root.page-width;
-            height: Math.max(root.list-height - 3.6 * root.rem-size, 0px);
+            height: Math.max(root.height - 2 * root.rem-size, 0px);
 
             // The page uses the whole viewport: the name, then one full-width block per field,
             // then Save at the bottom where the page's actions live. The old split layout sized
@@ -1457,9 +1428,9 @@ export component ModsContent inherits Rectangle {    // The height every card on
                 content-height: settings-box.save-y + 4 * root.rem-size;
 
                 settings-header := Text {
-                    x: 0px;
+                    x: 3.6 * root.rem-size;
                     y: 0px;
-                    width: parent.width - 8px;
+                    width: parent.width - 3.6 * root.rem-size - 8px;
                     height: settings-box.header-height;
                     text: root.data.settings-title;
                     overflow: elide;

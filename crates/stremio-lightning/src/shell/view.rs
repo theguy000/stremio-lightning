@@ -661,6 +661,11 @@ pub(crate) fn settings_field(control: &mods::settings::Control) -> SettingsField
             .into();
         }
     }
+    // A built-in brings its own sentence for each control; a file plugin has none and keeps the
+    // kind's own words.
+    if !control.hint.is_empty() {
+        field.hint = control.hint.clone().into();
+    }
     field
 }
 
@@ -668,6 +673,11 @@ pub(crate) fn settings_field(control: &mods::settings::Control) -> SettingsField
 /// sentence for a plugin that is on, and nothing for one that is off.
 fn state_said(data: &crate::screens::mods::Data) -> String {
     if data.plugin.is_empty() {
+        return String::new();
+    }
+    // A built-in ships running: there is no runtime to report, and "Running." would be noise
+    // under its name.
+    if mods::builtin::get(&data.plugin).is_some() {
         return String::new();
     }
     data.picked_state.said(data.picked_enabled)
