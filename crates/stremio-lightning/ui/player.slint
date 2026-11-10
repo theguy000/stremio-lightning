@@ -1175,8 +1175,8 @@ export component PlayerScreen inherits Rectangle {
         // A disc, not a pill: the words are gone and the glyph says what the press does. The
         // border is the control bar's hairline; the yellow is the accent the seek bar marks with,
         // so the button and its stretch are one colour.
-        width: 3.2 * root.rem-size;
-        height: 3.2 * root.rem-size;
+        width: 2.6 * root.rem-size;
+        height: 2.6 * root.rem-size;
         x: root.width - self.width - 1.7 * root.rem-size;
         y: root.height - self.height - 9 * root.rem-size;
         border-radius: self.width / 2;
@@ -1187,7 +1187,7 @@ export component PlayerScreen inherits Rectangle {
         drop-shadow-color: #00000055;
 
         skip-glyph := Image {
-            width: 1.7 * root.rem-size;
+            width: 1.4 * root.rem-size;
             height: self.width;
             x: (parent.width - self.width) / 2;
             y: (parent.height - self.height) / 2;
