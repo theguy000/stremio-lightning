@@ -180,6 +180,7 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
         mods_page: mods_page.clone(),
         skip_kind: Default::default(),
         skip_submit: Default::default(),
+        skip_seeded: Default::default(),
         mods_armed: Default::default(),
         mods_disarm: Default::default(),
         plugins: plugins.clone(),

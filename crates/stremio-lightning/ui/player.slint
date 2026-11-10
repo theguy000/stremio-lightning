@@ -306,10 +306,11 @@ component PlayerMenu inherits Rectangle {
 }
 // Web: the menus' `.header` -- 1.5rem of padding above and below, 2rem at the sides, bold, one
 // line. It sits in a fixed 4.5rem block so every column lines up with the others.
-// A timing field: one pill on the panel, the way Stremio's own inputs sit on their surface.
+// A timing field: one pill on the panel, the way Stremio's own inputs sit on their surface. Its
+// text lives in the panel's own property, so closing the panel does not throw away a typo half
+// fixed.
 component SkipField inherits Rectangle {
     in property <length> rem-size;
-    in property <string> shown;
     in-out property <string> text <=> input.text;
 
     height: 2.6 * root.rem-size;
@@ -317,15 +318,6 @@ component SkipField inherits Rectangle {
     background: input.has-focus ? #ffffff1f : #ffffff14;
     border-width: 1px;
     border-color: input.has-focus ? Theme.accent-green : transparent;
-
-    init => {
-        input.text = root.shown;
-    }
-    changed shown => {
-        if (input.text != root.shown) {
-            input.text = root.shown;
-        }
-    }
 
     input := TextInput {
         x: 0.9 * root.rem-size;
@@ -337,6 +329,38 @@ component SkipField inherits Rectangle {
         selection-background-color: Theme.accent;
         selection-foreground-color: Theme.on-accent;
         single-line: true;
+    }
+}
+
+// A thumbs-up or thumbs-down pill: the two votes on the row AniSkip holds.
+component VotePill inherits Rectangle {
+    in property <length> rem-size;
+    in property <bool> up: true;
+    callback clicked;
+
+    width: 2.6 * root.rem-size;
+    height: 2 * root.rem-size;
+    border-radius: self.height / 2;
+    background: vote-touch.has-hover ? Theme.overlay : #ffffff14;
+    border-width: 1px;
+    border-color: #ffffff26;
+
+    Image {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: 1.1 * root.rem-size;
+        height: 1.1 * root.rem-size;
+        source: @image-url("icons/thumbs-up.svg");
+        colorize: Theme.text;
+        rotation-angle: root.up ? 0deg : 180deg;
+    }
+    vote-touch := TouchArea {
+        mouse-cursor: pointer;
+        accessible-role: button;
+        accessible-label: root.up ? "Correct" : "Wrong";
+        clicked => {
+            root.clicked();
+        }
     }
 }
 
@@ -757,9 +781,19 @@ export component PlayerScreen inherits Rectangle {
     in property <string> skip-existing: "";
     /// The row's id, which a vote names. Empty when there is no row.
     in property <string> skip-id: "";
-    /// The form's starting text, as the shell formats it.
+    /// The form's starting text, as the shell formats it. The shell seeds it when the panel
+    /// opens on a category it has not shown yet; the box's own text lives beside it, so closing
+    /// the panel keeps what was typed.
     in property <string> skip-start: "";
     in property <string> skip-end: "";
+    in-out property <string> skip-start-text: "";
+    in-out property <string> skip-end-text: "";
+    changed skip-start => {
+        root.skip-start-text = root.skip-start;
+    }
+    changed skip-end => {
+        root.skip-end-text = root.skip-end;
+    }
     /// What the shell last said about the panel: sending, a refusal, or a thank-you.
     in property <string> skip-notice: "";
     /// The skip button: whether the play head is inside a segment. The shell decides it; the
@@ -815,7 +849,7 @@ export component PlayerScreen inherits Rectangle {
         : root.menu-list-room;
     property <length> menu-height:
         root.menu == "speed" ? root.rem-size * 12.6
-        : root.menu == "skip" ? root.rem-size * 18.8
+        : root.menu == "skip" ? root.rem-size * 17.9
         : root.menu == "subtitles" ? root.menu-max
         : root.menu == "audio"
         ? Math.min(root.menu-header + root.rows-height(root.audio-tracks.length), root.menu-max)
@@ -1657,16 +1691,62 @@ export component PlayerScreen inherits Rectangle {
             }
 
             // The timing panel: what AniSkip holds for the category picked, a vote on it, and a
-            // form that adds a timing for the file being watched. No heading: the categories and
-            // the times say what the panel is.
+            // form that adds a timing for the file being watched. The times own the top; the
+            // categories are part of the form, not of the reading.
             if root.menu == "skip": VerticalLayout {
                 spacing: 0;
                 alignment: start;
                 VerticalLayout {
                     padding: 1 * root.rem-size;
+                    padding-bottom: 0.6 * root.rem-size;
                     spacing: 0.5 * root.rem-size;
                     alignment: start;
 
+                    if root.skip-existing != "": HorizontalLayout {
+                        height: 2.4 * root.rem-size;
+                        spacing: 0.4 * root.rem-size;
+                        alignment: start;
+                        Text {
+                            text: root.skip-existing;
+                            font-size: 1 * root.rem-size;
+                            color: Theme.text;
+                            vertical-alignment: center;
+                        }
+                        Rectangle {
+                            horizontal-stretch: 1;
+                        }
+                        VotePill {
+                            rem-size: root.rem-size;
+                            up: true;
+                            clicked => {
+                                root.vote-skip(root.skip-id, true);
+                            }
+                        }
+                        VotePill {
+                            rem-size: root.rem-size;
+                            up: false;
+                            clicked => {
+                                root.vote-skip(root.skip-id, false);
+                            }
+                        }
+                    }
+                    if root.skip-existing == "": Text {
+                        height: 2.4 * root.rem-size;
+                        text: "AniSkip has no timing for this one yet. Add yours below.";
+                        wrap: word-wrap;
+                        font-size: 0.9 * root.rem-size;
+                        color: Theme.text;
+                        opacity: 0.7;
+                    }
+
+                    Text {
+                        height: 1.4 * root.rem-size;
+                        text: "Add your own";
+                        font-size: 0.95 * root.rem-size;
+                        font-weight: 700;
+                        color: Theme.text;
+                        vertical-alignment: center;
+                    }
                     HorizontalLayout {
                         height: 2.2 * root.rem-size;
                         spacing: 0.4 * root.rem-size;
@@ -1696,54 +1776,6 @@ export component PlayerScreen inherits Rectangle {
                             }
                         }
                     }
-
-                    if root.skip-existing != "": HorizontalLayout {
-                        height: 2.4 * root.rem-size;
-                        spacing: 0.4 * root.rem-size;
-                        alignment: start;
-                        Text {
-                            text: root.skip-existing;
-                            font-size: 1 * root.rem-size;
-                            color: Theme.text;
-                            vertical-alignment: center;
-                        }
-                        Rectangle {
-                            horizontal-stretch: 1;
-                        }
-                        SkipPill {
-                            rem-size: root.rem-size;
-                            label-text: "Correct";
-                            small: true;
-                            clicked => {
-                                root.vote-skip(root.skip-id, true);
-                            }
-                        }
-                        SkipPill {
-                            rem-size: root.rem-size;
-                            label-text: "Wrong";
-                            small: true;
-                            clicked => {
-                                root.vote-skip(root.skip-id, false);
-                            }
-                        }
-                    }
-                    if root.skip-existing == "": Text {
-                        height: 2.4 * root.rem-size;
-                        text: "AniSkip has no timing for this one yet. Add yours below.";
-                        wrap: word-wrap;
-                        font-size: 0.9 * root.rem-size;
-                        color: Theme.text;
-                        opacity: 0.7;
-                    }
-
-                    Text {
-                        height: 1.4 * root.rem-size;
-                        text: "Add your own";
-                        font-size: 0.95 * root.rem-size;
-                        font-weight: 700;
-                        color: Theme.text;
-                        vertical-alignment: center;
-                    }
                     GridLayout {
                         spacing: 0.4 * root.rem-size;
                         padding: 0px;
@@ -1761,7 +1793,7 @@ export component PlayerScreen inherits Rectangle {
                             col: 1;
                             horizontal-stretch: 1;
                             rem-size: root.rem-size;
-                            shown: root.skip-start;
+                            text <=> root.skip-start-text;
                         }
                         SkipPill {
                             row: 0;
@@ -1770,7 +1802,7 @@ export component PlayerScreen inherits Rectangle {
                             label-text: "Now";
                             small: true;
                             clicked => {
-                                skip-start-field.text = PlayerText.clock(root.time);
+                                root.skip-start-text = PlayerText.clock(root.time);
                             }
                         }
                         Text {
@@ -1787,7 +1819,7 @@ export component PlayerScreen inherits Rectangle {
                             col: 1;
                             horizontal-stretch: 1;
                             rem-size: root.rem-size;
-                            shown: root.skip-end;
+                            text <=> root.skip-end-text;
                         }
                         SkipPill {
                             row: 1;
@@ -1796,7 +1828,7 @@ export component PlayerScreen inherits Rectangle {
                             label-text: "Now";
                             small: true;
                             clicked => {
-                                skip-end-field.text = PlayerText.clock(root.time);
+                                root.skip-end-text = PlayerText.clock(root.time);
                             }
                         }
                     }
@@ -1810,7 +1842,7 @@ export component PlayerScreen inherits Rectangle {
                             label-text: "Submit";
                             primary: true;
                             clicked => {
-                                root.submit-skip(root.skip-kind, skip-start-field.text, skip-end-field.text);
+                                root.submit-skip(root.skip-kind, root.skip-start-text, root.skip-end-text);
                             }
                         }
                         if root.skip-notice != "": Text {

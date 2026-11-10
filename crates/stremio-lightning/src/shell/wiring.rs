@@ -254,6 +254,9 @@ pub(crate) struct Wiring {
     /// Whether the AniSkip page's switch offers the timing button, and with it whether the skip
     /// times are fetched even when the button that skips them is off.
     pub(crate) skip_submit: Arc<Mutex<bool>>,
+    /// The video and category the timing form was last seeded for. Opening the panel again on the
+    /// same two keeps what was typed; a new video or category starts from its own times.
+    pub(crate) skip_seeded: Arc<Mutex<String>>,
     /// The Mods card whose Remove button was pressed once and waits for the second press, with
     /// the page and the button it was pressed on. Pressing anything else, changing page, or this
     /// timer firing clears it; the second press is the one that removes the file.
@@ -1158,7 +1161,7 @@ impl Wiring {
                 } else {
                     kind
                 };
-                self.show_skip_panel(&kind);
+                self.show_skip_panel(&kind, false, false);
             }
         }
 
@@ -1279,7 +1282,17 @@ impl Wiring {
             kind
         };
         *self.skip_kind.lock().unwrap() = kind.clone();
-        self.show_skip_panel(&kind);
+        // The form is seeded once per video and category: closing the panel and opening it again
+        // keeps what was typed, which is what a submit that failed needs.
+        let context = self
+            .skip_target()
+            .map(|(video, ..)| format!("{video}:{kind}"))
+            .unwrap_or_default();
+        let seed = *self.skip_seeded.lock().unwrap() != context;
+        if seed {
+            *self.skip_seeded.lock().unwrap() = context;
+        }
+        self.show_skip_panel(&kind, true, seed);
         self.ask_skip_rates();
     }
 
@@ -1319,7 +1332,7 @@ impl Wiring {
                 format!("The timing panel asked again: {} row(s)", found.len()),
             );
             let _ = weak.upgrade_in_event_loop(move |window| {
-                fill_skip_panel(&window, &found, &kind, playhead);
+                fill_skip_panel(&window, &found, &kind, playhead, false);
             });
         });
     }
@@ -1327,12 +1340,17 @@ impl Wiring {
     /// A press on one of the panel's categories.
     fn pick_skip_kind(&self, kind: String) {
         *self.skip_kind.lock().unwrap() = kind.clone();
-        self.show_skip_panel(&kind);
+        if let Some((video, ..)) = self.skip_target() {
+            *self.skip_seeded.lock().unwrap() = format!("{video}:{kind}");
+        }
+        // The category picked is drawn as it is, even when an answer for it has not arrived:
+        // falling back to another category here would make the pills look unpressed.
+        self.show_skip_panel(&kind, false, true);
     }
 
     /// Fills the panel's properties for `kind`: the row AniSkip holds, its id, and the form's
     /// starting text -- the row's own times when there is one, the play head when there is not.
-    fn show_skip_panel(&self, kind: &str) {
+    fn show_skip_panel(&self, kind: &str, auto: bool, seed: bool) {
         let Some(window) = self.window.upgrade() else {
             return;
         };
@@ -1340,9 +1358,13 @@ impl Wiring {
             let playback = self.playback.lock().unwrap();
             (playback.skip_rates.clone(), playback.time)
         };
-        let kind = kind_with_data(&rates, kind);
+        let kind = if auto {
+            kind_with_data(&rates, kind)
+        } else {
+            kind.to_owned()
+        };
         *self.skip_kind.lock().unwrap() = kind.clone();
-        fill_skip_panel(&window, &rates, &kind, playhead);
+        fill_skip_panel(&window, &rates, &kind, playhead, seed);
     }
 
     /// The Submit press: the two boxes become a timing AniSkip is asked to keep. The answer is
@@ -3932,7 +3954,13 @@ fn kind_with_data(rates: &[skip::Rate], wanted: &str) -> String {
 
 /// Fills the timing panel for one category: the row AniSkip holds and its id, and the form's
 /// starting text -- the row's own times when there is one, the play head when there is not.
-fn fill_skip_panel(window: &MainWindow, rates: &[skip::Rate], kind: &str, playhead: f64) {
+fn fill_skip_panel(
+    window: &MainWindow,
+    rates: &[skip::Rate],
+    kind: &str,
+    playhead: f64,
+    seed: bool,
+) {
     let (existing, id, start, end) = match rates.iter().find(|rate| rate.kind.api() == kind) {
         Some(rate) => (
             format!("{} – {}", clock(rate.start), clock(rate.end)),
@@ -3950,8 +3978,10 @@ fn fill_skip_panel(window: &MainWindow, rates: &[skip::Rate], kind: &str, playhe
     window.set_player_skip_kind(kind.into());
     window.set_player_skip_existing(existing.into());
     window.set_player_skip_id(id.into());
-    window.set_player_skip_start(start.into());
-    window.set_player_skip_end(end.into());
+    if seed {
+        window.set_player_skip_start(start.into());
+        window.set_player_skip_end(end.into());
+    }
     window.set_player_skip_notice("".into());
 }
 
