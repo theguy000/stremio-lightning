@@ -180,6 +180,20 @@ fn cached(key: &str) -> Option<Vec<Rate>> {
     cache().lock().ok()?.get(key).cloned()
 }
 
+/// Puts a row that was just accepted into the cached answer for this episode, so the panel's
+/// next ask shows it without another request -- the cache was written before the submission and
+/// would otherwise answer with the old list.
+pub fn remember_rate(meta_id: &str, season: u32, episode: u32, duration: f64, rate: Rate) {
+    let key = format!("{meta_id}:{season}:{episode}:{}", duration.round() as u64);
+    if let Ok(mut cache) = cache().lock() {
+        let rows = cache.entry(key).or_default();
+        if !rows.iter().any(|known| known.id == rate.id) {
+            rows.push(rate);
+            rows.sort_by(|a, b| a.start.total_cmp(&b.start));
+        }
+    }
+}
+
 fn remember(key: &str, rates: &[Rate]) {
     if let Ok(mut cache) = cache().lock() {
         cache.insert(key.to_owned(), rates.to_vec());
@@ -700,6 +714,23 @@ mod tests {
                 start: 1273.0,
                 end: 1363.0
             }
+        );
+    }
+
+    #[test]
+    fn rows_inches_apart_are_one_release() {
+        let value = json!({
+            "found": true,
+            "results": [
+                { "skipType": "op", "interval": { "startTime": 0.5, "endTime": 91.0 }, "episodeLength": 1421.962 },
+                { "skipType": "ed", "interval": { "startTime": 1326.0, "endTime": 1419.947 }, "episodeLength": 1419.947 }
+            ]
+        });
+        let found = segments_of(&value, 1420.0);
+        assert_eq!(
+            found.iter().map(|s| s.kind).collect::<Vec<_>>(),
+            [Kind::Opening, Kind::Ending],
+            "an ending filed two seconds from the opening's release is the same cut"
         );
     }
 

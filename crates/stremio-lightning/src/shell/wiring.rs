@@ -1437,6 +1437,20 @@ impl Wiring {
                         crate::plumbing::logs::Level::Info,
                         format!("AniSkip keeps {start:.1}-{end:.1} as {id}"),
                     );
+                    // The fetch's key rounds the file's length, and the submission is filed
+                    // under the same episode: the panel's next ask must find it.
+                    skip::remember_rate(
+                        &meta_id,
+                        season,
+                        episode,
+                        duration,
+                        skip::Rate {
+                            kind,
+                            start,
+                            end,
+                            id: id.clone(),
+                        },
+                    );
                     let rows = if let Ok(mut playback) = playback.lock() {
                         if playback.skip_for == video {
                             playback.skip.push(skip::Segment { kind, start, end });
@@ -1445,7 +1459,7 @@ impl Wiring {
                                 kind,
                                 start,
                                 end,
-                                id,
+                                id: id.clone(),
                             });
                         }
                         playback
