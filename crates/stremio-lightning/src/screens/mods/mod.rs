@@ -166,7 +166,7 @@ impl Data {
             notice: Notice::default(),
             plugins: Vec::new(),
             themes: Vec::new(),
-            plugins_note: plugins::NOTE.to_owned(),
+            plugins_note: String::new(),
             themes_note: themes::NONE_ON.to_owned(),
             running: std::collections::HashMap::new(),
             settings_plugins: Vec::new(),
@@ -263,7 +263,7 @@ impl Data {
         // The sentence above each list says what the check found, and nothing about it before the
         // first check has answered.
         self.plugins_note = if self.updates.is_empty() {
-            plugins::NOTE.to_owned()
+            String::new()
         } else {
             plugins::note(&self.plugins)
         };
@@ -500,14 +500,13 @@ impl Data {
 /// disagree.
 pub fn set_enabled(data: &mut Data, data_dir: &Path, filename: &str, enabled: bool) {
     let mut extras = LocalExtras::load(data_dir);
-    let notice = match Page::from_id(&data.page) {
+    let changed = match Page::from_id(&data.page) {
         Page::Plugins => plugins::set_enabled(&mut extras, filename, enabled),
-        Page::Themes => themes::set_enabled(&mut extras, filename, enabled),
-        _ => None,
+        Page::Themes => themes::set_enabled(&mut extras, filename, enabled).is_some(),
+        _ => false,
     };
-    if let Some(notice) = notice {
+    if changed {
         extras.save(data_dir);
-        data.notice = notice;
     }
     refresh(data, data_dir);
 }

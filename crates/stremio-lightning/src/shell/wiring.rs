@@ -1944,8 +1944,10 @@ impl Wiring {
         let notice = {
             let mut extras = self.local_extras.lock().unwrap();
             let notice = match kind {
+                // A plugin switch writes the list and says nothing: the switch is the answer.
                 mods::catalogue::Kind::Plugin => {
-                    mods::plugins::set_enabled(&mut extras, &filename, enabled)
+                    mods::plugins::set_enabled(&mut extras, &filename, enabled);
+                    None
                 }
                 mods::catalogue::Kind::Theme => {
                     mods::themes::set_enabled(&mut extras, &filename, enabled)
