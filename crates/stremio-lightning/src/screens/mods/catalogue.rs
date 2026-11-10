@@ -109,55 +109,54 @@ pub fn cards(data_dir: &Path, kind: Kind, extras: &LocalExtras) -> Result<Vec<Mo
     } else {
         Vec::new()
     };
-    cards.extend(installed.into_iter()
-        .map(|file| {
-            let is_on = enabled.contains(&file.filename);
-            // A theme's card can say what the file does, so the file is read here. A plugin is not
-            // read at all: nothing loads it in this build.
-            let warnings = match kind {
-                Kind::Theme => read_mod_content(data_dir, &file.filename, ModType::Theme)
-                    .map(|css| theme::warnings(&css))
-                    .unwrap_or_else(|error| vec![error]),
-                Kind::Plugin => Vec::new(),
-            };
-            let has_settings = kind == Kind::Plugin
-                && crate::screens::mods::plugin_schema::stored(
-                    &mods_dir,
-                    &crate::plumbing::plugin::name_of(&file.filename),
-                )
-                .is_ok_and(|fields| !fields.is_empty());
-            let (name, author, version, description) = match file.metadata {
-                Some(metadata) => (
-                    non_empty_or(metadata.name, &file.filename),
-                    metadata.author,
-                    metadata.version,
-                    metadata.description,
-                ),
-                // Nothing in the file names it. The file name is what the user sees in the folder,
-                // so that is what the card shows, and the rest of the card says nothing.
-                None => (
-                    file.filename.clone(),
-                    String::new(),
-                    String::new(),
-                    String::new(),
-                ),
-            };
-            ModCard {
-                id: file.filename.clone(),
-                filename: file.filename,
-                name,
-                author,
-                version,
-                description,
-                enabled: is_on,
-                has_settings,
-                running: crate::screens::mods::settings::Running::default(),
-                warnings,
-                update: String::new(),
-                removable: true,
-                builtin: false,
-            }
-        }));
+    cards.extend(installed.into_iter().map(|file| {
+        let is_on = enabled.contains(&file.filename);
+        // A theme's card can say what the file does, so the file is read here. A plugin is not
+        // read at all: nothing loads it in this build.
+        let warnings = match kind {
+            Kind::Theme => read_mod_content(data_dir, &file.filename, ModType::Theme)
+                .map(|css| theme::warnings(&css))
+                .unwrap_or_else(|error| vec![error]),
+            Kind::Plugin => Vec::new(),
+        };
+        let has_settings = kind == Kind::Plugin
+            && crate::screens::mods::plugin_schema::stored(
+                &mods_dir,
+                &crate::plumbing::plugin::name_of(&file.filename),
+            )
+            .is_ok_and(|fields| !fields.is_empty());
+        let (name, author, version, description) = match file.metadata {
+            Some(metadata) => (
+                non_empty_or(metadata.name, &file.filename),
+                metadata.author,
+                metadata.version,
+                metadata.description,
+            ),
+            // Nothing in the file names it. The file name is what the user sees in the folder,
+            // so that is what the card shows, and the rest of the card says nothing.
+            None => (
+                file.filename.clone(),
+                String::new(),
+                String::new(),
+                String::new(),
+            ),
+        };
+        ModCard {
+            id: file.filename.clone(),
+            filename: file.filename,
+            name,
+            author,
+            version,
+            description,
+            enabled: is_on,
+            has_settings,
+            running: crate::screens::mods::settings::Running::default(),
+            warnings,
+            update: String::new(),
+            removable: true,
+            builtin: false,
+        }
+    }));
     Ok(cards)
 }
 

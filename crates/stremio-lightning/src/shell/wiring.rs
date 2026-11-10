@@ -1059,7 +1059,10 @@ impl Wiring {
                     crate::plumbing::logs::Source::App,
                     "Skip",
                     crate::plumbing::logs::Level::Debug,
-                    format!("The player now holds {had} segment(s) for {:?}", playback.skip_for),
+                    format!(
+                        "The player now holds {had} segment(s) for {:?}",
+                        playback.skip_for
+                    ),
                 );
             }
             let before = playback.skip_now.map(|segment| segment.kind);

@@ -391,9 +391,10 @@ fn segments_of(value: &Value, duration: f64) -> Vec<Segment> {
             None => releases.push((length, vec![Segment { kind, start, end }])),
         }
     }
-    let Some((length, mut found)) = releases.into_iter().min_by(|(a, _), (b, _)| {
-        (a - duration).abs().total_cmp(&(b - duration).abs())
-    }) else {
+    let Some((length, mut found)) = releases
+        .into_iter()
+        .min_by(|(a, _), (b, _)| (a - duration).abs().total_cmp(&(b - duration).abs()))
+    else {
         return Vec::new();
     };
     for segment in &mut found {
@@ -533,11 +534,19 @@ mod tests {
         assert_eq!(found.len(), 2);
         assert_eq!(
             found[0],
-            Segment { kind: Kind::Opening, start: 194.0, end: 284.0 }
+            Segment {
+                kind: Kind::Opening,
+                start: 194.0,
+                end: 284.0
+            }
         );
         assert_eq!(
             found[1],
-            Segment { kind: Kind::Ending, start: 1273.0, end: 1363.0 }
+            Segment {
+                kind: Kind::Ending,
+                start: 1273.0,
+                end: 1363.0
+            }
         );
     }
 
