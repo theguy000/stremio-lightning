@@ -1302,6 +1302,7 @@ impl Wiring {
         );
         self.handle.spawn(async move {
             let found = skip::rates(&meta_id, season, episode, duration, nominal).await;
+            let kind = kind_with_data(&found, &kind);
             let playhead = {
                 let mut playback = playback.lock().unwrap();
                 if playback.skip_for != video {
@@ -1339,7 +1340,9 @@ impl Wiring {
             let playback = self.playback.lock().unwrap();
             (playback.skip_rates.clone(), playback.time)
         };
-        fill_skip_panel(&window, &rates, kind, playhead);
+        let kind = kind_with_data(&rates, kind);
+        *self.skip_kind.lock().unwrap() = kind.clone();
+        fill_skip_panel(&window, &rates, &kind, playhead);
     }
 
     /// The Submit press: the two boxes become a timing AniSkip is asked to keep. The answer is
@@ -3915,6 +3918,16 @@ fn window_is_in_front() -> bool {
     {
         true
     }
+}
+
+/// The category the panel should open on: the one asked for when AniSkip holds a row for it, and
+/// otherwise the first category that has one, so a panel is never opened on an empty tab while
+/// the video has a timing under another.
+fn kind_with_data(rates: &[skip::Rate], wanted: &str) -> String {
+    if rates.is_empty() || rates.iter().any(|rate| rate.kind.api() == wanted) {
+        return wanted.to_owned();
+    }
+    rates[0].kind.api().to_owned()
 }
 
 /// Fills the timing panel for one category: the row AniSkip holds and its id, and the form's
