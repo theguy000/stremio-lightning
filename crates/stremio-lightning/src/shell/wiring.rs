@@ -1437,7 +1437,7 @@ impl Wiring {
                         crate::plumbing::logs::Level::Info,
                         format!("AniSkip keeps {start:.1}-{end:.1} as {id}"),
                     );
-                    if let Ok(mut playback) = playback.lock() {
+                    let rows = if let Ok(mut playback) = playback.lock() {
                         if playback.skip_for == video {
                             playback.skip.push(skip::Segment { kind, start, end });
                             playback.skip.sort_by(|a, b| a.start.total_cmp(&b.start));
@@ -1445,15 +1445,35 @@ impl Wiring {
                                 kind,
                                 start,
                                 end,
-                                id: id.clone(),
+                                id,
                             });
                         }
-                    }
+                        playback
+                            .skip_rates
+                            .iter()
+                            .map(|rate| {
+                                (
+                                    rate.kind.api().to_owned(),
+                                    rate.kind.label().trim_start_matches("Skip ").to_owned(),
+                                    format!("{} – {}", clock(rate.start), clock(rate.end)),
+                                    rate.id.clone(),
+                                )
+                            })
+                            .collect::<Vec<_>>()
+                    } else {
+                        Vec::new()
+                    };
                     let _ = weak.upgrade_in_event_loop(move |window| {
-                        window.set_player_skip_existing(
-                            format!("{} – {}", clock(start), clock(end)).into(),
-                        );
-                        window.set_player_skip_id(id.into());
+                        window.set_player_skip_rows(ModelRc::new(VecModel::from(
+                            rows.into_iter()
+                                .map(|(key, label, text, id)| crate::SkipRow {
+                                    key: key.into(),
+                                    label: label.into(),
+                                    text: text.into(),
+                                    id: id.into(),
+                                })
+                                .collect::<Vec<_>>(),
+                        )));
                         window.set_player_skip_notice("Sent. Thank you.".into());
                     });
                 }
@@ -3961,28 +3981,32 @@ fn fill_skip_panel(
     playhead: f64,
     seed: bool,
 ) {
-    let (existing, id, start, end) = match rates.iter().find(|rate| rate.kind.api() == kind) {
-        Some(rate) => (
-            format!("{} – {}", clock(rate.start), clock(rate.end)),
-            rate.id.clone(),
-            clock(rate.start),
-            clock(rate.end),
-        ),
-        None => (
-            String::new(),
-            String::new(),
-            clock(playhead),
-            clock(playhead),
-        ),
+    let (start, end) = match rates.iter().find(|rate| rate.kind.api() == kind) {
+        Some(rate) => (clock(rate.start), clock(rate.end)),
+        None => (clock(playhead), clock(playhead)),
     };
     window.set_player_skip_kind(kind.into());
-    window.set_player_skip_existing(existing.into());
-    window.set_player_skip_id(id.into());
+    window.set_player_skip_rows(skip_rows(rates));
     if seed {
         window.set_player_skip_start(start.into());
         window.set_player_skip_end(end.into());
     }
     window.set_player_skip_notice("".into());
+}
+
+/// The panel's rows, one per category AniSkip holds.
+fn skip_rows(rates: &[skip::Rate]) -> ModelRc<crate::SkipRow> {
+    ModelRc::new(VecModel::from(
+        rates
+            .iter()
+            .map(|rate| crate::SkipRow {
+                key: rate.kind.api().into(),
+                label: rate.kind.label().trim_start_matches("Skip ").into(),
+                text: format!("{} – {}", clock(rate.start), clock(rate.end)).into(),
+                id: rate.id.clone().into(),
+            })
+            .collect::<Vec<_>>(),
+    ))
 }
 
 /// Seconds as the player's clocks read them, without the hours a file under an hour does not

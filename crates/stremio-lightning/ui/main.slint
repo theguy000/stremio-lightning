@@ -12,7 +12,7 @@ import { SettingsContent, SettingsViewData } from "settings.slint";
 import { SelectOption } from "multiselect-menu.slint";
 import { LinkGroup, PreviewData } from "meta-preview.slint";
 import { DetailsScreen, StreamData } from "details-screen.slint";
-import { LanguageOption, PlayerScreen, PlayerEpisode, PlayerOption, PlayerTrack, SkipMark } from "player.slint";
+import { LanguageOption, PlayerScreen, PlayerEpisode, PlayerOption, PlayerTrack, SkipMark, SkipRow } from "player.slint";
 export { PlayerEpisode, PlayerOption, PlayerTrack, SkipMark }
 import { VideoRow } from "videos-list.slint";
 export { AddonData, LanguageOption, LibraryCard, LibrarySort, LinkGroup, ModCardData, ModsNavItem, ModsViewData, PreviewData, SelectInputData, SelectOption, SettingsViewData, StreamData, VideoRow }
@@ -210,8 +210,7 @@ export component MainWindow inherits Window {
     /// picked, the form's starting text, and what the shell last said.
     in property <bool> player-skip-submit: true;
     in property <string> player-skip-kind: "op";
-    in property <string> player-skip-existing: "";
-    in property <string> player-skip-id: "";
+    in property <[SkipRow]> player-skip-rows;
     in property <string> player-skip-start: "";
     in property <string> player-skip-end: "";
     in property <string> player-skip-notice: "";
@@ -513,8 +512,7 @@ callback player-skip();
         skip-marks: root.player-skip-marks;
         skip-submit: root.player-skip-submit;
         skip-kind: root.player-skip-kind;
-        skip-existing: root.player-skip-existing;
-        skip-id: root.player-skip-id;
+        skip-rows: root.player-skip-rows;
         skip-start: root.player-skip-start;
         skip-end: root.player-skip-end;
         skip-notice: root.player-skip-notice;

@@ -17,6 +17,14 @@ import { Theme } from "theme.slint";
 import { MultiselectMenu, SelectOption } from "multiselect-menu.slint";
 import { ScrollBar } from "scroll-bar.slint";
 
+/// One row the timing panel lists: the category, its times, and the id a vote names.
+export struct SkipRow {
+    key: string,
+    label: string,
+    text: string,
+    id: string,
+}
+
 /// One audio or subtitle track mpv offers, as the screen draws it.
 export struct PlayerTrack {
     id: string,
@@ -777,10 +785,8 @@ export component PlayerScreen inherits Rectangle {
     in property <bool> skip-submit: true;
     /// The category the timing panel is about: "op", "ed" or "recap".
     in property <string> skip-kind: "op";
-    /// The row AniSkip holds for that category, as text; empty when there is none.
-    in property <string> skip-existing: "";
-    /// The row's id, which a vote names. Empty when there is no row.
-    in property <string> skip-id: "";
+    /// Every row AniSkip holds for this file, one per category, with the id each votes by.
+    in property <[SkipRow]> skip-rows;
     /// The form's starting text, as the shell formats it. The shell seeds it when the panel
     /// opens on a category it has not shown yet; the box's own text lives beside it, so closing
     /// the panel keeps what was typed.
@@ -847,9 +853,13 @@ export component PlayerScreen inherits Rectangle {
         root.menu == "options"
         ? Math.min(root.rows-height(root.options.length), Math.max(0px, root.menu-max - 2 * root.menu-padding))
         : root.menu-list-room;
+    /// The panel's reading part: one row per category, or the sentence that says there is none.
+    property <length> skip-rows-height:
+        root.skip-rows.length == 0 ? 2.4 * root.rem-size
+        : root.skip-rows.length * 2.6 * root.rem-size + (root.skip-rows.length - 1) * 0.5 * root.rem-size;
     property <length> menu-height:
         root.menu == "speed" ? root.rem-size * 12.6
-        : root.menu == "skip" ? root.rem-size * 17.9
+        : root.menu == "skip" ? root.rem-size * 15.4 + root.skip-rows-height
         : root.menu == "subtitles" ? root.menu-max
         : root.menu == "audio"
         ? Math.min(root.menu-header + root.rows-height(root.audio-tracks.length), root.menu-max)
@@ -1702,35 +1712,41 @@ export component PlayerScreen inherits Rectangle {
                     spacing: 0.5 * root.rem-size;
                     alignment: start;
 
-                    if root.skip-existing != "": HorizontalLayout {
-                        height: 2.4 * root.rem-size;
+                    for row in root.skip-rows: HorizontalLayout {
+                        height: 2.6 * root.rem-size;
                         spacing: 0.4 * root.rem-size;
                         alignment: start;
                         Text {
-                            text: root.skip-existing;
-                            font-size: 1 * root.rem-size;
+                            width: 5 * root.rem-size;
+                            text: row.label;
+                            font-size: 0.95 * root.rem-size;
+                            font-weight: 700;
                             color: Theme.text;
                             vertical-alignment: center;
                         }
-                        Rectangle {
+                        Text {
                             horizontal-stretch: 1;
+                            text: row.text;
+                            font-size: 0.95 * root.rem-size;
+                            color: Theme.text;
+                            vertical-alignment: center;
                         }
                         VotePill {
                             rem-size: root.rem-size;
                             up: true;
                             clicked => {
-                                root.vote-skip(root.skip-id, true);
+                                root.vote-skip(row.id, true);
                             }
                         }
                         VotePill {
                             rem-size: root.rem-size;
                             up: false;
                             clicked => {
-                                root.vote-skip(root.skip-id, false);
+                                root.vote-skip(row.id, false);
                             }
                         }
                     }
-                    if root.skip-existing == "": Text {
+                    if root.skip-rows.length == 0: Text {
                         height: 2.4 * root.rem-size;
                         text: "AniSkip has no timing for this one yet. Add yours below.";
                         wrap: word-wrap;
@@ -1836,7 +1852,15 @@ export component PlayerScreen inherits Rectangle {
                     HorizontalLayout {
                         height: 2.6 * root.rem-size;
                         spacing: 0.6 * root.rem-size;
-                        alignment: start;
+                        alignment: end;
+                        if root.skip-notice != "": Text {
+                            text: root.skip-notice;
+                            font-size: 0.85 * root.rem-size;
+                            color: Theme.text;
+                            opacity: 0.8;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
                         SkipPill {
                             rem-size: root.rem-size;
                             label-text: "Submit";
@@ -1844,15 +1868,6 @@ export component PlayerScreen inherits Rectangle {
                             clicked => {
                                 root.submit-skip(root.skip-kind, root.skip-start-text, root.skip-end-text);
                             }
-                        }
-                        if root.skip-notice != "": Text {
-                            horizontal-stretch: 1;
-                            text: root.skip-notice;
-                            font-size: 0.85 * root.rem-size;
-                            color: Theme.text;
-                            opacity: 0.8;
-                            vertical-alignment: center;
-                            overflow: elide;
                         }
                     }
                 }
