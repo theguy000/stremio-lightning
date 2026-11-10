@@ -401,6 +401,7 @@ async fn skip_times(mal: u32, episode: u32, duration: f64) -> Vec<Rate> {
 /// file: releases differ mostly in how much ending they carry, and a file that runs 18 seconds
 /// shorter than the submission has its ending 18 seconds earlier while the opening stays where
 /// the submission put it.
+#[cfg(test)]
 fn segments_of(value: &Value, duration: f64) -> Vec<Segment> {
     rates_of(value, duration)
         .iter()

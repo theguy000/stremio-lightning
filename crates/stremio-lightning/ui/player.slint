@@ -11,7 +11,6 @@
 // Web: `.player-container` with its layers. `.overlayHidden` fades the four furniture layers to 0
 // after three seconds without the pointer; the same idle clock drives `controls-visible` here.
 import { ScrollView } from "std-widgets.slint";
-import { SettingsTextField } from "mods.slint";
 import { SelectOption } from "multiselect-menu.slint";
 import { PreviewData } from "meta-preview.slint";
 import { Theme } from "theme.slint";
@@ -307,6 +306,40 @@ component PlayerMenu inherits Rectangle {
 }
 // Web: the menus' `.header` -- 1.5rem of padding above and below, 2rem at the sides, bold, one
 // line. It sits in a fixed 4.5rem block so every column lines up with the others.
+// A timing field: one pill on the panel, the way Stremio's own inputs sit on their surface.
+component SkipField inherits Rectangle {
+    in property <length> rem-size;
+    in property <string> shown;
+    in-out property <string> text <=> input.text;
+
+    height: 2.6 * root.rem-size;
+    border-radius: self.height / 2;
+    background: input.has-focus ? #ffffff1f : #ffffff14;
+    border-width: 1px;
+    border-color: input.has-focus ? Theme.accent-green : transparent;
+
+    init => {
+        input.text = root.shown;
+    }
+    changed shown => {
+        if (input.text != root.shown) {
+            input.text = root.shown;
+        }
+    }
+
+    input := TextInput {
+        x: 0.9 * root.rem-size;
+        width: parent.width - 1.8 * root.rem-size;
+        height: parent.height;
+        vertical-alignment: center;
+        font-size: 0.95 * root.rem-size;
+        color: Theme.text;
+        selection-background-color: Theme.accent;
+        selection-foreground-color: Theme.on-accent;
+        single-line: true;
+    }
+}
+
 // A pill in the timing panel: a category, a vote, or the submit.
 component SkipPill inherits Rectangle {
     in property <length> rem-size;
@@ -317,8 +350,8 @@ component SkipPill inherits Rectangle {
     callback clicked;
 
     height: root.small ? 2 * root.rem-size : 2.2 * root.rem-size;
-    width: skip-pill-label.width + (root.small ? 1.2 : 1.6) * root.rem-size;
-    border-radius: 0.6 * root.rem-size;
+    width: skip-pill-label.width + (root.small ? 1.6 : 2) * root.rem-size;
+    border-radius: self.height / 2;
     border-width: 1px;
     border-color: root.primary || root.selected ? Theme.accent-green : #ffffff26;
     background: root.primary ? Theme.accent-green
@@ -1425,7 +1458,7 @@ export component PlayerScreen inherits Rectangle {
             if root.skip-submit: PlayerButton {
                 x: bar.last - (root.has-episodes ? 5 : 4) * bar.step;
                 rem-size: root.rem-size;
-                glyph: @image-url("icons/thumbs-up.svg");
+                glyph: @image-url("icons/skip-forward.svg");
                 lit: root.menu == "skip";
                 clicked => {
                     if (root.menu == "skip") {
@@ -1728,13 +1761,11 @@ export component PlayerScreen inherits Rectangle {
                             color: Theme.text;
                             vertical-alignment: center;
                         }
-                        skip-start-field := SettingsTextField {
+                        skip-start-field := SkipField {
                             row: 0;
                             col: 1;
                             horizontal-stretch: 1;
-                            height: 2.4 * root.rem-size;
                             rem-size: root.rem-size;
-                            label-text: "Skip start";
                             shown: root.skip-start;
                         }
                         SkipPill {
@@ -1756,13 +1787,11 @@ export component PlayerScreen inherits Rectangle {
                             color: Theme.text;
                             vertical-alignment: center;
                         }
-                        skip-end-field := SettingsTextField {
+                        skip-end-field := SkipField {
                             row: 1;
                             col: 1;
                             horizontal-stretch: 1;
-                            height: 2.4 * root.rem-size;
                             rem-size: root.rem-size;
-                            label-text: "Skip end";
                             shown: root.skip-end;
                         }
                         SkipPill {
