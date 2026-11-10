@@ -1055,7 +1055,7 @@ impl Wiring {
                                 crate::plumbing::logs::Level::Debug,
                                 format!(
                                     "Kept {} segment(s) for {for_video}: player is on {:?} ({})",
-                                    found.len(),
+                                    playback.skip.len(),
                                     playback.skip_for,
                                     if same { "same Video" } else { "moved on" }
                                 ),
