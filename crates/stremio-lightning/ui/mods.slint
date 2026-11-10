@@ -642,6 +642,13 @@ component SettingsTextField inherits LineEdit {
     init => {
         self.text = root.shown;
     }
+    // A value the page hands the box while nobody is typing into it -- after a save normalises
+    // it, or when the page opens on another plugin -- replaces what the box shows.
+    changed shown => {
+        if (!self.has-focus) {
+            self.text = root.shown;
+        }
+    }
     edited(text) => {
         root.said(text);
     }
@@ -1527,7 +1534,7 @@ export component ModsContent inherits Rectangle {    // The height every card on
                 width: 3 * root.rem-size;
                 height: 3 * root.rem-size;
                 border-radius: 0.5 * root.rem-size;
-                background: settings-back-touch.has-hover ? Theme.overlay : transparent;
+                background: settings-back-touch.has-hover ? #ffffff24 : #ffffff14;
 
                 Image {
                     x: (parent.width - self.width) / 2;

@@ -783,7 +783,8 @@ fn checking() -> bool {
 /// because a new model tears down every row -- including the one a press may be standing on. Which
 /// row is marked is not in the model: the menu marks the page `data.page` names.
 pub(crate) fn show_mods(window: &MainWindow, data: &crate::screens::mods::Data) {
-    let view = mods_view(data);
+    let mut view = mods_view(data);
+    keep_settings_fields(window, &mut view);
     let rows: Vec<(String, String)> = data
         .menu
         .iter()
@@ -794,6 +795,36 @@ pub(crate) fn show_mods(window: &MainWindow, data: &crate::screens::mods::Data) 
     }
     window.set_mods_page(data.page.clone().into());
     window.set_mods(view);
+}
+
+/// Keeps the settings field rows the window already holds when the same plugin's page is drawn
+/// again. A fresh model tears every row down, and the text box a person is typing into loses its
+/// focus with them; the data of each row is updated in place instead, so the box survives the
+/// repaint and the letters after the first are not typed into an editor that no longer exists.
+fn keep_settings_fields(window: &MainWindow, view: &mut ModsViewData) {
+    let old = window.get_mods();
+    if old.settings_plugin != view.settings_plugin {
+        return;
+    }
+    let model = old.settings_fields.clone();
+    let Some(fields) = model.as_any().downcast_ref::<VecModel<SettingsFieldData>>() else {
+        return;
+    };
+    let keys = |fields: &ModelRc<SettingsFieldData>| -> Vec<String> {
+        (0..fields.row_count())
+            .filter_map(|at| fields.row_data(at))
+            .map(|field| field.key.to_string())
+            .collect()
+    };
+    if keys(&view.settings_fields) != keys(&old.settings_fields) {
+        return;
+    }
+    for at in 0..view.settings_fields.row_count() {
+        if let Some(field) = view.settings_fields.row_data(at) {
+            fields.set_row_data(at, field);
+        }
+    }
+    view.settings_fields = model;
 }
 
 /// The menu's rows the window holds now, as pairs of id and label.
