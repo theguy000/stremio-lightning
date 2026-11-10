@@ -442,8 +442,10 @@ fn rates_of(value: &Value, duration: f64) -> Vec<Rate> {
             .get("episodeLength")
             .and_then(Value::as_f64)
             .unwrap_or(duration);
-        // One release per tenth of a second: two submissions of the same release carry the same
-        // length to the tenth, and two releases do not.
+        // One release per few seconds: two submissions of the same cut carry the same length to
+        // the tenth, and two cuts sit further apart than this. The window is wide enough that a
+        // submission measured on 1421.96 and the file's own 1419.95 are the same release, so an
+        // ending added for this copy does not push the opening of the same cut out.
         let id = result
             .get("skipId")
             .and_then(Value::as_str)
@@ -451,7 +453,7 @@ fn rates_of(value: &Value, duration: f64) -> Vec<Rate> {
             .to_owned();
         match releases
             .iter_mut()
-            .find(|(known, _)| (known * 10.0).round() == (length * 10.0).round())
+            .find(|(known, _)| (known - length).abs() <= 5.0)
         {
             Some((_, rates)) => rates.push(Rate {
                 kind,
