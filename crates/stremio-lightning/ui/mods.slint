@@ -664,7 +664,7 @@ component SettingsFieldView inherits Rectangle {
     property <length> control-x: root.pad;
     property <length> control-y: root.pad + 2.2 * rem-size;
 
-    height: 7.2 * rem-size;
+    height: 9 * rem-size;
 
     settings-field-label := Text {
         x: root.pad;
@@ -684,9 +684,12 @@ component SettingsFieldView inherits Rectangle {
         x: root.control-x;
         y: root.control-y + 2.8 * rem-size;
         width: root.control-width;
-        height: 1.2 * rem-size;
+        height: 2.4 * rem-size;
         text: root.field.hint;
-        overflow: elide;
+        // Wrapped: a built-in's hint is a sentence ("leave it empty to make one..."), not a word.
+        wrap: word-wrap;
+        overflow: clip;
+        vertical-alignment: top;
         font-size: 0.9 * rem-size;
         color: root.field.kind == "unsupported" ? Theme.accent-yellow : Theme.placeholder;
     }
@@ -1415,7 +1418,7 @@ export component ModsContent inherits Rectangle {    // The height every card on
             // Below the fields, and below the note when a plugin has none: the page's one action
             // sits at the bottom, not in the header.
             property <length> save-y: settings-box.fields-y
-                + root.data.settings-fields.length * 8 * root.rem-size
+                + root.data.settings-fields.length * 9.8 * root.rem-size
                 + (root.data.settings-empty == "" ? 0px : 3.2 * root.rem-size)
                 + 0.8 * root.rem-size;
 
@@ -1465,7 +1468,7 @@ export component ModsContent inherits Rectangle {    // The height every card on
                 }
                 for field[index] in root.data.settings-fields: SettingsFieldView {
                     x: 0px;
-                    y: settings-box.fields-y + index * 8 * root.rem-size;
+                    y: settings-box.fields-y + index * 9.8 * root.rem-size;
                     width: parent.width - 8px;
                     rem-size: root.rem-size;
                     field: field;
@@ -1484,7 +1487,7 @@ export component ModsContent inherits Rectangle {    // The height every card on
                 }
                 if root.data.settings-empty != "": settings-said := Text {
                     x: 0px;
-                    y: settings-box.fields-y + root.data.settings-fields.length * 8 * root.rem-size;
+                    y: settings-box.fields-y + root.data.settings-fields.length * 9.8 * root.rem-size;
                     width: parent.width - 8px;
                     height: 3 * root.rem-size;
                     text: root.data.settings-empty;
@@ -1515,6 +1518,36 @@ export component ModsContent inherits Rectangle {    // The height every card on
                 view-height: parent.height;
                 content-height: settings-fields.content-height;
                 offset <=> settings-fields.content-y;
+            }
+            // The way back to the list, on the header line. Drawn after the list, so it takes the
+            // press even though the list runs underneath it.
+            settings-back := Rectangle {
+                x: 0px;
+                y: 0px;
+                width: 3 * root.rem-size;
+                height: 3 * root.rem-size;
+                border-radius: 0.5 * root.rem-size;
+                background: settings-back-touch.has-hover ? Theme.overlay : transparent;
+
+                Image {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    width: 1.5 * root.rem-size;
+                    height: 1.5 * root.rem-size;
+                    source: @image-url("icons/chevron-back.svg");
+                    colorize: Theme.text;
+                    opacity: settings-back-touch.has-hover ? 0.8 : 0.6;
+                }
+                settings-back-touch := TouchArea {
+                    width: 100%;
+                    height: 100%;
+                    mouse-cursor: pointer;
+                    accessible-role: button;
+                    accessible-label: "Back to plugins";
+                    clicked => {
+                        root.select-page("plugins");
+                    }
+                }
             }
         }
 
