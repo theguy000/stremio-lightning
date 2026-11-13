@@ -85,7 +85,9 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
     shell::window_icon::install(&window);
     // The app's log records, made before anything that has something to say: the theme reader,
     // the plugin runtime, this shell's own errors and the streaming server all record into it.
-    let logs = Arc::new(plumbing::logs::Logs::new());
+    let logs = Arc::new(plumbing::logs::Logs::recording_to(
+        data_dir.join("logs").join("app.log"),
+    ));
     // Only the themes the Mods screen has turned on, so a freshly installed theme file changes
     // nothing until someone picks it. What a theme says that the app cannot use is recorded here,
     // which is what puts it on the Logs page as well as on its card.
@@ -110,6 +112,15 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
     // window's thread, where `tokio::spawn` has no runtime to reach for.
     let images = tokio.block_on(async { plumbing::images::Images::default() });
     let local_extras = Arc::new(Mutex::new(screens::settings::LocalExtras::load(&data_dir)));
+    {
+        // AniSkip's submission needs a UUID to send as its submitter, and the API rejects a blank
+        // or malformed one. The first run with the feature makes one and writes it, so the id is
+        // there before a submission and before its settings page is ever opened.
+        let mut extras = local_extras.lock().unwrap();
+        if screens::mods::builtin::ensure_submitter(&mut extras) {
+            extras.save(&data_dir);
+        }
+    }
     let latest: Arc<Mutex<app::Snapshot>> = Default::default();
     let selected = Arc::new(AtomicUsize::new(0));
     // The Discover cards on screen, until the grid says otherwise. A screenful and a bit, so the
@@ -167,12 +178,14 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
         subtitle_auto: Default::default(),
         browsed_language: Default::default(),
         mods_page: mods_page.clone(),
+        skip_kind: Default::default(),
+        skip_submit: Default::default(),
+        skip_seeded: Default::default(),
         mods_armed: Default::default(),
         mods_disarm: Default::default(),
         plugins: plugins.clone(),
         mods_plugin: mods_plugin.clone(),
         mods_edits: mods_edits.clone(),
-        mods_typed: Default::default(),
         market_listing: Default::default(),
         market_asked: Default::default(),
         market_search: Default::default(),

@@ -12,53 +12,48 @@ use std::path::Path;
 use super::catalogue::{self, Kind, Notice};
 use crate::screens::settings::LocalExtras;
 
-/// What the Plugins page says about its own switch. One sentence, above the list.
-pub const NOTE: &str =
-    "Switching a plugin on starts it now and at every start of the app. A plugin that fails says why on its card.";
 /// What an empty Plugins folder shows.
 pub const NONE_INSTALLED: &str = "No plugins are installed.";
 
-/// What the Plugins page says above its list once the update check has answered: the page's own
-/// sentence, then what the check found.
+/// What the Plugins page says above its list once the update check has answered.
 pub fn note(cards: &[super::catalogue::ModCard]) -> String {
-    if cards.is_empty() {
-        return NOTE.to_owned();
-    }
-    format!("{NOTE} {}", super::marketplace::update_note(cards))
-}
-
-fn switched_on(filename: &str) -> String {
-    format!("{filename} is enabled and starting.")
-}
-
-fn switched_off_notice(filename: &str) -> String {
-    format!("{filename} is off, so it will not run.")
+    super::marketplace::update_note(cards)
 }
 
 /// A press on the switch of the plugin `filename`. With `enabled` true the file is added to
 /// `enabled_plugins`, with false it is taken out. The list keeps the order files were enabled in,
-/// so one plugin never reorders another. Returns `None` when the list already said so.
-pub fn set_enabled(extras: &mut LocalExtras, filename: &str, enabled: bool) -> Option<Notice> {
+/// so one plugin never reorders another. Returns whether the list changed: the switch is the whole
+/// of what the page says about it.
+pub fn set_enabled(extras: &mut LocalExtras, filename: &str, enabled: bool) -> bool {
+    if let Some(builtin) = super::builtin::get(filename) {
+        if builtin.switch.reads(extras) == enabled {
+            return false;
+        }
+        builtin.switch.writes(extras, enabled);
+        return true;
+    }
     let list = &mut extras.enabled_plugins;
     let known = list.iter().any(|name| name == filename);
     if known == enabled {
-        return None;
+        return false;
     }
     if enabled {
         list.push(filename.to_owned());
     } else {
         list.retain(|name| name != filename);
     }
-    Some(Notice::said(if enabled {
-        switched_on(filename)
-    } else {
-        switched_off_notice(filename)
-    }))
+    true
 }
 
 /// Removes the plugin file. A plugin that was named in `enabled_plugins` stops being named, so the
 /// settings do not point at a file that is gone.
 pub fn remove(data_dir: &Path, extras: &mut LocalExtras, filename: &str) -> Notice {
+    if let Some(builtin) = super::builtin::get(filename) {
+        return Notice::failed(format!(
+            "{} is built into the app, so there is no file to remove.",
+            builtin.name
+        ));
+    }
     let notice = catalogue::remove(data_dir, Kind::Plugin, filename);
     if !notice.failed {
         extras.enabled_plugins.retain(|name| name != filename);
@@ -78,6 +73,6 @@ mod tests {
         set_enabled(&mut extras, "a.plugin.js", false);
         set_enabled(&mut extras, "a.plugin.js", true);
         assert_eq!(extras.enabled_plugins, ["b.plugin.js", "a.plugin.js"]);
-        assert!(set_enabled(&mut extras, "a.plugin.js", true).is_none());
+        assert!(!set_enabled(&mut extras, "a.plugin.js", true));
     }
 }

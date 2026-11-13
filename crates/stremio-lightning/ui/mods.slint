@@ -32,6 +32,11 @@ export struct ModCardData {
     /// What the update check found for this file: "Up to date.", "Update to 1.2.0", or a
     /// sentence about a check that could not answer. Empty until a check has answered.
     update: string,
+    /// Whether the card draws Remove. A feature built into the app has no file to remove.
+    removable: bool,
+    /// Whether the card draws a settings button: true for a plugin that declares settings,
+    /// including a built-in whose fields are part of the app.
+    has-settings: bool,
 }
 
 // One row of the Plugin settings page's left list.
@@ -133,9 +138,12 @@ export struct ModsViewData {
     plugins-note: string,
     /// What the Themes page says when no theme is on.
     themes-note: string,
-    /// The Plugin settings page: the plugins on its left list, the one picked, and its controls.
+    /// The Plugin settings page: the one picked, the name its card shows, and its controls.
     settings-plugins: [SettingsPluginData],
     settings-plugin: string,
+    /// What the page's title says: the picked plugin's name, or its file name when the file names
+    /// none.
+    settings-title: string,
     settings-fields: [SettingsFieldData],
     /// One line per thing wrong with the page as it stands: a schema that cannot be used, a file
     /// that cannot be read, values typed and not saved.
@@ -245,7 +253,8 @@ component ModToggle inherits Rectangle {
         width: parent.height - 4 * root.rem-size / 14;
         height: self.width;
         border-radius: self.width / 2;
-        background: root.on ? Theme.on-accent : Theme.placeholder;
+        // The knob is white in both positions: the track alone says which state the switch is in.
+        background: Theme.text;
     }
     touch := TouchArea {
         width: 100%;
@@ -298,6 +307,40 @@ component ModRemoveButton inherits Rectangle {
         // arms the card and the second removes the file.
         accessible-role: button;
         accessible-label: (root.armed ? "Confirm removing " : "Remove ") + root.name;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// A card's settings button: the gear that opens a plugin's settings page in place of the list.
+component ModSettingsButton inherits Rectangle {
+    in property <string> name;
+    in property <length> rem-size;
+    callback clicked();
+
+    width: 3 * root.rem-size;
+    height: 3 * root.rem-size;
+    border-radius: self.width / 2;
+    // A disc behind the gear, so the button reads as a control of the page rather than an icon
+    // that happens to be on the card.
+    background: touch.has-hover ? #ffffff24 : #ffffff14;
+
+    Image {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: 1.4 * root.rem-size;
+        height: 1.4 * root.rem-size;
+        source: @image-url("icons/settings.svg");
+        colorize: Theme.text;
+        opacity: touch.has-hover ? 1.0 : 0.7;
+    }
+    touch := TouchArea {
+        width: 100%;
+        height: 100%;
+        mouse-cursor: pointer;
+        accessible-role: button;
+        accessible-label: "Settings for " + root.name;
         clicked => {
             root.clicked();
         }
@@ -375,20 +418,31 @@ component ModCardView inherits Rectangle {
     callback remove();
     // The card's Update button, which only an update makes visible.
     callback update();
+    // The card's settings button, drawn only when the plugin declares settings.
+    callback settings();
     // A press that is not the Remove button's second press: it takes back any armed card.
     callback dismiss();
 
     property <length> pad: 1.5 * root.rem-size;
-    property <length> buttons-width: 9 * root.rem-size;
+    // Just the switch: the card does not name the state in words, the switch is the state.
+    property <length> buttons-width: 3.2 * root.rem-size;
     property <length> text-width: root.width - 2 * root.pad - root.buttons-width - root.rem-size;
     // What the card says under its title block: the description, then why it has no name, then
-    // one line per warning. The card grows to fit them, so no line is cut off.
+    // one line per warning, then the update check's answer. The card grows to fit them, so no
+    // line is cut off.
     property <length> body-height: (root.data.description == "" ? 0px : 2 * root.rem-size)
+        + (root.data.unreadable == "" ? 0px : 2 * root.rem-size)
+        + root.data.warnings.length * 1.2 * root.rem-size
+        + (root.data.update == "" ? 0px : 1.4 * root.rem-size);
+    // Where the lines under the description start: the description's own slot, the unreadable
+    // note's, and one row per warning.
+    property <length> body-end: root.pad + 4.4 * root.rem-size
+        + (root.data.description == "" ? 0px : 2 * root.rem-size)
         + (root.data.unreadable == "" ? 0px : 2 * root.rem-size)
         + root.data.warnings.length * 1.2 * root.rem-size;
     // The list gives every card the row's height, so this default is only what a card drawn on
     // its own would take. It stays positive whatever the data says.
-    height: Math.max(10 * root.rem-size, 5.2 * root.rem-size + root.pad + root.body-height);
+    height: Math.max(10 * root.rem-size, 6.0 * root.rem-size + root.pad + root.body-height);
 
     mod-card := Rectangle {
         width: parent.width;
@@ -441,7 +495,9 @@ component ModCardView inherits Rectangle {
 
         mod-description := Text {
             x: root.pad;
-            y: root.pad + 3.6 * root.rem-size;
+            // One line of space under the name and version: the description reads as its own
+            // block rather than a third line of the title.
+            y: root.pad + 4.4 * root.rem-size;
             width: root.text-width;
             height: 2 * root.rem-size;
             text: root.data.description;
@@ -502,24 +558,14 @@ component ModCardView inherits Rectangle {
                     root.toggle();
                 }
             }
-            mod-state := Text {
-                x: mod-toggle.width + 0.6 * root.rem-size;
-                y: 0px;
-                width: parent.width - self.x;
-                height: parent.height;
-                text: (root.data.enabled ? "" : "Not ") + root.data.state;
-                overflow: elide;
-                vertical-alignment: center;
-                font-size: root.rem-size;
-                color: ClassStyles.color-or(ClassStyles.mod-toggle-container, root.data.enabled ? Theme.accent-green : Theme.text);
-            }
         }
 
-        // What the update check found for this file. It sits under the byline, on a card with or
-        // without anything else on it, because a card that says nothing here has not been checked.
-        if root.data.update != "": mod-update := Text {
-            x: parent.width - root.pad - root.buttons-width - root.text-width;
-            y: root.pad + 1.5 * root.rem-size;
+        // What the update check found for this file. It sits under everything else the card says,
+        // because a card that says nothing here has not been checked. It steps aside while a
+        // removal is armed, which says more than an update does.
+        if root.data.update != "" && !root.data.armed: mod-update := Text {
+            x: root.pad;
+            y: root.body-end + 0.2 * root.rem-size;
             width: root.text-width;
             height: 1.2 * root.rem-size;
             text: root.data.update;
@@ -531,8 +577,8 @@ component ModCardView inherits Rectangle {
         }
 
         if root.data.armed: mod-armed-note := Text {
-            x: parent.width - root.pad - root.buttons-width - root.text-width;
-            y: root.pad + 2.2 * root.rem-size;
+            x: root.pad;
+            y: root.body-end + 0.2 * root.rem-size;
             width: root.text-width;
             height: 2.4 * root.rem-size;
             text: "Pressing Confirm remove deletes " + root.data.filename + " from this computer.";
@@ -555,8 +601,20 @@ component ModCardView inherits Rectangle {
                 root.update();
             }
         }
-        ModRemoveButton {
+        // The gear takes the bottom-right corner the Remove button also wants, so Remove steps
+        // left when both are drawn. A card with settings and no file to remove (a built-in) keeps
+        // the corner to itself.
+        if root.data.has-settings: ModSettingsButton {
             x: parent.width - root.pad - self.width;
+            y: parent.height - root.pad - self.height;
+            rem-size: root.rem-size;
+            name: root.data.filename;
+            clicked => {
+                root.settings();
+            }
+        }
+        if root.data.removable: ModRemoveButton {
+            x: parent.width - root.pad - self.width - (root.data.has-settings ? 3.4 * root.rem-size : 0px);
             y: parent.height - root.pad - self.height;
             rem-size: root.rem-size;
             armed: root.data.armed;
@@ -568,63 +626,9 @@ component ModCardView inherits Rectangle {
     }
 }
 
-// One row of the Plugin settings page's left list: the plugin's name, and whether it is on.
-// Web: the Settings menu's rows, a pill per plugin rather than per page.
-component SettingsPluginRow inherits Rectangle {
-    in property <SettingsPluginData> entry;
-    in property <bool> selected;
-    in property <length> rem-size;
-    callback clicked();
-
-    property <length> pad: 0.8 * rem-size;
-    height: 5.2 * rem-size;
-    border-radius: 0.75 * rem-size;
-    background: (root.selected || touch.has-hover) ? Theme.overlay : transparent;
-    border-width: 2 * rem-size / 14;
-    border-color: root.selected ? Theme.accent-green : transparent;
-
-    settings-plugin-name := Text {
-        x: root.pad;
-        y: root.pad;
-        width: parent.width - 2 * root.pad;
-        height: 1.6 * rem-size;
-        text: root.entry.name;
-        overflow: elide;
-        vertical-alignment: center;
-        font-size: 1.1 * rem-size;
-        font-weight: root.selected ? 600 : 500;
-        color: Theme.text;
-    }
-    settings-plugin-state := Text {
-        x: root.pad;
-        y: root.pad + 1.8 * rem-size;
-        width: parent.width - 2 * root.pad;
-        height: 1.2 * rem-size;
-        text: (root.entry.enabled ? "On, " : "Off, ") + root.entry.controls;
-        overflow: elide;
-        vertical-alignment: center;
-        font-size: 0.9 * rem-size;
-        color: root.entry.enabled ? Theme.accent-green : Theme.placeholder;
-    }
-    touch := TouchArea {
-        width: 100%;
-        height: 100%;
-        mouse-cursor: pointer;
-        // The file name, so a test presses the row it means. The metadata name on the row can
-        // repeat, the file name cannot.
-        accessible-role: button;
-        accessible-label: root.entry.filename;
-        accessible-checkable: true;
-        accessible-checked: root.selected;
-        clicked => {
-            root.clicked();
-        }
-    }
-}
-
 // The box a text setting is typed into. It only writes the window's own value on a press in the
 // box, so a new value the app hands back does not move the cursor under anyone's typing.
-component SettingsTextField inherits LineEdit {
+export component SettingsTextField inherits LineEdit {
     in property <length> rem-size;
     in property <string> label-text;
     in property <string> shown;
@@ -637,6 +641,14 @@ component SettingsTextField inherits LineEdit {
     // and a frame that arrives while it has focus does not overwrite what is being typed.
     init => {
         self.text = root.shown;
+    }
+    // A value the page hands the box that differs from what it shows -- after a save normalises
+    // it, or when the page is left -- replaces the text. The echo of a keystroke is the same text
+    // and is left alone, so typing never fights the page.
+    changed shown => {
+        if (self.text != root.shown) {
+            self.text = root.shown;
+        }
     }
     edited(text) => {
         root.said(text);
@@ -654,37 +666,38 @@ component SettingsFieldView inherits Rectangle {
     callback slid(float);
 
     property <length> pad: 0.8 * rem-size;
-    property <length> label-width: 16 * rem-size;
-    property <length> control-width: Math.max(0px, root.width - root.pad - root.label-width - 2 * rem-size);
-    // Where the field's own control goes: beside its label, under the first line of it.
-    property <length> control-x: root.pad + root.label-width;
-    property <length> control-y: root.pad + 0.2 * rem-size;
+    // A setting is a block: its label, its control under it, and the hint under that. The control
+    // keeps a readable width instead of stretching across a page this wide.
+    property <length> control-width: Math.min(Math.max(0px, root.width - 2 * root.pad), 36 * rem-size);
+    property <length> control-x: root.pad;
+    property <length> control-y: root.pad + 2.2 * rem-size;
 
-    // The row: the label, the control beside it, and the hint under the control. Every row is this
-    // height, so the rows of the page's `for` line up.
-    height: 6.4 * rem-size;
+    height: 9 * rem-size;
 
     settings-field-label := Text {
         x: root.pad;
-        y: root.pad + 0.2 * rem-size;
-        width: root.label-width - 2 * rem-size;
-        height: 2 * rem-size;
+        y: root.pad;
+        width: parent.width - 2 * root.pad;
+        height: 1.6 * rem-size;
         text: root.field.label;
-        wrap: word-wrap;
         overflow: elide;
-        vertical-alignment: top;
-        font-size: 1.1 * rem-size;
+        vertical-alignment: center;
+        font-size: 1.05 * rem-size;
+        font-weight: 600;
         color: Theme.text;
     }
     // Every kind says what it is under its control, in one line: the range, the options, or what
     // the app makes of a kind it cannot draw. A kind it cannot draw has no control at all.
     settings-field-hint := Text {
         x: root.control-x;
-        y: root.pad + 3.4 * rem-size;
+        y: root.control-y + 2.8 * rem-size;
         width: root.control-width;
-        height: 1.2 * rem-size;
+        height: 2.4 * rem-size;
         text: root.field.hint;
-        overflow: elide;
+        // Wrapped: a built-in's hint is a sentence ("leave it empty to make one..."), not a word.
+        wrap: word-wrap;
+        overflow: clip;
+        vertical-alignment: top;
         font-size: 0.9 * rem-size;
         color: root.field.kind == "unsupported" ? Theme.accent-yellow : Theme.placeholder;
     }
@@ -705,7 +718,7 @@ component SettingsFieldView inherits Rectangle {
             width: parent.height - 4 * root.rem-size / 14;
             height: self.width;
             border-radius: self.width / 2;
-            background: root.field.on ? Theme.on-accent : Theme.placeholder;
+            background: Theme.text;
         }
         touch := TouchArea {
             width: 100%;
@@ -801,7 +814,7 @@ component SettingsFieldView inherits Rectangle {
     }
 }
 
-// A pill button on the Plugin settings page. Save and Revert are the page's only two, drawn the
+// A pill button on the Plugin settings page. Save is the page's only action, drawn the
 // same way so neither is the one a person presses by mistake.
 component SettingsButton inherits Rectangle {
     in property <string> label-text;
@@ -1010,7 +1023,10 @@ component MarketCardView inherits Rectangle {
     property <length> pad: 1.5 * root.rem-size;
     property <length> buttons-width: 10 * root.rem-size;
     property <length> text-width: root.width - 2 * root.pad - root.buttons-width - root.rem-size;
-    height: Math.max(10 * root.rem-size, 5.2 * root.rem-size + root.pad + (root.data.description == "" ? 0px : 2 * root.rem-size));
+    property <length> body-end: root.pad + 3.6 * root.rem-size
+        + (root.data.description == "" ? 0px : 2 * root.rem-size);
+    height: Math.max(10 * root.rem-size, 5.2 * root.rem-size + root.pad
+        + (root.data.description == "" ? 0px : 2 * root.rem-size));
 
     market-card := Rectangle {
         width: parent.width;
@@ -1074,8 +1090,8 @@ component MarketCardView inherits Rectangle {
         }
         // What the second press will delete, in the same words the Plugins and Themes cards use.
         if root.data.armed: market-armed-note := Text {
-            x: parent.width - root.pad - root.buttons-width - root.text-width;
-            y: root.pad + 2.2 * root.rem-size;
+            x: root.pad;
+            y: root.body-end + 0.2 * root.rem-size;
             width: root.text-width;
             height: 2.4 * root.rem-size;
             text: "Pressing Confirm uninstall deletes " + root.data.filename + " from this computer.";
@@ -1112,10 +1128,11 @@ component MarketCardView inherits Rectangle {
 export component ModsContent inherits Rectangle {    // The height every card on a page takes: the tallest card the page has to draw, so the list's
     // row pitch matches what each card draws.
     pure function tallest(cards: [ModCardData], rem-size: length) -> length {
-        return Math.max(10 * rem-size, cards.length == 0 ? 0px : 5.2 * rem-size + 1.5 * rem-size
+        return Math.max(10 * rem-size, cards.length == 0 ? 0px : 6.0 * rem-size + 1.5 * rem-size
             + (cards[0].description == "" ? 0px : 2 * rem-size)
             + (cards[0].unreadable == "" ? 0px : 2 * rem-size)
-            + cards[0].warnings.length * 1.2 * rem-size);
+            + cards[0].warnings.length * 1.2 * rem-size
+            + (cards[0].update == "" ? 0px : 1.4 * rem-size));
     }
 
     in property <ModsViewData> data;
@@ -1145,8 +1162,6 @@ export component ModsContent inherits Rectangle {    // The height every card on
     callback edit-settings-number(string, float);
     /// The Save press: what the page holds goes into the plugin's settings file.
     callback save-settings();
-    /// The Revert press: what is typed goes back to what the file holds.
-    callback revert-settings();
     /// A press in the Marketplace's search box: the text it now holds.
     callback search-market(string);
     /// A Marketplace card's one button, naming the entry by its download. An installed card's
@@ -1177,7 +1192,10 @@ export component ModsContent inherits Rectangle {    // The height every card on
     property <length> menu-width: 18 * root.rem-size;
     property <length> page-padding: 3 * root.rem-size;
     property <length> page-width: root.width - root.menu-width - 2 * root.page-padding;
-    property <length> page-top: 2 * root.rem-size + (root.data.notice == "" ? 0px : 3.4 * root.rem-size);
+    // Where the page's own sentence starts. The title is 2rem..5rem, so the sentence follows it at
+    // 5.4rem, and the line about the last action (when there is one) pushes it down by the same
+    // 3.4rem it is offset by.
+    property <length> page-top: 5.4 * root.rem-size + (root.data.notice == "" ? 0px : 3.4 * root.rem-size);
     property <length> list-top: root.page-top + 6 * root.rem-size;
     property <length> list-height: Math.max(root.height - root.list-top, 0px);
     // A card plus the 0.75rem under it. Every card is the height of the tallest one on screen,
@@ -1243,14 +1261,15 @@ export component ModsContent inherits Rectangle {    // The height every card on
             text: root.on-plugins ? "Plugins"
                 : root.on-themes ? "Themes"
                 : root.data.page == "marketplace" ? "Marketplace"
-                : root.data.page == "settings" ? "Plugin settings"
                 : root.data.page == "logs" ? "Logs" : "About";
             vertical-alignment: center;
             font-size: 2.2 * root.rem-size;
             font-weight: 700;
             color: ClassStyles.color-or(ClassStyles.mods-page-title, Theme.text);
             opacity: ClassStyles.opacity-or(ClassStyles.mods-page-title, 1.0);
-            visible: !ClassStyles.mods-page-title.hidden;
+            // A plugin's settings bring their own header, with its own back arrow: the section's
+            // title would be a second heading over the same page.
+            visible: !root.on-settings && !ClassStyles.mods-page-title.hidden;
         }
 
         if root.data.notice != "": mod-notice := Text {
@@ -1277,7 +1296,6 @@ export component ModsContent inherits Rectangle {    // The height every card on
             text: root.on-plugins ? root.data.plugins-note
                 : root.on-themes ? root.data.themes-note
                 : root.on-market ? root.data.market-note
-                : root.data.page == "settings" ? "Pick a plugin on the left. Its settings are saved only when you press Save."
                 : root.data.page == "logs" ? root.data.log-held
                 : "What this build is and what it keeps.";
             wrap: word-wrap;
@@ -1285,7 +1303,7 @@ export component ModsContent inherits Rectangle {    // The height every card on
             font-size: root.rem-size;
             color: ClassStyles.color-or(ClassStyles.mods-page-note, Theme.text);
             opacity: ClassStyles.opacity-or(ClassStyles.mods-page-note, 0.7);
-            visible: !ClassStyles.mods-page-note.hidden;
+            visible: !root.on-settings && !ClassStyles.mods-page-note.hidden;
         }
 
         if root.on-plugins && root.data.plugins.length == 0: mods-empty-plugins := Text {
@@ -1344,6 +1362,9 @@ export component ModsContent inherits Rectangle {    // The height every card on
                 update => {
                     root.update-mod(entry.filename);
                 }
+                settings => {
+                    root.pick-settings-plugin(entry.filename);
+                }
             }
             for entry[index] in root.data.themes: ModCardView {
                 x: root.page-padding;
@@ -1380,44 +1401,32 @@ export component ModsContent inherits Rectangle {    // The height every card on
 
         // ---- Plugin settings ------------------------------------------------------------
         // The installed plugins on the left, the picked one's schema on the right. The page only
-        // edits: Save writes the plugin's settings file, Revert reads it back, and nothing here
-        // deletes a value or the schema itself.
-        if root.on-settings: settings-choice := Flickable {
+        // edits: Save writes the plugin's settings file, the back arrow drops the edits, and
+        // nothing here deletes a value or the schema itself.
+                if root.on-settings: settings-box := Rectangle {
             x: root.page-padding;
-            y: root.list-top;
-            width: root.choice-width;
-            height: root.list-height;
-            content-width: self.width;
-            content-height: root.data.settings-plugins.length * 5.95 * root.rem-size;
+            // The page brings its own header, so it starts where the section's title would have:
+            // back arrow and plugin name on one line, at the top of the content area.
+            y: 2 * root.rem-size;
+            width: root.page-width;
+            height: Math.max(root.height - 2 * root.rem-size, 0px);
 
-            for entry[index] in root.data.settings-plugins: SettingsPluginRow {
-                x: 0px;
-                y: index * 5.95 * root.rem-size;
-                width: settings-choice.width - 8px;
-                rem-size: root.rem-size;
-                entry: entry;
-                selected: entry.filename == root.data.settings-plugin;
-                clicked => {
-                    root.pick-settings-plugin(entry.filename);
-                }
-            }
-        }
-        if root.on-settings && root.data.settings-plugins.length == 0: settings-empty := Text {
-            x: root.page-padding;
-            y: root.list-top;
-            width: root.choice-width;
-            height: 3 * root.rem-size;
-            text: "No plugins are installed.";
-            font-size: 1.1 * root.rem-size;
-            color: Theme.text;
-            opacity: 0.8;
-        }
-
-        if root.on-settings: Rectangle {
-            x: root.page-padding + root.choice-width + 2 * root.rem-size;
-            y: root.list-top;
-            width: root.fields-width;
-            height: root.list-height;
+            // The page uses the whole viewport: the name, then one full-width block per field,
+            // then Save at the bottom where the page's actions live. The old split layout sized
+            // every row for a 16rem label column beside its control, which left most of this
+            // width empty.
+            property <length> header-height: 3.2 * root.rem-size;
+            property <length> state-height: root.data.settings-state == "" ? 0px : 2.6 * root.rem-size;
+            property <length> trouble-height: root.data.settings-trouble.length * 1.2 * root.rem-size;
+            property <length> fields-y: settings-box.header-height + settings-box.state-height
+                + settings-box.trouble-height
+                + (settings-box.trouble-height == 0px ? 0.4 * root.rem-size : 0.8 * root.rem-size);
+            // Below the fields, and below the note when a plugin has none: the page's one action
+            // sits at the bottom, not in the header.
+            property <length> save-y: settings-box.fields-y
+                + root.data.settings-fields.length * 9.8 * root.rem-size
+                + (root.data.settings-empty == "" ? 0px : 3.2 * root.rem-size)
+                + 0.8 * root.rem-size;
 
             settings-fields := Flickable {
                 x: 0px;
@@ -1425,18 +1434,14 @@ export component ModsContent inherits Rectangle {    // The height every card on
                 width: parent.width;
                 height: parent.height;
                 content-width: self.width;
-                // The picked plugin's name and state, then what is wrong with the page, then Save and
-                // Revert, then one row per control.
-                content-height: settings-name.height + (settings-state.text == "" ? 0px : 2.4 * root.rem-size)
-                    + 2 * 1.2 * root.rem-size + 4 * root.rem-size
-                    + root.data.settings-fields.length * (6.4 * root.rem-size + 0.75 * root.rem-size);
+                content-height: settings-box.save-y + 4 * root.rem-size;
 
-                settings-name := Text {
-                    x: 0px;
+                settings-header := Text {
+                    x: 3.6 * root.rem-size;
                     y: 0px;
-                    width: parent.width - 8px;
-                    height: 3 * root.rem-size;
-                    text: root.data.settings-plugin;
+                    width: parent.width - 3.6 * root.rem-size - 8px;
+                    height: settings-box.header-height;
+                    text: root.data.settings-title;
                     overflow: elide;
                     vertical-alignment: center;
                     font-size: 1.6 * root.rem-size;
@@ -1445,11 +1450,10 @@ export component ModsContent inherits Rectangle {    // The height every card on
                 }
                 settings-state := Text {
                     x: 0px;
-                    y: settings-name.height;
+                    y: settings-box.header-height;
                     width: parent.width - 8px;
-                    height: 2.4 * root.rem-size;
-                    // Running, why it stopped, or nothing at all for a plugin that is off: the
-                    // runtime's own sentence, never this page's guess.
+                    height: settings-box.state-height;
+                    // Running, why it stopped, or nothing at all: the runtime's own sentence.
                     text: root.data.settings-state;
                     wrap: word-wrap;
                     vertical-alignment: top;
@@ -1457,10 +1461,10 @@ export component ModsContent inherits Rectangle {    // The height every card on
                     color: root.data.settings-state-failed ? Theme.accent-red : Theme.accent-green;
                 }
                 // What is wrong with the page: a schema this app cannot use, a file it cannot read,
-                // values typed and not saved. Save is still on while values are typed.
+                // values typed and not saved.
                 for trouble[index] in root.data.settings-trouble: settings-trouble := Text {
                     x: 0px;
-                    y: settings-name.height + (settings-state.text == "" ? 0px : 2.4 * root.rem-size) + index * 1.2 * root.rem-size;
+                    y: settings-box.header-height + settings-box.state-height + index * 1.2 * root.rem-size;
                     width: parent.width - 8px;
                     height: 1.2 * root.rem-size;
                     text: trouble;
@@ -1468,39 +1472,9 @@ export component ModsContent inherits Rectangle {    // The height every card on
                     font-size: 0.9 * root.rem-size;
                     color: Theme.accent-red;
                 }
-                settings-buttons := HorizontalLayout {
-                    x: 0px;
-                    y: settings-name.height + (settings-state.text == "" ? 0px : 2.4 * root.rem-size)
-                        + 2 * 1.2 * root.rem-size;
-                    width: parent.width - 8px;
-                    height: 3 * root.rem-size;
-                    spacing: 1.2 * root.rem-size;
-                    alignment: start;
-
-                    SettingsButton {
-                        rem-size: root.rem-size;
-                        label-text: "Save";
-                        name: "Save " + root.data.settings-plugin;
-                        primary: true;
-                        enabled: root.data.settings-dirty;
-                        clicked => {
-                            root.save-settings();
-                        }
-                    }
-                    SettingsButton {
-                        rem-size: root.rem-size;
-                        label-text: "Revert";
-                        name: "Revert " + root.data.settings-plugin;
-                        primary: false;
-                        enabled: root.data.settings-dirty;
-                        clicked => {
-                            root.revert-settings();
-                        }
-                    }
-                }
                 for field[index] in root.data.settings-fields: SettingsFieldView {
                     x: 0px;
-                    y: settings-buttons.y + settings-buttons.height + index * (6.4 * root.rem-size + 0.75 * root.rem-size);
+                    y: settings-box.fields-y + index * 9.8 * root.rem-size;
                     width: parent.width - 8px;
                     rem-size: root.rem-size;
                     field: field;
@@ -1519,7 +1493,7 @@ export component ModsContent inherits Rectangle {    // The height every card on
                 }
                 if root.data.settings-empty != "": settings-said := Text {
                     x: 0px;
-                    y: settings-buttons.y + settings-buttons.height;
+                    y: settings-box.fields-y + root.data.settings-fields.length * 9.8 * root.rem-size;
                     width: parent.width - 8px;
                     height: 3 * root.rem-size;
                     text: root.data.settings-empty;
@@ -1527,6 +1501,20 @@ export component ModsContent inherits Rectangle {    // The height every card on
                     font-size: root.rem-size;
                     color: Theme.text;
                     opacity: 0.7;
+                }
+                // The page's one action: Save writes what is on screen, and the values the plugin
+                // can hold are the page's own business, not its file's.
+                settings-save := SettingsButton {
+                    x: 0px;
+                    y: settings-box.save-y;
+                    rem-size: root.rem-size;
+                    label-text: "Save";
+                    name: "Save " + root.data.settings-plugin;
+                    primary: true;
+                    enabled: root.data.settings-dirty;
+                    clicked => {
+                        root.save-settings();
+                    }
                 }
             }
             ScrollBar {
@@ -1536,6 +1524,36 @@ export component ModsContent inherits Rectangle {    // The height every card on
                 view-height: parent.height;
                 content-height: settings-fields.content-height;
                 offset <=> settings-fields.content-y;
+            }
+            // The way back to the list, on the header line. Drawn after the list, so it takes the
+            // press even though the list runs underneath it.
+            settings-back := Rectangle {
+                x: 0px;
+                y: 0px;
+                width: 3 * root.rem-size;
+                height: 3 * root.rem-size;
+                border-radius: 0.5 * root.rem-size;
+                background: settings-back-touch.has-hover ? #ffffff24 : #ffffff14;
+
+                Image {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    width: 1.5 * root.rem-size;
+                    height: 1.5 * root.rem-size;
+                    source: @image-url("icons/chevron-back.svg");
+                    colorize: Theme.text;
+                    opacity: settings-back-touch.has-hover ? 0.8 : 0.6;
+                }
+                settings-back-touch := TouchArea {
+                    width: 100%;
+                    height: 100%;
+                    mouse-cursor: pointer;
+                    accessible-role: button;
+                    accessible-label: "Back to plugins";
+                    clicked => {
+                        root.select-page("plugins");
+                    }
+                }
             }
         }
 

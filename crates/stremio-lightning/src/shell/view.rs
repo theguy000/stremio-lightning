@@ -380,7 +380,10 @@ pub(crate) fn mods_view(data: &crate::screens::mods::Data) -> ModsViewData {
             description: card.description.clone().into(),
             unreadable: mods::catalogue::unreadable(card).into(),
             warnings: ModelRc::new(VecModel::from(
-                if kind == mods::catalogue::Kind::Theme {
+                if card.builtin {
+                    // A built-in shows its name, its version and what it does, and nothing else.
+                    Vec::new()
+                } else if kind == mods::catalogue::Kind::Theme {
                     card.warnings.clone()
                 } else {
                     // A plugin's state line: whether it runs, why it stopped, or its last warning.
@@ -398,6 +401,8 @@ pub(crate) fn mods_view(data: &crate::screens::mods::Data) -> ModsViewData {
             armed: armed_here,
             state: state.into(),
             update: card.update.clone().into(),
+            removable: card.removable,
+            has_settings: card.has_settings,
         }
     };
     ModsViewData {
@@ -435,6 +440,14 @@ pub(crate) fn mods_view(data: &crate::screens::mods::Data) -> ModsViewData {
                 .collect::<Vec<_>>(),
         )),
         settings_plugin: data.plugin.clone().into(),
+        settings_title: data
+            .settings_plugins
+            .iter()
+            .find(|entry| entry.filename == data.plugin)
+            .map(|entry| entry.name.clone())
+            .filter(|name| !name.is_empty())
+            .unwrap_or_else(|| data.plugin.clone())
+            .into(),
         settings_fields: ModelRc::new(VecModel::from(
             data.edits
                 .controls
@@ -648,6 +661,11 @@ pub(crate) fn settings_field(control: &mods::settings::Control) -> SettingsField
             .into();
         }
     }
+    // A built-in brings its own sentence for each control; a file plugin has none and keeps the
+    // kind's own words.
+    if !control.hint.is_empty() {
+        field.hint = control.hint.clone().into();
+    }
     field
 }
 
@@ -657,11 +675,17 @@ fn state_said(data: &crate::screens::mods::Data) -> String {
     if data.plugin.is_empty() {
         return String::new();
     }
+    // A built-in ships running: there is no runtime to report, and "Running." would be noise
+    // under its name.
+    if mods::builtin::get(&data.plugin).is_some() {
+        return String::new();
+    }
     data.picked_state.said(data.picked_enabled)
 }
 
-/// What the Plugin settings page says is wrong with itself: a schema that cannot be used, a file
-/// that cannot be read, and values typed and not saved.
+/// What the Plugin settings page says is wrong with itself: a schema that cannot be used and a
+/// file that cannot be read. Typed and unsaved values are not a fault; Save being lit is the
+/// whole of what the page says about them.
 fn trouble(data: &crate::screens::mods::Data) -> Vec<String> {
     let edits = &data.edits;
     let mut said = Vec::new();
@@ -671,11 +695,6 @@ fn trouble(data: &crate::screens::mods::Data) -> Vec<String> {
         }
         if !edits.error.is_empty() {
             said.push(edits.error.clone());
-        }
-        if edits.dirty() {
-            said.push(
-                "Typed and not saved. Press Save to write it, or Revert to drop it.".to_owned(),
-            );
         }
     }
     said
@@ -760,7 +779,8 @@ fn checking() -> bool {
 /// because a new model tears down every row -- including the one a press may be standing on. Which
 /// row is marked is not in the model: the menu marks the page `data.page` names.
 pub(crate) fn show_mods(window: &MainWindow, data: &crate::screens::mods::Data) {
-    let view = mods_view(data);
+    let mut view = mods_view(data);
+    keep_settings_fields(window, &mut view);
     let rows: Vec<(String, String)> = data
         .menu
         .iter()
@@ -771,6 +791,36 @@ pub(crate) fn show_mods(window: &MainWindow, data: &crate::screens::mods::Data) 
     }
     window.set_mods_page(data.page.clone().into());
     window.set_mods(view);
+}
+
+/// Keeps the settings field rows the window already holds when the same plugin's page is drawn
+/// again. A fresh model tears every row down, and the text box a person is typing into loses its
+/// focus with them; the data of each row is updated in place instead, so the box survives the
+/// repaint and the letters after the first are not typed into an editor that no longer exists.
+fn keep_settings_fields(window: &MainWindow, view: &mut ModsViewData) {
+    let old = window.get_mods();
+    if old.settings_plugin != view.settings_plugin {
+        return;
+    }
+    let model = old.settings_fields.clone();
+    let Some(fields) = model.as_any().downcast_ref::<VecModel<SettingsFieldData>>() else {
+        return;
+    };
+    let keys = |fields: &ModelRc<SettingsFieldData>| -> Vec<String> {
+        (0..fields.row_count())
+            .filter_map(|at| fields.row_data(at))
+            .map(|field| field.key.to_string())
+            .collect()
+    };
+    if keys(&view.settings_fields) != keys(&old.settings_fields) {
+        return;
+    }
+    for at in 0..view.settings_fields.row_count() {
+        if let Some(field) = view.settings_fields.row_data(at) {
+            fields.set_row_data(at, field);
+        }
+    }
+    view.settings_fields = model;
 }
 
 /// The menu's rows the window holds now, as pairs of id and label.

@@ -17,6 +17,14 @@ import { Theme } from "theme.slint";
 import { MultiselectMenu, SelectOption } from "multiselect-menu.slint";
 import { ScrollBar } from "scroll-bar.slint";
 
+/// One row the timing panel lists: the category, its times, and the id a vote names.
+export struct SkipRow {
+    key: string,
+    label: string,
+    text: string,
+    id: string,
+}
+
 /// One audio or subtitle track mpv offers, as the screen draws it.
 export struct PlayerTrack {
     id: string,
@@ -57,6 +65,13 @@ export struct PlayerEpisode {
 export struct PlayerOption {
     label: string,
     action: string,
+}
+
+/// A stretch of the seek bar the shell can skip over, as fractions of the whole length. The bar
+/// draws one for each so the skip button's arrival is expected rather than sudden.
+export struct SkipMark {
+    start: float,
+    end: float,
 }
 
 // Web: SeekBar/formatTime.js -- always hours, minutes, seconds, never a shortened form. Slint
@@ -147,6 +162,8 @@ component PlayerSlider inherits Rectangle {
     in property <bool> boost: false;
     /// Whether the pointer's position is announced above the track, as the seek bar's is.
     in property <bool> tooltip: false;
+    /// Stretches the bar marks, as fractions of the whole length.
+    in property <[SkipMark]> marks;
     /// Whether the thumb is the speed menu's ringed one rather than a solid dot.
     in property <bool> ring: false;
     callback slid(float);
@@ -189,6 +206,16 @@ component PlayerSlider inherits Rectangle {
         height: root.track-size;
         border-radius: root.track-size;
         background: root.boost ? @linear-gradient(90deg, Theme.text 0%, Theme.text 50%, Theme.accent-yellow 75%, Theme.accent-red 100%) : Theme.text;
+    }
+    // The stretches the shell can skip, drawn over the played part so one stays visible while it
+    // is being played: the bar says a skip is coming before the button says it is here.
+    for mark in root.marks: Rectangle {
+        x: parent.width * mark.start;
+        y: (parent.height - root.track-size) / 2;
+        width: Math.max(0.15 * root.rem-size, parent.width * (mark.end - mark.start));
+        height: root.track-size;
+        border-radius: root.track-size;
+        background: Theme.accent-yellow;
     }
     // Web: `:hover .thumb { transform: scale(1.2) }`, a circle growing about its own middle.
     Rectangle {
@@ -287,6 +314,100 @@ component PlayerMenu inherits Rectangle {
 }
 // Web: the menus' `.header` -- 1.5rem of padding above and below, 2rem at the sides, bold, one
 // line. It sits in a fixed 4.5rem block so every column lines up with the others.
+// A timing field: one pill on the panel, the way Stremio's own inputs sit on their surface. Its
+// text lives in the panel's own property, so closing the panel does not throw away a typo half
+// fixed.
+component SkipField inherits Rectangle {
+    in property <length> rem-size;
+    in-out property <string> text <=> input.text;
+
+    height: 2.6 * root.rem-size;
+    border-radius: self.height / 2;
+    background: input.has-focus ? #ffffff1f : #ffffff14;
+    border-width: 1px;
+    border-color: input.has-focus ? Theme.accent-green : transparent;
+
+    input := TextInput {
+        x: 0.9 * root.rem-size;
+        width: parent.width - 1.8 * root.rem-size;
+        height: parent.height;
+        vertical-alignment: center;
+        font-size: 0.95 * root.rem-size;
+        color: Theme.text;
+        selection-background-color: Theme.accent;
+        selection-foreground-color: Theme.on-accent;
+        single-line: true;
+    }
+}
+
+// A thumbs-up or thumbs-down pill: the two votes on the row AniSkip holds.
+component VotePill inherits Rectangle {
+    in property <length> rem-size;
+    in property <bool> up: true;
+    callback clicked;
+
+    width: 2.6 * root.rem-size;
+    height: 2 * root.rem-size;
+    border-radius: self.height / 2;
+    background: vote-touch.has-hover ? Theme.overlay : #ffffff14;
+    border-width: 1px;
+    border-color: #ffffff26;
+
+    Image {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: 1.1 * root.rem-size;
+        height: 1.1 * root.rem-size;
+        source: @image-url("icons/thumbs-up.svg");
+        colorize: Theme.text;
+        transform-rotation: root.up ? 0deg : 180deg;
+    }
+    vote-touch := TouchArea {
+        mouse-cursor: pointer;
+        accessible-role: button;
+        accessible-label: root.up ? "Correct" : "Wrong";
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// A pill in the timing panel: a category, a vote, or the submit.
+component SkipPill inherits Rectangle {
+    in property <length> rem-size;
+    in property <string> label-text;
+    in property <bool> selected: false;
+    in property <bool> small: false;
+    in property <bool> primary: false;
+    callback clicked;
+
+    height: root.small ? 2 * root.rem-size : 2.2 * root.rem-size;
+    width: skip-pill-label.width + (root.small ? 1.6 : 2) * root.rem-size;
+    border-radius: self.height / 2;
+    border-width: 1px;
+    border-color: root.primary || root.selected ? Theme.accent-green : #ffffff26;
+    background: root.primary ? Theme.accent-green
+        : root.selected ? Theme.overlay
+        : skip-pill-touch.has-hover ? Theme.overlay : transparent;
+    animate background { duration: 150ms; }
+
+    skip-pill-label := Text {
+        width: self.preferred-width;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        text: root.label-text;
+        font-size: (root.small ? 0.8 : 0.9) * root.rem-size;
+        font-weight: root.primary ? 700 : 600;
+        color: root.primary ? Theme.on-accent : root.selected ? Theme.accent-soft : Theme.text;
+    }
+    skip-pill-touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
 component MenuHeader inherits Rectangle {
     in property <length> rem-size;
     in property <string> title;
@@ -660,6 +781,32 @@ export component PlayerScreen inherits Rectangle {
     in property <bool> has-next;
     /// How close to the end the next Video is offered, in seconds.
     in property <float> next-notice: 35;
+    /// Whether the timing button is offered: the AniSkip page's own switch.
+    in property <bool> skip-submit: true;
+    /// The category the timing panel is about: "op", "ed" or "recap".
+    in property <string> skip-kind: "op";
+    /// Every row AniSkip holds for this file, one per category, with the id each votes by.
+    in property <[SkipRow]> skip-rows;
+    /// The form's starting text, as the shell formats it. The shell seeds it when the panel
+    /// opens on a category it has not shown yet; the box's own text lives beside it, so closing
+    /// the panel keeps what was typed.
+    in property <string> skip-start: "";
+    in property <string> skip-end: "";
+    in-out property <string> skip-start-text: "";
+    in-out property <string> skip-end-text: "";
+    changed skip-start => {
+        root.skip-start-text = root.skip-start;
+    }
+    changed skip-end => {
+        root.skip-end-text = root.skip-end;
+    }
+    /// What the shell last said about the panel: sending, a refusal, or a thank-you.
+    in property <string> skip-notice: "";
+    /// The skip button: whether the play head is inside a segment. The shell decides it; the
+    /// screen only draws the disc.
+    in property <bool> skip-visible: false;
+    /// Where the skip segments sit on the bar, as fractions of the length.
+    in property <[SkipMark]> skip-marks;
 
     // `""`, "speed", "audio", "subtitles" or "options".
     in-out property <string> menu;
@@ -706,8 +853,13 @@ export component PlayerScreen inherits Rectangle {
         root.menu == "options"
         ? Math.min(root.rows-height(root.options.length), Math.max(0px, root.menu-max - 2 * root.menu-padding))
         : root.menu-list-room;
+    /// The panel's reading part: one row per category, or the sentence that says there is none.
+    property <length> skip-rows-height:
+        root.skip-rows.length == 0 ? 2.4 * root.rem-size
+        : root.skip-rows.length * 2.6 * root.rem-size + (root.skip-rows.length - 1) * 0.5 * root.rem-size;
     property <length> menu-height:
         root.menu == "speed" ? root.rem-size * 12.6
+        : root.menu == "skip" ? root.rem-size * 15.4 + root.skip-rows-height
         : root.menu == "subtitles" ? root.menu-max
         : root.menu == "audio"
         ? Math.min(root.menu-header + root.rows-height(root.audio-tracks.length), root.menu-max)
@@ -717,6 +869,7 @@ export component PlayerScreen inherits Rectangle {
     callback toggle-fullscreen();
     callback play-pause();
     callback play-next();
+    callback skip();
     callback seek(float);
     callback seek-by(float);
     callback set-volume(float);
@@ -732,6 +885,12 @@ export component PlayerScreen inherits Rectangle {
     callback select-episode(string);
     callback select-season(int);
     callback choose-option(string);
+    /// The timing panel: fill it for the category on screen, pick another category, send a
+    /// timing, or vote on the row AniSkip holds.
+    callback open-skip();
+    callback pick-skip-kind(string);
+    callback submit-skip(string, string, string);
+    callback vote-skip(string, bool);
     /// Puts every panel away: the menus, the drawer, the Season list and the next-Video offer.
     /// Anything that is not a panel itself reaches for this -- a press on the picture, or Escape.
     function close-menus() {
@@ -1143,6 +1302,40 @@ export component PlayerScreen inherits Rectangle {
         }
     }
 
+    // The skip button, where the web's AniSkip popup sat: against the right edge, nine rem up,
+    // which clears the control bar. It is not part of the controls layer, so fading the controls
+    // out does not take the one action on screen with them.
+    if root.skip-visible: Rectangle {
+        // A disc, not a pill: the words are gone and the glyph says what the press does. The
+        // border is the control bar's hairline; the yellow is the accent the seek bar marks with,
+        // so the button and its stretch are one colour.
+        width: 2.6 * root.rem-size;
+        height: 2.6 * root.rem-size;
+        x: root.width - self.width - 1.7 * root.rem-size;
+        y: root.height - self.height - 9 * root.rem-size;
+        border-radius: self.width / 2;
+        background: Theme.accent-yellow;
+        border-width: 1px;
+        border-color: #ffffff40;
+        drop-shadow-blur: 1.3 * root.rem-size;
+        drop-shadow-color: #000000e0;
+
+        skip-glyph := Image {
+            width: 1.4 * root.rem-size;
+            height: self.width;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            source: @image-url("icons/skip-forward.svg");
+            colorize: Theme.on-accent;
+        }
+        skip-touch := TouchArea {
+            mouse-cursor: pointer;
+            clicked => {
+                root.skip();
+            }
+        }
+    }
+
     // Web: `.control-bar-layer` -- the seek bar over the buttons, over a 10rem gradient. Seven rem
     // tall: 0.5rem of bottom padding, 2.5rem of seek bar, 4rem of buttons.
     if root.controls-visible: Rectangle {
@@ -1201,6 +1394,7 @@ export component PlayerScreen inherits Rectangle {
                 buffered: root.buffered;
                 enabled: root.can-seek;
                 tooltip: true;
+                marks: root.skip-marks;
                 slid(value) => {
                     root.drag-time = value;
                 }
@@ -1303,10 +1497,28 @@ export component PlayerScreen inherits Rectangle {
                 }
             }
 
-            // Web: the menu cluster, right-aligned: speed, subtitles, audio, episodes, scale, and
-            // the options menu.
-            PlayerButton {
+            // The timing panel, right of the speed button. The web had no such button -- AniSkip
+            // lived in an extension -- so it takes the place the cluster grows into.
+            if root.skip-submit: PlayerButton {
                 x: bar.last - (root.has-episodes ? 5 : 4) * bar.step;
+                rem-size: root.rem-size;
+                glyph: @image-url("icons/skip-forward.svg");
+                lit: root.menu == "skip";
+                clicked => {
+                    if (root.menu == "skip") {
+                        root.menu = "";
+                    } else {
+                        root.open-skip();
+                        root.menu = "skip";
+                        root.drawer-open = false;
+                    }
+                }
+            }
+
+            // Web: the menu cluster, right-aligned: speed, subtitles, audio, episodes, scale, and
+            // the options menu. The timing button above sits between speed and subtitles.
+            PlayerButton {
+                x: bar.last - (root.has-episodes ? 6 : 5) * bar.step;
                 rem-size: root.rem-size;
                 glyph: @image-url("icons/speed.svg");
                 lit: root.menu == "speed";
@@ -1482,6 +1694,185 @@ export component PlayerScreen inherits Rectangle {
                                         root.set-speed(rate);
                                     }
                                 }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // The timing panel: what AniSkip holds for the category picked, a vote on it, and a
+            // form that adds a timing for the file being watched. The times own the top; the
+            // categories are part of the form, not of the reading.
+            if root.menu == "skip": VerticalLayout {
+                spacing: 0;
+                alignment: start;
+                VerticalLayout {
+                    padding: 1 * root.rem-size;
+                    padding-bottom: 0.6 * root.rem-size;
+                    spacing: 0.5 * root.rem-size;
+                    alignment: start;
+
+                    for row in root.skip-rows: HorizontalLayout {
+                        height: 2.6 * root.rem-size;
+                        spacing: 0.5 * root.rem-size;
+                        alignment: start;
+                        VerticalLayout {
+                            alignment: center;
+                            HorizontalLayout {
+                                spacing: 0.35 * root.rem-size;
+                                VotePill {
+                                    rem-size: root.rem-size;
+                                    up: true;
+                                    clicked => {
+                                        root.vote-skip(row.id, true);
+                                    }
+                                }
+                                VotePill {
+                                    rem-size: root.rem-size;
+                                    up: false;
+                                    clicked => {
+                                        root.vote-skip(row.id, false);
+                                    }
+                                }
+                            }
+                        }
+                        Text {
+                            width: 4.8 * root.rem-size;
+                            text: row.label;
+                            font-size: 0.95 * root.rem-size;
+                            font-weight: 700;
+                            color: Theme.text;
+                            vertical-alignment: center;
+                        }
+                        Text {
+                            horizontal-stretch: 1;
+                            text: row.text;
+                            font-size: 0.95 * root.rem-size;
+                            color: Theme.text;
+                            vertical-alignment: center;
+                        }
+                    }
+                    if root.skip-rows.length == 0: Text {
+                        height: 2.4 * root.rem-size;
+                        text: "AniSkip has no timing for this one yet. Add yours below.";
+                        wrap: word-wrap;
+                        font-size: 0.9 * root.rem-size;
+                        color: Theme.text;
+                        opacity: 0.7;
+                    }
+
+                    Text {
+                        height: 1.4 * root.rem-size;
+                        text: "Add your own";
+                        font-size: 0.95 * root.rem-size;
+                        font-weight: 700;
+                        color: Theme.text;
+                        vertical-alignment: center;
+                    }
+                    HorizontalLayout {
+                        height: 2.2 * root.rem-size;
+                        spacing: 0.4 * root.rem-size;
+                        alignment: start;
+                        SkipPill {
+                            rem-size: root.rem-size;
+                            label-text: "Opening";
+                            selected: root.skip-kind == "op";
+                            clicked => {
+                                root.pick-skip-kind("op");
+                            }
+                        }
+                        SkipPill {
+                            rem-size: root.rem-size;
+                            label-text: "Ending";
+                            selected: root.skip-kind == "ed";
+                            clicked => {
+                                root.pick-skip-kind("ed");
+                            }
+                        }
+                        SkipPill {
+                            rem-size: root.rem-size;
+                            label-text: "Recap";
+                            selected: root.skip-kind == "recap";
+                            clicked => {
+                                root.pick-skip-kind("recap");
+                            }
+                        }
+                    }
+                    GridLayout {
+                        spacing: 0.4 * root.rem-size;
+                        padding: 0px;
+                        Text {
+                            row: 0;
+                            col: 0;
+                            width: 2.4 * root.rem-size;
+                            text: "Start";
+                            font-size: 0.85 * root.rem-size;
+                            color: Theme.text;
+                            vertical-alignment: center;
+                        }
+                        skip-start-field := SkipField {
+                            row: 0;
+                            col: 1;
+                            horizontal-stretch: 1;
+                            rem-size: root.rem-size;
+                            text <=> root.skip-start-text;
+                        }
+                        SkipPill {
+                            row: 0;
+                            col: 2;
+                            rem-size: root.rem-size;
+                            label-text: "Now";
+                            small: true;
+                            clicked => {
+                                root.skip-start-text = PlayerText.clock(root.time);
+                            }
+                        }
+                        Text {
+                            row: 1;
+                            col: 0;
+                            width: 2.4 * root.rem-size;
+                            text: "End";
+                            font-size: 0.85 * root.rem-size;
+                            color: Theme.text;
+                            vertical-alignment: center;
+                        }
+                        skip-end-field := SkipField {
+                            row: 1;
+                            col: 1;
+                            horizontal-stretch: 1;
+                            rem-size: root.rem-size;
+                            text <=> root.skip-end-text;
+                        }
+                        SkipPill {
+                            row: 1;
+                            col: 2;
+                            rem-size: root.rem-size;
+                            label-text: "Now";
+                            small: true;
+                            clicked => {
+                                root.skip-end-text = PlayerText.clock(root.time);
+                            }
+                        }
+                    }
+
+                    HorizontalLayout {
+                        height: 2.6 * root.rem-size;
+                        spacing: 0.6 * root.rem-size;
+                        alignment: end;
+                        if root.skip-notice != "": Text {
+                            text: root.skip-notice;
+                            font-size: 0.85 * root.rem-size;
+                            color: Theme.text;
+                            opacity: 0.8;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                        SkipPill {
+                            rem-size: root.rem-size;
+                            label-text: "Submit";
+                            primary: true;
+                            clicked => {
+                                root.submit-skip(root.skip-kind, root.skip-start-text, root.skip-end-text);
                             }
                         }
                     }

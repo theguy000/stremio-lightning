@@ -58,6 +58,13 @@ pub struct ModCard {
     /// What the update check said about this file, already a sentence: empty until a check has
     /// answered for it, which is why a card the folder alone produced says nothing.
     pub update: String,
+    /// Whether the card has a Remove button. A feature built into the app has none: there is no
+    /// file behind it.
+    pub removable: bool,
+    /// Whether this card is a feature the app ships rather than a file in the folder. A built-in
+    /// has no author, no update to check and nothing to remove: its card shows its name, its
+    /// version and what it does, and nothing else. See `mods::builtin` for the list.
+    pub builtin: bool,
 }
 
 /// One line a Mods page shows about the last action. `failed` draws it in the warning colour.
@@ -97,55 +104,60 @@ pub fn cards(data_dir: &Path, kind: Kind, extras: &LocalExtras) -> Result<Vec<Mo
     };
     let mut installed = list_mods(data_dir, kind.mod_type())?;
     installed.sort_by(|a, b| a.filename.cmp(&b.filename));
-    Ok(installed
-        .into_iter()
-        .map(|file| {
-            let is_on = enabled.contains(&file.filename);
-            // A theme's card can say what the file does, so the file is read here. A plugin is not
-            // read at all: nothing loads it in this build.
-            let warnings = match kind {
-                Kind::Theme => read_mod_content(data_dir, &file.filename, ModType::Theme)
-                    .map(|css| theme::warnings(&css))
-                    .unwrap_or_else(|error| vec![error]),
-                Kind::Plugin => Vec::new(),
-            };
-            let has_settings = kind == Kind::Plugin
-                && crate::screens::mods::plugin_schema::stored(
-                    &mods_dir,
-                    &crate::plumbing::plugin::name_of(&file.filename),
-                )
-                .is_ok_and(|fields| !fields.is_empty());
-            let (name, author, version, description) = match file.metadata {
-                Some(metadata) => (
-                    non_empty_or(metadata.name, &file.filename),
-                    metadata.author,
-                    metadata.version,
-                    metadata.description,
-                ),
-                // Nothing in the file names it. The file name is what the user sees in the folder,
-                // so that is what the card shows, and the rest of the card says nothing.
-                None => (
-                    file.filename.clone(),
-                    String::new(),
-                    String::new(),
-                    String::new(),
-                ),
-            };
-            ModCard {
-                id: file.filename.clone(),
-                filename: file.filename,
-                name,
-                author,
-                version,
-                description,
-                enabled: is_on,
-                has_settings,
-                running: crate::screens::mods::settings::Running::default(),
-                warnings,
-                update: String::new(),
-            }
-        })
-        .collect())
+    let mut cards = if kind == Kind::Plugin {
+        super::builtin::cards(extras)
+    } else {
+        Vec::new()
+    };
+    cards.extend(installed.into_iter().map(|file| {
+        let is_on = enabled.contains(&file.filename);
+        // A theme's card can say what the file does, so the file is read here. A plugin is not
+        // read at all: nothing loads it in this build.
+        let warnings = match kind {
+            Kind::Theme => read_mod_content(data_dir, &file.filename, ModType::Theme)
+                .map(|css| theme::warnings(&css))
+                .unwrap_or_else(|error| vec![error]),
+            Kind::Plugin => Vec::new(),
+        };
+        let has_settings = kind == Kind::Plugin
+            && crate::screens::mods::plugin_schema::stored(
+                &mods_dir,
+                &crate::plumbing::plugin::name_of(&file.filename),
+            )
+            .is_ok_and(|fields| !fields.is_empty());
+        let (name, author, version, description) = match file.metadata {
+            Some(metadata) => (
+                non_empty_or(metadata.name, &file.filename),
+                metadata.author,
+                metadata.version,
+                metadata.description,
+            ),
+            // Nothing in the file names it. The file name is what the user sees in the folder,
+            // so that is what the card shows, and the rest of the card says nothing.
+            None => (
+                file.filename.clone(),
+                String::new(),
+                String::new(),
+                String::new(),
+            ),
+        };
+        ModCard {
+            id: file.filename.clone(),
+            filename: file.filename,
+            name,
+            author,
+            version,
+            description,
+            enabled: is_on,
+            has_settings,
+            running: crate::screens::mods::settings::Running::default(),
+            warnings,
+            update: String::new(),
+            removable: true,
+            builtin: false,
+        }
+    }));
+    Ok(cards)
 }
 
 /// A name the file left empty is no name, so the file name stands in for it.

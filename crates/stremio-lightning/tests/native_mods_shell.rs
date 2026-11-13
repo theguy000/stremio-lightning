@@ -445,7 +445,7 @@ fn the_settings_page_saves_only_on_save_and_a_stopped_plugin_says_why() {
 
     // ---- the left list says what each plugin has -------------------------------------------
     let folder = plugins_dir(&data_dir);
-    let extras = stremio_lightning::screens::settings::LocalExtras::default();
+    let mut extras = stremio_lightning::screens::settings::LocalExtras::default();
     let listed = mods::settings::plugins(&data_dir, &extras).expect("the plugins folder reads");
     let file_names: Vec<&str> = listed.iter().map(|p| p.filename.as_str()).collect();
     assert_eq!(
@@ -470,7 +470,7 @@ fn the_settings_page_saves_only_on_save_and_a_stopped_plugin_says_why() {
     );
 
     // ---- the schema is drawn from the file, not from a process that has to run first --------
-    let mut edits = mods::settings::edits(&data_dir, "tidy.plugin.js");
+    let mut edits = mods::settings::edits(&data_dir, "tidy.plugin.js", &extras);
     let keys: Vec<&str> = edits.controls.iter().map(|c| c.field.key()).collect();
     assert_eq!(keys, ["rows", "mode"], "the page reads the schema back");
     assert_eq!(
@@ -490,20 +490,20 @@ fn the_settings_page_saves_only_on_save_and_a_stopped_plugin_says_why() {
         "typing writes nothing"
     );
 
-    // ---- Revert throws the typing away and leaves the file alone ---------------------------
-    mods::settings::revert(&mut edits);
-    assert!(!edits.dirty(), "revert leaves nothing typed");
-    assert_eq!(edits.controls[0].edited, json!(3));
+    // ---- Leaving the page throws the typing away and leaves the file alone ------------------
+    edits = mods::settings::Edits::default();
+    assert!(!edits.dirty(), "leaving the page leaves nothing typed");
     assert_eq!(
         mods::settings::file_of(&folder, "tidy"),
         schema_only,
-        "revert writes nothing"
+        "leaving the page writes nothing"
     );
 
     // ---- Save writes what changed, keeps the schema, and hands the file back ----------------
+    edits = mods::settings::edits(&data_dir, "tidy.plugin.js", &extras);
     mods::settings::set_value(&mut edits, "rows", &json!(7));
     mods::settings::set_value(&mut edits, "mode", &json!("fast"));
-    let saved = mods::settings::save(&data_dir, &mut edits);
+    let saved = mods::settings::save(&data_dir, &mut edits, &mut extras);
     assert!(saved.written, "the file took the values: {}", saved.error);
     assert_eq!(
         stremio_lightning_core::settings::setting(&folder, "tidy", "rows").expect("a saved value"),
@@ -527,9 +527,9 @@ fn the_settings_page_saves_only_on_save_and_a_stopped_plugin_says_why() {
     // ---- nothing on the page deletes a value the schema no longer names --------------------
     stremio_lightning_core::settings::save_setting(&folder, "tidy", "left_over", json!("keep me"))
         .expect("a value the schema does not name");
-    let mut edits = mods::settings::edits(&data_dir, "tidy.plugin.js");
+    let mut edits = mods::settings::edits(&data_dir, "tidy.plugin.js", &extras);
     mods::settings::set_value(&mut edits, "rows", &json!(4));
-    assert!(mods::settings::save(&data_dir, &mut edits).written);
+    assert!(mods::settings::save(&data_dir, &mut edits, &mut extras).written);
     assert_eq!(
         stremio_lightning_core::settings::setting(&folder, "tidy", "left_over")
             .expect("still there"),
