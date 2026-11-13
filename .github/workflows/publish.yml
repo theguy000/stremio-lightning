@@ -54,32 +54,20 @@ jobs:
             flatpak-builder \
             gh \
             git \
-            libgtk-4-dev \
+            libegl-dev \
+            libfontconfig-dev \
+            libgl-dev \
             libmpv-dev \
             librsvg2-dev \
-            libwebkitgtk-6.0-dev \
+            libwayland-dev \
+            libx11-dev \
+            libxkbcommon-dev \
             mold \
-            nodejs \
             ostree \
             patchelf \
             pkg-config
 
       - uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: lts/*
-          cache: npm
-
-      - name: Set dynamic release version in files
-        if: startsWith(github.ref, 'refs/tags/v')
-        shell: bash
-        run: |
-          TAG="${{ github.ref_name }}"
-          VERSION="${TAG#v}"
-          echo "Setting version to $VERSION"
-          node scripts/bump-version.cjs "$VERSION"
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -89,16 +77,19 @@ jobs:
       - name: Rust cache
         uses: swatinem/rust-cache@v2
 
-      - name: Install frontend dependencies
-        run: npm ci
+      - name: Set dynamic release version in files
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          TAG="${{ github.ref_name }}"
+          VERSION="${TAG#v}"
+          echo "Setting version to $VERSION"
+          cargo xtask bump-version "$VERSION"
 
       - name: Validate Linux metadata
         run: |
           desktop-file-validate assets/io.github.theguy000.stremio-lightning.desktop
           appstreamcli validate --strict --no-net assets/io.github.theguy000.stremio-lightning.metainfo.xml
-
-      - name: Build frontend
-        run: cargo xtask build-ui
 
       - name: Validate Rust before packaging
         if: github.event_name != 'pull_request'
@@ -145,7 +136,7 @@ jobs:
           test -s dist/Stremio_Lightning_Linux-x86_64.flatpak
 
           desktop-file-validate "target/appimage/stremio-lightning.AppDir/usr/share/applications/$APP_ID.desktop"
-          grep -Fxq "Exec=stremio-lightning-linux %U" "target/appimage/stremio-lightning.AppDir/usr/share/applications/$APP_ID.desktop"
+          grep -Fxq "Exec=stremio-lightning %U" "target/appimage/stremio-lightning.AppDir/usr/share/applications/$APP_ID.desktop"
 
           mkdir -p "$INSPECT_ROOT/deb"
           dpkg-deb --extract dist/stremio-lightning-linux-amd64.deb "$INSPECT_ROOT/deb"
@@ -197,11 +188,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
         with:
-          node-version: lts/*
-          cache: npm
+          components: rustfmt, clippy
+          targets: x86_64-pc-windows-msvc
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
 
       - name: Set dynamic release version in files
         if: startsWith(github.ref, 'refs/tags/v')
@@ -210,25 +204,10 @@ jobs:
           TAG="${{ github.ref_name }}"
           VERSION="${TAG#v}"
           echo "Setting version to $VERSION"
-          node scripts/bump-version.cjs "$VERSION"
-
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
-
-        with:
-          targets: x86_64-pc-windows-msvc
-
-      - name: Rust cache
-        uses: swatinem/rust-cache@v2
+          cargo xtask bump-version "$VERSION"
 
       - name: Install Inno Setup
         run: choco install innosetup --no-progress -y
-
-      - name: Install frontend dependencies
-        run: npm ci
-
-      - name: Build frontend
-        run: cargo xtask build-ui
 
       - name: Download Windows shell dependencies
         run: cargo xtask setup-windows
@@ -240,8 +219,8 @@ jobs:
         shell: pwsh
         run: |
           cargo fmt --all -- --check
-          cargo clippy -p stremio-lightning-windows --all-targets --target x86_64-pc-windows-msvc
-          cargo test -p stremio-lightning-windows --target x86_64-pc-windows-msvc
+          cargo clippy --workspace --all-targets
+          cargo test --workspace
 
       - name: Package Windows portable artifact
         run: cargo xtask package-windows-portable
@@ -269,7 +248,7 @@ jobs:
           try {
             $names = $contents.Entries.FullName
             $required = @(
-              "stremio-lightning-windows.exe",
+              "stremio-lightning.exe",
               "libmpv-2.dll",
               "resources/stream-server.exe",
               "resources/ffmpeg.exe",
