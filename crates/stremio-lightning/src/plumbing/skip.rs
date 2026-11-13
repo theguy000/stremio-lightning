@@ -87,21 +87,10 @@ impl Rate {
 ///
 /// `meta_id` is the show's id (`tt0944947`, `kitsu:11614`), `season` the season being watched
 /// (zero when the type has no seasons) and `duration` the episode's length in seconds. The length
-/// is what AniSkip keys its submissions by, so it is asked first with the file's own length: a
-/// submission answers for the release it was measured on.
-///
-/// AniSkip only matches a length within a couple of percent of a submission's, and a localised
-/// broadcast cut can sit further away than that. When the file's own length answers nothing,
-/// `nominal` -- the show's runtime, "24 min" -- asks once more, which reaches the release most
-/// copies are cut from. The answer is still fitted to the file by `segments_of`.
-pub async fn segments(
-    meta_id: &str,
-    season: u32,
-    episode: u32,
-    duration: f64,
-    nominal: Option<f64>,
-) -> Vec<Segment> {
-    rates(meta_id, season, episode, duration, nominal)
+/// is what AniSkip keys its submissions by, so it is asked only with the file's own length: a
+/// different cut is left empty rather than fitted with timings from another length.
+pub async fn segments(meta_id: &str, season: u32, episode: u32, duration: f64) -> Vec<Segment> {
+    rates(meta_id, season, episode, duration)
         .await
         .iter()
         .map(Rate::segment)
@@ -110,13 +99,7 @@ pub async fn segments(
 
 /// The same answer as [`segments`], row by row, with the id each row votes by. The panel that
 /// rates a timing needs the id; the player needs only the times.
-pub async fn rates(
-    meta_id: &str,
-    season: u32,
-    episode: u32,
-    duration: f64,
-    nominal: Option<f64>,
-) -> Vec<Rate> {
+pub async fn rates(meta_id: &str, season: u32, episode: u32, duration: f64) -> Vec<Rate> {
     if !(duration.is_finite() && duration > 0.0) || meta_id.is_empty() || episode == 0 {
         return Vec::new();
     }
@@ -128,14 +111,7 @@ pub async fn rates(
     let Some(mal) = mal_for(meta_id, season).await else {
         return Vec::new();
     };
-    let mut found = skip_times(mal, episode, duration).await;
-    if found.is_empty() {
-        if let Some(nominal) = nominal.filter(|length| {
-            length.is_finite() && *length > 0.0 && (*length - duration).abs() > 1.0
-        }) {
-            found = skip_times(mal, episode, nominal).await;
-        }
-    }
+    let found = skip_times(mal, episode, duration).await;
     remember(&key, &found);
     found
 }
@@ -580,38 +556,6 @@ async fn post_json(url: &str, body: &Value) -> Result<Value, String> {
         .unwrap_or_else(|| format!("AniSkip answered {status}.")))
 }
 
-/// The seconds a runtime string names: "24 min", "1h 24 min", "24m". Anything else is `None`,
-/// and the caller falls back to the file's own length.
-#[must_use]
-pub fn runtime_seconds(text: &str) -> Option<f64> {
-    let mut seconds = 0.0;
-    let mut number: Option<f64> = None;
-    let mut found = false;
-    // "24 min" is a number and a unit in two words; "24min" is one. Both are read.
-    for part in text.split_whitespace() {
-        let (digits, unit) = match part.find(|c: char| c.is_alphabetic()) {
-            Some(at) => (&part[..at], &part[at..]),
-            None => (part, ""),
-        };
-        if let Ok(value) = digits.parse::<f64>() {
-            number = Some(value);
-        }
-        if unit.is_empty() {
-            continue;
-        }
-        let factor = match unit {
-            "h" | "hr" | "hrs" | "hour" | "hours" => 3600.0,
-            "m" | "min" | "mins" | "minute" | "minutes" => 60.0,
-            _ => continue,
-        };
-        if let Some(value) = number.take() {
-            seconds += value * factor;
-            found = true;
-        }
-    }
-    found.then_some(seconds)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -658,15 +602,6 @@ mod tests {
             async move { found }
         }));
         assert_eq!(first, 1);
-    }
-
-    #[test]
-    fn a_runtime_string_becomes_seconds() {
-        assert_eq!(runtime_seconds("24 min"), Some(1440.0));
-        assert_eq!(runtime_seconds("1h 24 min"), Some(5040.0));
-        assert_eq!(runtime_seconds("24m"), Some(1440.0));
-        assert_eq!(runtime_seconds(""), None);
-        assert_eq!(runtime_seconds("feature length"), None);
     }
 
     #[test]

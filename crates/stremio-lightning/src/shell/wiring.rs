@@ -993,7 +993,7 @@ impl Wiring {
             playback.skip_rates.clear();
             playback.skip_for.clear();
         } else if status.loaded && duration > 0.0 {
-            if let Some((video, meta_id, season, episode, nominal)) = self.skip_target() {
+            if let Some((video, meta_id, season, episode)) = self.skip_target() {
                 let ask = {
                     let mut playback = self.playback.lock().unwrap();
                     if playback.skip_for == video {
@@ -1018,7 +1018,7 @@ impl Wiring {
                     let logs = Arc::clone(&self.logs);
                     let for_video = video;
                     self.handle.spawn(async move {
-                        let found = skip::rates(&meta_id, season, episode, duration, nominal).await;
+                        let found = skip::rates(&meta_id, season, episode, duration).await;
                         let listing = found
                             .iter()
                             .map(|rate| {
@@ -1245,7 +1245,7 @@ impl Wiring {
 
     /// The Video on screen and what the skip source needs to name its Episode: the show's own id
     /// (not the Video's), the season and the episode. Anything that is not an Episode has none.
-    fn skip_target(&self) -> Option<(String, String, u32, u32, Option<f64>)> {
+    fn skip_target(&self) -> Option<(String, String, u32, u32)> {
         let model = self.runtime.model().ok()?;
         let video = model
             .player
@@ -1265,10 +1265,6 @@ impl Wiring {
             meta.preview.id.to_string(),
             series.season,
             series.episode,
-            meta.preview
-                .runtime
-                .as_deref()
-                .and_then(skip::runtime_seconds),
         ))
     }
 
@@ -1304,7 +1300,7 @@ impl Wiring {
         if duration <= 0.0 {
             return;
         }
-        let Some((video, meta_id, season, episode, nominal)) = self.skip_target() else {
+        let Some((video, meta_id, season, episode)) = self.skip_target() else {
             return;
         };
         let kind = self.skip_kind.lock().unwrap().clone();
@@ -1314,7 +1310,7 @@ impl Wiring {
             self.logs.clone(),
         );
         self.handle.spawn(async move {
-            let found = skip::rates(&meta_id, season, episode, duration, nominal).await;
+            let found = skip::rates(&meta_id, season, episode, duration).await;
             let kind = kind_with_data(&found, &kind);
             let playhead = {
                 let mut playback = playback.lock().unwrap();
@@ -1400,7 +1396,7 @@ impl Wiring {
         // A time rounded up to the second may sit a fraction past the file; the submission counts
         // the file as that long, which is inside the margin AniSkip matches lengths by.
         let length = duration.max(end);
-        let Some((video, meta_id, season, episode, _)) = self.skip_target() else {
+        let Some((video, meta_id, season, episode)) = self.skip_target() else {
             window.set_player_skip_notice("AniSkip has no show for this video.".into());
             return;
         };
