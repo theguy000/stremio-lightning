@@ -412,28 +412,6 @@ impl Logs {
         held
     }
 
-    /// Records a line a plugin logged. The runtime hands every line it takes here, so the Logs
-    /// page and the plugin's own card read the same sentence. A line that is not at a level this
-    /// app knows is recorded as information rather than dropped.
-    ///
-    /// A line the recorder already holds is not a second record. The host and the call that
-    /// stopped a plugin can both report the same sentence, and a reader wants it once.
-    pub fn plugin(&self, filename: &str, line: &crate::plumbing::plugin::LogLine) -> Entry {
-        let level = Level::from_id(&line.level).unwrap_or(Level::Info);
-        {
-            let entries = lock(&self.entries);
-            if let Some(held) = entries.iter().rev().find(|entry| {
-                entry.source == Source::Plugin
-                    && entry.origin == filename
-                    && entry.level == level
-                    && entry.text == line.text
-            }) {
-                return held.clone();
-            }
-        }
-        self.record(Source::Plugin, filename, level, line.text.clone())
-    }
-
     /// Records what a theme file says that this app does not understand, one record per warning.
     pub fn theme(&self, filename: &str, warnings: &[String]) {
         for warning in warnings {
@@ -465,33 +443,25 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::plumbing::plugin::LogLine;
 
     #[test]
     fn a_plugin_line_is_a_record_at_its_own_level() {
         let logs = Logs::new();
-        logs.plugin("a.plugin.js", &LogLine::new("warn", "slow"));
+        logs.record(Source::Plugin, "builtin:aniskip", Level::Warn, "slow");
         let entry = &logs.entries()[0];
         assert_eq!(entry.source, Source::Plugin);
-        assert_eq!(entry.origin, "a.plugin.js");
+        assert_eq!(entry.origin, "builtin:aniskip");
         assert_eq!(entry.level, Level::Warn);
         assert_eq!(entry.text, "slow");
-        assert_eq!(entry.source_label(), "Plugin a.plugin.js");
+        assert_eq!(entry.source_label(), "Plugin builtin:aniskip");
     }
 
     #[test]
-    fn the_levels_a_plugin_may_name_are_the_five_it_can_reach() {
+    fn level_ids_map_known_names() {
         assert_eq!(Level::from_id("log"), Some(Level::Info));
         assert_eq!(Level::from_id("trace"), Some(Level::Debug));
         assert_eq!(Level::from_id("fatal"), Some(Level::Error));
         assert_eq!(Level::from_id("shouting"), None);
-        let logs = Logs::new();
-        logs.plugin("a.plugin.js", &LogLine::new("shouting", "hi"));
-        assert_eq!(
-            logs.entries()[0].level,
-            Level::Info,
-            "an unknown name is not a dropped line"
-        );
     }
 
     #[test]
@@ -514,8 +484,8 @@ mod tests {
     #[test]
     fn the_filter_keeps_a_source_a_level_and_a_search() {
         let logs = Logs::new();
-        logs.record(Source::Plugin, "a.plugin.js", Level::Info, "started");
-        logs.record(Source::Plugin, "a.plugin.js", Level::Error, "threw");
+        logs.record(Source::Plugin, "builtin:aniskip", Level::Info, "started");
+        logs.record(Source::Plugin, "builtin:aniskip", Level::Error, "threw");
         logs.record(
             Source::Theme,
             "red.theme.css",
@@ -622,23 +592,7 @@ mod tests {
         assert_eq!(logs.filter().level, "");
     }
 
-    #[test]
-    fn the_same_plugin_line_twice_is_one_record() {
-        let logs = Logs::new();
-        let one = logs.plugin("a.plugin.js", &LogLine::new("error", "it threw"));
-        // The host and the call that stopped it can both report the same sentence.
-        let two = logs.plugin("a.plugin.js", &LogLine::new("error", "it threw"));
-        assert_eq!(one.id, two.id);
-        assert_eq!(logs.len(), 1, "the reader wants it once");
-        // A different level, a different plugin or different text is a record of its own.
-        logs.plugin("a.plugin.js", &LogLine::new("warn", "it threw"));
-        logs.plugin("b.plugin.js", &LogLine::new("error", "it threw"));
-        assert_eq!(logs.len(), 3);
-        // A line written again after a clear is a record: the list the reader had is gone.
-        logs.clear();
-        logs.plugin("a.plugin.js", &LogLine::new("error", "it threw"));
-        assert_eq!(logs.len(), 1);
-    }
+
 
     #[test]
     fn a_record_is_written_with_its_time_and_source() {

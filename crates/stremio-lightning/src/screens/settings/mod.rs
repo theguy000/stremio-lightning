@@ -67,10 +67,6 @@ pub struct LocalExtras {
     /// the other local choices and not in the profile.
     #[serde(default = "yes")]
     pub skip_intros: bool,
-    /// The plugin files the Mods screen has switched on, by file name. This build does not run
-    /// plugin code, so the list is a remembered choice. Absent means none.
-    #[serde(default)]
-    pub enabled_plugins: Vec<String>,
     /// The theme files the app draws with, by file name, in the order they are applied. The Mods
     /// page turns on one at a time; `plumbing::theme` applies whichever names are here. Absent
     /// means none.
@@ -89,7 +85,6 @@ impl Default for LocalExtras {
             overrides: HashMap::new(),
             wrap_streams: false,
             skip_intros: true,
-            enabled_plugins: Vec::new(),
             enabled_themes: Vec::new(),
             builtin_settings: HashMap::new(),
         }

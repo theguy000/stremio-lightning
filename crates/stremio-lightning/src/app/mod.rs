@@ -7,7 +7,6 @@
 pub mod build;
 pub(crate) mod events;
 pub mod model;
-pub(crate) mod plugins;
 
 pub(crate) use model::Snapshot;
 pub use model::{AppModel, AppModelField, AppRuntime};

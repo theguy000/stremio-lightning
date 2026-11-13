@@ -58,18 +58,11 @@ pub(crate) struct Context {
     /// The addons and catalog count the Board's range was last asked for, so that installing
     /// an addon asks for its catalogs and a growing list asks for the rows beyond the old one.
     pub(crate) board_catalogs: Arc<Mutex<Option<BoardCatalogRange>>>,
-    /// The catalogs the plugins were last told arrived, by id and how many items each had. A
-    /// catalog is told once per arrival; a reload with the same count is still a second arrival.
-    pub(crate) said_catalogs: Arc<Mutex<std::collections::HashMap<String, usize>>>,
     pub(crate) auth: auth::Generation,
-    /// The plugins the app is running: the Mods pages say what each one is doing, and every
-    /// snapshot is drawn from what it holds now.
-    pub(crate) plugins: Arc<crate::app::plugins::Runtime>,
     /// The plugin the Plugin settings page is showing, and what it holds for it.
     pub(crate) mods_plugin: Arc<Mutex<String>>,
     pub(crate) mods_edits: Arc<Mutex<crate::screens::mods::settings::Edits>>,
-    /// The app's log records: the Logs page's rows come from here, so a snapshot built by a core
-    /// event lists what a plugin logged from a timer as well as what the last press did.
+    /// The app's log records: the Logs page's rows come from here.
     pub(crate) logs: Arc<crate::plumbing::logs::Logs>,
     /// Whether the Logs page's Clear button is armed. The window owns it, and a snapshot that
     /// left it out would draw the button unarmed between the two presses.
@@ -77,42 +70,11 @@ pub(crate) struct Context {
     /// Where the diagnostics file was written last, which the About page shows until the app
     /// closes. Held by the window, read back here so a core event does not take it off the page.
     pub(crate) mods_export: Arc<Mutex<Option<String>>>,
-    /// The Marketplace's registry, the search box's text and the page's own lines. A core event
-    /// -- a catalog arriving, a library update -- builds the section again from the folder, and
-    /// a registry read lives only in the window: without these the cards come off the page.
-    pub(crate) market_listing: Arc<Mutex<Option<crate::screens::mods::marketplace::Listing>>>,
-    pub(crate) market_search: Arc<Mutex<String>>,
-    pub(crate) market_summary: Arc<Mutex<Vec<crate::screens::mods::Notice>>>,
-    pub(crate) market_installing: Arc<Mutex<String>>,
-    /// What the update check made of the installed files, for the cards on either page.
-    pub(crate) market_updates: Arc<Mutex<crate::screens::mods::marketplace::Updates>>,
     /// Repaint now, with whatever the cache holds. Used when an image arrives.
     pub(crate) repaint: Arc<dyn Fn() + Send + Sync>,
-    /// What a plugin's ask means for the window, built from the wiring's `Send` parts: the theme
-    /// rules it asked for are installed, and the Mods pages are drawn again. A line is already in
-    /// the runtime's own record, which is what every card and the Logs page read.
-    pub(crate) put_plugins: Arc<dyn Fn(Vec<crate::app::plugins::Asked>) + Send + Sync>,
 }
 
 impl Context {
-    /// Lets every plugin run the timers that have come due and puts into effect what they asked
-    /// for, on this task rather than the window's thread: a plugin call can wait out the
-    /// interpreter's whole answer window, and the window does not stop drawing for it.
-    ///
-    /// This is also the one place a plugin's asks are drained when nothing in the app caused them.
-    /// A plugin sets its timers from inside its own callbacks, and a line it logs from one has the
-    /// timer's thread as its only reporter; nothing would bring that line to its card if the app
-    /// only drained after an event of its own.
-    fn tick_plugins(&self) {
-        let mut asked = self.plugins.take();
-        if self.plugins.holds_timers() {
-            asked.extend(self.plugins.advance());
-        }
-        if !asked.is_empty() {
-            (self.put_plugins)(asked);
-        }
-    }
-
     fn model(&self) -> Option<std::sync::RwLockReadGuard<'_, AppModel>> {
         self.runtime.model().ok()
     }
@@ -121,63 +83,14 @@ impl Context {
     }
 }
 
-/// How often the pump asks the plugins whether a timer has come due. The app has no event to
-/// wait on for that one: a plugin's timer fires inside a call into it, and no part of the core
-/// knows there is a timer. A fifth of a second is under what a person notices in a `setTimeout`
-/// and over what the check costs when no plugin has a timer waiting.
-pub(crate) const PLUGIN_TICK: std::time::Duration = std::time::Duration::from_millis(200);
-
-/// Runs until the runtime stops. One event at a time, in order, with the plugins looked in on
-/// between them.
+/// Runs until the runtime stops, handling one event at a time in order.
 pub(crate) async fn pump(
     mut events: futures::channel::mpsc::Receiver<RuntimeEvent<AppEnv, AppModel>>,
     context: Context,
 ) {
-    let mut tick = tokio::time::interval(PLUGIN_TICK);
-    // A tick that arrives while the last one is still running is dropped rather than queued: the
-    // only thing a late tick could do is look at the same timers again.
-    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    loop {
-        tokio::select! {
-            event = events.next() => {
-                let Some(event) = event else { return };
-                // Plugins first, and before the model is read: a plugin can have logged a line
-                // from a timer since the last event, and it belongs in the snapshot below.
-                context.tick_plugins();
-                handle(event, &context);
-            }
-            _ = tick.tick() => context.tick_plugins(),
-        }
+    while let Some(event) = events.next().await {
+        handle(event, &context);
     }
-}
-
-/// The catalogs whose first page has arrived since the last snapshot, each as an event a plugin
-/// hears. A catalog is remembered by its id and item count: the same catalog reloaded to the same
-/// count is a fresh arrival, and an id a plugin was told about once is not told again on every
-/// later snapshot.
-fn catalogs_arrived(model: &AppModel, context: &Context) -> Vec<crate::plumbing::plugin::Event> {
-    use stremio_core::models::common::Loadable;
-    let mut said = context.said_catalogs.lock().unwrap();
-    let mut events = Vec::new();
-    for catalog in &model.board.catalogs {
-        let Some(page) = catalog.first() else {
-            continue;
-        };
-        let Some(Loadable::Ready(items)) = &page.content else {
-            // A catalog that is loading or failed has not arrived; the next ready one is news
-            // even if it brings the same count as the last that did.
-            said.remove(&page.request.path.id);
-            continue;
-        };
-        let id = page.request.path.id.clone();
-        let count = items.len();
-        if said.get(&id) == Some(&count) {
-            continue;
-        }
-        said.insert(id.clone(), count);
-        events.push(crate::plumbing::plugin::Event::CatalogLoaded { id, count });
-    }
-    events
 }
 
 /// Asks the core for every catalog the account has, and asks again whenever the addons or the
@@ -230,7 +143,7 @@ fn handle(event: RuntimeEvent<AppEnv, AppModel>, context: &Context) {
         RuntimeEvent::CoreEvent(Event::Error { error, source }) => {
             // The core's own errors are records too, so a title that would not load or a list
             // that would not arrive says so on the Logs page. It never prints to stderr.
-            context.plugins.logs().record(
+            context.logs.record(
                 crate::plumbing::logs::Source::App,
                 "Core",
                 crate::plumbing::logs::Level::Error,
@@ -270,35 +183,7 @@ fn handle(event: RuntimeEvent<AppEnv, AppModel>, context: &Context) {
     // blank every watched mark in the drawer for a frame, which reads as the app losing them.
     let library_blank = model.ctx.library.items.is_empty() && model.ctx.profile.auth.is_some();
     let mut snapshot = snapshot(&model, context);
-    // A catalog whose first page has arrived, with how many items it brought. Told before the
-    // model is dropped: reading it takes the model, and a plugin call would take it again.
-    let arrived = catalogs_arrived(&model, context);
     drop(model);
-    if !arrived.is_empty() {
-        let asked: Vec<crate::app::plugins::Asked> = arrived
-            .into_iter()
-            .flat_map(|event| context.plugins.deliver(event))
-            .collect();
-        if !asked.is_empty() {
-            // The window is drawn from the snapshot below anyway; only the rules a plugin asked
-            // for need the window's thread before it.
-            for ask in asked {
-                if let crate::app::plugins::Asked::Theme(rules) = ask {
-                    let rules = rules.clone();
-                    let weak = context.weak.clone();
-                    // Over the enabled theme, so a plugin that restyles one element does not take
-                    // the theme off the window with it.
-                    let theme_rules = crate::plumbing::theme::enabled_rules(
-                        &context.data_dir,
-                        context.plugins.logs(),
-                    );
-                    let _ = weak.upgrade_in_event_loop(move |window| {
-                        let _ = crate::plumbing::theme::install_over(&window, &theme_rules, &rules);
-                    });
-                }
-            }
-        }
-    }
 
     if library_blank {
         let previous = context.latest.lock().unwrap().player.episodes.clone();
@@ -343,7 +228,6 @@ fn snapshot(model: &AppModel, context: &Context) -> Snapshot {
             .with_page(crate::screens::mods::Page::from_id(
                 &context.mods_page.lock().unwrap(),
             ))
-            .refresh(&context.plugins)
             .with_edits(
                 context.mods_plugin.lock().unwrap().clone(),
                 context.mods_edits.lock().unwrap().clone(),
@@ -353,23 +237,12 @@ fn snapshot(model: &AppModel, context: &Context) -> Snapshot {
             // not take the answer to a press off the screen before it was read.
             .with_notice(context.latest.lock().unwrap().mods.notice.clone())
             // The rest of the section: the Logs page's rows from the app's one recorder, the
-            // About page's counts from the same folders and runtime, and the diagnostics path
-            // the window holds. Without these a core event would draw both pages empty.
+            // About page's counts, and the diagnostics path the window holds. Without these a core
+            // event would draw both pages empty.
             .with_logs(&context.logs, *context.mods_clearing.lock().unwrap())
             .with_about(
                 &context.local_extras.lock().unwrap().clone(),
-                &context.plugins,
                 context.mods_export.lock().unwrap().as_ref(),
-            )
-            // The Marketplace's registry, kept by the window rather than the folder, and the
-            // check's answer. A core event redraws the section, and a page rebuilt without them
-            // would take the registry's cards off a page that is showing them.
-            .with_updates(context.market_updates.lock().unwrap().clone())
-            .with_market_parts(
-                context.market_listing.lock().unwrap().as_ref(),
-                &context.market_search.lock().unwrap(),
-                &context.market_summary.lock().unwrap(),
-                &context.market_installing.lock().unwrap(),
             ),
         player,
     }
