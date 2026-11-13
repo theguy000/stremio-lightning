@@ -31,12 +31,6 @@ libmpv2 = "5.0.3"
 url = "2"
 # Release dates on Episode rows, in the shape the web shows them.
 chrono = "0.4"
-# The JavaScript engine plugin files run in. QuickJS (through its Rust bindings) is a C engine
-# compiled from the vendored source in `rquickjs-sys`: a C compiler is all it needs, so it builds on
-# the Linux, Windows and macOS CI machines with nothing installed beyond the toolchain. `boa_engine`
-# is pure Rust but pulls in `icu` data tables, which is tens of megabytes of build for one feature.
-# Only the interrupt handler `plugin.rs` uses to stop a runaway plugin is turned on.
-rquickjs = { version = "0.14", default-features = false, features = ["std"] }
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62.2", features = [

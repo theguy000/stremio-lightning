@@ -1,12 +1,5 @@
-//! The About page: what this build is, where it keeps the plugins and themes, what is installed,
-//! and the one button that writes a diagnostics file.
-//!
-//! Everything here is read: the version and the build come from what the binary was compiled
-//! with, the paths from the app's data folder, the counts from the two folders and the plugin
-//! runtime, and the registry address from `stremio_lightning_core::mods`, which is the address it
-//! fetches from. Refresh reads the folders again. The only thing written is the diagnostics file,
-//! which goes into `diagnostics/` under the app's data folder and says what it was written to.
-//! Nothing is uploaded.
+//! The About page: what this build is, where it keeps themes, what built-in plugins and local
+//! themes are present, and the button that writes a diagnostics file.
 
 use std::path::{Path, PathBuf};
 
@@ -23,8 +16,6 @@ pub const BUILD: &str = match option_env!("GITHUB_SHA") {
     Some(sha) => sha,
     None => "dev",
 };
-/// The registry the Marketplace reads, which is the address `core::mods` fetches.
-pub const REGISTRY: &str = "https://github.com/theguy000/stremio-lightning-registry";
 /// The line about the licence, which is the file the source ships under.
 pub const LICENSE: &str =
     "Stremio Lightning is free software under the MIT licence. It is not affiliated with Stremio.";
@@ -33,7 +24,7 @@ pub const RECORDS: usize = 200;
 /// The folder the diagnostics file is written to, under the app's data folder.
 pub const FOLDER: &str = "diagnostics";
 /// What the page says above its list.
-pub const NOTE: &str = "What this build is and what it keeps. Refresh reads the folders again; Export diagnostics writes one text file into the app's data folder and shows where.";
+pub const NOTE: &str = "What this build is and what it keeps. Refresh reads the themes folder again; Export diagnostics writes one text file into the app's data folder and shows where.";
 
 /// One line of the page: what it is about, and what it says.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -47,23 +38,21 @@ pub struct Line {
 pub struct Data {
     /// The version, the build and the platform, one line each.
     pub build: Vec<Line>,
-    /// The plugin and theme folders, the registry, and the diagnostics file written last.
+    /// The themes folder.
     pub places: Vec<Line>,
-    /// How many plugins and themes are installed, on, running and failed; the counts refresh reads.
+    /// Built-in plugin and local `.theme.css` counts.
     pub counts: Vec<Line>,
-    /// The plugins and themes that are on, by file name.
+    /// Enabled built-in plugins and local themes.
     pub enabled: Vec<Line>,
     pub license: String,
     /// Where the diagnostics file was written, empty until one is.
     pub export: String,
 }
 
-/// What the counts are read from: the app's data folder, the shell's settings, and the plugins the
-/// app is running.
+/// What the counts are read from: the app's data folder and the shell's settings.
 pub struct Sources<'a> {
     pub data_dir: &'a Path,
     pub extras: &'a LocalExtras,
-    pub plugins: &'a crate::app::plugins::Runtime,
 }
 
 /// Everything the About page shows, read now.
@@ -72,22 +61,6 @@ pub fn data(sources: &Sources<'_>) -> Data {
         catalogue::cards(sources.data_dir, Kind::Plugin, sources.extras).unwrap_or_default();
     let themes: Vec<catalogue::ModCard> =
         catalogue::cards(sources.data_dir, Kind::Theme, sources.extras).unwrap_or_default();
-    let running = plugins
-        .iter()
-        .filter(|card| sources.plugins.running(&card.filename))
-        .count();
-    let failed = plugins
-        .iter()
-        .filter(|card| {
-            card.enabled
-                && !sources.plugins.running(&card.filename)
-                && !sources
-                    .plugins
-                    .state(&card.filename, true)
-                    .stopped
-                    .is_empty()
-        })
-        .count();
     let enabled: Vec<String> = plugins
         .iter()
         .filter(|card| card.enabled)
@@ -108,33 +81,22 @@ pub fn data(sources: &Sources<'_>) -> Data {
                 format!("{} ({})", std::env::consts::OS, std::env::consts::ARCH),
             ),
         ],
-        places: vec![
-            line(
-                "Plugins folder",
-                mods::mods_dir(sources.data_dir, ModType::Plugin)
-                    .display()
-                    .to_string(),
-            ),
-            line(
-                "Themes folder",
-                mods::mods_dir(sources.data_dir, ModType::Theme)
-                    .display()
-                    .to_string(),
-            ),
-            line("Registry", REGISTRY),
-        ],
+        places: vec![line(
+            "Themes folder",
+            mods::mods_dir(sources.data_dir, ModType::Theme)
+                .display()
+                .to_string(),
+        )],
         counts: vec![
-            line("Plugins installed", plugins.len().to_string()),
+            line("Built-in plugins", plugins.len().to_string()),
             line(
-                "Plugins enabled",
+                "Built-in plugins enabled",
                 plugins
                     .iter()
                     .filter(|card| card.enabled)
                     .count()
                     .to_string(),
             ),
-            line("Plugins running", running.to_string()),
-            line("Plugins failed", failed.to_string()),
             line("Themes installed", themes.len().to_string()),
             line(
                 "Themes enabled",
@@ -250,8 +212,8 @@ mod tests {
     #[test]
     fn the_report_carries_the_counts_the_lists_and_the_newest_records() {
         let mut data = Data {
-            counts: vec![line("Plugins installed", "3")],
-            enabled: vec![line("Enabled plugins", "a.plugin.js")],
+            counts: vec![line("Built-in plugins", "1")],
+            enabled: vec![line("Enabled plugins", "builtin:aniskip")],
             license: LICENSE.to_owned(),
             ..Data::default()
         };
@@ -264,8 +226,8 @@ mod tests {
         let records: Vec<Entry> = logs.entries().into_iter().rev().take(RECORDS).collect();
         let text = report(&data, &records);
         assert!(text.contains("Version: 9.9.9"));
-        assert!(text.contains("Plugins installed: 3"));
-        assert!(text.contains("Enabled plugins: a.plugin.js"));
+        assert!(text.contains("Built-in plugins: 1"));
+        assert!(text.contains("Enabled plugins: builtin:aniskip"));
         assert!(text.contains("MIT licence"));
         let first = text
             .find("line 1999")
@@ -284,10 +246,10 @@ mod tests {
     #[test]
     fn the_two_lists_of_counts_are_the_pages_own() {
         let data = Data {
-            counts: vec![line("Plugins installed", "1")],
+            counts: vec![line("Built-in plugins", "1")],
             ..Data::default()
         };
-        assert_eq!(labels(&data.counts), ["Plugins installed"]);
+        assert_eq!(labels(&data.counts), ["Built-in plugins"]);
         assert!(data.places.is_empty(), "nothing was read for this one");
     }
 }

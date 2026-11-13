@@ -29,7 +29,7 @@ pub const CLEAR_ARMED: &str = "Press again to empty the list";
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Row {
     pub id: u64,
-    /// The source column: "Plugin", "Plugin a.plugin.js", "Theme red.theme.css", "Server".
+    /// The source column: "Plugin", "Plugin builtin:aniskip", "Theme red.theme.css", "Server".
     pub source: String,
     pub level: String,
     /// The level as the filter names it, so a row can say whether it is bad news.
@@ -196,17 +196,22 @@ mod tests {
     #[test]
     fn a_row_is_one_line_and_the_detail_keeps_every_line() {
         let logs = Logs::new();
-        let entry = logs.record(Source::Plugin, "a.plugin.js", Level::Error, "first\nsecond");
+        let entry = logs.record(
+            Source::Plugin,
+            "builtin:aniskip",
+            Level::Error,
+            "first\nsecond",
+        );
         let rows = rows(&logs, &Filter::default());
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].text, "first second");
-        assert_eq!(rows[0].source, "Plugin a.plugin.js");
+        assert_eq!(rows[0].source, "Plugin builtin:aniskip");
         assert_eq!(rows[0].level_id, "error");
         assert!(logs.set_detail(Some(entry.id)));
         let detail = detail(&logs);
         assert_eq!(
             detail[0],
-            format!("Plugin a.plugin.js at {}", entry.at_shown()),
+            format!("Plugin builtin:aniskip at {}", entry.at_shown()),
             "the open record is named by its source and the time it was recorded"
         );
         assert!(detail.contains(&"first".to_owned()));

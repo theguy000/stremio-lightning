@@ -1,9 +1,9 @@
 //! The Logs and About pages, and the one recorder under them.
 //!
-//! Three tests. The first reads the recorder on its own: a line a plugin logs, a theme's warnings,
-//! the cap, the filter and Clear, all without a window. The second boots the app with a plugin
-//! that logs, opens the Logs page, and reads the rows back, so the list a person sees is the list
-//! the recorder holds. The third reads the About page's counts off the same booted app.
+//! Two tests. The first reads the recorder on its own: a plugin record, a theme's warnings, the
+//! cap, the filter and Clear, all without a window. The second boots the app with themes whose
+//! warnings and switches record into the log, opens the Logs page and filters it, then reads the
+//! About page's counts off the same booted app.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -16,33 +16,6 @@ use stremio_lightning::{MainWindow, Section};
 mod support;
 
 use support::ui_driver::{self, Outcome};
-
-/// The plugin this run writes: it logs one line at each level, including one that says what it is,
-/// so a filtered list differs from the whole list.
-const TALKATIVE: &str = r#"/**
- * @name Talkative
- * @description Says what it is doing.
- * @author Ada
- * @version 1.0.0
- */
-(function () {
-  console.debug("native-mods-logs quiet");
-  console.info("native-mods-logs reading the shelf");
-  console.warn("native-mods-logs the shelf is empty");
-  console.error("native-mods-logs the shelf could not be read");
-})();
-"#;
-
-/// How many lines that plugin writes.
-const TALKATIVE_LINES: usize = 4;
-
-/// One line as the plugin runtime hands it to the recorder.
-fn line(level: &str, text: &str) -> stremio_lightning::plumbing::plugin::LogLine {
-    stremio_lightning::plumbing::plugin::LogLine {
-        level: level.to_owned(),
-        text: text.to_owned(),
-    }
-}
 
 /// Presses whatever says `label`, through the element rather than at the coordinates it reports.
 fn click(window: &MainWindow, label: &str) -> Result<String, String> {
@@ -147,18 +120,19 @@ fn the_recorder_keeps_plugin_lines_theme_warnings_and_the_cap() {
     let logs = Logs::new();
     assert!(logs.is_empty());
 
-    // ---- a plugin's line, at the level it named --------------------------------
-    let entry = logs.plugin("talkative.plugin.js", &line("warn", "the shelf is empty"));
+    // ---- a built-in plugin's line, at the level it named --------------------
+    let entry = logs.record(
+        Source::Plugin,
+        "builtin:aniskip",
+        Level::Warn,
+        "the shelf is empty",
+    );
     assert_eq!(entry.source, Source::Plugin);
-    assert_eq!(entry.origin, "talkative.plugin.js");
+    assert_eq!(entry.origin, "builtin:aniskip");
     assert_eq!(entry.level, Level::Warn);
-    assert_eq!(entry.source_label(), "Plugin talkative.plugin.js");
-    // A level this app does not know is information, not a dropped line.
-    logs.plugin("talkative.plugin.js", &line("chatty", "hello"));
-    assert_eq!(logs.entries()[1].level, Level::Info);
-    // `console.log` arrives as `log`, which is also information.
-    logs.plugin("talkative.plugin.js", &line("log", "quiet"));
-    assert_eq!(logs.entries()[2].level, Level::Info);
+    assert_eq!(entry.source_label(), "Plugin builtin:aniskip");
+    assert_eq!(Level::from_id("chatty"), None);
+    assert_eq!(Level::from_id("log"), Some(Level::Info));
 
     // ---- a theme's warnings, one record each ----------------------------------
     logs.theme(
@@ -199,23 +173,21 @@ fn the_recorder_keeps_plugin_lines_theme_warnings_and_the_cap() {
     let logs = Logs::new();
     logs.record(
         Source::Plugin,
-        "a.plugin.js",
+        "builtin:aniskip",
         Level::Info,
         "reading the shelf",
     );
     logs.record(
         Source::Plugin,
-        "a.plugin.js",
+        "builtin:aniskip",
         Level::Warn,
         "the shelf is empty",
     );
     logs.record(Source::Server, "127.0.0.1:11470", Level::Info, "answering");
     logs.record(Source::App, "Core", Level::Error, "the shelf is gone");
-    // The one record that is a plugin's, an error, and about the shelf: what the three parts of
-    // the filter are checked against below.
     logs.record(
         Source::Plugin,
-        "a.plugin.js",
+        "builtin:aniskip",
         Level::Error,
         "the shelf could not be read",
     );
@@ -252,7 +224,7 @@ fn the_recorder_keeps_plugin_lines_theme_warnings_and_the_cap() {
         "the search ignores case and reads the text"
     );
     let by_origin = Filter {
-        search: "a.plugin.js".to_owned(),
+        search: "builtin:aniskip".to_owned(),
         ..Filter::default()
     };
     assert_eq!(logs.matching(&by_origin).len(), 3);
@@ -271,18 +243,14 @@ fn the_recorder_keeps_plugin_lines_theme_warnings_and_the_cap() {
             search: "shelf".to_owned(),
         }
     );
-    // Three parts at once, each true of one record: the plugin's own error is the only record
-    // that is a plugin's, an error, and about the shelf. A filter that read only part of itself
-    // would keep the warning or the app's error.
     let kept = logs.matching(&logs.filter());
     assert_eq!(kept.len(), 1, "{kept:?}");
-    assert_eq!(kept[0].origin, "a.plugin.js");
+    assert_eq!(kept[0].origin, "builtin:aniskip");
     assert_eq!(kept[0].level, Level::Error);
     assert!(kept[0].text.contains("shelf"));
-    // The search reads the origin as well as the text: every one of the plugin's lines names it.
     logs.set_level("");
     assert_eq!(logs.matching(&logs.filter()).len(), 3);
-    logs.set_search("a.plugin.js");
+    logs.set_search("builtin:aniskip");
     assert_eq!(logs.matching(&logs.filter()).len(), 3);
     logs.set_source("nothing-like-this");
     assert_eq!(
@@ -293,7 +261,12 @@ fn the_recorder_keeps_plugin_lines_theme_warnings_and_the_cap() {
 
     // ---- one record's full text ------------------------------------------------
     let logs = Logs::new();
-    let entry = logs.record(Source::Plugin, "a.plugin.js", Level::Error, "first\nsecond");
+    let entry = logs.record(
+        Source::Plugin,
+        "builtin:aniskip",
+        Level::Error,
+        "first\nsecond",
+    );
     assert!(logs.set_detail(Some(entry.id)));
     assert_eq!(logs.detail().unwrap().text, "first\nsecond");
     assert!(
@@ -322,19 +295,16 @@ fn the_recorder_keeps_plugin_lines_theme_warnings_and_the_cap() {
 }
 
 #[test]
-fn the_window_lists_what_a_plugin_logged_and_filters_it() {
+fn the_window_lists_what_was_logged_and_filters_it() {
     // Mock time, not system time: the clock this runner reports is not monotonic, and Slint
     // asserts on a tick that goes backwards as soon as any animation is live.
     i_slint_backend_testing::init_integration_test_with_mock_time();
     let data_dir = temp_dir("window");
-    write_mod(&data_dir, "plugins", "talkative.plugin.js", TALKATIVE);
-    // A second plugin that fails at load and is switched on too, so the About page has a failure
-    // to count and a second enabled name.
     write_mod(
         &data_dir,
-        "plugins",
-        "throws.plugin.js",
-        "/**\n * @name Throws\n * @description Fails.\n * @author Bo\n * @version 1.0.0\n */\nthrow new Error(\"no\");\n",
+        "themes",
+        "odd.theme.css",
+        "/**\n * @name Odd\n * @description Has an unmatched selector.\n * @author Someone\n * @version 1.0.0\n */\n.nothing-matches-this {\n  color: #00ff00;\n}\n",
     );
     write_mod(
         &data_dir,
@@ -344,7 +314,7 @@ fn the_window_lists_what_a_plugin_logged_and_filters_it() {
     );
     std::fs::write(
         data_dir.join("settings.json"),
-        r#"{"enabled_plugins":["talkative.plugin.js","throws.plugin.js"],"enabled_themes":["red.theme.css"]}"#,
+        r#"{"enabled_themes":["odd.theme.css"]}"#,
     )
     .expect("the settings file");
 
@@ -363,6 +333,34 @@ fn the_window_lists_what_a_plugin_logged_and_filters_it() {
     );
     outcomes = step(
         outcomes,
+        "Themes opens",
+        click(window, "Themes").and_then(|_| {
+            wait(window, Duration::from_secs(10), |window| {
+                let shown = window.get_mods_page().to_string();
+                if shown == "themes" {
+                    Ok(shown)
+                } else {
+                    Err(format!("the window holds {shown}"))
+                }
+            })
+        }),
+    );
+    outcomes = step(
+        outcomes,
+        "enabling red.theme.css logs a theme switch",
+        click(window, "Enable red.theme.css").and_then(|_| {
+            wait(window, Duration::from_secs(10), |window| {
+                let notice = window.get_mods().notice.to_string();
+                if notice.contains("red.theme.css") || notice.contains("Red") {
+                    Ok(notice)
+                } else {
+                    Err(format!("the notice says {notice:?}"))
+                }
+            })
+        }),
+    );
+    outcomes = step(
+        outcomes,
         "Logs opens",
         click(window, "Logs").and_then(|_| {
             wait(window, Duration::from_secs(10), |window| {
@@ -375,62 +373,26 @@ fn the_window_lists_what_a_plugin_logged_and_filters_it() {
             })
         }),
     );
-    // The plugin runs on its own thread as the app starts, so the line arrives after the page.
     outcomes = step(
         outcomes,
-        "a line the plugin logged is on the page, named by its plugin",
-        wait(window, Duration::from_secs(20), |window| {
-            let rows = rows_on(window);
-            let found: Vec<&(String, String, String)> = rows
-                .iter()
-                .filter(|(_, _, text)| text == "native-mods-logs the shelf is empty")
-                .collect();
-            match found.first() {
-                Some((source, level, _)) => Ok(format!("{source} / {level}")),
-                None => Err(format!("the page lists {rows:?}")),
-            }
-        }),
-    );
-    outcomes = step(
-        outcomes,
-        "the source column names the plugin file",
+        "the boot theme warning and the theme switch are on the Logs page, newest first",
         wait(window, Duration::from_secs(10), |window| {
             let rows = rows_on(window);
-            match rows
+            let warn_pos = rows.iter().position(|(source, level, _)| {
+                source == "Theme odd.theme.css" && level == "Warning"
+            });
+            let info_pos = rows
                 .iter()
-                .find(|(_, _, text)| text == "native-mods-logs the shelf is empty")
-            {
-                Some((source, level, _))
-                    if source == "Plugin talkative.plugin.js" && level == "Warning" =>
-                {
-                    Ok(format!("{source} / {level}"))
+                .position(|(source, level, _)| source == "Theme red.theme.css" && level == "Info");
+            match (info_pos, warn_pos) {
+                (Some(newer), Some(older)) if newer < older => {
+                    Ok(format!("red info at {newer}, odd warning at {older}"))
                 }
-                other => Err(format!("the row says {other:?}")),
-            }
-        }),
-    );
-    outcomes = step(
-        outcomes,
-        "every line the plugin logged is there, newest first",
-        wait(window, Duration::from_secs(10), |window| {
-            let said: Vec<String> = rows_on(window)
-                .into_iter()
-                .filter(|(_, _, text)| text.starts_with("native-mods-logs "))
-                .map(|(_, _, text)| text)
-                .collect();
-            if said.len() == TALKATIVE_LINES
-                && said.first().map(String::as_str)
-                    == Some("native-mods-logs the shelf could not be read")
-            {
-                Ok(format!("{} lines", said.len()))
-            } else {
-                Err(format!("the plugin's lines are {said:?}"))
+                _ => Err(format!("the page lists {rows:?}")),
             }
         }),
     );
     let all = rows_on(window);
-    // What the header counts is the recorder's list, not the rows on screen: an error the app
-    // recorded from another part is a row too.
     outcomes = step(outcomes, "the page draws a header for its list", {
         let texts = ui_driver::texts(window);
         let header: Vec<&String> = texts
@@ -461,32 +423,35 @@ fn the_window_lists_what_a_plugin_logged_and_filters_it() {
             }
         },
     );
-    verdict(
-        "the Logs page did not list what the plugin logged",
-        &outcomes,
-    );
+    verdict("the Logs page did not list what was logged", &outcomes);
 
     // ---- the level filter keeps fewer records -----------------------------------
     let mut filtering: Vec<Outcome> = Vec::new();
     filtering = step(
         filtering,
-        "Errors only is pressed, and the list gets shorter",
-        click(window, "Errors only").and_then(|_| {
+        "Warnings and errors is pressed, and the list gets shorter",
+        click(window, "Warnings and errors").and_then(|_| {
             wait(window, Duration::from_secs(10), |window| {
                 let rows = rows_on(window);
-                if rows.iter().any(|(_, level, _)| level != "Error") {
-                    return Err(format!("{} rows, and not all errors: {rows:?}", rows.len()));
+                if rows
+                    .iter()
+                    .any(|(_, level, _)| level != "Warning" && level != "Error")
+                {
+                    return Err(format!(
+                        "{} rows, and not all warnings/errors: {rows:?}",
+                        rows.len()
+                    ));
                 }
                 if rows.len() >= all.len() {
                     return Err(format!("{} rows before, {} after", all.len(), rows.len()));
                 }
                 if !rows
                     .iter()
-                    .any(|(_, _, text)| text == "native-mods-logs the shelf could not be read")
+                    .any(|(source, level, _)| source == "Theme odd.theme.css" && level == "Warning")
                 {
-                    return Err(format!("the error line is gone: {rows:?}"));
+                    return Err(format!("the warning line is gone: {rows:?}"));
                 }
-                Ok(format!("{} rows, all errors", rows.len()))
+                Ok(format!("{} rows, warnings and errors only", rows.len()))
             })
         }),
     );
@@ -504,14 +469,14 @@ fn the_window_lists_what_a_plugin_logged_and_filters_it() {
     );
     filtering = step(
         filtering,
-        "the plugin's warning is not among them",
+        "the info switch record is not among them",
         wait(window, Duration::from_secs(5), |window| {
             let rows = rows_on(window);
             if rows
                 .iter()
-                .any(|(_, _, text)| text == "native-mods-logs the shelf is empty")
+                .any(|(source, _, _)| source == "Theme red.theme.css")
             {
-                Err(format!("the warning is still listed: {rows:?}"))
+                Err(format!("the info record is still listed: {rows:?}"))
             } else {
                 Ok(format!("{} rows", rows.len()))
             }
@@ -613,13 +578,10 @@ fn the_window_lists_what_a_plugin_logged_and_filters_it() {
             Err(format!("the build lines are {labels:?}"))
         }
     });
-    // The counts are drawn from the page's own reading of the folder, and the failed plugin is
-    // only known once the runtime has tried it. The check is the window's own data, once it says
-    // what the folder and the runtime say.
     about = step(
         about,
-        "it counts three plugins installed (including built-in AniSkip) and three on, and one of each theme",
-        wait(window, Duration::from_secs(20), |window| {
+        "it counts one built-in plugin enabled and two themes with one enabled",
+        wait(window, Duration::from_secs(10), |window| {
             let counts = window.get_mods().about_counts.clone();
             let value = |label: &str| {
                 counts
@@ -628,52 +590,56 @@ fn the_window_lists_what_a_plugin_logged_and_filters_it() {
                     .map(|line| line.value.clone())
             };
             let said = (
-                value("Plugins installed"),
-                value("Plugins enabled"),
-                value("Plugins running"),
-                value("Plugins failed"),
+                value("Built-in plugins"),
+                value("Built-in plugins enabled"),
                 value("Themes installed"),
                 value("Themes enabled"),
             );
             match said {
-                (Some(a), Some(b), Some(c), Some(d), Some(e), Some(f))
-                    if a == "3" && b == "3" && c == "1" && d == "1" && e == "1" && f == "1" =>
+                (Some(a), Some(b), Some(c), Some(d))
+                    if a == "1" && b == "1" && c == "2" && d == "1" =>
                 {
-                    Ok("3 plugins installed, 3 on, 1 running, 1 failed, 1 theme".to_owned())
+                    Ok("1 built-in plugin, 1 enabled, 2 themes, 1 enabled".to_owned())
                 }
                 _ => Err(format!("the counts are {said:?}")),
             }
         }),
     );
-    about = step(about, "the enabled lists name files", {
-        let enabled = &window.get_mods().about_enabled;
-        let plugins = (0..enabled.row_count())
-            .filter_map(|row| enabled.row_data(row))
-            .find(|line| line.label == "Enabled plugins")
-            .map(|line| line.value.to_string());
-        match plugins.as_deref() {
-            Some("builtin:aniskip, talkative.plugin.js, throws.plugin.js") => {
-                Ok(plugins.unwrap_or_default())
+    about = step(
+        about,
+        "the enabled lists name built-in AniSkip and the active theme",
+        {
+            let enabled = &window.get_mods().about_enabled;
+            let find = |label: &str| {
+                (0..enabled.row_count())
+                    .filter_map(|row| enabled.row_data(row))
+                    .find(|line| line.label == label)
+                    .map(|line| line.value.to_string())
+            };
+            match (
+                find("Enabled plugins").as_deref(),
+                find("Enabled themes").as_deref(),
+            ) {
+                (Some("builtin:aniskip"), Some("red.theme.css")) => {
+                    Ok("builtin:aniskip / red.theme.css".to_owned())
+                }
+                other => Err(format!("the enabled lists are {other:?}")),
             }
-            other => Err(format!("the enabled plugins are {other:?}")),
-        }
-    });
-    about = step(about, "the places name the two folders and the registry", {
+        },
+    );
+    about = step(about, "the places name the themes folder", {
         let places = &window.get_mods().about_places;
         let listed: Vec<(String, String)> = (0..places.row_count())
             .filter_map(|row| places.row_data(row))
             .map(|line| (line.label.to_string(), line.value.to_string()))
             .collect();
-        let plugins_dir = stremio_lightning_core::mods::mods_dir(
+        let themes_dir = stremio_lightning_core::mods::mods_dir(
             &data_dir,
-            stremio_lightning_core::mods::ModType::Plugin,
+            stremio_lightning_core::mods::ModType::Theme,
         );
-        let has = |label: &str, value: &Path| {
-            listed
-                .iter()
-                .any(|(name, said)| name == label && Path::new(said) == value)
-        };
-        if has("Plugins folder", &plugins_dir) && listed.iter().any(|(name, _)| name == "Registry")
+        if listed
+            .iter()
+            .any(|(name, said)| name == "Themes folder" && Path::new(said) == themes_dir)
         {
             Ok(format!("{listed:?}"))
         } else {
@@ -688,8 +654,6 @@ fn the_window_lists_what_a_plugin_logged_and_filters_it() {
             Err(format!("the page says {license:?}"))
         }
     });
-    // Export writes a file into the app's data folder and shows where it went. It uploads
-    // nothing: the only thing to check is that the file is there and says what the page says.
     let pressed = click(window, "Export diagnostics");
     about = step(
         about,
@@ -701,7 +665,7 @@ fn the_window_lists_what_a_plugin_logged_and_filters_it() {
                     return Err("the page shows no path yet".to_owned());
                 }
                 match std::fs::read_to_string(&written) {
-                    Ok(text) if text.contains("Plugins installed") => Ok(written),
+                    Ok(text) if text.contains("Built-in plugins") => Ok(written),
                     Ok(_) => Err(format!("{written} says nothing about the counts")),
                     Err(error) => Err(format!("{written}: {error}")),
                 }

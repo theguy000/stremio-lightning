@@ -1,8 +1,8 @@
-//! What is installed, as the Mods pages list it: one card per plugin file or theme file.
+//! What is installed, as the Mods pages list it: built-in plugins and local `.theme.css`
+//! files.
 //!
-//! The reading is `stremio_lightning_core::mods`, which owns both mod folders. A file whose
-//! metadata comment is missing or incomplete cannot be named, so its card shows the file name
-//! instead.
+//! Theme files are read through `stremio_lightning_core::mods`. A file whose metadata comment is
+//! missing or incomplete cannot be named, so its card shows the file name instead.
 
 use std::path::Path;
 
@@ -11,7 +11,7 @@ use stremio_lightning_core::mods::{list_mods, read_mod_content, ModType};
 use crate::plumbing::theme;
 use crate::screens::settings::LocalExtras;
 
-/// Which of the two folders to list.
+/// Which of the two Mods lists to show.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
     Plugin,
@@ -34,11 +34,10 @@ impl Kind {
     }
 }
 
-/// One plugin or theme, as one card on its page.
+/// One built-in plugin or local theme, as one card on its page.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ModCard {
-    /// The key the card's buttons name it by: its file name, which is what a mod file is named by
-    /// everywhere else in the app.
+    /// The key the card's buttons name it by: the built-in id or theme file name.
     pub id: String,
     pub filename: String,
     pub name: String,
@@ -46,24 +45,16 @@ pub struct ModCard {
     pub version: String,
     pub description: String,
     pub enabled: bool,
-    /// Whether the plugin registered a settings page. Always false for a theme.
+    /// Whether the built-in declares a settings page. Always false for a theme.
     pub has_settings: bool,
-    /// What the plugin runtime says about a plugin: whether it runs, and why not. Unset for a
-    /// card the runtime has not been asked about, which is what a test that only reads the
-    /// folder gets.
-    pub running: crate::screens::mods::settings::Running,
-    /// What reading the file said it does not understand, one line each. Themes fill this in;
-    /// plugins are not read yet.
+    /// What reading the theme file said it does not understand, one line each.
     pub warnings: Vec<String>,
-    /// What the update check said about this file, already a sentence: empty until a check has
-    /// answered for it, which is why a card the folder alone produced says nothing.
-    pub update: String,
     /// Whether the card has a Remove button. A feature built into the app has none: there is no
     /// file behind it.
     pub removable: bool,
     /// Whether this card is a feature the app ships rather than a file in the folder. A built-in
-    /// has no author, no update to check and nothing to remove: its card shows its name, its
-    /// version and what it does, and nothing else. See `mods::builtin` for the list.
+    /// has no author and nothing to remove: its card shows its name, its version and what it
+    /// does, and nothing else. See `mods::builtin` for the list.
     pub builtin: bool,
 }
 
@@ -94,70 +85,50 @@ impl Notice {
         Self::failed(text)
     }
 }
-/// Every plugin or theme installed under `data_dir`, sorted by file name, with the enabled list
-/// applied. A file that will not read still gets a card: the folder is the answer, not the file.
+/// Built-in plugins or local `.theme.css` files under `data_dir`, sorted by file name, with
+/// the enabled state applied.
 pub fn cards(data_dir: &Path, kind: Kind, extras: &LocalExtras) -> Result<Vec<ModCard>, String> {
-    let mods_dir = stremio_lightning_core::mods::mods_dir(data_dir, kind.mod_type());
-    let enabled = match kind {
-        Kind::Plugin => &extras.enabled_plugins,
-        Kind::Theme => &extras.enabled_themes,
-    };
-    let mut installed = list_mods(data_dir, kind.mod_type())?;
+    if kind == Kind::Plugin {
+        return Ok(super::builtin::cards(extras));
+    }
+    let mut installed = list_mods(data_dir, ModType::Theme)?;
     installed.sort_by(|a, b| a.filename.cmp(&b.filename));
-    let mut cards = if kind == Kind::Plugin {
-        super::builtin::cards(extras)
-    } else {
-        Vec::new()
-    };
-    cards.extend(installed.into_iter().map(|file| {
-        let is_on = enabled.contains(&file.filename);
-        // A theme's card can say what the file does, so the file is read here. A plugin is not
-        // read at all: nothing loads it in this build.
-        let warnings = match kind {
-            Kind::Theme => read_mod_content(data_dir, &file.filename, ModType::Theme)
+    Ok(installed
+        .into_iter()
+        .map(|file| {
+            let is_on = extras.enabled_themes.contains(&file.filename);
+            let warnings = read_mod_content(data_dir, &file.filename, ModType::Theme)
                 .map(|css| theme::warnings(&css))
-                .unwrap_or_else(|error| vec![error]),
-            Kind::Plugin => Vec::new(),
-        };
-        let has_settings = kind == Kind::Plugin
-            && crate::screens::mods::plugin_schema::stored(
-                &mods_dir,
-                &crate::plumbing::plugin::name_of(&file.filename),
-            )
-            .is_ok_and(|fields| !fields.is_empty());
-        let (name, author, version, description) = match file.metadata {
-            Some(metadata) => (
-                non_empty_or(metadata.name, &file.filename),
-                metadata.author,
-                metadata.version,
-                metadata.description,
-            ),
-            // Nothing in the file names it. The file name is what the user sees in the folder,
-            // so that is what the card shows, and the rest of the card says nothing.
-            None => (
-                file.filename.clone(),
-                String::new(),
-                String::new(),
-                String::new(),
-            ),
-        };
-        ModCard {
-            id: file.filename.clone(),
-            filename: file.filename,
-            name,
-            author,
-            version,
-            description,
-            enabled: is_on,
-            has_settings,
-            running: crate::screens::mods::settings::Running::default(),
-            warnings,
-            update: String::new(),
-            removable: true,
-            builtin: false,
-        }
-    }));
-    Ok(cards)
+                .unwrap_or_else(|error| vec![error]);
+            let (name, author, version, description) = match file.metadata {
+                Some(metadata) => (
+                    non_empty_or(metadata.name, &file.filename),
+                    metadata.author,
+                    metadata.version,
+                    metadata.description,
+                ),
+                None => (
+                    file.filename.clone(),
+                    String::new(),
+                    String::new(),
+                    String::new(),
+                ),
+            };
+            ModCard {
+                id: file.filename.clone(),
+                filename: file.filename,
+                name,
+                author,
+                version,
+                description,
+                enabled: is_on,
+                has_settings: false,
+                warnings,
+                removable: true,
+                builtin: false,
+            }
+        })
+        .collect())
 }
 
 /// A name the file left empty is no name, so the file name stands in for it.
@@ -234,8 +205,8 @@ mod tests {
 
     fn card(name: &str, author: &str, version: &str) -> ModCard {
         ModCard {
-            id: "example.plugin.js".to_owned(),
-            filename: "example.plugin.js".to_owned(),
+            id: "example.theme.css".to_owned(),
+            filename: "example.theme.css".to_owned(),
             name: name.to_owned(),
             author: author.to_owned(),
             version: version.to_owned(),
@@ -246,7 +217,7 @@ mod tests {
     #[test]
     fn a_card_is_titled_by_its_metadata_or_by_its_file_name() {
         assert_eq!(title(&card("Example", "Alice", "1.0.0")), "Example");
-        assert_eq!(title(&card("", "", "")), "example.plugin.js");
+        assert_eq!(title(&card("", "", "")), "example.theme.css");
     }
 
     #[test]
