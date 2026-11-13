@@ -130,14 +130,6 @@ descendant selectors such as `.a .b`, sizes, margins, gradients and hover states
 | `videos-list-container` | the Details page's Videos list | | | | yes |
 | `video-container` | one row of that list. Hover overrides its background, as on the web | | yes | | |
 | `mods-empty` | "No plugins are installed." / "No themes are installed." | yes | | yes | yes |
-| `market-card` | one card of a registry entry on Mods > Marketplace | | yes | yes | yes |
-| `market-title` | a Marketplace card's name | yes | | yes | yes |
-| `market-byline` | a Marketplace card's author and version | yes | | yes | yes |
-| `market-description` | a Marketplace card's description | yes | | yes | yes |
-| `market-heading` | the "Plugins" and "Themes" headings of the Marketplace list | yes | | yes | yes |
-| `mod-update` | a card's Update line, and the Update button on a Plugins or Themes card | yes | | yes | yes |
-| `market-button` | Install, Uninstall, Update, Update all and Check for updates | yes | yes | yes | yes |
-| `market-button-label` | the word on those buttons | yes | | yes | yes |
 | `mods-log-filter` | one choice of the Logs page's filter | yes | | yes | yes |
 | `mods-log-time` | a record's time column | yes | | yes | yes |
 | `mods-log-source` | a record's source column | yes | | yes | yes |

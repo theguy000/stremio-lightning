@@ -116,8 +116,6 @@ fn whole(min: f64, max: f64, step: f64, number: f64) -> Json {
     }
 }
 
-
-
 /// What a field says it is, for the one line the page puts under a control.
 pub fn hint(field: &Field) -> String {
     match field {

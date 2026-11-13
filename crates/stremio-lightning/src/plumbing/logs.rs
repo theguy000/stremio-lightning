@@ -592,8 +592,6 @@ mod tests {
         assert_eq!(logs.filter().level, "");
     }
 
-
-
     #[test]
     fn a_record_is_written_with_its_time_and_source() {
         let entry = Entry {
