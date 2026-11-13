@@ -24,8 +24,7 @@ fn main() {
 }
 
 /// Embeds the executable's icon, so Explorer, the Start menu and a taskbar button that falls back
-/// to the executable all show the app's mark rather than a blank page. The source is the same
-/// multi-size `src/favicon.ico` the WebView2 shell embeds.
+/// to the executable all show the app's mark rather than a blank page.
 ///
 /// Gated by an attribute, not `cfg!`: the `embed-resource` build-dependency is `cfg(windows)`, so on
 /// a Linux host a mere runtime `cfg!` guard would still leave the name unresolved. It is the *host*
@@ -34,7 +33,7 @@ fn main() {
 #[cfg(windows)]
 fn embed_windows_icon() {
     println!("cargo:rerun-if-changed=stremio-lightning.rc");
-    println!("cargo:rerun-if-changed=../../src/favicon.ico");
+    println!("cargo:rerun-if-changed=../../assets/icons/favicon.ico");
     embed_resource::compile("stremio-lightning.rc", embed_resource::NONE)
         .manifest_required()
         .expect("failed to embed the executable icon");
@@ -44,11 +43,10 @@ fn embed_windows_icon() {
 fn embed_windows_icon() {}
 
 /// On Windows libmpv is linked from the import library that `cargo xtask setup-windows`
-/// downloads for the Windows shell, and its DLL is copied next to the executable.
+/// downloads, and its DLL is copied next to the executable.
 fn link_windows_mpv() {
     let manifest = std::path::PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap());
-    let shell = manifest.join("../stremio-lightning-windows");
-    let dev = std::env::var_os("MPV_DEV_DIR").map_or_else(|| shell.join("mpv-dev"), Into::into);
+    let dev = std::env::var_os("MPV_DEV_DIR").map_or_else(|| manifest.join("mpv-dev"), Into::into);
     let lib = dev.join("mpv.lib");
     assert!(
         lib.exists(),
@@ -58,7 +56,7 @@ fn link_windows_mpv() {
     println!("cargo:rustc-link-search=native={}", dev.display());
     println!("cargo:rerun-if-changed={}", lib.display());
 
-    let dll = shell.join("resources/libmpv-2.dll");
+    let dll = manifest.join("resources/libmpv-2.dll");
     println!("cargo:rerun-if-changed={}", dll.display());
     let out_dir = std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
     let profile_dir = out_dir.ancestors().nth(3).unwrap();

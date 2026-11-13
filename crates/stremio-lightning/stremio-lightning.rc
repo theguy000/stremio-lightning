@@ -8,4 +8,4 @@
 // A manifest is not listed here on purpose: `embed_resource` writes one for the linker, and the
 // Slint client needs the default (per-monitor DPI aware through winit) rather than the WebView2
 // shell's.
-APP_ICON ICON "../../src/favicon.ico"
+APP_ICON ICON "../../assets/icons/favicon.ico"

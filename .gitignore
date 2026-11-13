@@ -17,6 +17,10 @@ src/dist/
 Thumbs.db
 .DS_Store
 
+# Native desktop client resources (downloaded at build time)
+crates/stremio-lightning/mpv-dev/
+crates/stremio-lightning/resources/
+
 # Windows native shell resources (downloaded at build time)
 crates/stremio-lightning-windows/mpv-dev/
 crates/stremio-lightning-windows/resources/
