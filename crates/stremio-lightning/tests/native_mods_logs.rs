@@ -618,7 +618,7 @@ fn the_window_lists_what_a_plugin_logged_and_filters_it() {
     // what the folder and the runtime say.
     about = step(
         about,
-        "it counts two plugins installed and two on, and one of each theme",
+        "it counts three plugins installed (including built-in AniSkip) and three on, and one of each theme",
         wait(window, Duration::from_secs(20), |window| {
             let counts = window.get_mods().about_counts.clone();
             let value = |label: &str| {
@@ -637,9 +637,9 @@ fn the_window_lists_what_a_plugin_logged_and_filters_it() {
             );
             match said {
                 (Some(a), Some(b), Some(c), Some(d), Some(e), Some(f))
-                    if a == "2" && b == "2" && c == "1" && d == "1" && e == "1" && f == "1" =>
+                    if a == "3" && b == "3" && c == "1" && d == "1" && e == "1" && f == "1" =>
                 {
-                    Ok("2 plugins installed, 2 on, 1 running, 1 failed, 1 theme".to_owned())
+                    Ok("3 plugins installed, 3 on, 1 running, 1 failed, 1 theme".to_owned())
                 }
                 _ => Err(format!("the counts are {said:?}")),
             }
@@ -652,7 +652,9 @@ fn the_window_lists_what_a_plugin_logged_and_filters_it() {
             .find(|line| line.label == "Enabled plugins")
             .map(|line| line.value.to_string());
         match plugins.as_deref() {
-            Some("talkative.plugin.js, throws.plugin.js") => Ok(plugins.unwrap_or_default()),
+            Some("builtin:aniskip, talkative.plugin.js, throws.plugin.js") => {
+                Ok(plugins.unwrap_or_default())
+            }
             other => Err(format!("the enabled plugins are {other:?}")),
         }
     });
