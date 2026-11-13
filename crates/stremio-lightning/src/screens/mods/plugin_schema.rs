@@ -1,28 +1,6 @@
-//! The schema a plugin registers, read into the fields the Plugin settings page draws.
-//!
-//! A schema is one JSON array. Each entry names a key, a label and a type:
-//!
-//! ```json
-//! [
-//!   { "key": "enabled", "label": "Turn it on", "type": "toggle", "default": true },
-//!   { "key": "quality", "label": "Quality", "type": "select", "options": ["720p", "1080p"], "default": "1080p" },
-//!   { "key": "server", "label": "Server", "type": "text", "default": "" },
-//!   { "key": "rows", "label": "Rows", "type": "range", "min": 1, "max": 10, "step": 1, "default": 3 }
-//! ]
-//! ```
-//!
-//! The four types are the four controls the page has: toggle, text, select and range. A field of
-//! another type is reported and left out, so the page never draws a control it cannot use. A
-//! schema is kept in the plugin's own settings file under [`SCHEMA_KEY`], so the page can draw it
-//! after a restart without running the plugin first.
+//! Field definitions for built-in plugin settings pages.
 
-use std::path::Path;
-
-use serde_json::{json, Map, Value as Json};
-use stremio_lightning_core::settings;
-
-/// The settings key a registered schema is stored under. No plugin field may use it.
-pub const SCHEMA_KEY: &str = "__schema";
+use serde_json::{json, Value as Json};
 
 /// One control on the Plugin settings page.
 #[derive(Clone, Debug, PartialEq)]
@@ -138,170 +116,7 @@ fn whole(min: f64, max: f64, step: f64, number: f64) -> Json {
     }
 }
 
-/// Reads a registered schema. `Err` says why the schema cannot be used at all; a field inside a
-/// usable schema that could not be read is left out, and collecting those is the caller's job.
-pub fn parse(schema: &Json) -> Result<Vec<Field>, String> {
-    let entries = match schema {
-        Json::Array(entries) => entries,
-        Json::Null => return Ok(Vec::new()),
-        other => {
-            return Err(format!(
-                "registerSettings wants a list of fields, and was given {}.",
-                type_name(other)
-            ))
-        }
-    };
-    let mut fields: Vec<Field> = Vec::new();
-    for entry in entries {
-        let Some(object) = entry.as_object() else {
-            continue;
-        };
-        let Some(key) = string(object, "key").filter(|key| !key.is_empty()) else {
-            continue;
-        };
-        if key == SCHEMA_KEY || fields.iter().any(|field| field.key() == key) {
-            continue;
-        }
-        if let Some(field) = field(object, &key) {
-            fields.push(field);
-        }
-    }
-    Ok(fields)
-}
 
-fn field(object: &Map<String, Json>, key: &str) -> Option<Field> {
-    let label = string(object, "label").unwrap_or_else(|| key.to_owned());
-    let kind = string(object, "type")?;
-    let default = object.get("default").cloned().unwrap_or(Json::Null);
-    let (key, label) = (key.to_owned(), label);
-    Some(match kind.as_str() {
-        "toggle" => Field::Toggle {
-            key,
-            label,
-            default: default.as_bool().unwrap_or(false),
-        },
-        "text" => Field::Text {
-            key,
-            label,
-            default: default.as_str().unwrap_or_default().to_owned(),
-        },
-        "select" => {
-            let options: Vec<String> = object
-                .get("options")
-                .and_then(Json::as_array)
-                .map(|options| {
-                    options
-                        .iter()
-                        .filter_map(|option| option.as_str().map(str::to_owned))
-                        .collect()
-                })
-                .unwrap_or_default();
-            if options.is_empty() {
-                return None;
-            }
-            let default = default
-                .as_str()
-                .filter(|value| options.iter().any(|option| option == value))
-                .unwrap_or(&options[0])
-                .to_owned();
-            Field::Select {
-                key,
-                label,
-                options,
-                default,
-            }
-        }
-        "range" => {
-            let min = number(object, "min").unwrap_or(0.0);
-            let max = number(object, "max").unwrap_or(min + 10.0);
-            if max <= min {
-                return None;
-            }
-            let step = number(object, "step")
-                .filter(|step| *step > 0.0)
-                .unwrap_or(1.0);
-            let default = number(object, "default").unwrap_or(min).clamp(min, max);
-            Field::Range {
-                key,
-                label,
-                min,
-                max,
-                step,
-                default,
-            }
-        }
-        _ => return None,
-    })
-}
-
-fn string(object: &Map<String, Json>, key: &str) -> Option<String> {
-    object.get(key).and_then(Json::as_str).map(str::to_owned)
-}
-
-fn number(object: &Map<String, Json>, key: &str) -> Option<f64> {
-    object.get(key).and_then(Json::as_f64)
-}
-
-fn type_name(value: &Json) -> &'static str {
-    match value {
-        Json::Null => "nothing",
-        Json::Bool(_) => "a true or false value",
-        Json::Number(_) => "a number",
-        Json::String(_) => "a string",
-        Json::Array(_) => "a list",
-        Json::Object(_) => "an object",
-    }
-}
-
-/// The schema as the plugin's settings file holds it: the same shape `registerSettings` was given,
-/// with the fields this app cannot draw already left out.
-pub fn fields_json(fields: &[Field]) -> Json {
-    Json::Array(fields.iter().map(field_json).collect())
-}
-
-fn field_json(field: &Field) -> Json {
-    match field {
-        Field::Toggle {
-            key,
-            label,
-            default,
-        } => {
-            json!({ "key": key, "label": label, "type": "toggle", "default": default })
-        }
-        Field::Text {
-            key,
-            label,
-            default,
-        } => {
-            json!({ "key": key, "label": label, "type": "text", "default": default })
-        }
-        Field::Select {
-            key,
-            label,
-            options,
-            default,
-        } => json!({
-            "key": key, "label": label, "type": "select", "options": options, "default": default
-        }),
-        Field::Range {
-            key,
-            label,
-            min,
-            max,
-            step,
-            ..
-        } => json!({
-            "key": key, "label": label, "type": "range",
-            "min": min, "max": max, "step": step, "default": field.default()
-        }),
-    }
-}
-
-/// The schema stored for the plugin whose settings file is `plugins_dir/<name>.plugin.json`.
-pub fn stored(plugins_dir: &Path, name: &str) -> Result<Vec<Field>, String> {
-    let schema = settings::setting(plugins_dir, name, SCHEMA_KEY)?;
-    parse(&schema)
-}
 
 /// What a field says it is, for the one line the page puts under a control.
 pub fn hint(field: &Field) -> String {
@@ -341,11 +156,24 @@ mod tests {
 
     #[test]
     fn a_whole_number_range_prints_whole_numbers_in_its_hint() {
-        let schema = json!([
-            { "key": "rows", "label": "Rows", "type": "range", "min": 1, "max": 10, "step": 1 },
-            { "key": "volume", "label": "Volume", "type": "range", "min": 0.5, "max": 1.5, "step": 0.1 }
-        ]);
-        let fields = parse(&schema).expect("a readable schema");
+        let fields = [
+            Field::Range {
+                key: "rows".to_owned(),
+                label: "Rows".to_owned(),
+                min: 1.0,
+                max: 10.0,
+                step: 1.0,
+                default: 1.0,
+            },
+            Field::Range {
+                key: "volume".to_owned(),
+                label: "Volume".to_owned(),
+                min: 0.5,
+                max: 1.5,
+                step: 0.1,
+                default: 0.5,
+            },
+        ];
 
         assert_eq!(hint(&fields[0]), "A whole number from 1 to 10.");
         assert_eq!(

@@ -224,7 +224,7 @@ pub fn is_uuid(text: &str) -> bool {
 }
 
 /// The cards the Plugins page shows for the built-ins. Every field a file-backed card fills from
-/// its file -- author, warnings, update, unreadable -- stays empty here.
+/// its file -- author, warnings, unreadable -- stays empty here.
 #[must_use]
 pub fn cards(extras: &LocalExtras) -> Vec<ModCard> {
     ALL.iter()
@@ -239,13 +239,7 @@ pub fn cards(extras: &LocalExtras) -> Vec<ModCard> {
             description: builtin.description.to_owned(),
             enabled: builtin.switch.reads(extras),
             has_settings: !builtin.fields.is_empty(),
-            running: crate::screens::mods::settings::Running {
-                running: true,
-                stopped: String::new(),
-                last_error: String::new(),
-            },
             warnings: Vec::new(),
-            update: String::new(),
             removable: false,
             builtin: true,
         })
@@ -271,7 +265,6 @@ mod tests {
         assert!(card.description.starts_with("Skip anime"));
         assert!(card.author.is_empty());
         assert!(card.warnings.is_empty());
-        assert!(card.update.is_empty());
         assert!(catalogue::unreadable(card).is_empty());
         assert!(!card.removable);
         assert!(card.builtin);
