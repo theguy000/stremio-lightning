@@ -1317,8 +1317,8 @@ export component PlayerScreen inherits Rectangle {
         background: Theme.accent-yellow;
         border-width: 1px;
         border-color: #ffffff40;
-        drop-shadow-blur: 26px;
-        drop-shadow-color: #00000055;
+        drop-shadow-blur: 1.3 * root.rem-size;
+        drop-shadow-color: #000000e0;
 
         skip-glyph := Image {
             width: 1.4 * root.rem-size;
@@ -1714,10 +1714,30 @@ export component PlayerScreen inherits Rectangle {
 
                     for row in root.skip-rows: HorizontalLayout {
                         height: 2.6 * root.rem-size;
-                        spacing: 0.4 * root.rem-size;
+                        spacing: 0.5 * root.rem-size;
                         alignment: start;
+                        VerticalLayout {
+                            alignment: center;
+                            HorizontalLayout {
+                                spacing: 0.35 * root.rem-size;
+                                VotePill {
+                                    rem-size: root.rem-size;
+                                    up: true;
+                                    clicked => {
+                                        root.vote-skip(row.id, true);
+                                    }
+                                }
+                                VotePill {
+                                    rem-size: root.rem-size;
+                                    up: false;
+                                    clicked => {
+                                        root.vote-skip(row.id, false);
+                                    }
+                                }
+                            }
+                        }
                         Text {
-                            width: 5 * root.rem-size;
+                            width: 4.8 * root.rem-size;
                             text: row.label;
                             font-size: 0.95 * root.rem-size;
                             font-weight: 700;
@@ -1730,20 +1750,6 @@ export component PlayerScreen inherits Rectangle {
                             font-size: 0.95 * root.rem-size;
                             color: Theme.text;
                             vertical-alignment: center;
-                        }
-                        VotePill {
-                            rem-size: root.rem-size;
-                            up: true;
-                            clicked => {
-                                root.vote-skip(row.id, true);
-                            }
-                        }
-                        VotePill {
-                            rem-size: root.rem-size;
-                            up: false;
-                            clicked => {
-                                root.vote-skip(row.id, false);
-                            }
                         }
                     }
                     if root.skip-rows.length == 0: Text {
