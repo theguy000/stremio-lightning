@@ -108,10 +108,10 @@
                 }
             },
             "build-commands": [
-                "cargo --offline build --release -p stremio-lightning-linux"
+                "cargo --offline build --release -p stremio-lightning"
             ],
             "post-install": [
-                "install -Dm755 target/release/stremio-lightning-linux /app/bin/stremio-lightning-linux",
+                "install -Dm755 target/release/stremio-lightning /app/lib/stremio-lightning/stremio-lightning",
                 "mkdir -p /app/lib/stremio-lightning/resources",
                 "mkdir -p /app/lib/codecs-extra",
                 "mkdir -p /app/lib/intel-vaapi-driver",
@@ -121,11 +121,12 @@
                 "install -Dm644 assets/icons/128x128.png /app/share/icons/hicolor/128x128/apps/io.github.theguy000.stremio-lightning.png",
                 "install -Dm644 assets/io.github.theguy000.stremio-lightning.desktop /app/share/applications/io.github.theguy000.stremio-lightning.desktop",
                 "install -Dm644 assets/io.github.theguy000.stremio-lightning.metainfo.xml /app/share/metainfo/io.github.theguy000.stremio-lightning.metainfo.xml",
+                "mkdir -p /app/bin",
                 "echo '#!/bin/sh' > /app/bin/stremio-lightning",
                 "echo 'set -eu' >> /app/bin/stremio-lightning",
                 "echo 'export LD_LIBRARY_PATH=\"/app/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}\"' >> /app/bin/stremio-lightning",
                 "echo 'export STREMIO_LIGHTNING_BUNDLE_DIR=\"/app/lib/stremio-lightning\"' >> /app/bin/stremio-lightning",
-                "echo 'exec /app/bin/stremio-lightning-linux \"$@\"' >> /app/bin/stremio-lightning",
+                "echo 'exec /app/lib/stremio-lightning/stremio-lightning \"$@\"' >> /app/bin/stremio-lightning",
                 "chmod +x /app/bin/stremio-lightning"
             ],
             "sources": [

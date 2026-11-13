@@ -1,5 +1,5 @@
 #!/bin/bash
-# Downloads Linux runtime files for the native Linux shell crate.
+# Downloads Linux runtime files for the native client crate.
 
 set -euo pipefail
 
@@ -22,7 +22,7 @@ FFMPEG_ASSET="ffmpeg-n9.0-latest-linux64-gpl-9.0.tar.xz"
 FFMPEG_SHA256="269410922a0d1a9d5e27e2efc07fc2a3a20f0e15b68606573a6bb2f91c2445df"
 FFMPEG_LINUX_URL="https://github.com/BtbN/FFmpeg-Builds/releases/download/$FFMPEG_RELEASE/$FFMPEG_ASSET"
 
-LINUX_DIR="crates/stremio-lightning-linux"
+LINUX_DIR="crates/stremio-lightning"
 TEMP_DIR=$(mktemp -d)
 
 cleanup() {

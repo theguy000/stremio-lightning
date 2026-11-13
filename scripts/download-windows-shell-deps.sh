@@ -1,11 +1,11 @@
 #!/bin/bash
-# Downloads runtime files for the direct Windows WebView2 shell.
+# Downloads runtime files for the native Windows build.
 # Run from the project root:
 #   bash scripts/download-windows-shell-deps.sh
 
 set -euo pipefail
 
-WINDOWS_DIR="crates/stremio-lightning-windows"
+WINDOWS_DIR="crates/stremio-lightning"
 TEMP_DIR=$(mktemp -d)
 
 FFMPEG_WIN_URL="https://github.com/GyanD/codexffmpeg/releases/download/7.1.1/ffmpeg-7.1.1-essentials_build.zip"
