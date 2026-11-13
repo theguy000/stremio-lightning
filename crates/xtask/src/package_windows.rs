@@ -3,7 +3,7 @@ use crate::common::{
     remove_file_if_exists, required_file, root, run_program, run_program_in, write_file,
 };
 use crate::{
-    APP_ID, APP_NAME, PACKAGE_ID, WINDOWS_BIN, WINDOWS_INSTALLER, WINDOWS_TARGET, WINDOWS_ZIP,
+    APP_ID, APP_NAME, NATIVE_BIN, PACKAGE_ID, WINDOWS_INSTALLER, WINDOWS_TARGET, WINDOWS_ZIP,
 };
 use std::{
     env, fs,
@@ -43,46 +43,46 @@ pub fn package_windows() -> Result<()> {
 }
 
 fn prepare_windows_portable_layout(root: &Path) -> Result<PathBuf> {
-    let windows_dir = root.join("crates/stremio-lightning-windows");
+    let native_dir = root.join("crates/stremio-lightning");
     let dist_dir = root.join("dist");
     let portable_dir = dist_dir.join("stremio-lightning-windows-portable");
 
     required_file(
-        &windows_dir.join("resources/stream-server.exe"),
+        &native_dir.join("resources/stream-server.exe"),
         "cargo xtask setup-windows",
     )?;
     required_file(
-        &windows_dir.join("resources/ffmpeg.exe"),
+        &native_dir.join("resources/ffmpeg.exe"),
         "cargo xtask setup-windows",
     )?;
     required_file(
-        &windows_dir.join("resources/ffprobe.exe"),
+        &native_dir.join("resources/ffprobe.exe"),
         "cargo xtask setup-windows",
     )?;
     required_file(
-        &windows_dir.join("resources/libmpv-2.dll"),
+        &native_dir.join("resources/libmpv-2.dll"),
         "cargo xtask setup-windows",
     )?;
     required_file(
-        &root.join("src/favicon.ico"),
-        "restore src/favicon.ico for the Windows executable icon",
+        &root.join("assets/icons/favicon.ico"),
+        "restore assets/icons/favicon.ico for the Windows executable icon",
     )?;
 
-    println!("==> Building native Windows shell crate...");
-    build_windows_shell()?;
+    println!("==> Building native Windows client...");
+    build_windows_client()?;
 
     remove_dir_if_exists(&portable_dir)?;
     fs::create_dir_all(&dist_dir)?;
     fs::create_dir_all(&portable_dir)?;
 
     copy_file(
-        root.join(format!("target/{WINDOWS_TARGET}/release/{WINDOWS_BIN}.exe")),
-        portable_dir.join(format!("{WINDOWS_BIN}.exe")),
+        root.join(format!("target/{WINDOWS_TARGET}/release/{NATIVE_BIN}.exe")),
+        portable_dir.join(format!("{NATIVE_BIN}.exe")),
     )?;
 
     // libmpv-2.dll goes flat beside the exe (Packaged layout expects base_dir/libmpv-2.dll)
     copy_file(
-        windows_dir.join("resources/libmpv-2.dll"),
+        native_dir.join("resources/libmpv-2.dll"),
         portable_dir.join("libmpv-2.dll"),
     )?;
 
@@ -93,7 +93,7 @@ fn prepare_windows_portable_layout(root: &Path) -> Result<PathBuf> {
 
     for name in ["stream-server.exe", "ffmpeg.exe", "ffprobe.exe"] {
         copy_file(
-            windows_dir.join(format!("resources/{name}")),
+            native_dir.join(format!("resources/{name}")),
             portable_resources.join(name),
         )?;
     }
@@ -111,21 +111,35 @@ pub fn package_windows_installer() -> Result<()> {
     let portable_dir = prepare_windows_portable_layout(&root)?;
     let installer_script = root.join("target/windows-installer/stremio-lightning.iss");
     let installer_output = dist_dir.join(WINDOWS_INSTALLER);
-    let icon = root.join("src/favicon.ico");
+    let icon = root.join("assets/icons/favicon.ico");
 
     required_file(
         &icon,
-        "restore src/favicon.ico for the Windows installer icon",
+        "restore assets/icons/favicon.ico for the Windows installer icon",
     )?;
 
     remove_file_if_exists(&installer_output)?;
     write_file(
         &installer_script,
-        format!(
-            r#"#define MyAppName "{APP_NAME}"
-#define MyAppVersion "{}"
+        windows_inno_script(&package_version()?, &icon, &dist_dir, &portable_dir),
+    )?;
+
+    run_program("iscc", [&installer_script])?;
+    required_file(&installer_output, "cargo xtask package-windows-installer")?;
+    println!(
+        "==> Windows installer ready: {}",
+        installer_output.display()
+    );
+
+    Ok(())
+}
+
+fn windows_inno_script(version: &str, icon: &Path, dist_dir: &Path, portable_dir: &Path) -> String {
+    format!(
+        r#"#define MyAppName "{APP_NAME}"
+#define MyAppVersion "{version}"
 #define MyAppPublisher "Stremio Lightning"
-#define MyAppExeName "{WINDOWS_BIN}.exe"
+#define MyAppExeName "{NATIVE_BIN}.exe"
 #define MyAppUserModelID "{APP_ID}"
 #define MyAppIcon "{}"
 
@@ -169,32 +183,21 @@ Root: HKCU; Subkey: "Software\Classes\stremio\shell\open\command"; ValueType: st
 [Run]
 Filename: "{{app}}\{{#MyAppExeName}}"; Description: "Launch {{#MyAppName}}"; Flags: nowait postinstall skipifsilent
 "#,
-            package_version()?,
-            inno_path(&icon),
-            inno_path(&dist_dir),
-            WINDOWS_INSTALLER.trim_end_matches(".exe"),
-            inno_path(&portable_dir)
-        ),
-    )?;
-
-    run_program("iscc", [&installer_script])?;
-    required_file(&installer_output, "cargo xtask package-windows-installer")?;
-    println!(
-        "==> Windows installer ready: {}",
-        installer_output.display()
-    );
-
-    Ok(())
+        inno_path(icon),
+        inno_path(dist_dir),
+        WINDOWS_INSTALLER.trim_end_matches(".exe"),
+        inno_path(portable_dir)
+    )
 }
 
-fn build_windows_shell() -> Result<()> {
+fn build_windows_client() -> Result<()> {
     if env::consts::OS == "windows" {
         run_program(
             "cargo",
             [
                 "build",
                 "-p",
-                WINDOWS_BIN,
+                NATIVE_BIN,
                 "--release",
                 "--target",
                 WINDOWS_TARGET,
@@ -214,11 +217,30 @@ fn build_windows_shell() -> Result<()> {
                 "xwin",
                 "build",
                 "-p",
-                WINDOWS_BIN,
+                NATIVE_BIN,
                 "--release",
                 "--target",
                 WINDOWS_TARGET,
             ],
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn inno_script_targets_native_binary_and_shared_icon() {
+        let script = windows_inno_script(
+            "0.1.5",
+            Path::new("assets/icons/favicon.ico"),
+            Path::new("dist"),
+            Path::new("dist/stremio-lightning-windows-portable"),
+        );
+        assert!(script.contains("#define MyAppExeName \"stremio-lightning.exe\""));
+        assert!(script.contains("#define MyAppIcon \"assets/icons/favicon.ico\""));
+        assert!(script.contains("#define MyAppVersion \"0.1.5\""));
+        assert!(!script.contains("stremio-lightning-windows.exe"));
     }
 }

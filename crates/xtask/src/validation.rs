@@ -9,9 +9,9 @@ use std::{
 pub fn run_validation() -> Result<()> {
     let mut warnings = Vec::new();
 
-    println!("==> [1/5] Checking Rust formatting...");
+    println!("==> [1/3] Checking Rust formatting...");
     let w1 = run_validation_step("cargo", ["fmt", "--all", "--", "--check"]).map_err(|_| {
-        "Validation failed at step [1/5] (Checking Rust formatting).\n\n  \
+        "Validation failed at step [1/3] (Checking Rust formatting).\n\n  \
          \x1b[1;31mFormatting issues were detected in the codebase.\x1b[0m\n  \
          To resolve this, automatically format your Rust files by running:\n\n  \
          \x1b[1;36m    cargo fmt --all\x1b[0m\n"
@@ -20,9 +20,9 @@ pub fn run_validation() -> Result<()> {
         warnings.push(("Checking Rust formatting", w1));
     }
 
-    println!("==> [2/5] Running Rust clippy lints...");
+    println!("==> [2/3] Running Rust clippy lints...");
     let w2 = run_validation_step("cargo", ["clippy", "--workspace", "--all-targets"]).map_err(|_| {
-        "Validation failed at step [2/5] (Running Rust clippy lints).\n\n  \
+        "Validation failed at step [2/3] (Running Rust clippy lints).\n\n  \
          \x1b[1;31mClippy compiler lints or errors were detected.\x1b[0m\n  \
          Please review the lint/compiler output above and resolve the issues.\n  \
          To automatically apply safe clippy fixes, you can run:\n\n  \
@@ -32,37 +32,15 @@ pub fn run_validation() -> Result<()> {
         warnings.push(("Running Rust clippy lints", w2));
     }
 
-    println!("==> [3/5] Running Rust unit/integration tests...");
+    println!("==> [3/3] Running Rust unit/integration tests...");
     let w3 = run_validation_step("cargo", ["test", "--workspace"]).map_err(|_| {
-        "Validation failed at step [3/5] (Running Rust unit/integration tests).\n\n  \
+        "Validation failed at step [3/3] (Running Rust unit/integration tests).\n\n  \
          \x1b[1;31mOne or more Rust unit or integration tests failed.\x1b[0m\n  \
          Please review the test output above to locate the failures. You can re-run tests using:\n\n  \
          \x1b[1;36m    cargo test --workspace\x1b[0m\n"
     })?;
     if w3 > 0 {
         warnings.push(("Running Rust unit/integration tests", w3));
-    }
-
-    println!("==> [4/5] Running frontend tests...");
-    let w4 = run_validation_step_npm(&["run", "test:ui"]).map_err(|_| {
-        "Validation failed at step [4/5] (Running frontend tests).\n\n  \
-         \x1b[1;31mOne or more Vitest UI tests failed.\x1b[0m\n  \
-         Please review the frontend test output above. You can run UI tests locally using:\n\n  \
-         \x1b[1;36m    npm run test:ui\x1b[0m\n"
-    })?;
-    if w4 > 0 {
-        warnings.push(("Running frontend tests", w4));
-    }
-
-    println!("==> [5/5] Building frontend UI bundle...");
-    let w5 = run_validation_step_npm(&["run", "build:ui"]).map_err(|_| {
-        "Validation failed at step [5/5] (Building frontend UI bundle).\n\n  \
-         \x1b[1;31mThe frontend UI production build failed.\x1b[0m\n  \
-         Please review the build output/errors above. You can test building the frontend by running:\n\n  \
-         \x1b[1;36m    npm run build:ui\x1b[0m\n"
-    })?;
-    if w5 > 0 {
-        warnings.push(("Building frontend UI bundle", w5));
     }
 
     if warnings.is_empty() {
@@ -87,11 +65,6 @@ where
     let mut command = Command::new(program);
     command.args(args.into_iter().map(Into::into));
     run_command_capturing_warnings(&mut command, root())
-}
-
-fn run_validation_step_npm(args: &[&str]) -> Result<usize> {
-    let program = if cfg!(windows) { "npm.cmd" } else { "npm" };
-    run_validation_step(program, args)
 }
 
 fn run_command_capturing_warnings(
@@ -181,29 +154,5 @@ fn is_warning_line(line: &str) -> bool {
     let lower = clean.to_lowercase();
 
     // Rust: "warning: ..." or "warning[E0123]: ..."
-    if lower.contains("warning:") || lower.contains("warning[") {
-        return true;
-    }
-
-    // Vite/Webpack/Rollup: starts with "warn" or "warning" followed by space or punctuation
-    // e.g. "WARN  inlineDynamicImports option is ignored"
-    if lower.starts_with("warn ")
-        || lower.starts_with("warning ")
-        || lower.starts_with("warn:")
-        || lower.starts_with("warning:")
-    {
-        return true;
-    }
-
-    // Common prefixes or tags in logs
-    if lower.contains("[warn]") || lower.contains("[warning]") || lower.contains("console.warn") {
-        return true;
-    }
-
-    // Check for uppercase word matches specifically in the original line
-    if clean.starts_with("WARN") || clean.starts_with("WARNING") {
-        return true;
-    }
-
-    false
+    lower.contains("warning:") || lower.contains("warning[")
 }

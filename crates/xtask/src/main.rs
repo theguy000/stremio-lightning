@@ -1,3 +1,4 @@
+pub mod bump_version;
 pub mod common;
 pub mod package_linux;
 pub mod package_macos;
@@ -5,15 +6,13 @@ pub mod package_windows;
 pub mod setup;
 pub mod validation;
 
-use common::{Result, run_npm};
+use common::Result;
 use std::env;
 
 pub use stremio_lightning_identity::{APP_ID, APP_NAME};
 
 pub const PACKAGE_ID: &str = "stremio-lightning";
-pub const LINUX_BIN: &str = "stremio-lightning-linux";
-pub const MACOS_BIN: &str = "stremio-lightning-macos";
-pub const WINDOWS_BIN: &str = "stremio-lightning-windows";
+pub const NATIVE_BIN: &str = "stremio-lightning";
 pub const WINDOWS_TARGET: &str = "x86_64-pc-windows-msvc";
 pub const LINUX_APPIMAGE: &str = "Stremio_Lightning_Linux-x86_64.AppImage";
 pub const LINUX_DEB: &str = "stremio-lightning-linux-amd64.deb";
@@ -46,8 +45,15 @@ fn run() -> Result<()> {
         "setup" => setup::setup_current_platform()?,
         "setup-linux" | "setup:linux" | "setup-linux-shell" => setup::setup_linux()?,
         "setup-windows" | "setup:windows" | "setup-windows-shell" => setup::setup_windows()?,
-        "build-ui" => run_npm(&["run", "build:ui"])?,
-        "test-ui" => run_npm(&["run", "test:ui"])?,
+        "bump-version" => {
+            let version = args
+                .next()
+                .ok_or("usage: cargo xtask bump-version <version>")?;
+            if args.next().is_some() {
+                return Err("usage: cargo xtask bump-version <version>".into());
+            }
+            bump_version::bump_version(&version)?;
+        }
         "validate" => validation::run_validation()?,
         "package-linux-appimage" => package_linux::build_linux_appimage()?,
         "package-linux-deb" => package_linux::package_linux_deb()?,
@@ -71,12 +77,11 @@ fn print_help() {
     println!(
         "Stremio Lightning xtask\n\n\
 Usage:\n\
-  cargo xtask setup                       Download native shell dependencies for this OS\n\
-  cargo xtask setup-linux                 Download Linux shell dependencies\n\
-  cargo xtask setup-windows               Download Windows shell dependencies\n\
-  cargo xtask build-ui                    Build the Svelte/Vite UI bundle\n\
-  cargo xtask test-ui                     Run frontend tests\n\
-  cargo xtask validate                    Run all formatting, linting, tests and UI checks\n\
+  cargo xtask setup                       Download native dependencies for this OS\n\
+  cargo xtask setup-linux                 Download Linux dependencies\n\
+  cargo xtask setup-windows               Download Windows dependencies\n\
+  cargo xtask bump-version <version>      Bump version across workspace and packaging metadata\n\
+  cargo xtask validate                    Run formatting, clippy, and Rust tests\n\
   cargo xtask package-linux-appimage      Build dist/{LINUX_APPIMAGE}\n\
   cargo xtask package-linux-deb           Build dist/{LINUX_DEB}\n\
   cargo xtask package-linux-flatpak       Build dist/{LINUX_FLATPAK} (Fast-Host bundling)\n\

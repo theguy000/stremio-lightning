@@ -1,11 +1,12 @@
 use crate::common::{
     Result, chmod_executable, copy_dir_recursive, copy_file, is_executable_file, package_version,
-    program_exists, remove_dir_if_exists, remove_file_if_exists, required_executable_file,
-    required_file, root, run_command, run_program, write_file,
+    program_exists, remove_dir_if_exists, remove_file_if_exists, require_program,
+    required_executable_file, required_file, root, run_command, run_program, write_file,
 };
 use crate::{
-    LINUX_APPIMAGE, LINUX_BIN, LINUX_DEB, LINUX_DESKTOP_ID, LINUX_FLATPAK, LINUX_FLATPAK_ID,
-    LINUX_FLATPAK_RUNTIME, LINUX_FLATPAK_RUNTIME_VERSION, LINUX_FLATPAK_SDK, PACKAGE_ID,
+    LINUX_APPIMAGE, LINUX_DEB, LINUX_DESKTOP_ID, LINUX_FLATPAK, LINUX_FLATPAK_ID,
+    LINUX_FLATPAK_RUNTIME, LINUX_FLATPAK_RUNTIME_VERSION, LINUX_FLATPAK_SDK, NATIVE_BIN,
+    PACKAGE_ID,
 };
 use std::{
     collections::BTreeSet,
@@ -53,6 +54,10 @@ pub fn package_linux_deb() -> Result<()> {
     if env::consts::OS != "linux" {
         return Err("cargo xtask package-linux-deb must be run on Linux".into());
     }
+    require_program(
+        "dpkg-deb",
+        "install dpkg tooling (`dpkg-deb`), then rerun: cargo xtask package-linux-deb",
+    )?;
 
     let root = root();
     let dist_dir = root.join("dist");
@@ -69,13 +74,12 @@ pub fn package_linux_deb() -> Result<()> {
     fs::create_dir_all(&install_root)?;
     fs::create_dir_all(&bundled_lib_dir)?;
     fs::create_dir_all(deb_root.join("usr/share/applications"))?;
-    fs::create_dir_all(deb_root.join("etc/apparmor.d"))?;
     fs::create_dir_all(deb_root.join("usr/share/icons/hicolor/128x128/apps"))?;
     fs::create_dir_all(&dist_dir)?;
 
     copy_file(
-        appdir.join(format!("usr/bin/{LINUX_BIN}")),
-        install_root.join(LINUX_BIN),
+        appdir.join(format!("usr/bin/{NATIVE_BIN}")),
+        install_root.join(NATIVE_BIN),
     )?;
     copy_dir_recursive(
         appdir.join(format!("usr/lib/{PACKAGE_ID}/resources")),
@@ -92,8 +96,7 @@ pub fn package_linux_deb() -> Result<()> {
 
     for entry in fs::read_dir(appdir.join("usr/lib"))? {
         let entry = entry?;
-        if entry.file_name() == OsStr::new(PACKAGE_ID) || deb_uses_system_webkit(&entry.file_name())
-        {
+        if entry.file_name() == OsStr::new(PACKAGE_ID) {
             continue;
         }
 
@@ -111,19 +114,10 @@ pub fn package_linux_deb() -> Result<()> {
         linux_deb_launcher_script(),
     )?;
     chmod_executable(deb_root.join(format!("usr/bin/{PACKAGE_ID}")))?;
-    chmod_executable(install_root.join(LINUX_BIN))?;
+    chmod_executable(install_root.join(NATIVE_BIN))?;
     chmod_executable(install_root.join("resources/stream-server"))?;
     chmod_executable(install_root.join("resources/ffmpeg"))?;
     chmod_executable(install_root.join("resources/ffprobe"))?;
-
-    write_file(
-        deb_root.join("etc/apparmor.d/stremio-lightning"),
-        DEB_APPARMOR_PROFILE,
-    )?;
-    write_file(debian_dir.join("postinst"), DEB_POSTINST)?;
-    write_file(debian_dir.join("prerm"), DEB_PRERM)?;
-    chmod_executable(debian_dir.join("postinst"))?;
-    chmod_executable(debian_dir.join("prerm"))?;
 
     copy_file(
         root.join(format!("assets/{LINUX_DESKTOP_ID}.desktop")),
@@ -132,7 +126,7 @@ pub fn package_linux_deb() -> Result<()> {
     write_file(
         debian_dir.join("control"),
         format!(
-            "Package: {PACKAGE_ID}\nVersion: {}\nSection: video\nPriority: optional\nArchitecture: amd64\nDepends: libwebkitgtk-6.0-4\nRecommends: ca-certificates\nMaintainer: Stremio Lightning Maintainers <noreply@example.com>\nDescription: Lightweight native Stremio shell\n Stremio Lightning packages a native Linux shell with bundled runtime resources.\n",
+            "Package: {PACKAGE_ID}\nVersion: {}\nSection: video\nPriority: optional\nArchitecture: amd64\nRecommends: ca-certificates\nMaintainer: Stremio Lightning Maintainers <noreply@example.com>\nDescription: Lightweight native Stremio client\n Stremio Lightning packages a native Linux client with bundled runtime resources.\n",
             package_version()?
         ),
     )?;
@@ -222,6 +216,7 @@ fn prepare_linux_flatpak_payload(appdir: &Path, payload_dir: &Path) -> Result<()
     let root = root();
     let files_dir = payload_dir.join("files");
     let bin_dir = files_dir.join("bin");
+    let install_bin = files_dir.join(format!("lib/{PACKAGE_ID}/{NATIVE_BIN}"));
     let applications_dir = files_dir.join("share/applications");
     let icons_dir = files_dir.join("share/icons/hicolor/128x128/apps");
     let metainfo_dir = files_dir.join("share/metainfo");
@@ -232,13 +227,10 @@ fn prepare_linux_flatpak_payload(appdir: &Path, payload_dir: &Path) -> Result<()
     fs::create_dir_all(&metainfo_dir)?;
 
     copy_dir_recursive(appdir.join("usr/lib"), files_dir.join("lib"))?;
-    copy_file(
-        appdir.join(format!("usr/bin/{LINUX_BIN}")),
-        bin_dir.join(LINUX_BIN),
-    )?;
+    copy_file(appdir.join(format!("usr/bin/{NATIVE_BIN}")), &install_bin)?;
     write_file(bin_dir.join(PACKAGE_ID), linux_flatpak_launcher_script())?;
     chmod_executable(bin_dir.join(PACKAGE_ID))?;
-    chmod_executable(bin_dir.join(LINUX_BIN))?;
+    chmod_executable(&install_bin)?;
     chmod_executable(files_dir.join(format!("lib/{PACKAGE_ID}/resources/stream-server")))?;
     chmod_executable(files_dir.join(format!("lib/{PACKAGE_ID}/resources/ffmpeg")))?;
     chmod_executable(files_dir.join(format!("lib/{PACKAGE_ID}/resources/ffprobe")))?;
@@ -265,52 +257,21 @@ fn linux_flatpak_metadata() -> String {
     )
 }
 
-/// Ubuntu 24.04 blocks unprivileged user namespaces, which WebKitGTK's sandbox needs. This profile
-/// allows them for the installed binary only; the sandbox itself stays on.
-const DEB_APPARMOR_PROFILE: &str = include_str!("../../../assets/apparmor/stremio-lightning");
-
-const DEB_POSTINST: &str = "#!/bin/sh
-set -e
-if [ \"$1\" = configure ] && [ -x /usr/sbin/apparmor_parser ] && [ -d /sys/kernel/security/apparmor ]; then
-    apparmor_parser -r -T -W /etc/apparmor.d/stremio-lightning || true
-fi
-exit 0
-";
-
-const DEB_PRERM: &str = "#!/bin/sh
-set -e
-if [ \"$1\" = remove ] && [ -x /usr/sbin/apparmor_parser ] && [ -d /sys/kernel/security/apparmor ]; then
-    apparmor_parser -R /etc/apparmor.d/stremio-lightning || true
-fi
-exit 0
-";
-
-/// WebKitGTK looks for its helper processes in a path fixed at build time, so the deb uses the
-/// distro's library and helpers together instead of bundling a copy of either.
-fn deb_uses_system_webkit(name: &OsStr) -> bool {
-    let Some(name) = name.to_str() else {
-        return false;
-    };
-    name == "webkitgtk-6.0"
-        || name.starts_with("libwebkitgtk-6.0.so")
-        || name.starts_with("libjavascriptcoregtk-6.0.so")
-}
-
 fn linux_deb_launcher_script() -> String {
     format!(
-        "#!/bin/sh\nset -eu\nexport LD_LIBRARY_PATH=\"/usr/lib/{PACKAGE_ID}/lib${{LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}}\"\nexport STREMIO_LIGHTNING_BUNDLE_DIR=\"/usr/lib/{PACKAGE_ID}\"\nexec \"/usr/lib/{PACKAGE_ID}/{LINUX_BIN}\" \"$@\"\n"
+        "#!/bin/sh\nset -eu\nexport LD_LIBRARY_PATH=\"/usr/lib/{PACKAGE_ID}/lib${{LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}}\"\nexport STREMIO_LIGHTNING_BUNDLE_DIR=\"/usr/lib/{PACKAGE_ID}\"\nexec \"/usr/lib/{PACKAGE_ID}/{NATIVE_BIN}\" \"$@\"\n"
     )
 }
 
 fn linux_flatpak_launcher_script() -> String {
     format!(
-        "#!/bin/sh\nset -eu\nexport LD_LIBRARY_PATH=\"/app/lib${{LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}}\"\nexport STREMIO_LIGHTNING_BUNDLE_DIR=\"/app/lib/{PACKAGE_ID}\"\nexport WEBKIT_EXEC_PATH=\"/app/lib/webkitgtk-6.0\"\nexport WEBKIT_INJECTED_BUNDLE_PATH=\"/app/lib/webkitgtk-6.0/injected-bundle\"\nexec /app/bin/{LINUX_BIN} \"$@\"\n"
+        "#!/bin/sh\nset -eu\nexport LD_LIBRARY_PATH=\"/app/lib${{LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}}\"\nexport STREMIO_LIGHTNING_BUNDLE_DIR=\"/app/lib/{PACKAGE_ID}\"\nexec /app/lib/{PACKAGE_ID}/{NATIVE_BIN} \"$@\"\n"
     )
 }
 
 fn linux_appimage_launcher_script() -> String {
     format!(
-        "#!/bin/bash\nset -euo pipefail\nHERE=$(dirname \"$(readlink -f \"$0\")\")\nexport LD_LIBRARY_PATH=\"$HERE/usr/lib${{LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}}\"\nexport STREMIO_LIGHTNING_BUNDLE_DIR=\"$HERE/usr/lib/{PACKAGE_ID}\"\nexport WEBKIT_EXEC_PATH=\"$HERE/usr/lib/webkitgtk-6.0\"\nexport WEBKIT_INJECTED_BUNDLE_PATH=\"$HERE/usr/lib/webkitgtk-6.0/injected-bundle\"\nexec \"$HERE/usr/bin/{LINUX_BIN}\" \"$@\"\n"
+        "#!/bin/bash\nset -euo pipefail\nHERE=$(dirname \"$(readlink -f \"$0\")\")\nexport LD_LIBRARY_PATH=\"$HERE/usr/lib${{LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}}\"\nexport STREMIO_LIGHTNING_BUNDLE_DIR=\"$HERE/usr/lib/{PACKAGE_ID}\"\nexec \"$HERE/usr/bin/{NATIVE_BIN}\" \"$@\"\n"
     )
 }
 
@@ -485,12 +446,12 @@ fn is_elf_file(path: &Path) -> Result<bool> {
 
 fn prepare_linux_appdir() -> Result<PathBuf> {
     let root = root();
-    let linux_dir = root.join("crates/stremio-lightning-linux");
+    let native_dir = root.join("crates/stremio-lightning");
     let appdir = root.join(format!("target/appimage/{PACKAGE_ID}.AppDir"));
     let dist_dir = root.join("dist");
-    let stream_server = linux_dir.join("resources/stream-server");
-    let ffmpeg = linux_dir.join("resources/ffmpeg");
-    let ffprobe = linux_dir.join("resources/ffprobe");
+    let stream_server = native_dir.join("resources/stream-server");
+    let ffmpeg = native_dir.join("resources/ffmpeg");
+    let ffprobe = native_dir.join("resources/ffprobe");
     let icon = root.join("assets/icons/128x128.png");
     let desktop_source = root.join(format!("assets/{LINUX_DESKTOP_ID}.desktop"));
     let app_resources = appdir.join(format!("usr/lib/{PACKAGE_ID}/resources"));
@@ -503,8 +464,8 @@ fn prepare_linux_appdir() -> Result<PathBuf> {
     required_file(&icon, "restore assets/icons/128x128.png")?;
     required_file(&desktop_source, "restore the Linux desktop asset")?;
 
-    println!("==> Building native Linux shell crate...");
-    run_program("cargo", ["build", "-p", LINUX_BIN, "--release"])?;
+    println!("==> Building native Linux client...");
+    run_program("cargo", ["build", "-p", NATIVE_BIN, "--release"])?;
 
     remove_dir_if_exists(&appdir)?;
     fs::create_dir_all(appdir.join("usr/bin"))?;
@@ -515,8 +476,8 @@ fn prepare_linux_appdir() -> Result<PathBuf> {
     fs::create_dir_all(&dist_dir)?;
 
     copy_file(
-        root.join(format!("target/release/{LINUX_BIN}")),
-        appdir.join(format!("usr/bin/{LINUX_BIN}")),
+        root.join(format!("target/release/{NATIVE_BIN}")),
+        appdir.join(format!("usr/bin/{NATIVE_BIN}")),
     )?;
     copy_file(&stream_server, app_resources.join("stream-server"))?;
     copy_file(&ffmpeg, app_resources.join("ffmpeg"))?;
@@ -531,7 +492,7 @@ fn prepare_linux_appdir() -> Result<PathBuf> {
 
     let desktop_entry = fs::read_to_string(&desktop_source)?;
     let installed_exec = format!("Exec={PACKAGE_ID} %U");
-    let appimage_exec = format!("Exec={LINUX_BIN} %U");
+    let appimage_exec = format!("Exec={NATIVE_BIN} %U");
     if !desktop_entry.lines().any(|line| line == installed_exec) {
         return Err(format!("{} must contain {installed_exec}", desktop_source.display()).into());
     }
@@ -546,13 +507,13 @@ fn prepare_linux_appdir() -> Result<PathBuf> {
     write_file(appdir.join("AppRun"), linux_appimage_launcher_script())?;
 
     chmod_executable(appdir.join("AppRun"))?;
-    chmod_executable(appdir.join(format!("usr/bin/{LINUX_BIN}")))?;
+    chmod_executable(appdir.join(format!("usr/bin/{NATIVE_BIN}")))?;
     chmod_executable(app_resources.join("stream-server"))?;
     chmod_executable(app_resources.join("ffmpeg"))?;
     chmod_executable(app_resources.join("ffprobe"))?;
 
     bundle_linux_shared_libraries(
-        &appdir.join(format!("usr/bin/{LINUX_BIN}")),
+        &appdir.join(format!("usr/bin/{NATIVE_BIN}")),
         &app_lib,
         "cargo xtask setup-linux",
     )?;
@@ -563,14 +524,12 @@ fn prepare_linux_appdir() -> Result<PathBuf> {
         "cargo xtask setup-linux",
     )?;
 
-    bundle_webkitgtk_helpers(&appdir)?;
-
     patch_absolute_needed_paths(&app_lib)?;
-    patch_absolute_needed_paths(&appdir.join(format!("usr/bin/{LINUX_BIN}")))?;
+    patch_absolute_needed_paths(&appdir.join(format!("usr/bin/{NATIVE_BIN}")))?;
 
     required_executable_file(appdir.join("AppRun"), "cargo xtask setup-linux")?;
     required_executable_file(
-        appdir.join(format!("usr/bin/{LINUX_BIN}")),
+        appdir.join(format!("usr/bin/{NATIVE_BIN}")),
         "cargo xtask setup-linux",
     )?;
     required_executable_file(
@@ -630,57 +589,6 @@ fn bundle_linux_shared_libraries(binary: &Path, app_lib: &Path, setup_hint: &str
             continue;
         };
         copy_file(&lib, app_lib.join(name))?;
-    }
-
-    Ok(())
-}
-
-fn bundle_webkitgtk_helpers(appdir: &Path) -> Result<()> {
-    let host_paths = [
-        "/usr/lib/x86_64-linux-gnu/webkitgtk-6.0",
-        "/usr/lib/webkitgtk-6.0",
-        "/usr/lib/webkit2gtk-6.0",
-    ];
-
-    let mut helper_dir = None;
-    for path in &host_paths {
-        let p = Path::new(path);
-        if p.join("WebKitNetworkProcess").is_file() {
-            helper_dir = Some(p);
-            break;
-        }
-    }
-
-    let Some(host_helper_dir) = helper_dir else {
-        println!(
-            "WARNING: WebKitNetworkProcess not found on host. WebKitGTK helper bundling skipped."
-        );
-        return Ok(());
-    };
-
-    println!(
-        "==> Bundling WebKitGTK helper processes from {}...",
-        host_helper_dir.display()
-    );
-    let dest_dir = appdir.join("usr/lib/webkitgtk-6.0");
-    fs::create_dir_all(&dest_dir)?;
-
-    for name in [
-        "WebKitNetworkProcess",
-        "WebKitWebProcess",
-        "WebKitGPUProcess",
-    ] {
-        let source = host_helper_dir.join(name);
-        if source.is_file() {
-            let destination = dest_dir.join(name);
-            copy_file(&source, &destination)?;
-            chmod_executable(&destination)?;
-        }
-    }
-
-    let source_injected = host_helper_dir.join("injected-bundle");
-    if source_injected.is_dir() {
-        copy_dir_recursive(&source_injected, dest_dir.join("injected-bundle"))?;
     }
 
     Ok(())
@@ -889,10 +797,10 @@ mod tests {
         }
 
         assert!(should_bundle_linux_library(Path::new(
-            "/lib/x86_64-linux-gnu/libwebkitgtk-6.0.so.4"
+            "/usr/lib/x86_64-linux-gnu/libmpv.so.2"
         )));
         assert!(should_bundle_linux_library(Path::new(
-            "/usr/lib/x86_64-linux-gnu/libmpv.so.2"
+            "/usr/lib/x86_64-linux-gnu/libssl.so.3"
         )));
     }
 
@@ -924,41 +832,22 @@ mod tests {
     fn launcher_scripts_include_required_environment() {
         let appimage = linux_appimage_launcher_script();
         assert!(appimage.contains("set -euo pipefail"));
-        assert!(appimage.contains("WEBKIT_EXEC_PATH"));
-        assert!(appimage.contains(LINUX_BIN));
+        assert!(
+            appimage.contains("STREMIO_LIGHTNING_BUNDLE_DIR=\"$HERE/usr/lib/stremio-lightning\"")
+        );
+        assert!(!appimage.contains("WEBKIT_"));
+        assert!(appimage.contains("exec \"$HERE/usr/bin/stremio-lightning\""));
 
         let flatpak = linux_flatpak_launcher_script();
         assert!(flatpak.contains("STREMIO_LIGHTNING_BUNDLE_DIR=\"/app/lib/stremio-lightning\""));
         assert!(flatpak.contains("${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"));
         assert!(!flatpak.contains("$LD_LIBRARY_PATH}}"));
+        assert!(!flatpak.contains("WEBKIT_"));
+        assert!(flatpak.contains("exec /app/lib/stremio-lightning/stremio-lightning \"$@\""));
 
         let deb = linux_deb_launcher_script();
         assert!(deb.contains("/usr/lib/stremio-lightning/lib"));
-        assert!(deb.contains("exec \"/usr/lib/stremio-lightning/stremio-lightning-linux\""));
-    }
-
-    #[test]
-    fn deb_apparmor_profile_covers_the_installed_binary() {
-        let installed = format!("/usr/lib/{PACKAGE_ID}/{LINUX_BIN}");
-        assert!(DEB_APPARMOR_PROFILE.contains(&format!("profile {PACKAGE_ID} {installed} ")));
-        assert!(DEB_APPARMOR_PROFILE.contains("userns,"));
-        assert!(DEB_POSTINST.contains(&format!("/etc/apparmor.d/{PACKAGE_ID}")));
-        assert!(DEB_PRERM.contains(&format!("/etc/apparmor.d/{PACKAGE_ID}")));
-    }
-
-    #[test]
-    fn deb_leaves_webkit_libraries_and_helpers_to_the_system_package() {
-        for name in [
-            "webkitgtk-6.0",
-            "libwebkitgtk-6.0.so.4",
-            "libwebkitgtk-6.0.so.4.9.1",
-            "libjavascriptcoregtk-6.0.so.1",
-        ] {
-            assert!(deb_uses_system_webkit(OsStr::new(name)), "{name}");
-        }
-        for name in ["libmpv.so.2", "libgtk-4.so.1", "libsoup-3.0.so.0"] {
-            assert!(!deb_uses_system_webkit(OsStr::new(name)), "{name}");
-        }
+        assert!(deb.contains("exec \"/usr/lib/stremio-lightning/stremio-lightning\""));
     }
 
     #[test]
@@ -983,7 +872,12 @@ mod tests {
         )));
         assert!(manifest.contains(&format!("\"sdk\": \"{LINUX_FLATPAK_SDK}\"")));
         assert!(!manifest.contains("node22"));
-        assert!(manifest.contains("cargo --offline build --release"));
+        assert!(manifest.contains("cargo --offline build --release -p stremio-lightning"));
+        assert!(manifest.contains(
+            "install -Dm755 target/release/stremio-lightning /app/lib/stremio-lightning/stremio-lightning"
+        ));
+        assert!(manifest.contains(r#"exec /app/lib/stremio-lightning/stremio-lightning \"$@\""#));
+        assert!(!manifest.contains("stremio-lightning-linux"));
         assert!(manifest.contains("\"cargo-sources.json\""));
         assert!(!manifest.contains("\"build-args\""));
         assert!(manifest.contains(&format!(
@@ -999,12 +893,8 @@ mod tests {
         assert!(manifest.contains("ln -s /usr/bin/ffprobe"));
         assert!(manifest.contains("mkdir -p /app/lib/codecs-extra"));
         assert!(manifest.contains("mkdir -p /app/lib/intel-vaapi-driver"));
-        assert!(
-            !manifest.contains("install -Dm755 crates/stremio-lightning-linux/resources/ffmpeg")
-        );
-        assert!(
-            !manifest.contains("install -Dm755 crates/stremio-lightning-linux/resources/ffprobe")
-        );
+        assert!(!manifest.contains("install -Dm755 crates/stremio-lightning/resources/ffmpeg"));
+        assert!(!manifest.contains("install -Dm755 crates/stremio-lightning/resources/ffprobe"));
         assert!(!manifest.contains("LD_LIBRARY_PATH}}"));
     }
 }
