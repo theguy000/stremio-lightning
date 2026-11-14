@@ -61,6 +61,9 @@ pub struct Booted {
     pub runtime: Arc<AppRuntime>,
     /// Kept alive here: the effects run on its threads for as long as the window lives.
     pub tokio: tokio::runtime::Runtime,
+    /// The app's recorder. A test that wants a line the way a plugin writes one records it here,
+    /// which is the same list the Logs page reads.
+    pub logs: Arc<plumbing::logs::Logs>,
 }
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
@@ -181,6 +184,8 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
         mods_plugin: mods_plugin.clone(),
         mods_edits: mods_edits.clone(),
         logs: logs.clone(),
+        logs_refresh: Default::default(),
+        logs_seen: Default::default(),
         mods_clearing: Default::default(),
         mods_export: Default::default(),
     };
@@ -255,5 +260,6 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
         window,
         runtime,
         tokio,
+        logs,
     })
 }

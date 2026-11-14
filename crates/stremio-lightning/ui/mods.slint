@@ -119,7 +119,10 @@ export struct ModsViewData {
     log-search: string,
     log-rows: [ModsLogRow],
     log-empty: string,
+    /// The heading of the record on screen, the lines of its text, and the id the list marks.
+    log-detail-heading: string,
     log-detail: [string],
+    log-open-id: int,
     /// Whether Clear has been pressed once and the second press is the one that empties the list.
     log-clear-armed: bool,
     /// The About page: the build, the places, the counts, the enabled lists, the licence, and the
@@ -707,10 +710,22 @@ component SettingsButton inherits Rectangle {
 component ModsLogRowView inherits Rectangle {
     in property <ModsLogRow> record;
     in property <length> rem-size;
+    /// Whether this is the record whose text the panel under the list is showing.
+    in property <bool> selected;
     callback opened();
 
     height: 2.2 * rem-size;
-    background: log-row-touch.has-hover ? Theme.overlay : transparent;
+    background: root.selected ? Theme.overlay
+        : log-row-touch.has-hover ? Theme.overlay
+        : transparent;
+    // A hairline on the left says which row the panel belongs to, without a second colour.
+    if root.selected: Rectangle {
+        x: 0px;
+        y: 0.4 * root.rem-size;
+        width: 2px;
+        height: root.height - 0.8 * root.rem-size;
+        background: Theme.accent-green;
+    }
 
     log-row-time := Text {
         x: 0.4 * rem-size;
@@ -858,6 +873,10 @@ export component ModsContent inherits Rectangle {
     callback search-logs(string);
     /// A press on a record: its full text opens, or closes when it is the one open.
     callback open-log(int);
+    /// The detail panel's Copy press: the record on screen goes to the clipboard.
+    callback copy-log();
+    /// The detail panel's Close press: the record is put away.
+    callback close-log();
     /// The Logs page's Clear button. The first press arms it and empties nothing.
     callback clear-logs();
     /// The About page's buttons: read the folders again, write the diagnostics file, and copy the
@@ -1221,8 +1240,10 @@ export component ModsContent inherits Rectangle {
 
             // One row of two menus, then the search box beside the Clear button, then the list.
             property <length> filter-height: 7.6 * root.rem-size;
+            // The panel takes the lower part of the page when a record is open, and scrolls its
+            // text: a stack trace is longer than any panel can be.
             property <length> detail-height: root.data.log-detail.length == 0 ? 0px
-                : (root.data.log-detail.length + 1) * 1.4 * root.rem-size + 0.8 * root.rem-size;
+                : Math.min(parent.height * 0.45, 22 * root.rem-size);
             property <length> rows-height: Math.max(0px, parent.height - filter-height - detail-height);
 
             // The filter is two single-choice menus. Each shows the choice it is on, so what the
@@ -1370,6 +1391,7 @@ export component ModsContent inherits Rectangle {
                     width: log-rows.width;
                     rem-size: root.rem-size;
                     record: row;
+                    selected: row.id == root.data.log-open-id;
                     opened => {
                         root.open-log(row.id);
                     }
@@ -1386,7 +1408,8 @@ export component ModsContent inherits Rectangle {
                 opacity: ClassStyles.opacity-or(ClassStyles.mods-empty, 0.8);
                 visible: !ClassStyles.mods-empty.hidden;
             }
-            // The record that was pressed, every line of it.
+            // The record that was pressed: what it came from, its whole text, and the two presses
+            // that act on it.
             if root.data.log-detail.length > 0: log-detail := Rectangle {
                 x: 0px;
                 y: parent.height - parent.detail-height;
@@ -1397,17 +1420,79 @@ export component ModsContent inherits Rectangle {
                 opacity: ClassStyles.opacity-or(ClassStyles.mods-log-detail, 1.0);
                 visible: !ClassStyles.mods-log-detail.hidden;
 
-                for line[index] in root.data.log-detail: detail-line := Text {
+                detail-heading := Text {
                     x: 0.8 * root.rem-size;
-                    y: 0.4 * root.rem-size + index * 1.4 * root.rem-size;
-                    width: parent.width - 1.6 * root.rem-size;
-                    height: 1.4 * root.rem-size;
-                    text: line;
+                    y: 0.5 * root.rem-size;
+                    width: Math.max(0px, parent.width - 14 * root.rem-size);
+                    height: 1.8 * root.rem-size;
+                    text: root.data.log-detail-heading;
                     overflow: elide;
+                    vertical-alignment: center;
                     font-size: 0.85 * root.rem-size;
+                    font-weight: 600;
                     color: ClassStyles.color-or(ClassStyles.mods-log-detail-text, Theme.text);
                     opacity: ClassStyles.opacity-or(ClassStyles.mods-log-detail-text, 1.0);
                     visible: !ClassStyles.mods-log-detail-text.hidden;
+                }
+                SettingsButton {
+                    x: parent.width - 12.4 * root.rem-size;
+                    y: 0.5 * root.rem-size;
+                    width: 5.2 * root.rem-size;
+                    rem-size: root.rem-size;
+                    label-text: "Copy";
+                    name: "Copy the record";
+                    primary: false;
+                    enabled: true;
+                    clicked => {
+                        root.copy-log();
+                    }
+                }
+                SettingsButton {
+                    x: parent.width - 6.8 * root.rem-size;
+                    y: 0.5 * root.rem-size;
+                    width: 5.2 * root.rem-size;
+                    rem-size: root.rem-size;
+                    label-text: "Close";
+                    name: "Close the record";
+                    primary: false;
+                    enabled: true;
+                    clicked => {
+                        root.close-log();
+                    }
+                }
+
+                // The text, wrapped and scrolling: a message keeps its own line breaks, and a long
+                // one can be read to the end.
+                detail-scroll := Flickable {
+                    x: 0px;
+                    y: 2.8 * root.rem-size;
+                    width: parent.width - 8px;
+                    height: Math.max(0px, parent.height - 3.2 * root.rem-size);
+                    content-width: self.width;
+                    content-height: detail-body.preferred-height;
+
+                    detail-body := VerticalLayout {
+                        x: 0.8 * root.rem-size;
+                        width: detail-scroll.width - 1.6 * root.rem-size;
+                        spacing: 0.2 * root.rem-size;
+
+                        for line[index] in root.data.log-detail: Text {
+                            text: line;
+                            wrap: word-wrap;
+                            font-size: 0.85 * root.rem-size;
+                            color: ClassStyles.color-or(ClassStyles.mods-log-detail-text, Theme.text);
+                            opacity: ClassStyles.opacity-or(ClassStyles.mods-log-detail-text, 1.0);
+                            visible: !ClassStyles.mods-log-detail-text.hidden;
+                        }
+                    }
+                }
+                ScrollBar {
+                    x: parent.width - 8px;
+                    y: 2.8 * root.rem-size;
+                    height: Math.max(0px, parent.height - 3.2 * root.rem-size);
+                    view-height: self.height;
+                    content-height: detail-scroll.content-height;
+                    offset <=> detail-scroll.content-y;
                 }
             }
             ScrollBar {

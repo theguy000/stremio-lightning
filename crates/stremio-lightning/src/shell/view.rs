@@ -461,6 +461,8 @@ pub(crate) fn mods_view(data: &crate::screens::mods::Data) -> ModsViewData {
             data.log_rows.iter().map(log_row).collect::<Vec<_>>(),
         )),
         log_empty: data.log_empty.clone().into(),
+        log_detail_heading: data.log_detail_heading.clone().into(),
+        log_open_id: data.log_open_id as i32,
         log_detail: ModelRc::new(VecModel::from(
             data.log_detail
                 .iter()

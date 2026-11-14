@@ -79,16 +79,30 @@ pub fn rows(logs: &Logs, filter: &Filter) -> Vec<Row> {
     logs.matching(filter).iter().map(Row::of).collect()
 }
 
-/// The full text of the record on screen, empty when none is open.
+/// The heading of the record on screen: what it came from, when, and how bad it is. Empty when
+/// nothing is open.
+pub fn detail_heading(logs: &Logs) -> String {
+    logs.detail().map_or_else(String::new, |entry| {
+        format!(
+            "{} at {} - {}",
+            entry.source_label(),
+            entry.at_shown(),
+            entry.level.label()
+        )
+    })
+}
+
+/// The text of the record on screen, one entry per line, empty when none is open. A plugin line
+/// can carry a stack trace, so its own line breaks are kept.
 pub fn detail(logs: &Logs) -> Vec<String> {
-    let Some(entry) = logs.detail() else {
-        return Vec::new();
-    };
-    let mut lines = vec![format!("{} at {}", entry.source_label(), entry.at_shown())];
-    lines.push(format!("Level: {}", entry.level.label()));
-    // A plugin line can carry a stack trace, so the text keeps its own line breaks.
-    lines.extend(entry.text.split('\n').map(str::to_owned));
-    lines
+    logs.detail().map_or_else(Vec::new, |entry| {
+        entry.text.split('\n').map(str::to_owned).collect()
+    })
+}
+
+/// The id of the record on screen, zero when none is: what the list marks as the open row.
+pub fn open_id(logs: &Logs) -> u64 {
+    logs.detail().map_or(0, |entry| entry.id)
 }
 
 /// The Clear button's label: armed says what the second press does.
@@ -168,14 +182,13 @@ mod tests {
         assert_eq!(rows[0].source, "Plugin builtin:aniskip");
         assert_eq!(rows[0].level_id, "error");
         assert!(logs.set_detail(Some(entry.id)));
-        let detail = detail(&logs);
         assert_eq!(
-            detail[0],
-            format!("Plugin builtin:aniskip at {}", entry.at_shown()),
-            "the open record is named by its source and the time it was recorded"
+            detail_heading(&logs),
+            format!("Plugin builtin:aniskip at {} - Error", entry.at_shown()),
+            "the open record is named by its source, the time and its level"
         );
-        assert!(detail.contains(&"first".to_owned()));
-        assert!(detail.contains(&"second".to_owned()));
+        assert_eq!(detail(&logs), ["first", "second"], "every line is kept");
+        assert_eq!(open_id(&logs), entry.id, "the list marks this row");
     }
 
     #[test]

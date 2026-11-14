@@ -629,6 +629,109 @@ fn the_window_lists_what_was_logged_and_filters_it() {
     );
     verdict("the search box did not filter or clear", &searching);
 
+    // ---- a record written while the page is open lands on it ----------------------------------
+    let mut live: Vec<Outcome> = Vec::new();
+    live = step(
+        live,
+        "a line recorded from another thread appears without a page switch",
+        {
+            // The page is open, and the recorder is the app's own: this is the line a plugin's
+            // timer or the stream server writes while someone is looking at the page.
+            booted.logs.record(
+                stremio_lightning::plumbing::logs::Source::App,
+                "Core",
+                stremio_lightning::plumbing::logs::Level::Error,
+                "a line written while the page was open",
+            );
+            let page_before = window.get_mods_page().to_string();
+            wait(window, Duration::from_secs(5), |window| {
+                let rows = rows_on(window);
+                if rows
+                    .iter()
+                    .any(|(_, _, text)| text == "a line written while the page was open")
+                {
+                    let page_after = window.get_mods_page().to_string();
+                    if page_after == page_before {
+                        Ok(format!("{page_after} still open, and the line is on it"))
+                    } else {
+                        Err(format!("the page became {page_after}"))
+                    }
+                } else {
+                    Err(format!("the line is not listed yet: {rows:?}"))
+                }
+            })
+        },
+    );
+    verdict(
+        "a record written while the page was open did not appear",
+        &live,
+    );
+
+    // ---- the detail panel opens, copies, closes ----------------------------------------------
+    let mut detail: Vec<Outcome> = Vec::new();
+    detail = step(
+        detail,
+        "the newest record is pressed, and its text opens under the list",
+        {
+            // The row says the time, source and text it drew, which is the name a press looks for.
+            window
+                .get_mods()
+                .log_rows
+                .row_data(0)
+                .map(|row| format!("Show {} {}: {}", row.time, row.source, row.text))
+                .ok_or_else(|| "the list is empty".to_owned())
+                .and_then(|label| click(window, &label))
+        },
+    );
+    detail = step(
+        detail,
+        "the panel names the record and keeps every line of it",
+        wait(window, Duration::from_secs(5), |window| {
+            let heading = window.get_mods().log_detail_heading.to_string();
+            let lines: Vec<String> = (0..window.get_mods().log_detail.row_count())
+                .filter_map(|row| window.get_mods().log_detail.row_data(row))
+                .map(|line| line.to_string())
+                .collect();
+            if heading.is_empty() || lines.is_empty() {
+                return Err(format!("the panel says {heading:?} / {lines:?}"));
+            }
+            if window.get_mods().log_open_id == 0 {
+                return Err("no row is marked as open".to_owned());
+            }
+            Ok(format!("{heading}: {:?}", lines.first()))
+        }),
+    );
+    detail = step(
+        detail,
+        "Copy reports what the clipboard answered",
+        click(window, "Copy the record").and_then(|_| {
+            wait(window, Duration::from_secs(5), |window| {
+                let notice = window.get_mods().notice.to_string();
+                if notice.contains("Copied the record") || notice.contains("clipboard") {
+                    Ok(notice)
+                } else {
+                    Err(format!("the page says {notice:?}"))
+                }
+            })
+        }),
+    );
+    detail = step(
+        detail,
+        "Close takes the panel away and unmarks the row",
+        click(window, "Close the record").and_then(|_| {
+            wait(window, Duration::from_secs(5), |window| {
+                let heading = window.get_mods().log_detail_heading.to_string();
+                let open = window.get_mods().log_open_id;
+                if heading.is_empty() && open == 0 {
+                    Ok("the panel is gone".to_owned())
+                } else {
+                    Err(format!("the panel still says {heading:?}, open {open}"))
+                }
+            })
+        }),
+    );
+    verdict("the detail panel did not open, copy or close", &detail);
+
     // ---- Clear takes two presses and empties the list ---------------------------
     let mut clearing: Vec<Outcome> = Vec::new();
     clearing = step(

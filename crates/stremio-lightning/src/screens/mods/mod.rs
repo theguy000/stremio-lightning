@@ -112,7 +112,10 @@ pub struct Data {
     pub log_level_index: i32,
     pub log_rows: Vec<logs::Row>,
     pub log_empty: String,
+    /// The heading and the lines of the record on screen, and the id the list marks as open.
+    pub log_detail_heading: String,
     pub log_detail: Vec<String>,
+    pub log_open_id: u64,
     pub log_clear_armed: bool,
     /// The About page: what this build is, where it keeps themes, counts, and diagnostics path.
     pub about: about::Data,
@@ -145,7 +148,9 @@ impl Data {
             log_level_index: 0,
             log_rows: Vec::new(),
             log_empty: logs::NONE.to_owned(),
+            log_detail_heading: String::new(),
             log_detail: Vec::new(),
+            log_open_id: 0,
             log_clear_armed: false,
             about: about::Data::default(),
         }
@@ -187,7 +192,9 @@ impl Data {
         } else {
             logs::NONE_MATCH.to_owned()
         };
+        self.log_detail_heading = logs::detail_heading(logs);
         self.log_detail = logs::detail(logs);
+        self.log_open_id = logs::open_id(logs);
         self.log_clear_armed = armed;
         self
     }
