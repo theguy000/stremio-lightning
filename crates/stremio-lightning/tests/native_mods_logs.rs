@@ -481,11 +481,17 @@ fn the_window_lists_what_was_logged_and_filters_it() {
     let mut filtering: Vec<Outcome> = Vec::new();
     filtering = step(
         filtering,
-        "Warnings and errors is picked, and the list gets shorter",
+        "Warnings and errors is picked, and only warnings and errors are left",
         {
             window.invoke_filter_mods_logs("level".into(), 3);
             wait(window, Duration::from_secs(10), |window| {
+                // The app keeps recording while the page is open (a failed picture fetch on boot
+                // is itself a record), so the count either side of the press is not the thing to
+                // judge: what the filter keeps is.
                 let rows = rows_on(window);
+                if rows.is_empty() {
+                    return Err("the filter keeps nothing".to_owned());
+                }
                 if rows
                     .iter()
                     .any(|(_, level, _)| level != "Warning" && level != "Error")
@@ -494,9 +500,6 @@ fn the_window_lists_what_was_logged_and_filters_it() {
                         "{} rows, and not all warnings/errors: {rows:?}",
                         rows.len()
                     ));
-                }
-                if rows.len() >= rows_before {
-                    return Err(format!("{} rows before, {} after", rows_before, rows.len()));
                 }
                 if !rows
                     .iter()
