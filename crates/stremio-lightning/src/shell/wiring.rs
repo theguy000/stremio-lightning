@@ -173,11 +173,6 @@ pub(crate) struct Wiring {
     pub(crate) mods_edits: Arc<Mutex<crate::screens::mods::settings::Edits>>,
     /// The app's log records, which the Logs page lists.
     pub(crate) logs: Arc<crate::plumbing::logs::Logs>,
-    /// Reads the recorder's change counter while the Logs page is open, so a line a background
-    /// task records lands on the page without a page switch.
-    pub(crate) logs_refresh: Arc<Timer>,
-    /// The counter's value when the page last drew, so one record is one repaint.
-    pub(crate) logs_seen: Arc<AtomicU64>,
     /// own state, like an armed Remove, because the screen only describes what it shows.
     pub(crate) mods_clearing: Arc<Mutex<bool>>,
     /// Where the diagnostics file was written, shown on the About page until the app closes.
@@ -1916,9 +1911,6 @@ impl Wiring {
     /// by the time the page finishes drawing.
     fn select_mods_page(&self, id: String) {
         let page = mods::Page::from_id(&id);
-        // The Logs page is the one page whose list grows while it is open: its timer runs only
-        // while it is the page on screen.
-        self.watch_logs(page == mods::Page::Logs);
         // Leaving the Plugin settings page drops what was typed there: the back arrow is the
         // page's revert, and nothing typed on it outlives the page.
         if page != mods::Page::Settings {
@@ -2045,32 +2037,6 @@ impl Wiring {
 
     // ---- The Logs page -------------------------------------------------------
 
-    /// Starts or stops the Logs page's live refresh. While the page is open the timer reads the
-    /// recorder's change counter and repaints only when a record was added, so a plugin's line, a
-    /// server verdict or an error reaches the page as it happens. Leaving the page stops the timer.
-    fn watch_logs(&self, watching: bool) {
-        self.logs_refresh.stop();
-        if !watching {
-            return;
-        }
-        self.logs_seen.store(self.logs.count(), Ordering::SeqCst);
-        let wiring = self.clone();
-        let logs = self.logs.clone();
-        let seen = self.logs_seen.clone();
-        self.logs_refresh.start(
-            slint::TimerMode::Repeated,
-            std::time::Duration::from_millis(400),
-            move || {
-                let count = logs.count();
-                if count == seen.load(Ordering::SeqCst) {
-                    return;
-                }
-                seen.store(count, Ordering::SeqCst);
-                wiring.repaint_mods_now();
-            },
-        );
-    }
-
     /// A press on one of the Logs page's filter menus: the row picked, zero being every source or
     /// every level. The filter belongs to the recorder, which is where a line a plugin logs from a
     /// timer finds it too: a page redrawn by a core event draws the same filtered list. Pressing a
@@ -2079,8 +2045,9 @@ impl Wiring {
         *self.mods_clearing.lock().unwrap() = false;
         let index = usize::try_from(value).unwrap_or(0);
         match part {
-            "source" => self.logs.set_source_index(index),
-            _ => self.logs.set_level_index(index),
+            "source" => mods::logs::pick_source(&self.logs, index),
+            "level" => mods::logs::pick_level(&self.logs, index),
+            other => debug_assert!(false, "no Logs filter is called {other:?}"),
         }
         self.repaint_mods_now();
     }
@@ -2123,15 +2090,15 @@ impl Wiring {
     /// The detail panel's Copy press: the record on screen, heading and every line of it, goes to
     /// the clipboard so it can be pasted into a report.
     fn copy_log_record(&self) {
-        let Some(entry) = self.logs.detail() else {
+        if self.logs.detail().is_none() {
             return;
-        };
+        }
+        // The panel's own two pieces, so a change to how a record is named reaches the clipboard
+        // as well as the screen.
         let text = format!(
-            "{} at {}\nLevel: {}\n{}",
-            entry.source_label(),
-            entry.at_shown(),
-            entry.level.label(),
-            entry.text
+            "{}\n{}",
+            mods::logs::detail_heading(&self.logs),
+            mods::logs::detail(&self.logs).join("\n")
         );
         let notice = match crate::plumbing::clipboard::copy(&text) {
             Ok(()) => mods::Notice::said("Copied the record."),

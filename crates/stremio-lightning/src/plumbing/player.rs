@@ -712,7 +712,14 @@ fn drain_events(player: &mut Player, status: &mut Status, logs: &Logs) {
                     } else {
                         Level::Warn
                     };
-                    logs.record(Source::App, format!("mpv {level}"), severity, text);
+                    // One origin for everything the player has to say, so a report can find the
+                    // failed install and the refused stream in the same place.
+                    logs.record(
+                        Source::App,
+                        "Player",
+                        severity,
+                        format!("mpv {level}: {text}"),
+                    );
                 }
             }
             Event::EndFile(reason) => {

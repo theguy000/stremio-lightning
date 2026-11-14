@@ -510,17 +510,21 @@ fn the_window_lists_what_was_logged_and_filters_it() {
     );
     filtering = step(
         filtering,
-        "the level menu now says Warnings and errors",
+        "the level menu now says Warnings and errors, on screen",
         wait(window, Duration::from_secs(5), |window| {
             let levels = window.get_mods().log_level_options;
             let shown = levels
                 .row_data(usize::try_from(window.get_mods().log_level_index).unwrap_or(0))
                 .map(|option| option.label.to_string())
                 .unwrap_or_default();
-            if shown == "Warnings and errors" {
+            let drawn = ui_driver::texts(window).contains(&shown);
+            if shown == "Warnings and errors" && drawn {
                 Ok(shown)
             } else {
-                Err(format!("the menu shows {shown:?}"))
+                Err(format!(
+                    "the model says {shown:?}, drawn: {drawn}; on screen: {:?}",
+                    ui_driver::texts(window)
+                ))
             }
         }),
     );
@@ -685,7 +689,7 @@ fn the_window_lists_what_was_logged_and_filters_it() {
     );
     detail = step(
         detail,
-        "the panel names the record and keeps every line of it",
+        "the panel is drawn with the record's name, and the row it belongs to is marked",
         wait(window, Duration::from_secs(5), |window| {
             let heading = window.get_mods().log_detail_heading.to_string();
             let lines: Vec<String> = (0..window.get_mods().log_detail.row_count())
@@ -693,12 +697,29 @@ fn the_window_lists_what_was_logged_and_filters_it() {
                 .map(|line| line.to_string())
                 .collect();
             if heading.is_empty() || lines.is_empty() {
-                return Err(format!("the panel says {heading:?} / {lines:?}"));
+                return Err(format!("the panel holds {heading:?} / {lines:?}"));
             }
             if window.get_mods().log_open_id == 0 {
                 return Err("no row is marked as open".to_owned());
             }
-            Ok(format!("{heading}: {:?}", lines.first()))
+            // What the section draws, not what the model holds: the heading is on screen and the
+            // row it belongs to says it is the open one.
+            let texts = ui_driver::texts(window);
+            if !texts.contains(&heading) {
+                return Err(format!("the panel draws no heading; on screen: {texts:?}"));
+            }
+            let names = ui_driver::labels(window);
+            let marked: Vec<&String> = names
+                .iter()
+                .filter(|name| {
+                    name.starts_with("Open ")
+                        && name.contains("a line written while the page was open")
+                })
+                .collect();
+            match marked.first() {
+                Some(name) => Ok(format!("{heading}; the row says {name:?}")),
+                None => Err(format!("no row is marked; on screen: {names:?}")),
+            }
         }),
     );
     detail = step(

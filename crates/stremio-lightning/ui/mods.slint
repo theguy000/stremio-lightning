@@ -788,7 +788,10 @@ component ModsLogRowView inherits Rectangle {
         // The text, so a test presses the record it means. The time is in it, because two lines
         // of the same text are two records.
         accessible-role: button;
-        accessible-label: "Show " + root.record.time + " " + root.record.source + ": " + root.record.text;
+        // The row says whether it is the one whose text is open, so what a press did is readable
+        // on screen and not only in the model behind it.
+        accessible-label: (root.selected ? "Open " : "Show ")
+            + root.record.time + " " + root.record.source + ": " + root.record.text;
         clicked => {
             root.opened();
         }

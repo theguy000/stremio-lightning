@@ -183,9 +183,8 @@ impl Data {
     #[must_use]
     pub fn with_logs(mut self, logs: &crate::plumbing::logs::Logs, armed: bool) -> Self {
         self.log_filter = logs.filter();
-        let (source, level) = logs::menu_indexes(&self.log_filter);
-        self.log_source_index = i32::try_from(source).unwrap_or(0);
-        self.log_level_index = i32::try_from(level).unwrap_or(0);
+        self.log_source_index = i32::try_from(logs::source_index(&self.log_filter)).unwrap_or(0);
+        self.log_level_index = i32::try_from(logs::level_index(&self.log_filter)).unwrap_or(0);
         self.log_rows = logs::rows(logs, &self.log_filter);
         self.log_empty = if logs.is_empty() {
             logs::NONE.to_owned()

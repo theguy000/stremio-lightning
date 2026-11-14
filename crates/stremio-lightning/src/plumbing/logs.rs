@@ -68,23 +68,6 @@ impl Source {
         Self::ALL.into_iter().find(|source| source.id() == id)
     }
 
-    /// The source's place in the filter's list, counting from one: zero is every source.
-    pub fn index(self) -> usize {
-        Self::ALL
-            .iter()
-            .position(|source| *source == self)
-            .map_or(0, |at| at + 1)
-    }
-
-    /// The source a filter's index names, or `None` for "every source" and for an index past the
-    /// list.
-    pub fn from_index(index: usize) -> Option<Self> {
-        index
-            .checked_sub(1)
-            .and_then(|at| Self::ALL.get(at))
-            .copied()
-    }
-
     /// A row is one line of a row's first column: the label, then what it is about.
     fn shown(self, origin: &str) -> String {
         if origin.is_empty() {
@@ -145,23 +128,6 @@ impl Level {
             Self::Warn => 2,
             Self::Error => 3,
         }
-    }
-
-    /// The level's place in the filter's list, counting from one: zero is every level.
-    pub fn index(self) -> usize {
-        Self::ALL
-            .iter()
-            .position(|level| *level == self)
-            .map_or(0, |at| at + 1)
-    }
-
-    /// The level a filter's index names as its least, or `None` for "every level" and for an
-    /// index past the list.
-    pub fn from_index(index: usize) -> Option<Self> {
-        index
-            .checked_sub(1)
-            .and_then(|at| Self::ALL.get(at))
-            .copied()
     }
 }
 
@@ -237,16 +203,6 @@ impl Filter {
         Level::from_id(&self.level)
     }
 
-    /// The row the source menu opens on: zero for every source.
-    pub fn source_index(&self) -> usize {
-        self.picked_source().map_or(0, Source::index)
-    }
-
-    /// The row the level menu opens on: zero for every level.
-    pub fn level_index(&self) -> usize {
-        self.least_level().map_or(0, Level::index)
-    }
-
     /// Whether `entry` passes every part of the filter.
     pub fn keeps(&self, entry: &Entry) -> bool {
         if self
@@ -274,8 +230,11 @@ impl Filter {
     }
 }
 
+/// What a recorder tells when a record lands.
+type Notify = std::sync::Arc<dyn Fn() + Send + Sync>;
+
 /// The app's records and the counting of them. Shared by every part that records something.
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct Logs {
     entries: Mutex<VecDeque<Entry>>,
     /// Where every record is also written, line by line, so a log can be read when the window
@@ -293,6 +252,19 @@ pub struct Logs {
     filter_search: Mutex<String>,
     /// The record whose full text the page is showing, by id, and zero when none is.
     detail: AtomicU64,
+    /// What to tell when a record lands. The shell puts a repaint here while the Logs page is on
+    /// screen; nothing in this module knows what a window is.
+    notify: Mutex<Option<Notify>>,
+}
+
+impl std::fmt::Debug for Logs {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Logs")
+            .field("entries", &lock(&self.entries).len())
+            .field("watching", &lock(&self.notify).is_some())
+            .finish()
+    }
 }
 
 impl Logs {
@@ -345,14 +317,9 @@ impl Logs {
                 .open(path)
             {
                 use std::io::Write;
-                let _ = writeln!(
-                    file,
-                    "{} {} {}: {}",
-                    entry.at_stamped(),
-                    entry.level.id(),
-                    entry.source_label(),
-                    entry.text
-                );
+                // The same line the diagnostics export writes: one serializer, so the two files a
+                // report can carry say the same thing about the same record.
+                let _ = writeln!(file, "{}", entry.written());
             }
         }
         let mut entries = lock(&self.entries);
@@ -361,6 +328,11 @@ impl Logs {
         entries.drain(..over);
         drop(entries);
         self.count.fetch_add(1, Ordering::SeqCst);
+        // Told after the lock is let go: the listener reads the list back.
+        let notify = lock(&self.notify).clone();
+        if let Some(notify) = notify {
+            notify();
+        }
         entry
     }
 
@@ -407,6 +379,12 @@ impl Logs {
         self.count.load(Ordering::SeqCst)
     }
 
+    /// Says where a new record is announced. Called after the record is stored and no lock is
+    /// held, from whichever thread recorded it: the shell decides whether that is worth a repaint.
+    pub fn watch_records(&self, notify: impl Fn() + Send + Sync + 'static) {
+        *lock(&self.notify) = Some(std::sync::Arc::new(notify));
+    }
+
     /// The filter the Logs page is showing.
     pub fn filter(&self) -> Filter {
         Filter {
@@ -433,18 +411,6 @@ impl Logs {
 
     pub fn set_search(&self, search: &str) {
         *lock(&self.filter_search) = search.to_owned();
-    }
-
-    /// Picks the source at `index` in the menu's list: zero is every source.
-    pub fn set_source_index(&self, index: usize) {
-        let id = Source::from_index(index).map_or("", Source::id);
-        *lock(&self.filter_source) = id.to_owned();
-    }
-
-    /// Picks the least level at `index` in the menu's list: zero is every level.
-    pub fn set_level_index(&self, index: usize) {
-        let id = Level::from_index(index).map_or("", Level::id);
-        *lock(&self.filter_level) = id.to_owned();
     }
 
     /// The record whose full text is on screen, if one is.
@@ -642,20 +608,24 @@ mod tests {
     }
 
     #[test]
-    fn a_menu_index_picks_the_part_of_the_filter_it_names() {
-        let logs = Logs::new();
-        assert_eq!(logs.filter().source_index(), 0, "every source first");
-        logs.set_source_index(1);
-        assert_eq!(logs.filter().source, "plugin");
-        logs.set_source_index(Source::ALL.len());
-        assert_eq!(logs.filter().picked_source(), Some(Source::App));
-        logs.set_source_index(Source::ALL.len() + 1);
-        assert_eq!(logs.filter().source, "", "past the list is every source");
-        logs.set_level_index(3);
-        assert_eq!(logs.filter().least_level(), Some(Level::Warn));
-        assert_eq!(logs.filter().level_index(), 3);
-        logs.set_level_index(0);
-        assert_eq!(logs.filter().least_level(), None);
+    fn a_new_record_is_announced_once_and_the_announcement_reads_the_list() {
+        let logs = std::sync::Arc::new(Logs::new());
+        let seen = std::sync::Arc::new(Mutex::new(Vec::new()));
+        {
+            let (page_logs, seen) = (logs.clone(), seen.clone());
+            logs.watch_records(move || {
+                // The listener reads the recorder back while it runs: no lock is held on the way.
+                seen.lock().unwrap().push(page_logs.len());
+            });
+        }
+        logs.record(Source::App, "", Level::Info, "one");
+        assert_eq!(
+            *seen.lock().unwrap(),
+            [1],
+            "the page is told, and the line is there"
+        );
+        logs.record(Source::App, "", Level::Info, "two");
+        assert_eq!(*seen.lock().unwrap(), [1, 2]);
     }
 
     #[test]
@@ -724,7 +694,11 @@ mod tests {
             "a line begins with the reader's own date and time: {written:?}"
         );
         assert!(
-            written.contains("info App Core: the first line"),
+            written.contains(&first.written()),
+            "the file holds the record exactly as the diagnostics export writes it: {written:?}"
+        );
+        assert!(
+            written.contains("Info [App Core] the first line"),
             "a line says its level, what it came from, and what it said: {written:?}"
         );
 

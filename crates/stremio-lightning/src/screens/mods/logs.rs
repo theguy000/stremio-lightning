@@ -69,9 +69,50 @@ pub fn level_options() -> Vec<&'static str> {
     ]
 }
 
-/// The row the source menu opens on, and the one the level menu opens on.
-pub fn menu_indexes(filter: &Filter) -> (usize, usize) {
-    (filter.source_index(), filter.level_index())
+/// The row a filter's source menu opens on: zero for every source.
+pub fn source_index(filter: &Filter) -> usize {
+    row_of(&Source::ALL, filter.picked_source())
+}
+
+/// The row a filter's level menu opens on: zero for every level.
+pub fn level_index(filter: &Filter) -> usize {
+    row_of(&Level::ALL, filter.least_level())
+}
+
+/// The source a menu row names, or `None` for "every source" and for a row past the list.
+pub fn source_at(index: usize) -> Option<Source> {
+    index
+        .checked_sub(1)
+        .and_then(|at| Source::ALL.get(at))
+        .copied()
+}
+
+/// The level a menu row names as its least, or `None` for "every level" and for a row past the
+/// list.
+pub fn level_at(index: usize) -> Option<Level> {
+    index
+        .checked_sub(1)
+        .and_then(|at| Level::ALL.get(at))
+        .copied()
+}
+
+/// Applies a source menu row to the recorder's filter. Both menus speak rows, because that is what
+/// the window's single-choice menu answers with; the recorder itself only ever hears a source.
+pub fn pick_source(logs: &Logs, index: usize) {
+    logs.set_source(source_at(index).map_or("", Source::id));
+}
+
+/// Applies a level menu row to the recorder's filter, as "the least level kept".
+pub fn pick_level(logs: &Logs, index: usize) {
+    logs.set_level(level_at(index).map_or("", Level::id));
+}
+
+/// A choice's row in its menu: zero for the "every" row, then one per choice. The one function the
+/// two menus share, so a source row and a level row cannot be counted differently.
+fn row_of<T: PartialEq + Copy>(all: &[T], picked: Option<T>) -> usize {
+    picked
+        .and_then(|picked| all.iter().position(|choice| *choice == picked))
+        .map_or(0, |at| at + 1)
 }
 
 /// The rows the page lists: the records the filter keeps, newest first.
@@ -146,25 +187,53 @@ mod tests {
                 "Errors only"
             ]
         );
-        assert_eq!(menu_indexes(&filter), (0, 0), "both open on every-thing");
+        assert_eq!((source_index(&filter), level_index(&filter)), (0, 0));
         let picked = Filter {
             source: "theme".to_owned(),
             level: "warn".to_owned(),
             ..Filter::default()
         };
-        assert_eq!(
-            menu_indexes(&picked),
-            (2, 3),
-            "the menus open on the choices the filter holds"
-        );
-        // Every label a menu shows is the label the record's own column would carry.
-        for source in Source::ALL {
+        assert_eq!((source_index(&picked), level_index(&picked)), (2, 3));
+
+        // Every row names the choice its label names, both ways round, and every label a menu
+        // shows is the label the record's own column would carry.
+        for (at, source) in Source::ALL.iter().enumerate() {
+            assert_eq!(source_at(at + 1), Some(*source));
+            assert_eq!(source_options()[at + 1], source.label());
+        }
+        assert_eq!(source_at(0), None);
+        assert_eq!(source_at(Source::ALL.len() + 1), None);
+        for (at, level) in Level::ALL.iter().enumerate() {
             assert_eq!(
-                source_options()[source.index()],
-                source.label(),
-                "the menu and the source column agree"
+                level_at(at + 1),
+                Some(*level),
+                "the level menu's row {at} names the level the page keeps from"
+            );
+            assert_eq!(
+                level_index(&Filter {
+                    level: level.id().to_owned(),
+                    ..Filter::default()
+                }),
+                at + 1
             );
         }
+        assert_eq!(level_at(0), None);
+    }
+
+    #[test]
+    fn a_menu_row_narrows_the_recorder_and_every_row_widens_it_back() {
+        let logs = Logs::new();
+        logs.record(Source::Plugin, "builtin:aniskip", Level::Info, "one");
+        logs.record(Source::Theme, "red.theme.css", Level::Warn, "two");
+        pick_source(&logs, 2);
+        assert_eq!(logs.filter().picked_source(), Some(Source::Theme));
+        assert_eq!(rows(&logs, &logs.filter()).len(), 1);
+        pick_level(&logs, 3);
+        assert_eq!(logs.filter().least_level(), Some(Level::Warn));
+        pick_source(&logs, 0);
+        pick_level(&logs, 0);
+        assert_eq!(logs.filter(), Filter::default());
+        assert_eq!(rows(&logs, &logs.filter()).len(), 2);
     }
 
     #[test]

@@ -184,12 +184,25 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
         mods_plugin: mods_plugin.clone(),
         mods_edits: mods_edits.clone(),
         logs: logs.clone(),
-        logs_refresh: Default::default(),
-        logs_seen: Default::default(),
         mods_clearing: Default::default(),
         mods_export: Default::default(),
     };
     shell::wire(&window, wiring.clone());
+    // The Logs page hears about a new record when it lands, from whichever thread recorded it: no
+    // timer runs anywhere, and nothing is read while the page is not on screen. The page string is
+    // the window's own, and the list is redrawn on the window's thread.
+    {
+        let weak = window.as_weak();
+        let page_logs = logs.clone();
+        let page = mods_page.clone();
+        let armed = wiring.mods_clearing.clone();
+        logs.watch_records(move || {
+            if page.lock().unwrap().as_str() != screens::mods::Page::Logs.id() {
+                return;
+            }
+            shell::view::refresh_logs(&weak, page_logs.clone(), armed.clone());
+        });
+    }
     // The wheel is taken from the window itself: left to a Slint Flickable it costs a whole
     // animation, and a whole animation is a core.
     shell::wheel::wire(&window);
