@@ -710,7 +710,8 @@ mod tests {
 
     #[test]
     fn the_file_keeps_one_previous_run_and_starts_a_fresh_one() {
-        let folder = std::env::temp_dir().join(format!("stremio-lightning-logs-{}", std::process::id()));
+        let folder =
+            std::env::temp_dir().join(format!("stremio-lightning-logs-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&folder);
         let path = folder.join("app.log");
         let logs = Logs::recording_to(path.clone());
@@ -731,8 +732,8 @@ mod tests {
         // fresh one.
         std::fs::write(&path, vec![b'x'; (FILE_LIMIT + 1) as usize]).expect("a full file");
         logs.record(Source::App, "Core", Level::Info, "after the limit");
-        let rotated = std::fs::read_to_string(path.with_extension("log.1"))
-            .expect("the previous run's file");
+        let rotated =
+            std::fs::read_to_string(path.with_extension("log.1")).expect("the previous run's file");
         assert_eq!(rotated.len(), (FILE_LIMIT + 1) as usize);
         let fresh = std::fs::read_to_string(&path).expect("the fresh file");
         assert!(fresh.contains("after the limit"), "{fresh:?}");
