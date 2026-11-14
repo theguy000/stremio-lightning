@@ -13,7 +13,7 @@ use stremio_core::runtime::msg::{Action, ActionLoad, ActionPlayer};
 use stremio_core::runtime::RuntimeAction;
 use stremio_core::types::addon::{ResourcePath, ResourceRequest};
 use stremio_core::types::player::VideoScale;
-use stremio_core::types::resource::{MetaItem, Subtitles};
+use stremio_core::types::resource::{MetaItem, StreamSource, Subtitles};
 use stremio_core::types::streams::StreamsItemKey;
 
 use crate::app::{AppModel, AppRuntime};
@@ -251,11 +251,7 @@ pub(crate) fn open_for(runtime: &AppRuntime, id: &str) -> Result<(), String> {
         )),
     };
     drop(model);
-    runtime.dispatch(RuntimeAction {
-        field: Some(crate::app::AppModelField::Player),
-        action: Action::Load(ActionLoad::Player(Box::new(selected))),
-    });
-    Ok(())
+    dispatch_or_open(runtime, selected)
 }
 
 /// Loads the Stream the details screen lists at `index`.
@@ -265,6 +261,20 @@ pub(crate) fn open(runtime: &AppRuntime, index: usize) -> Result<(), String> {
         .map_err(|_| "the app state is not available".to_owned())?;
     let selected = picked(&model, index).ok_or("the list changed, pick it again")?;
     drop(model);
+    dispatch_or_open(runtime, selected)
+}
+
+fn dispatch_or_open(runtime: &AppRuntime, selected: PlayerSelected) -> Result<(), String> {
+    if let StreamSource::External { external_url, .. } = &selected.stream.source {
+        let Some(url) = external_url.as_ref() else {
+            return Err("this external stream has no link to open".to_owned());
+        };
+        let Some(resolved) = crate::plumbing::links::resolve(url.as_str()) else {
+            return Err("this external stream uses an unsupported link".to_owned());
+        };
+        crate::plumbing::links::open(&resolved);
+        return Ok(());
+    }
     runtime.dispatch(RuntimeAction {
         field: Some(crate::app::AppModelField::Player),
         action: Action::Load(ActionLoad::Player(Box::new(selected))),
@@ -1149,5 +1159,250 @@ mod tests {
         assert_eq!(season_index(&seasons, Some(1), 1), 1);
         // A row that no longer exists falls back to the playing Video's.
         assert_eq!(season_index(&seasons, Some(9), 1), 1);
+    }
+
+    static WATCH_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn init_test_env() {
+        static RUNTIME: std::sync::OnceLock<tokio::runtime::Runtime> = std::sync::OnceLock::new();
+        RUNTIME.get_or_init(|| {
+            let dir = std::env::temp_dir()
+                .join(format!("stremio-lightning-player-{}", std::process::id()));
+            std::fs::create_dir_all(&dir).expect("temp dir");
+            let tokio = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .expect("tokio runtime");
+            let _ = stremio_lightning_env::AppEnv::init(dir, tokio.handle().clone());
+            tokio
+        });
+    }
+
+    struct WatchGuard {
+        _lock: std::sync::MutexGuard<'static, ()>,
+    }
+
+    impl WatchGuard {
+        fn capture() -> (Self, std::sync::Arc<std::sync::Mutex<Vec<String>>>) {
+            let lock = WATCH_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+            let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+            let sink = seen.clone();
+            crate::plumbing::links::watch(Some(Box::new(move |url| {
+                sink.lock().unwrap().push(url.to_owned());
+            })));
+            (Self { _lock: lock }, seen)
+        }
+    }
+
+    impl Drop for WatchGuard {
+        fn drop(&mut self) {
+            crate::plumbing::links::watch(None);
+        }
+    }
+
+    fn test_runtime(
+        streams: Vec<Stream>,
+        library_items: Vec<stremio_core::types::library::LibraryItem>,
+        saved_streams: Vec<stremio_core::types::streams::StreamsItem>,
+    ) -> (
+        std::sync::Arc<AppRuntime>,
+        futures::channel::mpsc::Receiver<
+            stremio_core::runtime::RuntimeEvent<stremio_lightning_env::AppEnv, AppModel>,
+        >,
+    ) {
+        use stremio_core::models::catalog_with_filters::CatalogWithFilters;
+        use stremio_core::models::common::ResourceLoadable;
+        use stremio_core::models::continue_watching_preview::ContinueWatchingPreview;
+        use stremio_core::models::ctx::Ctx;
+        use stremio_core::models::installed_addons_with_filters::InstalledAddonsWithFilters;
+        use stremio_core::models::library_with_filters::{LibraryWithFilters, NotRemovedFilter};
+        use stremio_core::models::meta_details::MetaDetails;
+        use stremio_core::types::events::DismissedEventsBucket;
+        use stremio_core::types::library::LibraryBucket;
+        use stremio_core::types::notifications::NotificationsBucket;
+        use stremio_core::types::profile::Profile;
+        use stremio_core::types::resource::MetaItemPreview;
+        use stremio_core::types::search_history::SearchHistoryBucket;
+        use stremio_core::types::server_urls::ServerUrlsBucket;
+        use stremio_core::types::streams::StreamsBucket;
+        use stremio_lightning_env::AppEnv;
+
+        init_test_env();
+        let profile = Profile::default();
+        let uid = profile.uid();
+        let library = LibraryBucket::new(uid.clone(), library_items);
+        let notifications = NotificationsBucket::new::<AppEnv>(uid.clone(), vec![]);
+        let (continue_watching_preview, _) = ContinueWatchingPreview::new(&library, &notifications);
+        let (library_with_filters, _) =
+            LibraryWithFilters::<NotRemovedFilter>::new(&library, &notifications);
+        let (discover, _) = CatalogWithFilters::<MetaItemPreview>::new(&profile);
+        let (installed_addons, _) = InstalledAddonsWithFilters::new(&profile);
+        let mut streams_bucket = StreamsBucket::new(uid.clone());
+        for item in saved_streams {
+            streams_bucket.items.insert(
+                StreamsItemKey {
+                    meta_id: item.meta_id.clone(),
+                    video_id: item.video_id.clone(),
+                },
+                item,
+            );
+        }
+        let meta_details = MetaDetails {
+            streams: vec![ResourceLoadable {
+                request: ResourceRequest {
+                    base: url::Url::parse("https://addon.example.com/manifest.json").unwrap(),
+                    path: ResourcePath::without_extra("stream", "movie", "tt1"),
+                },
+                content: Some(Loadable::Ready(streams)),
+            }],
+            ..Default::default()
+        };
+        let model = AppModel {
+            ctx: Ctx::new(
+                profile,
+                library,
+                streams_bucket,
+                ServerUrlsBucket::new::<AppEnv>(uid.clone()),
+                notifications,
+                SearchHistoryBucket::new(uid.clone()),
+                DismissedEventsBucket::new(uid),
+            ),
+            board: Default::default(),
+            calendar: Default::default(),
+            continue_watching_preview,
+            discover,
+            library: library_with_filters,
+            installed_addons,
+            remote_addons: Default::default(),
+            addon_details: Default::default(),
+            meta_details,
+            player: Default::default(),
+        };
+        let (runtime, events) = AppRuntime::new(model, vec![], 1000);
+        (std::sync::Arc::new(runtime), events)
+    }
+
+    fn stream_with(source: stremio_core::types::resource::StreamSource) -> Stream {
+        Stream {
+            source,
+            name: None,
+            description: None,
+            thumbnail: None,
+            subtitles: vec![],
+            behavior_hints: Default::default(),
+        }
+    }
+
+    fn saved_title(
+        meta_id: &str,
+        stream: Stream,
+    ) -> (
+        stremio_core::types::library::LibraryItem,
+        stremio_core::types::streams::StreamsItem,
+    ) {
+        use stremio_core::types::library::{LibraryItem, LibraryItemState};
+        use stremio_core::types::resource::PosterShape;
+        use stremio_core::types::streams::StreamsItem;
+
+        let item = LibraryItem {
+            id: meta_id.to_owned(),
+            name: "Title".to_owned(),
+            r#type: "movie".to_owned(),
+            poster: None,
+            poster_shape: PosterShape::Poster,
+            removed: false,
+            temp: false,
+            ctime: None,
+            mtime: chrono::Utc::now(),
+            state: LibraryItemState {
+                video_id: Some(meta_id.to_owned()),
+                ..Default::default()
+            },
+            behavior_hints: Default::default(),
+        };
+        let saved = StreamsItem {
+            stream,
+            r#type: "movie".to_owned(),
+            meta_id: meta_id.to_owned(),
+            video_id: meta_id.to_owned(),
+            meta_transport_url: url::Url::parse("https://cinemeta.example.com/manifest.json")
+                .unwrap(),
+            stream_transport_url: url::Url::parse("https://addon.example.com/manifest.json")
+                .unwrap(),
+            state: None,
+            mtime: chrono::Utc::now(),
+        };
+        (item, saved)
+    }
+
+    #[test]
+    fn external_stream_opens_in_browser_without_loading_player() {
+        let (_guard, seen) = WatchGuard::capture();
+        let external = stream_with(stremio_core::types::resource::StreamSource::External {
+            external_url: Some(url::Url::parse("https://example.com/watch").unwrap()),
+            android_tv_url: None,
+            tizen_url: None,
+            webos_url: None,
+        });
+        let (item, saved) = saved_title("tt1", external.clone());
+        let (runtime, _events) = test_runtime(vec![external], vec![item], vec![saved]);
+
+        assert_eq!(open(&runtime, 0), Ok(()));
+        assert!(runtime.model().unwrap().player.selected.is_none());
+
+        assert_eq!(open_for(&runtime, "tt1"), Ok(()));
+        assert!(runtime.model().unwrap().player.selected.is_none());
+
+        assert_eq!(
+            *seen.lock().unwrap(),
+            vec![
+                "https://example.com/watch".to_owned(),
+                "https://example.com/watch".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn external_stream_without_http_url_returns_error() {
+        let (_guard, seen) = WatchGuard::capture();
+        let missing = stream_with(stremio_core::types::resource::StreamSource::External {
+            external_url: None,
+            android_tv_url: None,
+            tizen_url: None,
+            webos_url: None,
+        });
+        let non_http = stream_with(stremio_core::types::resource::StreamSource::External {
+            external_url: Some(url::Url::parse("ftp://example.com/file").unwrap()),
+            android_tv_url: None,
+            tizen_url: None,
+            webos_url: None,
+        });
+        let (item, saved) = saved_title("tt1", missing.clone());
+        let (runtime, _events) = test_runtime(vec![missing, non_http], vec![item], vec![saved]);
+
+        assert!(open(&runtime, 0).is_err());
+        assert!(open(&runtime, 1).is_err());
+        assert!(open_for(&runtime, "tt1").is_err());
+        assert!(runtime.model().unwrap().player.selected.is_none());
+        assert!(seen.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn url_stream_still_dispatches_player_load() {
+        let (_guard, seen) = WatchGuard::capture();
+        let playable = stream_with(stremio_core::types::resource::StreamSource::Url {
+            url: url::Url::parse("https://example.com/movie.mp4").unwrap(),
+        });
+        let (item, saved) = saved_title("tt1", playable.clone());
+        let (runtime_open, _events1) = test_runtime(vec![playable], vec![], vec![]);
+        let (runtime_open_for, _events2) = test_runtime(vec![], vec![item], vec![saved]);
+
+        assert_eq!(open(&runtime_open, 0), Ok(()));
+        assert!(runtime_open.model().unwrap().player.selected.is_some());
+
+        assert_eq!(open_for(&runtime_open_for, "tt1"), Ok(()));
+        assert!(runtime_open_for.model().unwrap().player.selected.is_some());
+
+        assert!(seen.lock().unwrap().is_empty());
     }
 }

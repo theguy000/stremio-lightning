@@ -13,8 +13,12 @@ fn main() {
     // without touching any Rust file would otherwise keep the last build's copy.
     println!("cargo:rerun-if-changed=../../assets/icons/128x128.png");
     println!("cargo:rerun-if-env-changed=MPV_DEV_DIR");
-    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
-        link_windows_mpv();
+    println!("cargo:rerun-if-env-changed=MPV_DIR");
+    println!("cargo:rerun-if-env-changed=STREMIO_LIGHTNING_MPV_DIR");
+    match std::env::var("CARGO_CFG_TARGET_OS").as_deref() {
+        Ok("windows") => link_windows_mpv(),
+        Ok("macos") => link_macos_mpv(),
+        _ => {}
     }
     // Called on every host, not only Windows: `embed_windows_icon` decides for itself whether to
     // act. The call must not be behind a `cfg!(windows)` here -- `cfg!` is a runtime bool, so the
@@ -24,8 +28,7 @@ fn main() {
 }
 
 /// Embeds the executable's icon, so Explorer, the Start menu and a taskbar button that falls back
-/// to the executable all show the app's mark rather than a blank page. The source is the same
-/// multi-size `src/favicon.ico` the WebView2 shell embeds.
+/// to the executable all show the app's mark rather than a blank page.
 ///
 /// Gated by an attribute, not `cfg!`: the `embed-resource` build-dependency is `cfg(windows)`, so on
 /// a Linux host a mere runtime `cfg!` guard would still leave the name unresolved. It is the *host*
@@ -34,7 +37,7 @@ fn main() {
 #[cfg(windows)]
 fn embed_windows_icon() {
     println!("cargo:rerun-if-changed=stremio-lightning.rc");
-    println!("cargo:rerun-if-changed=../../src/favicon.ico");
+    println!("cargo:rerun-if-changed=../../assets/icons/favicon.ico");
     embed_resource::compile("stremio-lightning.rc", embed_resource::NONE)
         .manifest_required()
         .expect("failed to embed the executable icon");
@@ -44,11 +47,10 @@ fn embed_windows_icon() {
 fn embed_windows_icon() {}
 
 /// On Windows libmpv is linked from the import library that `cargo xtask setup-windows`
-/// downloads for the Windows shell, and its DLL is copied next to the executable.
+/// downloads, and its DLL is copied next to the executable.
 fn link_windows_mpv() {
     let manifest = std::path::PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap());
-    let shell = manifest.join("../stremio-lightning-windows");
-    let dev = std::env::var_os("MPV_DEV_DIR").map_or_else(|| shell.join("mpv-dev"), Into::into);
+    let dev = std::env::var_os("MPV_DEV_DIR").map_or_else(|| manifest.join("mpv-dev"), Into::into);
     let lib = dev.join("mpv.lib");
     assert!(
         lib.exists(),
@@ -58,7 +60,7 @@ fn link_windows_mpv() {
     println!("cargo:rustc-link-search=native={}", dev.display());
     println!("cargo:rerun-if-changed={}", lib.display());
 
-    let dll = shell.join("resources/libmpv-2.dll");
+    let dll = manifest.join("resources/libmpv-2.dll");
     println!("cargo:rerun-if-changed={}", dll.display());
     let out_dir = std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
     let profile_dir = out_dir.ancestors().nth(3).unwrap();
@@ -67,5 +69,30 @@ fn link_windows_mpv() {
             "cargo:warning=could not copy {} beside the executable: {error}",
             dll.display()
         );
+    }
+}
+
+/// On macOS libmpv is installed via Homebrew (`brew install mpv`), outside the default linker
+/// search path on Apple Silicon (`/opt/homebrew/opt/mpv/lib`).
+fn link_macos_mpv() {
+    let manifest = std::path::PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap());
+    let roots = ["MPV_DIR", "STREMIO_LIGHTNING_MPV_DIR"]
+        .into_iter()
+        .filter_map(std::env::var_os)
+        .map(std::path::PathBuf::from)
+        .chain([
+            manifest.join("mpv-dev"),
+            std::path::PathBuf::from("/opt/homebrew/opt/mpv"),
+            std::path::PathBuf::from("/usr/local/opt/mpv"),
+            std::path::PathBuf::from("/opt/homebrew"),
+            std::path::PathBuf::from("/usr/local"),
+        ]);
+
+    for root in roots {
+        let lib = root.join("lib");
+        if lib.join("libmpv.dylib").exists() || lib.join("libmpv.2.dylib").exists() {
+            println!("cargo:rustc-link-search=native={}", lib.display());
+            return;
+        }
     }
 }

@@ -7,23 +7,14 @@
 target/
 dhat-heap*.json
 
-# Node
-node_modules/
-
-# Vite build output
-src/dist/
-
 # OS
 Thumbs.db
 .DS_Store
 
-# Windows native shell resources (downloaded at build time)
-crates/stremio-lightning-windows/mpv-dev/
-crates/stremio-lightning-windows/resources/
+# Native desktop client resources (downloaded at build time)
+crates/stremio-lightning/mpv-dev/
+crates/stremio-lightning/resources/
 
-# Linux native shell resources and artifacts (downloaded/generated at build time)
-crates/stremio-lightning-linux/binaries/
-crates/stremio-lightning-linux/resources/
 dist/
 *.AppImage
 

@@ -9,7 +9,7 @@
 # this script only resamples it and never draws a replacement.
 param(
     [string]$Source = "assets/icons/128x128.png",
-    [string]$Destination = "src/favicon.ico"
+    [string]$Destination = "assets/icons/favicon.ico"
 )
 
 Add-Type -AssemblyName System.Drawing

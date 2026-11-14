@@ -18,17 +18,31 @@ pub fn root() -> PathBuf {
 }
 
 pub fn package_version() -> Result<String> {
-    let raw = env::var("STREMIO_LIGHTNING_VERSION")
-        .ok()
-        .filter(|value| !value.trim().is_empty())
+    resolve_package_version(
+        env::var("STREMIO_LIGHTNING_VERSION").ok().as_deref(),
+        env::var("GITHUB_REF_TYPE").ok().as_deref(),
+        env::var("GITHUB_REF_NAME").ok().as_deref(),
+        env!("CARGO_PKG_VERSION"),
+    )
+}
+
+fn resolve_package_version(
+    override_version: Option<&str>,
+    ref_type: Option<&str>,
+    ref_name: Option<&str>,
+    pkg_version: &str,
+) -> Result<String> {
+    let raw = override_version
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
         .or_else(|| {
-            if env::var("GITHUB_REF_TYPE").ok().as_deref() == Some("tag") {
-                env::var("GITHUB_REF_NAME").ok()
+            if ref_type == Some("tag") {
+                ref_name.map(str::trim).filter(|value| !value.is_empty())
             } else {
                 None
             }
         })
-        .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string());
+        .unwrap_or(pkg_version);
 
     let version = raw.trim().trim_start_matches('v').to_string();
     if version.is_empty() {
@@ -169,11 +183,6 @@ pub fn remove_file_if_exists(path: impl AsRef<Path>) -> Result<()> {
     Ok(())
 }
 
-pub fn run_npm(args: &[&str]) -> Result<()> {
-    let program = if cfg!(windows) { "npm.cmd" } else { "npm" };
-    run_program(program, args)
-}
-
 pub fn bash_program() -> OsString {
     #[cfg(windows)]
     {
@@ -259,4 +268,28 @@ pub fn required_executable_file(path: impl AsRef<Path>, setup_hint: &str) -> Res
         .into());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolves_package_version_precedence_and_validation() {
+        assert_eq!(
+            resolve_package_version(Some(" v0.2.0 "), Some("tag"), Some("v0.1.9"), "0.1.4")
+                .unwrap(),
+            "0.2.0"
+        );
+        assert_eq!(
+            resolve_package_version(Some("  "), Some("tag"), Some("v0.1.9"), "0.1.4").unwrap(),
+            "0.1.9"
+        );
+        assert_eq!(
+            resolve_package_version(None, Some("branch"), Some("master"), "0.1.4").unwrap(),
+            "0.1.4"
+        );
+        assert!(resolve_package_version(Some("latest"), None, None, "0.1.4").is_err());
+        assert!(resolve_package_version(Some("0.1.4 beta"), None, None, "0.1.4").is_err());
+    }
 }

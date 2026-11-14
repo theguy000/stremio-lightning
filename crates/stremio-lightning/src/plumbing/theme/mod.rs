@@ -151,15 +151,6 @@ elements! {
     set_mod_remove_button => ["mod-remove-button"],
     set_mod_remove_button_label => ["mod-remove-button-label"],
     set_mods_empty => ["mods-empty"],
-    // The Marketplace page, and the buttons that update the installed mods.
-    set_market_card => ["market-card"],
-    set_market_title => ["market-title"],
-    set_market_byline => ["market-byline"],
-    set_market_description => ["market-description"],
-    set_market_heading => ["market-heading"],
-    set_mod_update => ["mod-update"],
-    set_market_button => ["market-button"],
-    set_market_button_label => ["market-button-label"],
     // The Logs page and the About page.
     set_mods_log_filter => ["mods-log-filter"],
     set_mods_log_time => ["mods-log-time"],
@@ -258,28 +249,9 @@ pub fn apply_enabled(window: &MainWindow, data_dir: &Path) -> Vec<(String, Strin
     troubles
 }
 
-/// The rules the enabled themes give, read the way `apply_enabled` reads them, with every line the
-/// app could not use recorded as it goes. This is what a plugin's own rules are drawn over, so the
-/// theme stays on the window.
-pub fn enabled_rules(data_dir: &Path, logs: &crate::plumbing::logs::Logs) -> Vec<parse::Rule> {
-    let enabled = crate::screens::settings::LocalExtras::load(data_dir).enabled_themes;
-    let mut rules = Vec::new();
-    for filename in &enabled {
-        match read_mod_content(data_dir, filename, ModType::Theme) {
-            Ok(css) => {
-                let theme = parse::parse_theme(&css);
-                logs.theme(filename, &theme.warnings);
-                rules.extend(theme.rules);
-            }
-            Err(error) => logs.theme_unreadable(filename, error),
-        }
-    }
-    rules
-}
-
 /// `apply_enabled` for the window's own thread, with the lines recorded as it goes: this is what
 /// every press that changes the theme list calls. The recorder is the app's one, so a theme's
-/// warnings land on the Logs page beside the plugin lines.
+/// warnings land on the Logs page beside the rest of the app's records.
 pub fn apply_and_record(
     window: &MainWindow,
     data_dir: &Path,
@@ -290,90 +262,6 @@ pub fn apply_and_record(
         logs.theme(filename, std::slice::from_ref(warning));
     }
     troubles
-}
-
-/// The web classes a plugin's `applyTheme` rules may select, in the order the element table lists
-/// them. A plugin that names anything else is told so when its file loads.
-pub fn classes() -> Vec<&'static str> {
-    CLASSES
-        .iter()
-        .flat_map(|classes| classes.iter().copied())
-        .collect()
-}
-
-/// Draws the window with the rules a plugin asked for: the same understood selectors and
-/// properties a theme file has, read from JSON rather than CSS. A rule this app does not
-/// understand is left out and said in the list this returns, one line each.
-pub fn install(window: &MainWindow, rules: &[serde_json::Value]) -> Vec<String> {
-    let mut warnings = Vec::new();
-    let mut parsed = Vec::new();
-    for rule in rules {
-        let (Some(selector), Some(property), Some(value)) = (
-            rule.get("selector").and_then(serde_json::Value::as_str),
-            rule.get("property").and_then(serde_json::Value::as_str),
-            rule.get("value").and_then(serde_json::Value::as_str),
-        ) else {
-            warnings.push(
-                "a rule needs `selector`, `property` and `value` strings, so it was left out."
-                    .to_owned(),
-            );
-            continue;
-        };
-        let mut said = Vec::new();
-        let style = parse::parse_declarations(&format!("{property}: {value}"), selector, &mut said);
-        warnings.extend(said);
-        parsed.extend(parse::rule(selector, style));
-    }
-    let (styles, unmatched) = parse::resolve(&parsed, CLASSES);
-    warnings.extend(unmatched);
-    let globals = window.global::<ClassStyles>();
-    for ((_, set_element), style) in ELEMENTS.iter().zip(styles) {
-        set_element(&globals, to_slint(style));
-    }
-    warnings
-}
-
-/// Draws the window with a plugin's rules over the enabled theme's, which is what the window
-/// showed before the plugin asked for anything. A plugin that sets one property of an element
-/// leaves the theme's other properties on it; a plugin that names nothing leaves the theme as it
-/// was. The warnings are the plugin's alone, one line each.
-pub fn install_over(
-    window: &MainWindow,
-    theme_rules: &[parse::Rule],
-    plugin_rules: &[serde_json::Value],
-) -> Vec<String> {
-    let mut parsed = theme_rules.to_vec();
-    let mut warnings = parse_plugin(&mut parsed, plugin_rules);
-    let (styles, unmatched) = parse::resolve(&parsed, CLASSES);
-    let globals = window.global::<ClassStyles>();
-    for ((_, set_element), style) in ELEMENTS.iter().zip(styles) {
-        set_element(&globals, to_slint(style));
-    }
-    warnings.extend(unmatched);
-    warnings
-}
-
-/// Reads a plugin's JSON rules into `parsed`, after whatever is already there.
-fn parse_plugin(parsed: &mut Vec<parse::Rule>, rules: &[serde_json::Value]) -> Vec<String> {
-    let mut warnings = Vec::new();
-    for rule in rules {
-        let (Some(selector), Some(property), Some(value)) = (
-            rule.get("selector").and_then(serde_json::Value::as_str),
-            rule.get("property").and_then(serde_json::Value::as_str),
-            rule.get("value").and_then(serde_json::Value::as_str),
-        ) else {
-            warnings.push(
-                "a rule needs `selector`, `property` and `value` strings, so it was left out."
-                    .to_owned(),
-            );
-            continue;
-        };
-        let mut said = Vec::new();
-        let style = parse::parse_declarations(&format!("{property}: {value}"), selector, &mut said);
-        warnings.extend(said);
-        parsed.extend(parse::rule(selector, style));
-    }
-    warnings
 }
 
 #[cfg(test)]

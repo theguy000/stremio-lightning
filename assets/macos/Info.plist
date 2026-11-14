@@ -7,7 +7,7 @@
   <key>CFBundleDisplayName</key>
   <string>Stremio Lightning</string>
   <key>CFBundleExecutable</key>
-  <string>stremio-lightning-macos</string>
+  <string>stremio-lightning</string>
   <key>CFBundleIconFile</key>
   <string>AppIcon</string>
   <key>CFBundleIdentifier</key>

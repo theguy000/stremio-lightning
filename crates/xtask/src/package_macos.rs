@@ -1,7 +1,7 @@
 use crate::common::{
     Result, chmod_executable, copy_file, required_executable_file, required_file, root, run_program,
 };
-use crate::{MACOS_APP_BUNDLE, MACOS_BIN};
+use crate::{MACOS_APP_BUNDLE, NATIVE_BIN};
 use std::{env, fs, path::PathBuf};
 
 pub fn package_macos() -> Result<()> {
@@ -10,30 +10,31 @@ pub fn package_macos() -> Result<()> {
     }
 
     let root = root();
-    let macos_dir = root.join("crates/stremio-lightning-macos");
+    let native_dir = root.join("crates/stremio-lightning");
+    let macos_assets = root.join("assets/macos");
     let dist_dir = root.join("dist");
     let bundle = dist_dir.join(MACOS_APP_BUNDLE);
     let contents = bundle.join("Contents");
     let executable_dir = contents.join("MacOS");
     let resources_dir = contents.join("Resources");
     let frameworks_dir = contents.join("Frameworks");
-    let executable = executable_dir.join(MACOS_BIN);
+    let executable = executable_dir.join(NATIVE_BIN);
+    let info_plist = macos_assets.join("Info.plist");
+    let entitlements_src = macos_assets.join("entitlements.plist");
     let entitlements = resources_dir.join("entitlements.plist");
 
-    required_executable_file(
-        macos_dir.join("binaries/stremio-runtime-macos"),
-        "provide crates/stremio-lightning-macos/binaries/stremio-runtime-macos",
-    )?;
-    for name in ["server.cjs", "ffmpeg", "ffprobe"] {
-        required_file(
-            &macos_dir.join(format!("resources/{name}")),
-            "provide macOS streaming server resources under crates/stremio-lightning-macos/resources",
+    required_file(&info_plist, "restore assets/macos/Info.plist")?;
+    required_file(&entitlements_src, "restore assets/macos/entitlements.plist")?;
+    for name in ["stream-server", "ffmpeg", "ffprobe"] {
+        required_executable_file(
+            native_dir.join(format!("resources/{name}")),
+            "provide macOS streaming server resources under crates/stremio-lightning/resources",
         )?;
     }
     let mpv_library = macos_mpv_library()?;
 
-    println!("==> Building native macOS shell crate...");
-    run_program("cargo", ["build", "-p", MACOS_BIN, "--release"])?;
+    println!("==> Building native macOS client...");
+    run_program("cargo", ["build", "-p", NATIVE_BIN, "--release"])?;
 
     crate::common::remove_dir_if_exists(&bundle)?;
     fs::create_dir_all(&executable_dir)?;
@@ -42,17 +43,11 @@ pub fn package_macos() -> Result<()> {
     fs::create_dir_all(&dist_dir)?;
 
     copy_file(
-        root.join(format!("target/release/{MACOS_BIN}")),
+        root.join(format!("target/release/{NATIVE_BIN}")),
         &executable,
     )?;
-    copy_file(
-        macos_dir.join("resources/Info.plist"),
-        contents.join("Info.plist"),
-    )?;
-    copy_file(
-        macos_dir.join("resources/entitlements.plist"),
-        &entitlements,
-    )?;
+    copy_file(&info_plist, contents.join("Info.plist"))?;
+    copy_file(&entitlements_src, &entitlements)?;
 
     let mpv_name = mpv_library
         .file_name()
@@ -62,24 +57,14 @@ pub fn package_macos() -> Result<()> {
     copy_file(&mpv_library, &bundled_mpv)?;
 
     let bundled_resource_root = resources_dir.join("resources");
-    let bundled_binary_root = resources_dir.join("binaries");
     fs::create_dir_all(&bundled_resource_root)?;
-    fs::create_dir_all(&bundled_binary_root)?;
-    copy_file(
-        macos_dir.join("binaries/stremio-runtime-macos"),
-        bundled_binary_root.join("stremio-runtime-macos"),
-    )?;
-    for name in ["server.cjs", "ffmpeg", "ffprobe"] {
-        copy_file(
-            macos_dir.join(format!("resources/{name}")),
-            bundled_resource_root.join(name),
-        )?;
+    for name in ["stream-server", "ffmpeg", "ffprobe"] {
+        let dest = bundled_resource_root.join(name);
+        copy_file(native_dir.join(format!("resources/{name}")), &dest)?;
+        chmod_executable(&dest)?;
     }
 
     chmod_executable(&executable)?;
-    chmod_executable(bundled_binary_root.join("stremio-runtime-macos"))?;
-    chmod_executable(bundled_resource_root.join("ffmpeg"))?;
-    chmod_executable(bundled_resource_root.join("ffprobe"))?;
 
     println!("==> Rewriting macOS bundle rpaths...");
     run_install_name_tool([
@@ -122,7 +107,7 @@ fn macos_mpv_library() -> Result<PathBuf> {
         .collect();
     let root = root();
     roots.extend([
-        root.join("crates/stremio-lightning-macos/mpv-dev"),
+        root.join("crates/stremio-lightning/mpv-dev"),
         PathBuf::from("/opt/homebrew/opt/mpv"),
         PathBuf::from("/usr/local/opt/mpv"),
     ]);
