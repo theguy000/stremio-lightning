@@ -253,24 +253,27 @@ fn arm_lookup(value: &Value, season: u32) -> Option<(u32, bool)> {
     let Some(entries) = value.as_array() else {
         return positive(value.get("myanimelist")).map(|mal| (mal, false));
     };
+    if season == 0 {
+        return None;
+    }
     if let Some(found) = entries
         .iter()
-        .find(|entry| positive(entry.get("thetvdb-season")) == Some(season).filter(|s| *s > 0))
+        .find(|entry| positive(entry.get("thetvdb-season")) == Some(season))
     {
         if let Some(mal) = positive(found.get("myanimelist")) {
             return Some((mal, true));
         }
     }
-    let index = if season > 0 {
-        season as usize - 1
-    } else {
-        usize::MAX
-    };
-    if let Some(mal) = entries
-        .get(index)
-        .and_then(|entry| positive(entry.get("myanimelist")))
-    {
-        return Some((mal, false));
+    let has_tvdb_seasons = entries
+        .iter()
+        .any(|entry| positive(entry.get("thetvdb-season")).is_some());
+    if !has_tvdb_seasons {
+        if let Some(mal) = entries
+            .get(season as usize - 1)
+            .and_then(|entry| positive(entry.get("myanimelist")))
+        {
+            return Some((mal, false));
+        }
     }
     entries
         .iter()
@@ -349,8 +352,10 @@ async fn relations(mal: u32) -> Vec<Relation> {
         }
     }
     tokio::time::sleep(JIKAN_GAP).await;
-    let value = get_json(&format!("{JIKAN}/{mal}/relations")).await;
-    let found = value.as_ref().map(relations_of).unwrap_or_default();
+    let Some(value) = get_json(&format!("{JIKAN}/{mal}/relations")).await else {
+        return Vec::new();
+    };
+    let found = relations_of(&value);
     if let Ok(mut cache) = relation_cache().lock() {
         cache.insert(mal, found.clone());
     }
@@ -633,13 +638,16 @@ mod tests {
     }
 
     #[test]
-    fn arm_reports_exact_season_matches() {
+    fn arm_reports_exact_season_matches_and_skips_specials() {
         let value = json!([
             { "myanimelist": 16498, "thetvdb-season": 1 },
-            { "myanimelist": 25777, "thetvdb-season": 2 }
+            { "myanimelist": 25777, "thetvdb-season": 3 }
         ]);
-        assert_eq!(arm_lookup(&value, 2), Some((25777, true)));
+        assert_eq!(arm_lookup(&value, 3), Some((25777, true)));
+        // Missing season 2 falls back to season 1 for Jikan walking rather than picking index 1 (season 3).
+        assert_eq!(arm_lookup(&value, 2), Some((16498, false)));
         assert_eq!(arm_lookup(&value, 9), Some((16498, false)));
+        assert_eq!(arm_lookup(&value, 0), None);
     }
 
     #[test]

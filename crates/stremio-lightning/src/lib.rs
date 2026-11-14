@@ -177,6 +177,7 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
         skip_submit: Default::default(),
         skip_seeded: Default::default(),
         skip_generation: Default::default(),
+        skip_auto_times: Default::default(),
         mods_armed: Default::default(),
         mods_disarm: Default::default(),
         mods_plugin: mods_plugin.clone(),
