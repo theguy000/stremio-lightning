@@ -204,8 +204,9 @@ export component MainWindow inherits Window {
     in property <bool> player-skip-submit: true;
     in property <string> player-skip-kind: "op";
     in property <[SkipRow]> player-skip-rows;
-    in property <string> player-skip-start: "";
-    in property <string> player-skip-end: "";
+    in-out property <string> player-menu: "";
+    in-out property <string> player-skip-start: "";
+    in-out property <string> player-skip-end: "";
     in property <string> player-skip-notice: "";
     in-out property <Section> section: Section.board;
     in-out property <bool> auth-open: false;
@@ -501,13 +502,14 @@ callback player-skip();
         next-label: root.player-next-label;
         has-next: root.player-has-next;
         next-notice: root.player-next-notice;
+        menu <=> root.player-menu;
         skip-visible: root.player-skip-visible;
         skip-marks: root.player-skip-marks;
         skip-submit: root.player-skip-submit;
         skip-kind: root.player-skip-kind;
         skip-rows: root.player-skip-rows;
-        skip-start: root.player-skip-start;
-        skip-end: root.player-skip-end;
+        skip-start <=> root.player-skip-start;
+        skip-end <=> root.player-skip-end;
         skip-notice: root.player-skip-notice;
         init => {
             self.focus-player();
