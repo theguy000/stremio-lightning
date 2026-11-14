@@ -1251,25 +1251,99 @@ export component ModsContent inherits Rectangle {
                     root.filter-logs("level", index);
                 }
             }
-            log-search := LineEdit {
+            // The search box: the app's search bar, with the magnifier the other pages use and a
+            // clear button that is only there when there is something to clear.
+            log-search-bar := Rectangle {
                 x: 0px;
                 y: 4 * root.rem-size;
-                width: root.page-width - 22 * root.rem-size;
+                width: Math.max(0px, root.page-width - 22 * root.rem-size);
                 height: 3 * root.rem-size;
-                font-size: 0.95 * root.rem-size;
-                // The box says what it searches, so a test finds the box it means.
-                accessible-description: "Search the log records";
-                init => {
-                    self.text = root.data.log-search;
+                border-radius: self.height / 2;
+                background: ClassStyles.background-or(ClassStyles.search-bar-container, Theme.overlay);
+                opacity: ClassStyles.opacity-or(ClassStyles.search-bar-container, 1.0);
+                visible: !ClassStyles.search-bar-container.hidden;
+
+                // Behind the box, so a press on the pill's own edge puts the cursor in it.
+                search-bar-touch := TouchArea {
+                    width: 100%;
+                    height: 100%;
+                    mouse-cursor: text;
+                    clicked => {
+                        log-search.focus();
+                    }
                 }
-                edited(text) => {
-                    root.search-logs(text);
+                log-search := TextInput {
+                    x: 1.2 * root.rem-size;
+                    y: 0px;
+                    width: parent.width - 6.4 * root.rem-size;
+                    height: parent.height;
+                    single-line: true;
+                    vertical-alignment: center;
+                    font-size: 0.95 * root.rem-size;
+                    color: ClassStyles.color-or(ClassStyles.search, Theme.text);
+                    // The box says what it searches, so a test finds the box it means.
+                    accessible-label: "Search the logs";
+                    init => {
+                        self.text = root.data.log-search;
+                    }
+                    edited => {
+                        root.search-logs(self.text);
+                    }
+                }
+                if log-search.text == "": search-placeholder := Text {
+                    x: log-search.x;
+                    width: log-search.width;
+                    height: parent.height;
+                    text: "Search logs";
+                    vertical-alignment: center;
+                    overflow: elide;
+                    font-size: 0.95 * root.rem-size;
+                    color: Theme.placeholder;
+                }
+                // The way back to every record, in one press.
+                if log-search.text != "": search-clear := Rectangle {
+                    x: parent.width - 5.2 * root.rem-size;
+                    y: (parent.height - self.height) / 2;
+                    width: 1.6 * root.rem-size;
+                    height: self.width;
+                    border-radius: self.width / 2;
+                    background: search-clear-touch.has-hover ? Theme.overlay : transparent;
+
+                    search-clear-icon := Image {
+                        source: @image-url("icons/close.svg");
+                        x: 0.3 * root.rem-size;
+                        y: self.x;
+                        width: parent.width - 0.6 * root.rem-size;
+                        height: self.width;
+                        colorize: Theme.search-icon;
+                    }
+                    search-clear-touch := TouchArea {
+                        width: 100%;
+                        height: 100%;
+                        mouse-cursor: pointer;
+                        accessible-role: button;
+                        accessible-label: "Clear the search";
+                        clicked => {
+                            log-search.text = "";
+                            root.search-logs("");
+                        }
+                    }
+                }
+                search-icon := Image {
+                    source: @image-url("icons/search.svg");
+                    x: parent.width - 2.4 * root.rem-size;
+                    y: (parent.height - self.height) / 2;
+                    width: 1.2 * root.rem-size;
+                    height: self.width;
+                    colorize: ClassStyles.color-or(ClassStyles.icon, Theme.search-icon);
+                    opacity: ClassStyles.icon.has-color ? 0.6 : 1.0;
+                    visible: !ClassStyles.icon.hidden;
                 }
             }
             // The Clear button: a press arms it, and while it is armed the button says what the
             // second press does.
             SettingsButton {
-                x: parent.width - 18 * root.rem-size;
+                x: Math.max(0px, parent.width - 18 * root.rem-size);
                 y: 4 * root.rem-size;
                 rem-size: root.rem-size;
                 label-text: root.data.log-clear-armed ? "Press again to clear" : "Clear";

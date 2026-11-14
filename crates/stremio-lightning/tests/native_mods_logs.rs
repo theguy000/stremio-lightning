@@ -8,7 +8,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use slint::Model;
+use slint::{ComponentHandle, Model};
 use stremio_lightning::plumbing::logs::{Filter, Level, Logs, Source};
 use stremio_lightning::screens::mods;
 use stremio_lightning::{MainWindow, Section};
@@ -55,6 +55,18 @@ fn wait(
             Err(error) if Instant::now() >= deadline => return Err(format!("gave up: {error}")),
             Err(_) => {}
         }
+    }
+}
+
+/// Types into whatever has the focus, one key at a time, letting the window draw between them.
+fn type_text(window: &MainWindow, text: &str) {
+    for character in text.chars() {
+        window
+            .window()
+            .dispatch_event(slint::platform::WindowEvent::KeyPressed {
+                text: character.to_string().into(),
+            });
+        ui_driver::pump(Duration::from_millis(20));
     }
 }
 
@@ -320,6 +332,11 @@ fn the_window_lists_what_was_logged_and_filters_it() {
 
     let booted = stremio_lightning::boot(data_dir.clone()).expect("the app boots");
     let window = &booted.window;
+    // The size a person opens the app at, so the page's widths are the ones its numbers were
+    // measured for rather than a test backend's default.
+    window
+        .window()
+        .set_size(slint::PhysicalSize::new(1100, 720));
     ui_driver::pump_for(window);
 
     let mut outcomes: Vec<Outcome> = Vec::new();
@@ -555,6 +572,62 @@ fn the_window_lists_what_was_logged_and_filters_it() {
         },
     );
     verdict("the level filter did not narrow the list", &filtering);
+
+    // ---- the search box filters as it is typed, and clears in one press ------------------------
+    let mut searching: Vec<Outcome> = Vec::new();
+    searching = step(
+        searching,
+        "the search box takes the pointer",
+        click(window, "Search the logs"),
+    );
+    searching = step(
+        searching,
+        "typing red.theme keeps only the red theme's records",
+        wait(window, Duration::from_secs(5), |window| {
+            if window.get_mods().log_search.is_empty() {
+                type_text(window, "red.theme");
+            }
+            let rows = rows_on(window);
+            if rows.is_empty() {
+                return Err("nothing is listed while searching".to_owned());
+            }
+            if rows
+                .iter()
+                .any(|(source, _, _)| !source.contains("red.theme.css"))
+            {
+                return Err(format!("the list holds {rows:?}"));
+            }
+            Ok(format!("{} rows for red.theme", rows.len()))
+        }),
+    );
+    searching = step(
+        searching,
+        "the clear button is on screen and empty the box",
+        wait(window, Duration::from_secs(5), |window| {
+            ui_driver::labels(window)
+                .iter()
+                .any(|name| name == "Clear the search")
+                .then(|| "Clear the search".to_owned())
+                .ok_or_else(|| "the clear button is not on screen".to_owned())
+        })
+        .and_then(|_| click(window, "Clear the search")),
+    );
+    searching = step(
+        searching,
+        "clearing restores every record the filter keeps",
+        wait(window, Duration::from_secs(5), |window| {
+            let rows = rows_on(window).len();
+            let search = window.get_mods().log_search.to_string();
+            if !search.is_empty() {
+                return Err(format!("the filter still holds {search:?}"));
+            }
+            if rows < rows_before {
+                return Err(format!("{rows} of {rows_before} rows came back"));
+            }
+            Ok(format!("{rows} rows, and the filter is empty"))
+        }),
+    );
+    verdict("the search box did not filter or clear", &searching);
 
     // ---- Clear takes two presses and empties the list ---------------------------
     let mut clearing: Vec<Outcome> = Vec::new();
