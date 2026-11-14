@@ -68,6 +68,23 @@ impl Source {
         Self::ALL.into_iter().find(|source| source.id() == id)
     }
 
+    /// The source's place in the filter's list, counting from one: zero is every source.
+    pub fn index(self) -> usize {
+        Self::ALL
+            .iter()
+            .position(|source| *source == self)
+            .map_or(0, |at| at + 1)
+    }
+
+    /// The source a filter's index names, or `None` for "every source" and for an index past the
+    /// list.
+    pub fn from_index(index: usize) -> Option<Self> {
+        index
+            .checked_sub(1)
+            .and_then(|at| Self::ALL.get(at))
+            .copied()
+    }
+
     /// A row is one line of a row's first column: the label, then what it is about.
     fn shown(self, origin: &str) -> String {
         if origin.is_empty() {
@@ -128,6 +145,23 @@ impl Level {
             Self::Warn => 2,
             Self::Error => 3,
         }
+    }
+
+    /// The level's place in the filter's list, counting from one: zero is every level.
+    pub fn index(self) -> usize {
+        Self::ALL
+            .iter()
+            .position(|level| *level == self)
+            .map_or(0, |at| at + 1)
+    }
+
+    /// The level a filter's index names as its least, or `None` for "every level" and for an
+    /// index past the list.
+    pub fn from_index(index: usize) -> Option<Self> {
+        index
+            .checked_sub(1)
+            .and_then(|at| Self::ALL.get(at))
+            .copied()
     }
 }
 
@@ -201,6 +235,16 @@ impl Filter {
     /// The least level this filter keeps, if it sets one.
     pub fn least_level(&self) -> Option<Level> {
         Level::from_id(&self.level)
+    }
+
+    /// The row the source menu opens on: zero for every source.
+    pub fn source_index(&self) -> usize {
+        self.picked_source().map_or(0, Source::index)
+    }
+
+    /// The row the level menu opens on: zero for every level.
+    pub fn level_index(&self) -> usize {
+        self.least_level().map_or(0, Level::index)
     }
 
     /// Whether `entry` passes every part of the filter.
@@ -387,6 +431,18 @@ impl Logs {
         *lock(&self.filter_search) = search.to_owned();
     }
 
+    /// Picks the source at `index` in the menu's list: zero is every source.
+    pub fn set_source_index(&self, index: usize) {
+        let id = Source::from_index(index).map_or("", Source::id);
+        *lock(&self.filter_source) = id.to_owned();
+    }
+
+    /// Picks the least level at `index` in the menu's list: zero is every level.
+    pub fn set_level_index(&self, index: usize) {
+        let id = Level::from_index(index).map_or("", Level::id);
+        *lock(&self.filter_level) = id.to_owned();
+    }
+
     /// The record whose full text is on screen, if one is.
     pub fn detail(&self) -> Option<Entry> {
         let id = self.detail.load(Ordering::SeqCst);
@@ -568,6 +624,23 @@ mod tests {
         assert_eq!(listed.len(), 3);
         assert_eq!(listed[2].source, Source::Theme);
         assert_eq!(listed[0].level, Level::Error);
+    }
+
+    #[test]
+    fn a_menu_index_picks_the_part_of_the_filter_it_names() {
+        let logs = Logs::new();
+        assert_eq!(logs.filter().source_index(), 0, "every source first");
+        logs.set_source_index(1);
+        assert_eq!(logs.filter().source, "plugin");
+        logs.set_source_index(Source::ALL.len());
+        assert_eq!(logs.filter().picked_source(), Some(Source::App));
+        logs.set_source_index(Source::ALL.len() + 1);
+        assert_eq!(logs.filter().source, "", "past the list is every source");
+        logs.set_level_index(3);
+        assert_eq!(logs.filter().least_level(), Some(Level::Warn));
+        assert_eq!(logs.filter().level_index(), 3);
+        logs.set_level_index(0);
+        assert_eq!(logs.filter().least_level(), None);
     }
 
     #[test]

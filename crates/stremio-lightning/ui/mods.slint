@@ -4,6 +4,7 @@ import { Theme } from "theme.slint";
 import { ModsNavItem } from "shell.slint";
 import { ScrollBar } from "scroll-bar.slint";
 import { LineEdit, Slider, VerticalBox } from "std-widgets.slint";
+import { MultiselectMenu, SelectOption } from "multiselect-menu.slint";
 
 // One plugin or theme file, as its card draws it.
 export struct ModCardData {
@@ -65,14 +66,6 @@ export struct SettingsFieldData {
     shown: string,
 }
 
-// One choice of a Logs page filter: the id the press sends back, the word it shows, and whether
-// it is the one picked.
-export struct ModsFilterChoice {
-    id: string,
-    label: string,
-    selected: bool,
-}
-
 // One record on the Logs page. `id` is what a press on the row names it by.
 export struct ModsLogRow {
     id: int,
@@ -117,13 +110,13 @@ export struct ModsViewData {
     settings-empty: string,
     /// Whether the page has something typed and not saved. Only this turns Save on.
     settings-dirty: bool,
-    /// The Logs page: the filter's two lists of choices with the picked one marked, what the search
-    /// box holds, the header that says how many records are held, the rows, and the full text of
-    /// the one record that is open.
-    log-sources: [ModsFilterChoice],
-    log-levels: [ModsFilterChoice],
+    /// The Logs page: each filter menu's choices and the row it opens on, what the search box
+    /// holds, the rows, and the full text of the one record that is open.
+    log-source-options: [SelectOption],
+    log-level-options: [SelectOption],
+    log-source-index: int,
+    log-level-index: int,
     log-search: string,
-    log-held: string,
     log-rows: [ModsLogRow],
     log-empty: string,
     log-detail: [string],
@@ -709,47 +702,6 @@ component SettingsButton inherits Rectangle {
 
 
 
-// A pill on the Logs page: one choice of a filter, with the picked one marked. Web: the addon
-// card's pills, round and dim until picked.
-component ModsFilterPill inherits Rectangle {
-    in property <string> id;
-    in property <string> label-text;
-    in property <bool> selected;
-    in property <length> rem-size;
-    callback clicked();
-
-    height: 2.6 * rem-size;
-    width: filter-pill-label.width + 1.6 * rem-size;
-    border-radius: self.height / 2;
-    border-width: 1px;
-    border-color: root.selected ? Theme.accent-green : Theme.placeholder;
-    background: (root.selected || filter-pill-touch.has-hover) ? Theme.overlay : transparent;
-    visible: !ClassStyles.mods-log-filter.hidden;
-
-    filter-pill-label := Text {
-        x: 0.8 * root.rem-size;
-        y: (parent.height - self.height) / 2;
-        width: self.preferred-width;
-        text: root.label-text;
-        font-size: 0.9 * root.rem-size;
-        color: ClassStyles.color-or(ClassStyles.mods-log-filter, root.selected ? Theme.accent-green : Theme.text);
-        visible: !ClassStyles.mods-log-filter.hidden;
-    }
-    filter-pill-touch := TouchArea {
-        width: 100%;
-        height: 100%;
-        mouse-cursor: pointer;
-        // The word on it, so a test presses the filter it means.
-        accessible-role: radio-button;
-        accessible-label: root.label-text;
-        accessible-checkable: true;
-        accessible-checked: root.selected;
-        clicked => {
-            root.clicked();
-        }
-    }
-}
-
 // One record on the Logs page: the time, the source, the level and the text on one line. A press
 // opens the whole record under the list. Web: a row of the addon list, one line per record.
 component ModsLogRowView inherits Rectangle {
@@ -899,9 +851,9 @@ export component ModsContent inherits Rectangle {
     callback edit-settings-number(string, float);
     /// The Save press: what the page holds goes into the plugin's settings file.
     callback save-settings();
-    /// A press on one of the Logs page's filter pills: which part of the filter ("source" or
-    /// "level") and the id picked, empty for "every one".
-    callback filter-logs(string, string);
+    /// A press on one of the Logs page's filter menus: which part of the filter ("source" or
+    /// "level") and the row picked, zero being every source or every level.
+    callback filter-logs(string, int);
     /// The Logs page's search box. Each change is a press.
     callback search-logs(string);
     /// A press on a record: its full text opens, or closes when it is the one open.
@@ -1015,14 +967,16 @@ export component ModsContent inherits Rectangle {
             height: 4 * root.rem-size;
             text: root.on-plugins ? ""
                 : root.on-themes ? root.data.themes-note
-                : root.data.page == "logs" ? root.data.log-held
+                // The Logs page puts its filter where the others put a sentence: nothing counts
+                // records above a list that is already saying what it holds.
+                : root.on-logs ? ""
                 : "What this build is and what it keeps.";
             wrap: word-wrap;
             vertical-alignment: top;
             font-size: root.rem-size;
             color: ClassStyles.color-or(ClassStyles.mods-page-note, Theme.text);
             opacity: ClassStyles.opacity-or(ClassStyles.mods-page-note, 0.7);
-            visible: !root.on-settings && !ClassStyles.mods-page-note.hidden;
+            visible: !root.on-settings && !root.on-logs && !ClassStyles.mods-page-note.hidden;
         }
 
         if root.on-plugins && root.data.plugins.length == 0: mods-empty-plugins := Text {
@@ -1257,62 +1211,51 @@ export component ModsContent inherits Rectangle {
         }
 
         // ---- Logs -----------------------------------------------------------------------
-        // Every record the app holds, newest first, with the filter above the list and the full
-        // text of one record under it. Clear empties the list on its second press and deletes no
-        // file: the header says how many are held and that nothing is written.
+        // Every record the app holds, newest first, with the filter above the list. Clear empties
+        // the list on its second press and deletes no file.
         if root.on-logs: Rectangle {
             x: root.page-padding;
-            y: root.list-top;
+            y: root.page-top;
             width: root.page-width;
-            height: Math.max(root.height - root.list-top, 0px);
+            height: Math.max(root.height - root.page-top, 0px);
 
-            property <length> filter-height: 8 * root.rem-size;
+            // One row of two menus, then the search box beside the Clear button, then the list.
+            property <length> filter-height: 7.6 * root.rem-size;
             property <length> detail-height: root.data.log-detail.length == 0 ? 0px
                 : (root.data.log-detail.length + 1) * 1.4 * root.rem-size + 0.8 * root.rem-size;
             property <length> rows-height: Math.max(0px, parent.height - filter-height - detail-height);
 
-            // One row of pills per part of the filter, and the search box beside the Clear button.
-            log-source-filter := HorizontalLayout {
+            // The filter is two single-choice menus. Each shows the choice it is on, so what the
+            // list is narrowed to is readable without opening anything.
+            log-source-filter := MultiselectMenu {
                 x: 0px;
                 y: 0px;
-                width: parent.width - 12 * root.rem-size;
-                height: 2.6 * root.rem-size;
-                spacing: 0.4 * root.rem-size;
-                alignment: start;
-
-                for choice[index] in root.data.log-sources: ModsFilterPill {
-                    id: choice.id;
-                    label-text: choice.label;
-                    selected: choice.selected;
-                    rem-size: root.rem-size;
-                    clicked => {
-                        root.filter-logs("source", choice.id);
-                    }
+                width: 16 * root.rem-size;
+                rem-size: root.rem-size;
+                title: root.data.log-source-options[root.data.log-source-index].label;
+                options: root.data.log-source-options;
+                selected-index: root.data.log-source-index;
+                select(index) => {
+                    root.filter-logs("source", index);
                 }
             }
-            log-level-filter := HorizontalLayout {
-                x: 0px;
-                y: 3 * root.rem-size;
-                width: parent.width - 12 * root.rem-size;
-                height: 2.6 * root.rem-size;
-                spacing: 0.4 * root.rem-size;
-                alignment: start;
-
-                for choice[index] in root.data.log-levels: ModsFilterPill {
-                    id: choice.id;
-                    label-text: choice.label;
-                    selected: choice.selected;
-                    rem-size: root.rem-size;
-                    clicked => {
-                        root.filter-logs("level", choice.id);
-                    }
+            log-level-filter := MultiselectMenu {
+                x: 17 * root.rem-size;
+                y: 0px;
+                width: 20 * root.rem-size;
+                rem-size: root.rem-size;
+                title: root.data.log-level-options[root.data.log-level-index].label;
+                options: root.data.log-level-options;
+                selected-index: root.data.log-level-index;
+                select(index) => {
+                    root.filter-logs("level", index);
                 }
             }
             log-search := LineEdit {
                 x: 0px;
-                y: 6 * root.rem-size;
+                y: 4 * root.rem-size;
                 width: root.page-width - 22 * root.rem-size;
-                height: 2.6 * root.rem-size;
+                height: 3 * root.rem-size;
                 font-size: 0.95 * root.rem-size;
                 // The box says what it searches, so a test finds the box it means.
                 accessible-description: "Search the log records";
@@ -1327,7 +1270,7 @@ export component ModsContent inherits Rectangle {
             // second press does.
             SettingsButton {
                 x: parent.width - 18 * root.rem-size;
-                y: 6 * root.rem-size;
+                y: 4 * root.rem-size;
                 rem-size: root.rem-size;
                 label-text: root.data.log-clear-armed ? "Press again to clear" : "Clear";
                 name: root.data.log-clear-armed ? "Confirm clearing the log records" : "Clear the log records";
@@ -1402,6 +1345,7 @@ export component ModsContent inherits Rectangle {
                 offset <=> log-rows.content-y;
             }
         }
+
 
         // ---- About ----------------------------------------------------------------------
         // What this build is, where it keeps the two folders, what is installed, and the one

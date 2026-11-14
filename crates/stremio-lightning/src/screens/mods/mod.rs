@@ -103,14 +103,14 @@ pub struct Data {
     pub settings_plugins: Vec<settings::Plugin>,
     pub plugin: String,
     pub edits: settings::Edits,
-    /// The Logs page: the filter it is showing, the records it keeps, the choices of each part of
-    /// the filter, the header that says how many are held, and the one record whose full text is
-    /// open.
+    /// The Logs page: the filter it is showing, each filter menu's choices and the row it opens
+    /// on, the records the filter keeps, and the one record whose full text is open.
     pub log_filter: logs::Filter,
-    pub log_sources: Vec<logs::Choice>,
-    pub log_levels: Vec<logs::Choice>,
+    pub log_source_options: Vec<String>,
+    pub log_level_options: Vec<String>,
+    pub log_source_index: i32,
+    pub log_level_index: i32,
     pub log_rows: Vec<logs::Row>,
-    pub log_held: String,
     pub log_empty: String,
     pub log_detail: Vec<String>,
     pub log_clear_armed: bool,
@@ -133,10 +133,17 @@ impl Data {
             plugin: String::new(),
             edits: settings::Edits::default(),
             log_filter: logs::Filter::default(),
-            log_sources: logs::sources(&logs::Filter::default()),
-            log_levels: logs::levels(&logs::Filter::default()),
+            log_source_options: logs::source_options()
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+            log_level_options: logs::level_options()
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+            log_source_index: 0,
+            log_level_index: 0,
             log_rows: Vec::new(),
-            log_held: logs::NOTE.to_owned(),
             log_empty: logs::NONE.to_owned(),
             log_detail: Vec::new(),
             log_clear_armed: false,
@@ -171,10 +178,10 @@ impl Data {
     #[must_use]
     pub fn with_logs(mut self, logs: &crate::plumbing::logs::Logs, armed: bool) -> Self {
         self.log_filter = logs.filter();
-        self.log_sources = logs::sources(&self.log_filter);
-        self.log_levels = logs::levels(&self.log_filter);
+        let (source, level) = logs::menu_indexes(&self.log_filter);
+        self.log_source_index = i32::try_from(source).unwrap_or(0);
+        self.log_level_index = i32::try_from(level).unwrap_or(0);
         self.log_rows = logs::rows(logs, &self.log_filter);
-        self.log_held = logs::held(logs, &self.log_filter);
         self.log_empty = if logs.is_empty() {
             logs::NONE.to_owned()
         } else {

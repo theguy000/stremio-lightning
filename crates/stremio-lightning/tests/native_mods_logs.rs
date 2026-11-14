@@ -392,44 +392,81 @@ fn the_window_lists_what_was_logged_and_filters_it() {
             }
         }),
     );
-    outcomes = step(outcomes, "the page draws a header for its list", {
+    outcomes = step(outcomes, "no sentence above the list counts the records", {
         let texts = ui_driver::texts(window);
-        let header: Vec<&String> = texts
+        let counting: Vec<&String> = texts
             .iter()
-            .filter(|text| text.contains("records.") && text.contains("The filter keeps"))
+            .filter(|text| text.contains("The filter keeps") || text.contains("of up to 2000"))
             .collect();
-        match header.first() {
-            Some(text) => Ok((*text).clone()),
-            None => Err(format!("the page says {texts:?}")),
+        if counting.is_empty() {
+            Ok("no count on screen".to_owned())
+        } else {
+            Err(format!("the page says {counting:?}"))
         }
     });
-    outcomes = step(
-        outcomes,
-        "the header holds every record and keeps every one",
+    outcomes = step(outcomes, "the two filter menus offer every choice", {
+        let named = |options: &slint::ModelRc<stremio_lightning::SelectOption>| {
+            (0..options.row_count())
+                .filter_map(|row| options.row_data(row))
+                .map(|option| option.label.to_string())
+                .collect::<Vec<_>>()
+        };
+        let sources = named(&window.get_mods().log_source_options);
+        let levels = named(&window.get_mods().log_level_options);
+        let wanted_sources = ["Every source", "Plugin", "Theme", "Mods", "Server", "App"];
+        let wanted_levels = [
+            "Every level",
+            "Debug and worse",
+            "Info and worse",
+            "Warnings and errors",
+            "Errors only",
+        ];
+        if sources == wanted_sources && levels == wanted_levels {
+            Ok(format!("{sources:?} / {levels:?}"))
+        } else {
+            Err(format!("the menus say {sources:?} / {levels:?}"))
+        }
+    });
+    outcomes = step(outcomes, "each menu opens on a choice and says it", {
+        let sources = window.get_mods().log_source_options;
+        let levels = window.get_mods().log_level_options;
+        let title = |options: &slint::ModelRc<stremio_lightning::SelectOption>, index: i32| {
+            options
+                .row_data(usize::try_from(index).unwrap_or(0))
+                .map(|option| option.label.to_string())
+                .unwrap_or_default()
+        };
+        let source = title(&sources, window.get_mods().log_source_index);
+        let level = title(&levels, window.get_mods().log_level_index);
+        let names = ui_driver::labels(window);
+        // The closed menu is a button named for the choice it is showing.
+        if source == "Every source"
+            && level == "Every level"
+            && names.iter().any(|name| name == "Every source")
+            && names.iter().any(|name| name == "Every level")
         {
-            let rows = rows_on(window).len();
-            let texts = ui_driver::texts(window);
-            let header = texts
-                .iter()
-                .find(|text| text.contains("records.") && text.contains("The filter keeps"))
-                .cloned()
-                .unwrap_or_default();
-            let kept = format!("The filter keeps {rows} of them.");
-            if rows > 0 && header.contains("of up to 2000 records") && header.contains(&kept) {
-                Ok(format!("{rows} rows, and {header}"))
-            } else {
-                Err(format!("{rows} rows, and the header says {header:?}"))
-            }
-        },
-    );
+            Ok(format!("{source:?} / {level:?}"))
+        } else {
+            Err(format!(
+                "the menus show {source:?} / {level:?}; on screen: {names:?}"
+            ))
+        }
+    });
     verdict("the Logs page did not list what was logged", &outcomes);
 
     // ---- the level filter keeps fewer records -----------------------------------
+    //
+    // A menu's rows live in a popup, which is a window of its own and not part of the tree the
+    // testing backend's element search walks (the same limitation `addons_live_ui.rs` records).
+    // So the press is made the way the popup makes it: the window's own callback, with the row a
+    // press on the menu would send.
+    let rows_before = rows_on(window).len();
     let mut filtering: Vec<Outcome> = Vec::new();
     filtering = step(
         filtering,
-        "Warnings and errors is pressed, and the list gets shorter",
-        click(window, "Warnings and errors").and_then(|_| {
+        "Warnings and errors is picked, and the list gets shorter",
+        {
+            window.invoke_filter_mods_logs("level".into(), 3);
             wait(window, Duration::from_secs(10), |window| {
                 let rows = rows_on(window);
                 if rows
@@ -441,15 +478,8 @@ fn the_window_lists_what_was_logged_and_filters_it() {
                         rows.len()
                     ));
                 }
-                // Background image fetches on boot can append extra warnings/errors after the
-                // initial snapshot, so compare against the current total rather than a stale count.
-                let held = window.get_mods().log_held.to_string();
-                let total = held
-                    .strip_prefix("The app holds ")
-                    .and_then(|rest| rest.split_whitespace().next())
-                    .and_then(|word| word.parse::<usize>().ok());
-                if total.is_none_or(|total| rows.len() >= total) {
-                    return Err(format!("{} rows after, header {held:?}", rows.len()));
+                if rows.len() >= rows_before {
+                    return Err(format!("{} rows before, {} after", rows_before, rows.len()));
                 }
                 if !rows
                     .iter()
@@ -459,17 +489,21 @@ fn the_window_lists_what_was_logged_and_filters_it() {
                 }
                 Ok(format!("{} rows, warnings and errors only", rows.len()))
             })
-        }),
+        },
     );
     filtering = step(
         filtering,
-        "the header says how many the filter keeps",
+        "the level menu now says Warnings and errors",
         wait(window, Duration::from_secs(5), |window| {
-            let held = window.get_mods().log_held.to_string();
-            if held.contains("The filter keeps") {
-                Ok(held)
+            let levels = window.get_mods().log_level_options;
+            let shown = levels
+                .row_data(usize::try_from(window.get_mods().log_level_index).unwrap_or(0))
+                .map(|option| option.label.to_string())
+                .unwrap_or_default();
+            if shown == "Warnings and errors" {
+                Ok(shown)
             } else {
-                Err(held)
+                Err(format!("the menu shows {shown:?}"))
             }
         }),
     );
@@ -487,6 +521,38 @@ fn the_window_lists_what_was_logged_and_filters_it() {
                 Ok(format!("{} rows", rows.len()))
             }
         }),
+    );
+    filtering = step(
+        filtering,
+        "a source picked keeps only that source, and Every level brings the rest back",
+        {
+            window.invoke_filter_mods_logs("source".into(), 2);
+            wait(window, Duration::from_secs(5), |window| {
+                let rows = rows_on(window);
+                if rows.is_empty() {
+                    return Err("a source with records in it keeps none".to_owned());
+                }
+                if rows
+                    .iter()
+                    .any(|(source, _, _)| !source.starts_with("Theme"))
+                {
+                    return Err(format!("the list holds {rows:?}"));
+                }
+                Ok(format!("{} theme rows", rows.len()))
+            })
+            .and_then(|detail| {
+                window.invoke_filter_mods_logs("source".into(), 0);
+                window.invoke_filter_mods_logs("level".into(), 0);
+                wait(window, Duration::from_secs(5), |window| {
+                    let rows = rows_on(window).len();
+                    if rows >= rows_before {
+                        Ok(format!("{detail}; {rows} rows with every source and level"))
+                    } else {
+                        Err(format!("{detail}; {rows} of {rows_before} rows came back"))
+                    }
+                })
+            })
+        },
     );
     verdict("the level filter did not narrow the list", &filtering);
 
@@ -527,11 +593,10 @@ fn the_window_lists_what_was_logged_and_filters_it() {
         click(window, "Confirm clearing the log records").and_then(|_| {
             wait(window, Duration::from_secs(5), |window| {
                 let rows = slint::Model::row_count(&window.get_mods().log_rows);
-                let held = window.get_mods().log_held.to_string();
-                if rows == 0 && held.contains("holds no records") {
-                    Ok(held)
+                if rows == 0 {
+                    Ok("the list is empty".to_owned())
                 } else {
-                    Err(format!("{rows} rows, and the header says {held:?}"))
+                    Err(format!("{rows} rows are still listed"))
                 }
             })
         }),

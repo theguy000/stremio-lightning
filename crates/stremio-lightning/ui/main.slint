@@ -115,7 +115,7 @@ export component MainWindow inherits Window {
     /// The Logs page's filter: which part of it ("source" or "level") and the id picked, empty
     /// for every one; the search box, where each change is a press; a press on a record, which
     /// opens its full text; and Clear, whose second press empties the list.
-    callback filter-mods-logs(string, string);
+    callback filter-mods-logs(string, int);
     callback search-mods-logs(string);
     callback open-mods-log(int);
     callback clear-mods-logs();
@@ -801,10 +801,11 @@ callback player-skip();
             settings-trouble: root.mods.settings-trouble,
             settings-empty: root.mods.settings-empty,
             settings-dirty: root.mods.settings-dirty,
-            log-sources: root.mods.log-sources,
-            log-levels: root.mods.log-levels,
+            log-source-options: root.mods.log-source-options,
+            log-level-options: root.mods.log-level-options,
+            log-source-index: root.mods.log-source-index,
+            log-level-index: root.mods.log-level-index,
             log-search: root.mods.log-search,
-            log-held: root.mods.log-held,
             log-rows: root.mods.log-rows,
             log-empty: root.mods.log-empty,
             log-detail: root.mods.log-detail,

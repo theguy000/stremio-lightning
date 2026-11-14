@@ -16,8 +16,8 @@ use crate::screens::Preview;
 use crate::screens::{Card, Input};
 use crate::{
     AddonData, AddonPendingData, CalendarData, CalendarDay, CalendarSlot, CatalogRow, LibraryCard,
-    LibrarySort, LinkGroup, MainWindow, ModCardData, ModsAboutLine, ModsFilterChoice, ModsLogRow,
-    ModsNavItem, ModsViewData, PlayerEpisode, PlayerOption, PlayerTrack, PosterData, PreviewData,
+    LibrarySort, LinkGroup, MainWindow, ModCardData, ModsAboutLine, ModsLogRow, ModsNavItem,
+    ModsViewData, PlayerEpisode, PlayerOption, PlayerTrack, PosterData, PreviewData,
     SelectInputData, SelectOption, SettingsFieldData, SettingsPluginData, SettingsViewData,
     StreamData, VideoRow,
 };
@@ -452,20 +452,11 @@ pub(crate) fn mods_view(data: &crate::screens::mods::Data) -> ModsViewData {
         )),
         settings_empty: empty_settings(data).into(),
         settings_dirty: data.edits.dirty(),
-        log_sources: ModelRc::new(VecModel::from(
-            data.log_sources
-                .iter()
-                .map(filter_choice)
-                .collect::<Vec<_>>(),
-        )),
-        log_levels: ModelRc::new(VecModel::from(
-            data.log_levels
-                .iter()
-                .map(filter_choice)
-                .collect::<Vec<_>>(),
-        )),
+        log_source_options: menu_options(&data.log_source_options, data.log_source_index),
+        log_level_options: menu_options(&data.log_level_options, data.log_level_index),
+        log_source_index: data.log_source_index,
+        log_level_index: data.log_level_index,
         log_search: data.log_filter.search.clone().into(),
-        log_held: data.log_held.clone().into(),
         log_rows: ModelRc::new(VecModel::from(
             data.log_rows.iter().map(log_row).collect::<Vec<_>>(),
         )),
@@ -486,13 +477,18 @@ pub(crate) fn mods_view(data: &crate::screens::mods::Data) -> ModsViewData {
     }
 }
 
-/// One pill of the Logs page's filter.
-fn filter_choice(choice: &mods::logs::Choice) -> ModsFilterChoice {
-    ModsFilterChoice {
-        id: choice.id.clone().into(),
-        label: choice.label.clone().into(),
-        selected: choice.selected,
-    }
+/// One filter menu of the Logs page: its choices, with the one the menu opens on marked.
+fn menu_options(labels: &[String], selected: i32) -> ModelRc<SelectOption> {
+    ModelRc::new(VecModel::from(
+        labels
+            .iter()
+            .enumerate()
+            .map(|(at, label)| SelectOption {
+                label: label.clone().into(),
+                selected: i32::try_from(at).unwrap_or(-1) == selected,
+            })
+            .collect::<Vec<_>>(),
+    ))
 }
 
 /// One record of the Logs page. A record id past what the window's integer holds keeps its low

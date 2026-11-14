@@ -2037,16 +2037,25 @@ impl Wiring {
 
     // ---- The Logs page -------------------------------------------------------
 
-    /// A press on one part of the Logs page's filter. The filter belongs to the recorder, which is
-    /// where a line a plugin logs from a timer finds it too: a page redrawn by a core event draws
-    /// the same filtered list. Pressing a control takes back an armed Clear.
-    fn filter_logs(&self, part: &str, value: String) {
+    /// A press on one of the Logs page's filter menus: the row picked, zero being every source or
+    /// every level. The filter belongs to the recorder, which is where a line a plugin logs from a
+    /// timer finds it too: a page redrawn by a core event draws the same filtered list. Pressing a
+    /// control takes back an armed Clear.
+    fn filter_logs(&self, part: &str, value: i32) {
         *self.mods_clearing.lock().unwrap() = false;
+        let index = usize::try_from(value).unwrap_or(0);
         match part {
-            "source" => self.logs.set_source(&value),
-            "level" => self.logs.set_level(&value),
-            _ => self.logs.set_search(&value),
+            "source" => self.logs.set_source_index(index),
+            _ => self.logs.set_level_index(index),
         }
+        self.repaint_mods_now();
+    }
+
+    /// A change in the Logs page's search box. The filter belongs to the recorder for the same
+    /// reason the menus' choice does.
+    fn search_logs(&self, text: String) {
+        *self.mods_clearing.lock().unwrap() = false;
+        self.logs.set_search(&text);
         self.repaint_mods_now();
     }
 
@@ -3075,13 +3084,13 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
     {
         let wiring = wiring.clone();
         window.on_filter_mods_logs(move |part, value| {
-            wiring.filter_logs(&part, value.to_string());
+            wiring.filter_logs(&part, value);
         });
     }
     {
         let wiring = wiring.clone();
         window.on_search_mods_logs(move |text| {
-            wiring.filter_logs("search", text.to_string());
+            wiring.search_logs(text.to_string());
         });
     }
     {

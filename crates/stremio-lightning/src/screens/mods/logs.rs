@@ -7,14 +7,12 @@
 //!
 //! The list is held in memory for this run of the app and never written to a file. Clear empties
 //! it, which deletes nothing: it is the page's own copy of what happened, and the page says so.
-//! The list holds at most [`CAPACITY`] records.
+//! The list holds at most [`crate::plumbing::logs::CAPACITY`] records.
 
 pub use crate::plumbing::logs::{Entry, Filter, Level, Source};
 
-use crate::plumbing::logs::{Logs, CAPACITY};
+use crate::plumbing::logs::Logs;
 
-/// What the page says above its list about where the records come from and how long they last.
-pub const NOTE: &str = "One line per thing that happened, newest first. The list is kept in memory until the app closes, so nothing here is written to a file. Clear empties it and deletes nothing.";
 /// What the page says when nothing is held at all.
 pub const NONE: &str = "Nothing has been recorded yet.";
 /// What the page says when records are held but the filter keeps none.
@@ -52,66 +50,28 @@ impl Row {
     }
 }
 
-/// One choice of a filter: the id the window passes back and the label it shows.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Choice {
-    pub id: String,
-    pub label: String,
-    pub selected: bool,
+/// The source menu's choices, in the order it lists them: every source first.
+pub fn source_options() -> Vec<&'static str> {
+    let mut labels = vec!["Every source"];
+    labels.extend(Source::ALL.into_iter().map(Source::label));
+    labels
 }
 
-/// The filter's source choices, with the one picked marked. The first choice is every source.
-pub fn sources(filter: &Filter) -> Vec<Choice> {
-    let mut choices = vec![Choice {
-        id: String::new(),
-        label: "Every source".to_owned(),
-        selected: filter.picked_source().is_none(),
-    }];
-    choices.extend(Source::ALL.into_iter().map(|source| Choice {
-        id: source.id().to_owned(),
-        label: source.label().to_owned(),
-        selected: filter.picked_source() == Some(source),
-    }));
-    choices
+/// The level menu's choices: every level first, then the least level that is kept. A level keeps
+/// its own records and every worse one, which is what the label says.
+pub fn level_options() -> Vec<&'static str> {
+    vec![
+        "Every level",
+        "Debug and worse",
+        "Info and worse",
+        "Warnings and errors",
+        "Errors only",
+    ]
 }
 
-/// The filter's level choices, with the one picked marked: the least level that is kept. A level
-/// keeps its own records and every worse one, which is what the label says.
-pub fn levels(filter: &Filter) -> Vec<Choice> {
-    let mut choices = vec![Choice {
-        id: String::new(),
-        label: "Every level".to_owned(),
-        selected: filter.least_level().is_none(),
-    }];
-    choices.extend(Level::ALL.into_iter().map(|level| Choice {
-        id: level.id().to_owned(),
-        label: match level {
-            Level::Debug => "Debug and worse".to_owned(),
-            Level::Info => "Info and worse".to_owned(),
-            Level::Warn => "Warnings and errors".to_owned(),
-            Level::Error => "Errors only".to_owned(),
-        },
-        selected: filter.least_level() == Some(level),
-    }));
-    choices
-}
-
-/// The header line: how many records are held, and how many the filter keeps of them.
-pub fn held(logs: &Logs, filter: &Filter) -> String {
-    let (held, shown) = (logs.len(), logs.matching(filter).len());
-    let kept = match shown {
-        0 => "The filter keeps none of them.".to_owned(),
-        1 => "The filter keeps 1 of them.".to_owned(),
-        shown => format!("The filter keeps {shown} of them."),
-    };
-    match held {
-        0 => format!(
-            "The app holds no records. It holds up to {} at once.",
-            CAPACITY
-        ),
-        1 => format!("The app holds 1 record. {kept}"),
-        held => format!("The app holds {held} of up to {} records. {kept}", CAPACITY),
-    }
+/// The row the source menu opens on, and the one the level menu opens on.
+pub fn menu_indexes(filter: &Filter) -> (usize, usize) {
+    (filter.source_index(), filter.level_index())
 }
 
 /// The rows the page lists: the records the filter keeps, newest first.
@@ -156,41 +116,41 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_header_says_how_many_are_held_and_how_many_show() {
-        let logs = Logs::new();
-        assert!(held(&logs, &Filter::default()).contains("holds no records"));
-        logs.record(Source::App, "", Level::Info, "one");
-        logs.record(Source::App, "", Level::Error, "two");
-        let all = held(&logs, &Filter::default());
-        assert!(all.contains("holds 2 of up to 2000 records"), "{all}");
-        assert!(all.contains("keeps 2 of them"), "{all}");
-        let errors = Filter {
-            level: "error".to_owned(),
-            ..Filter::default()
-        };
-        assert!(held(&logs, &errors).contains("keeps 1 of them"));
-    }
-
-    #[test]
-    fn the_filter_lists_every_source_and_level_first() {
+    fn the_filter_menus_list_every_choice_and_open_on_the_picked_one() {
         let filter = Filter::default();
-        let sources = sources(&filter);
-        assert_eq!(sources[0].label, "Every source");
-        assert!(sources[0].selected);
-        let listed = levels(&filter);
-        assert_eq!(listed[0].label, "Every level");
-        assert!(listed[0].selected);
+        assert_eq!(
+            source_options(),
+            ["Every source", "Plugin", "Theme", "Mods", "Server", "App"]
+        );
+        assert_eq!(
+            level_options(),
+            [
+                "Every level",
+                "Debug and worse",
+                "Info and worse",
+                "Warnings and errors",
+                "Errors only"
+            ]
+        );
+        assert_eq!(menu_indexes(&filter), (0, 0), "both open on every-thing");
         let picked = Filter {
+            source: "theme".to_owned(),
             level: "warn".to_owned(),
             ..Filter::default()
         };
-        let listed = levels(&picked);
-        let chosen: Vec<&str> = listed
-            .iter()
-            .filter(|choice| choice.selected)
-            .map(|choice| choice.label.as_str())
-            .collect();
-        assert_eq!(chosen, ["Warnings and errors"]);
+        assert_eq!(
+            menu_indexes(&picked),
+            (2, 3),
+            "the menus open on the choices the filter holds"
+        );
+        // Every label a menu shows is the label the record's own column would carry.
+        for source in Source::ALL {
+            assert_eq!(
+                source_options()[source.index()],
+                source.label(),
+                "the menu and the source column agree"
+            );
+        }
     }
 
     #[test]
