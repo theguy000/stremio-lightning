@@ -86,6 +86,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Add libmpv DLL directory to PATH
+        shell: pwsh
+        run: Add-Content -Path $env:GITHUB_PATH -Value "$env:GITHUB_WORKSPACE\crates\stremio-lightning\resources"
+
       - name: Check formatting
         run: cargo fmt --all -- --check
 

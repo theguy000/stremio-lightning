@@ -392,7 +392,6 @@ fn the_window_lists_what_was_logged_and_filters_it() {
             }
         }),
     );
-    let all = rows_on(window);
     outcomes = step(outcomes, "the page draws a header for its list", {
         let texts = ui_driver::texts(window);
         let header: Vec<&String> = texts
@@ -442,8 +441,15 @@ fn the_window_lists_what_was_logged_and_filters_it() {
                         rows.len()
                     ));
                 }
-                if rows.len() >= all.len() {
-                    return Err(format!("{} rows before, {} after", all.len(), rows.len()));
+                // Background image fetches on boot can append extra warnings/errors after the
+                // initial snapshot, so compare against the current total rather than a stale count.
+                let held = window.get_mods().log_held.to_string();
+                let total = held
+                    .strip_prefix("The app holds ")
+                    .and_then(|rest| rest.split_whitespace().next())
+                    .and_then(|word| word.parse::<usize>().ok());
+                if total.is_none_or(|total| rows.len() >= total) {
+                    return Err(format!("{} rows after, header {held:?}", rows.len()));
                 }
                 if !rows
                     .iter()
