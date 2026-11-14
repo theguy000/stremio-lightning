@@ -16,6 +16,7 @@ use libmpv2::{mpv_end_file_reason, Mpv};
 use slint::{ComponentHandle, GraphicsAPI, PhysicalSize, RenderingState, Timer, TimerMode, Weak};
 use stremio_core::types::player::VideoScale;
 
+use crate::plumbing::logs::{Level, Logs, Source};
 use crate::MainWindow;
 
 const GL_FRAMEBUFFER_BINDING: u32 = 0x8CA6;
@@ -348,21 +349,25 @@ pub(crate) struct VideoPlayer {
 }
 
 impl VideoPlayer {
-    /// Hooks mpv into the window's rendering. If the renderer has no OpenGL, playing says so.
-    pub(crate) fn install(window: &MainWindow) -> Self {
+    /// Hooks mpv into the window's rendering. If the renderer has no OpenGL, playing says so, on
+    /// the Logs page as well as on stderr: a build without a console has only the page.
+    pub(crate) fn install(window: &MainWindow, logs: std::sync::Arc<Logs>) -> Self {
         let player: Rc<RefCell<Option<Player>>> = Rc::default();
         let showing: Rc<Cell<bool>> = Rc::default();
 
         let installed = window.window().set_rendering_notifier({
             let player = player.clone();
             let showing = showing.clone();
+            let logs = logs.clone();
             let weak = window.as_weak();
             move |state, api| match state {
                 RenderingState::RenderingSetup => {
                     if let GraphicsAPI::NativeOpenGL { get_proc_address } = api {
                         match Player::new(get_proc_address, weak.clone()) {
                             Ok(created) => *player.borrow_mut() = Some(created),
-                            Err(error) => eprintln!("video playback is unavailable: {error}"),
+                            Err(error) => {
+                                player_unavailable(&logs, &error);
+                            }
                         }
                     }
                 }
@@ -380,7 +385,7 @@ impl VideoPlayer {
             }
         });
         if let Err(error) = installed {
-            eprintln!("video playback is unavailable: {error}");
+            player_unavailable(&logs, &error.to_string());
         }
 
         let status: Rc<RefCell<Status>> = Rc::default();
@@ -391,6 +396,7 @@ impl VideoPlayer {
             let status = status.clone();
             let listener = listener.clone();
             let showing = showing.clone();
+            let logs = logs.clone();
             let weak = window.as_weak();
             move || {
                 let mut guard = player.borrow_mut();
@@ -399,7 +405,7 @@ impl VideoPlayer {
                 };
                 let previous = status.borrow().clone();
                 let mut next = previous.clone();
-                drain_events(current, &mut next);
+                drain_events(current, &mut next, &logs);
                 let measured = current.status();
                 next.time = measured.time;
                 next.duration = measured.duration;
@@ -655,8 +661,16 @@ fn describe(error: libmpv2::Error) -> String {
     }
 }
 
+/// Says, once, that the window's renderer cannot carry mpv: on stderr and on the Logs page, so a
+/// build without a console can still say why there is no picture.
+fn player_unavailable(logs: &Logs, error: &str) {
+    let text = format!("video playback is unavailable: {error}");
+    eprintln!("{text}");
+    logs.record(Source::App, "Player", Level::Error, text);
+}
+
 /// Reads the events mpv has queued, folding the ones the screen cares about into `status`.
-fn drain_events(player: &mut Player, status: &mut Status) {
+fn drain_events(player: &mut Player, status: &mut Status, logs: &Logs) {
     while let Some(event) = player.mpv.wait_event(0.0) {
         let Ok(event) = event else {
             continue;
@@ -688,8 +702,17 @@ fn drain_events(player: &mut Player, status: &mut Status) {
                 // mpv says why in its own log ("Failed to open ...", "HTTP error 403", "unsafe
                 // TLS"). The screen has one line for the viewer; this one is for whoever has to
                 // answer "why can't it play this stream".
+                // Both places: stderr for a terminal, and the Logs page for a built app, which
+                // is where "why can't it play this stream" is actually asked.
                 if matches!(level, "error" | "fatal" | "warn") {
-                    eprintln!("[mpv {level}] {prefix}{text}");
+                    let text = format!("{prefix}{text}");
+                    eprintln!("[mpv {level}] {text}");
+                    let severity = if matches!(level, "error" | "fatal") {
+                        Level::Error
+                    } else {
+                        Level::Warn
+                    };
+                    logs.record(Source::App, format!("mpv {level}"), severity, text);
                 }
             }
             Event::EndFile(reason) => {
