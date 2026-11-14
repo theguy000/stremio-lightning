@@ -4,24 +4,10 @@ on:
   workflow_dispatch:
   push:
     tags: ["v*"]
-  # Dry run: build and package everything, but never release, when a PR touches
-  # something the packages are built from.
-  pull_request:
-    paths:
-      - ".github/workflows/publish.yml"
-      - "crates/xtask/**"
-      - "scripts/**"
-      - "flatpak/**"
-      - "assets/**"
-      # flatpak/cargo-sources.json is generated from Cargo.lock, so a dependency
-      # change can break the offline Flatpak build.
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "crates/*/Cargo.toml"
 
 concurrency:
   group: publish-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -92,7 +78,6 @@ jobs:
           appstreamcli validate --strict --no-net assets/io.github.theguy000.stremio-lightning.metainfo.xml
 
       - name: Validate Rust before packaging
-        if: github.event_name != 'pull_request'
         run: |
           cargo fmt --all -- --check
           cargo clippy --workspace --all-targets
@@ -215,7 +200,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Validate Rust before packaging
-        if: github.event_name != 'pull_request'
         shell: pwsh
         run: |
           cargo fmt --all -- --check

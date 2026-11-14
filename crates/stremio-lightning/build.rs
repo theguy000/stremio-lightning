@@ -59,10 +59,6 @@ fn link_windows_mpv() {
     );
     println!("cargo:rustc-link-search=native={}", dev.display());
     println!("cargo:rerun-if-changed={}", lib.display());
-    if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
-        println!("cargo:rustc-link-lib=dylib=delayimp");
-        println!("cargo:rustc-link-arg=/DELAYLOAD:libmpv-2.dll");
-    }
 
     let dll = manifest.join("resources/libmpv-2.dll");
     println!("cargo:rerun-if-changed={}", dll.display());
