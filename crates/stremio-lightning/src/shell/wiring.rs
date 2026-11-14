@@ -159,6 +159,9 @@ pub(crate) struct Wiring {
     /// The video and category the timing form was last seeded for. Opening the panel again on the
     /// same two keeps what was typed; a new video or category starts from its own times.
     pub(crate) skip_seeded: Arc<Mutex<String>>,
+    /// Incremented whenever the player leaves or switches videos, so in-flight AniSkip requests,
+    /// submissions, and votes from an earlier video never touch the current window.
+    pub(crate) skip_generation: Arc<AtomicU64>,
     /// The Mods card whose Remove button was pressed once and waits for the second press, with
     /// the page and the button it was pressed on. Pressing anything else, changing page, or this
     /// timer firing clears it; the second press is the one that removes the file.
@@ -218,6 +221,7 @@ pub(crate) struct Playback {
     /// that has none keeps its id here so nothing is asked for it twice.
     pub(crate) skip: Vec<skip::Segment>,
     pub(crate) skip_for: String,
+    pub(crate) skip_length: u64,
     /// The segment holding the play head, which is what the button acts on.
     pub(crate) skip_now: Option<skip::Segment>,
     /// How many segments were last said on the Logs page, so a change is one line.
@@ -243,6 +247,7 @@ impl Default for Playback {
             scale: stremio_core::types::player::VideoScale::Contain,
             skip: Vec::new(),
             skip_for: String::new(),
+            skip_length: 0,
             skip_now: None,
             skip_total: 0,
             skip_marks: Vec::new(),
@@ -713,28 +718,44 @@ impl Wiring {
         // AniSkip holds and votes on it without the button ever offering it.
         let rates_wanted = skip_wanted || *self.skip_submit.lock().unwrap();
         if !rates_wanted {
-            let mut playback = self.playback.lock().unwrap();
-            if !playback.skip.is_empty() {
-                self.logs.record(
-                    crate::plumbing::logs::Source::App,
-                    "Skip",
-                    crate::plumbing::logs::Level::Info,
-                    "Skip intros is switched off; the segments are dropped.",
+            let had_any = {
+                let playback = self.playback.lock().unwrap();
+                !playback.skip.is_empty()
+                    || !playback.skip_rates.is_empty()
+                    || !playback.skip_for.is_empty()
+            };
+            if had_any {
+                if !self.playback.lock().unwrap().skip.is_empty() {
+                    self.logs.record(
+                        crate::plumbing::logs::Source::App,
+                        "Skip",
+                        crate::plumbing::logs::Level::Info,
+                        "Skip intros is switched off; the segments are dropped.",
+                    );
+                }
+                clear_skip_state(
+                    &self.skip_generation,
+                    &self.skip_seeded,
+                    &self.playback,
+                    Some(&window),
                 );
             }
-            playback.skip.clear();
-            playback.skip_rates.clear();
-            playback.skip_for.clear();
         } else if status.loaded && duration > 0.0 {
             if let Some((video, meta_id, season, episode)) = self.skip_target() {
+                let length = duration.round() as u64;
                 let ask = {
                     let mut playback = self.playback.lock().unwrap();
-                    if playback.skip_for == video {
+                    if playback.skip_for == video
+                        && (playback.skip_length == 0 || length.abs_diff(playback.skip_length) <= 2)
+                    {
                         false
                     } else {
                         playback.skip.clear();
                         playback.skip_rates.clear();
+                        playback.skip_rates_sent.clear();
+                        playback.skip_now = None;
                         playback.skip_for = video.clone();
+                        playback.skip_length = length;
                         true
                     }
                 };
@@ -749,6 +770,8 @@ impl Wiring {
                     );
                     let playback = Arc::clone(&self.playback);
                     let logs = Arc::clone(&self.logs);
+                    let skip_generation = Arc::clone(&self.skip_generation);
+                    let generation = skip_generation.load(Ordering::Acquire);
                     let for_video = video;
                     self.handle.spawn(async move {
                         let found = skip::rates(&meta_id, season, episode, duration).await;
@@ -780,7 +803,9 @@ impl Wiring {
                         if let Ok(mut playback) = playback.lock() {
                             // The player may have moved on while the source was answering, and
                             // its segments are not this Video's.
-                            let same = playback.skip_for == for_video;
+                            let same = skip_generation.load(Ordering::Acquire) == generation
+                                && playback.skip_for == for_video
+                                && playback.skip_length == length;
                             if same {
                                 playback.skip = found.iter().map(skip::Rate::segment).collect();
                                 playback.skip_rates = found;
@@ -799,11 +824,30 @@ impl Wiring {
                         }
                     });
                 }
+            } else {
+                let had_stale = {
+                    let playback = self.playback.lock().unwrap();
+                    !playback.skip.is_empty()
+                        || !playback.skip_rates.is_empty()
+                        || !playback.skip_for.is_empty()
+                };
+                if had_stale {
+                    clear_skip_state(
+                        &self.skip_generation,
+                        &self.skip_seeded,
+                        &self.playback,
+                        Some(&window),
+                    );
+                }
             }
         }
 
         {
             let mut playback = self.playback.lock().unwrap();
+            let same_video = status.loaded
+                && self
+                    .skip_target()
+                    .is_some_and(|(video, ..)| video == playback.skip_for);
             let had = playback.skip.len();
             if had != playback.skip_total {
                 playback.skip_total = had;
@@ -818,7 +862,7 @@ impl Wiring {
                 );
             }
             let before = playback.skip_now.map(|segment| segment.kind);
-            playback.skip_now = if skip_wanted {
+            playback.skip_now = if skip_wanted && same_video {
                 playback
                     .skip
                     .iter()
@@ -847,9 +891,6 @@ impl Wiring {
             // The bar's own record of the segments: fractions of the length, so it marks an
             // Opening before the button offers it. The marks belong to the Video they were fetched
             // for, which is the one in the player only while `skip_for` says so.
-            let same_video = self
-                .skip_target()
-                .is_some_and(|(video, ..)| video == playback.skip_for);
             let marks: Vec<(f32, f32)> = if skip_wanted && same_video && duration > 0.0 {
                 playback
                     .skip
@@ -894,7 +935,9 @@ impl Wiring {
                 } else {
                     kind
                 };
-                self.show_skip_panel(&kind, false, false);
+                let seed =
+                    should_reseed_on_fetch(&window, &self.playback.lock().unwrap().skip_rates);
+                self.show_skip_panel(&kind, seed, seed);
             }
         }
 
@@ -929,6 +972,13 @@ impl Wiring {
         self.video.show(false);
         *self.player_loaded.lock().unwrap() = String::new();
         *self.playback_error.lock().unwrap() = String::new();
+        let window = self.window.upgrade();
+        clear_skip_state(
+            &self.skip_generation,
+            &self.skip_seeded,
+            &self.playback,
+            window.as_ref(),
+        );
         *self.playback.lock().unwrap() = Playback::default();
         self.player_season
             .store(player::NO_SEASON, Ordering::Relaxed);
@@ -981,10 +1031,12 @@ impl Wiring {
         *self.skip_kind.lock().unwrap() = kind.clone();
         // The form is seeded once per video and category: closing the panel and opening it again
         // keeps what was typed, which is what a submit that failed needs.
-        let context = self
+        let generation = self.skip_generation.load(Ordering::Acquire);
+        let target = self
             .skip_target()
-            .map(|(video, ..)| format!("{video}:{kind}"))
-            .unwrap_or_default();
+            .map(|(video, ..)| video)
+            .unwrap_or_else(|| format!("gen:{generation}"));
+        let context = format!("{target}:{kind}");
         let seed = *self.skip_seeded.lock().unwrap() != context;
         if seed {
             *self.skip_seeded.lock().unwrap() = context;
@@ -1005,21 +1057,26 @@ impl Wiring {
             return;
         };
         let kind = self.skip_kind.lock().unwrap().clone();
-        let (playback, weak, logs) = (
+        let (playback, weak, logs, skip_generation) = (
             self.playback.clone(),
             self.window.clone(),
             self.logs.clone(),
+            self.skip_generation.clone(),
         );
+        let generation = skip_generation.load(Ordering::Acquire);
         self.handle.spawn(async move {
             let found = skip::rates(&meta_id, season, episode, duration).await;
             let kind = kind_with_data(&found, &kind);
             let playhead = {
                 let mut playback = playback.lock().unwrap();
-                if playback.skip_for != video {
+                if skip_generation.load(Ordering::Acquire) != generation
+                    || playback.skip_for != video
+                {
                     return;
                 }
                 playback.skip = found.iter().map(skip::Rate::segment).collect();
                 playback.skip_rates = found.clone();
+                playback.skip_rates_sent = found.clone();
                 playback.time
             };
             logs.record(
@@ -1029,7 +1086,11 @@ impl Wiring {
                 format!("The timing panel asked again: {} row(s)", found.len()),
             );
             let _ = weak.upgrade_in_event_loop(move |window| {
-                fill_skip_panel(&window, &found, &kind, playhead, false);
+                if skip_generation.load(Ordering::Acquire) != generation {
+                    return;
+                }
+                let seed = should_reseed_on_fetch(&window, &found);
+                fill_skip_panel(&window, &found, &kind, playhead, seed);
             });
         });
     }
@@ -1037,9 +1098,12 @@ impl Wiring {
     /// A press on one of the panel's categories.
     fn pick_skip_kind(&self, kind: String) {
         *self.skip_kind.lock().unwrap() = kind.clone();
-        if let Some((video, ..)) = self.skip_target() {
-            *self.skip_seeded.lock().unwrap() = format!("{video}:{kind}");
-        }
+        let generation = self.skip_generation.load(Ordering::Acquire);
+        let target = self
+            .skip_target()
+            .map(|(video, ..)| video)
+            .unwrap_or_else(|| format!("gen:{generation}"));
+        *self.skip_seeded.lock().unwrap() = format!("{target}:{kind}");
         // The category picked is drawn as it is, even when an answer for it has not arrived:
         // falling back to another category here would make the pills look unpressed.
         self.show_skip_panel(&kind, false, true);
@@ -1051,9 +1115,17 @@ impl Wiring {
         let Some(window) = self.window.upgrade() else {
             return;
         };
+        let target_video = self.skip_target().map(|(video, ..)| video);
         let (rates, playhead) = {
             let playback = self.playback.lock().unwrap();
-            (playback.skip_rates.clone(), playback.time)
+            let same = target_video
+                .as_deref()
+                .is_some_and(|video| video == playback.skip_for);
+            if same {
+                (playback.skip_rates.clone(), playback.time)
+            } else {
+                (Vec::new(), self.video.status().time.unwrap_or_default())
+            }
         };
         let kind = if auto {
             kind_with_data(&rates, kind)
@@ -1116,11 +1188,13 @@ impl Wiring {
             return;
         };
         window.set_player_skip_notice("Sending…".into());
-        let (logs, playback, weak) = (
+        let (logs, playback, weak, skip_generation) = (
             self.logs.clone(),
             self.playback.clone(),
             self.window.clone(),
+            self.skip_generation.clone(),
         );
+        let generation = skip_generation.load(Ordering::Acquire);
         self.handle.spawn(async move {
             let answer = skip::submit(
                 &meta_id, season, episode, kind, start, end, length, &provider, &submitter,
@@ -1149,16 +1223,23 @@ impl Wiring {
                         },
                     );
                     let rows = if let Ok(mut playback) = playback.lock() {
-                        if playback.skip_for == video {
-                            playback.skip.push(skip::Segment { kind, start, end });
-                            playback.skip.sort_by(|a, b| a.start.total_cmp(&b.start));
-                            playback.skip_rates.push(skip::Rate {
-                                kind,
-                                start,
-                                end,
-                                id: id.clone(),
-                            });
+                        if skip_generation.load(Ordering::Acquire) != generation
+                            || playback.skip_for != video
+                        {
+                            return;
                         }
+                        playback.skip.push(skip::Segment { kind, start, end });
+                        playback.skip.sort_by(|a, b| a.start.total_cmp(&b.start));
+                        playback.skip_rates.push(skip::Rate {
+                            kind,
+                            start,
+                            end,
+                            id: id.clone(),
+                        });
+                        playback
+                            .skip_rates
+                            .sort_by(|a, b| a.start.total_cmp(&b.start));
+                        playback.skip_rates_sent = playback.skip_rates.clone();
                         playback
                             .skip_rates
                             .iter()
@@ -1172,9 +1253,12 @@ impl Wiring {
                             })
                             .collect::<Vec<_>>()
                     } else {
-                        Vec::new()
+                        return;
                     };
                     let _ = weak.upgrade_in_event_loop(move |window| {
+                        if skip_generation.load(Ordering::Acquire) != generation {
+                            return;
+                        }
                         window.set_player_skip_rows(ModelRc::new(VecModel::from(
                             rows.into_iter()
                                 .map(|(key, label, text, id)| crate::SkipRow {
@@ -1196,6 +1280,9 @@ impl Wiring {
                         format!("AniSkip refused a timing: {why}"),
                     );
                     let _ = weak.upgrade_in_event_loop(move |window| {
+                        if skip_generation.load(Ordering::Acquire) != generation {
+                            return;
+                        }
                         window.set_player_skip_notice(why.into());
                     });
                 }
@@ -1212,7 +1299,12 @@ impl Wiring {
             return;
         };
         window.set_player_skip_notice("Sending…".into());
-        let (logs, weak) = (self.logs.clone(), self.window.clone());
+        let (logs, weak, skip_generation) = (
+            self.logs.clone(),
+            self.window.clone(),
+            self.skip_generation.clone(),
+        );
+        let generation = skip_generation.load(Ordering::Acquire);
         self.handle.spawn(async move {
             match skip::vote(&id, up).await {
                 Ok(()) => {
@@ -1223,6 +1315,9 @@ impl Wiring {
                         format!("{} {id}", if up { "Upvoted" } else { "Downvoted" }),
                     );
                     let _ = weak.upgrade_in_event_loop(move |window| {
+                        if skip_generation.load(Ordering::Acquire) != generation {
+                            return;
+                        }
                         window.set_player_skip_notice("Thanks for the vote.".into());
                     });
                 }
@@ -1234,6 +1329,9 @@ impl Wiring {
                         format!("A vote was refused: {why}"),
                     );
                     let _ = weak.upgrade_in_event_loop(move |window| {
+                        if skip_generation.load(Ordering::Acquire) != generation {
+                            return;
+                        }
                         window.set_player_skip_notice(why.into());
                     });
                 }
@@ -2547,6 +2645,8 @@ pub(crate) fn start_player_sync(wiring: &Wiring) {
     let browsed = wiring.browsed_language.clone();
     let playback = wiring.playback.clone();
     let error = wiring.playback_error.clone();
+    let skip_generation = wiring.skip_generation.clone();
+    let skip_seeded = wiring.skip_seeded.clone();
     wiring.player_sync.start(
         slint::TimerMode::Repeated,
         std::time::Duration::from_millis(200),
@@ -2576,7 +2676,11 @@ pub(crate) fn start_player_sync(wiring: &Wiring) {
                     *auto.lock().unwrap() = false;
                     *browsed.lock().unwrap() = String::new();
                     *error.lock().unwrap() = String::new();
+                    let upgraded = window.upgrade();
+                    clear_skip_state(&skip_generation, &skip_seeded, &playback, upgraded.as_ref());
                     if let Ok(mut playing) = playback.lock() {
+                        playing.time = data.resume_at;
+                        playing.duration = 0.0;
                         playing.sent_time = data.resume_at;
                         playing.paused = None;
                         playing.scale = match data.scale {
@@ -3180,6 +3284,47 @@ fn window_is_in_front() -> bool {
     }
 }
 
+/// Clears all skip UI properties on the window so nothing from a previous video lingers on screen.
+fn reset_skip_window(window: &MainWindow) {
+    window.set_player_skip_visible(false);
+    window.set_player_skip_marks(ModelRc::default());
+    window.set_player_skip_rows(ModelRc::default());
+    window.set_player_skip_start("".into());
+    window.set_player_skip_end("".into());
+    window.set_player_skip_notice("".into());
+}
+
+/// Drops the current video's skip segments, marks, and form seed, and bumps `skip_generation` so
+/// in-flight AniSkip fetches, submissions, or votes from before the switch are ignored.
+fn clear_skip_state(
+    skip_generation: &AtomicU64,
+    skip_seeded: &Mutex<String>,
+    playback: &Mutex<Playback>,
+    window: Option<&MainWindow>,
+) {
+    skip_generation.fetch_add(1, Ordering::AcqRel);
+    *skip_seeded.lock().unwrap() = String::new();
+    if let Ok(mut playback) = playback.lock() {
+        playback.skip.clear();
+        playback.skip_for.clear();
+        playback.skip_length = 0;
+        playback.skip_now = None;
+        playback.skip_total = 0;
+        playback.skip_marks.clear();
+        playback.skip_rates.clear();
+        playback.skip_rates_sent.clear();
+    }
+    if let Some(window) = window {
+        reset_skip_window(window);
+    }
+}
+
+/// Whether a background AniSkip fetch that just returned rows should replace the Start/End inputs:
+/// only when there are rows and the user has not edited Start and End apart from the initial seed.
+fn should_reseed_on_fetch(window: &MainWindow, rates: &[skip::Rate]) -> bool {
+    !rates.is_empty() && window.get_player_skip_start() == window.get_player_skip_end()
+}
+
 /// The category the panel should open on: the one asked for when AniSkip holds a row for it, and
 /// otherwise the first category that has one, so a panel is never opened on an empty tab while
 /// the video has a timing under another.
@@ -3288,5 +3433,91 @@ mod tests {
     #[test]
     fn turning_subtitles_off_leaves_no_language_to_look_at() {
         assert_eq!(browsed_language("", ""), "");
+    }
+
+    #[test]
+    fn clearing_skip_state_wipes_window_and_bumps_generation() {
+        use std::sync::{
+            atomic::{AtomicU64, Ordering},
+            Mutex,
+        };
+        i_slint_backend_testing::init_integration_test_with_mock_time();
+        let window = crate::MainWindow::new().unwrap();
+        let generation = AtomicU64::new(3);
+        let seeded = Mutex::new("tt9054364:1:3:op".to_owned());
+        let playback = Mutex::new(super::Playback {
+            skip: vec![crate::plumbing::skip::Segment {
+                kind: crate::plumbing::skip::Kind::Opening,
+                start: 30.0,
+                end: 115.0,
+            }],
+            skip_for: "tt9054364:1:3".to_owned(),
+            skip_length: 1344,
+            skip_now: Some(crate::plumbing::skip::Segment {
+                kind: crate::plumbing::skip::Kind::Opening,
+                start: 30.0,
+                end: 115.0,
+            }),
+            skip_total: 1,
+            skip_marks: vec![(0.02, 0.08)],
+            skip_rates: vec![crate::plumbing::skip::Rate {
+                kind: crate::plumbing::skip::Kind::Opening,
+                start: 30.0,
+                end: 115.0,
+                id: "id-1".to_owned(),
+            }],
+            ..Default::default()
+        });
+
+        super::fill_skip_panel(
+            &window,
+            &playback.lock().unwrap().skip_rates,
+            "op",
+            5.0,
+            true,
+        );
+        window.set_player_skip_visible(true);
+        window.set_player_skip_notice("Sent. Thank you.".into());
+        // Simulate the user clicking Now / editing Start & End before switching to The Mentalist.
+        window.set_player_skip_start("20:58".into());
+        window.set_player_skip_end("22:23".into());
+
+        super::clear_skip_state(&generation, &seeded, &playback, Some(&window));
+
+        assert_eq!(generation.load(Ordering::Acquire), 4);
+        assert!(seeded.lock().unwrap().is_empty());
+        assert!(playback.lock().unwrap().skip.is_empty());
+        assert!(playback.lock().unwrap().skip_for.is_empty());
+        assert_eq!(playback.lock().unwrap().skip_length, 0);
+        assert!(playback.lock().unwrap().skip_now.is_none());
+        assert!(playback.lock().unwrap().skip_rates.is_empty());
+        assert!(!window.get_player_skip_visible());
+        assert_eq!(slint::Model::row_count(&window.get_player_skip_rows()), 0);
+        assert_eq!(slint::Model::row_count(&window.get_player_skip_marks()), 0);
+        assert_eq!(window.get_player_skip_start().as_str(), "");
+        assert_eq!(window.get_player_skip_end().as_str(), "");
+        assert_eq!(window.get_player_skip_notice().as_str(), "");
+
+        // Re-seeding with the same playhead string that an earlier video started from ("0:00")
+        // must overwrite any user-edited Start/End text on the new video.
+        window.set_player_skip_start("0:00".into());
+        window.set_player_skip_end("0:00".into());
+        window.set_player_skip_start("20:58".into());
+        window.set_player_skip_end("22:23".into());
+        super::fill_skip_panel(&window, &[], "op", 0.0, true);
+        assert_eq!(window.get_player_skip_start().as_str(), "0:00");
+        assert_eq!(window.get_player_skip_end().as_str(), "0:00");
+
+        // Fetching rows reseeds only when the user has not edited Start and End apart.
+        let fetched = vec![crate::plumbing::skip::Rate {
+            kind: crate::plumbing::skip::Kind::Opening,
+            start: 30.0,
+            end: 115.0,
+            id: "id-2".to_owned(),
+        }];
+        assert!(super::should_reseed_on_fetch(&window, &fetched));
+        assert!(!super::should_reseed_on_fetch(&window, &[]));
+        window.set_player_skip_end("0:45".into());
+        assert!(!super::should_reseed_on_fetch(&window, &fetched));
     }
 }

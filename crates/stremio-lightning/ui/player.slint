@@ -787,19 +787,10 @@ export component PlayerScreen inherits Rectangle {
     in property <string> skip-kind: "op";
     /// Every row AniSkip holds for this file, one per category, with the id each votes by.
     in property <[SkipRow]> skip-rows;
-    /// The form's starting text, as the shell formats it. The shell seeds it when the panel
-    /// opens on a category it has not shown yet; the box's own text lives beside it, so closing
-    /// the panel keeps what was typed.
-    in property <string> skip-start: "";
-    in property <string> skip-end: "";
-    in-out property <string> skip-start-text: "";
-    in-out property <string> skip-end-text: "";
-    changed skip-start => {
-        root.skip-start-text = root.skip-start;
-    }
-    changed skip-end => {
-        root.skip-end-text = root.skip-end;
-    }
+    /// The form's timing text, bound directly to the window so seeding on a new video always
+    /// replaces any previous input even when the formatted string matches an earlier seed.
+    in-out property <string> skip-start: "";
+    in-out property <string> skip-end: "";
     /// What the shell last said about the panel: sending, a refusal, or a thank-you.
     in property <string> skip-notice: "";
     /// The skip button: whether the play head is inside a segment. The shell decides it; the
@@ -1815,7 +1806,7 @@ export component PlayerScreen inherits Rectangle {
                             col: 1;
                             horizontal-stretch: 1;
                             rem-size: root.rem-size;
-                            text <=> root.skip-start-text;
+                            text <=> root.skip-start;
                         }
                         SkipPill {
                             row: 0;
@@ -1824,7 +1815,7 @@ export component PlayerScreen inherits Rectangle {
                             label-text: "Now";
                             small: true;
                             clicked => {
-                                root.skip-start-text = PlayerText.clock(root.time);
+                                root.skip-start = PlayerText.clock(root.time);
                             }
                         }
                         Text {
@@ -1841,7 +1832,7 @@ export component PlayerScreen inherits Rectangle {
                             col: 1;
                             horizontal-stretch: 1;
                             rem-size: root.rem-size;
-                            text <=> root.skip-end-text;
+                            text <=> root.skip-end;
                         }
                         SkipPill {
                             row: 1;
@@ -1850,7 +1841,7 @@ export component PlayerScreen inherits Rectangle {
                             label-text: "Now";
                             small: true;
                             clicked => {
-                                root.skip-end-text = PlayerText.clock(root.time);
+                                root.skip-end = PlayerText.clock(root.time);
                             }
                         }
                     }
@@ -1872,7 +1863,7 @@ export component PlayerScreen inherits Rectangle {
                             label-text: "Submit";
                             primary: true;
                             clicked => {
-                                root.submit-skip(root.skip-kind, root.skip-start-text, root.skip-end-text);
+                                root.submit-skip(root.skip-kind, root.skip-start, root.skip-end);
                             }
                         }
                     }

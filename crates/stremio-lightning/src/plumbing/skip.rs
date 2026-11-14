@@ -111,23 +111,25 @@ pub async fn rates(meta_id: &str, season: u32, episode: u32, duration: f64) -> V
     let Some(mal) = mal_for(meta_id, season).await else {
         return Vec::new();
     };
-    let found = skip_times(mal, episode, duration).await;
+    let Some(found) = skip_times(mal, episode, duration).await else {
+        return Vec::new();
+    };
     remember(&key, &found);
     found
 }
 
-/// The MyAnimeList id of the season being watched: the show's own id, walked forward through the
-/// sequels for a season past the first.
+/// The MyAnimeList id of the season being watched: an exact ARM season match is used directly;
+/// otherwise a season past the first walks Jikan's prequel/sequel chain.
 async fn mal_for(meta_id: &str, season: u32) -> Option<u32> {
-    let mal = mal_id(meta_id, season).await?;
+    let (mal, exact_season) = mal_id(meta_id, season).await?;
     // The show's own id is its first season's. Walking Jikan's relations for season 1 ends on the
     // id it started from, and costs two calls to a service that can take its full timeout to
     // answer -- the first skip ask of a session waited those seconds for nothing.
-    Some(if season > 1 {
-        season_mal(mal, season).await
+    if exact_season || season <= 1 {
+        Some(mal)
     } else {
-        mal
-    })
+        season_mal(mal, season).await
+    }
 }
 
 fn client() -> Option<&'static reqwest::Client> {
@@ -150,6 +152,21 @@ async fn get_json(url: &str) -> Option<Value> {
         return None;
     }
     response.json::<Value>().await.ok()
+}
+
+/// Distinguishes a confirmed "no skip times" answer (404 or 2xx JSON) from a transient transport
+/// or server failure (`None`), so transient failures do not poison the session cache.
+async fn get_skip_json(url: &str) -> Option<Option<Value>> {
+    let client = client()?;
+    let response = client.get(url).send().await.ok()?;
+    let status = response.status();
+    if status == reqwest::StatusCode::NOT_FOUND {
+        return Some(None);
+    }
+    if !status.is_success() {
+        return None;
+    }
+    response.json::<Value>().await.ok().map(Some)
 }
 
 fn cached(key: &str) -> Option<Vec<Rate>> {
@@ -181,8 +198,8 @@ fn cache() -> &'static Mutex<HashMap<String, Vec<Rate>>> {
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-/// The MyAnimeList id for a show, before season resolution.
-async fn mal_id(meta_id: &str, season: u32) -> Option<u32> {
+/// The MyAnimeList id for a show and whether `season` is already resolved by the mapping.
+async fn mal_id(meta_id: &str, season: u32) -> Option<(u32, bool)> {
     let (source, id) = match meta_id.split_once(':') {
         Some(("kitsu", rest)) => ("kitsu", rest.split(':').next().unwrap_or(rest)),
         _ if meta_id.starts_with("tt") => ("imdb", meta_id.split(':').next().unwrap_or(meta_id)),
@@ -194,7 +211,7 @@ async fn mal_id(meta_id: &str, season: u32) -> Option<u32> {
             .await
             .and_then(|value| kitsu_mal(&value))
         {
-            return Some(mal);
+            return Some((mal, false));
         }
     }
 
@@ -204,7 +221,7 @@ async fn mal_id(meta_id: &str, season: u32) -> Option<u32> {
     };
     get_json(&url)
         .await
-        .and_then(|value| arm_mal(&value, season))
+        .and_then(|value| arm_lookup(&value, season))
 }
 
 /// Kitsu's mappings answer: the entry that names `myanimelist/anime`.
@@ -227,22 +244,21 @@ fn kitsu_mal(value: &Value) -> Option<u32> {
         })
 }
 
-/// Anime Relations Mapping's answer: the entry for this season, else the one at its index,
-/// else the first it has.
-fn arm_mal(value: &Value, season: u32) -> Option<u32> {
+/// Anime Relations Mapping's answer and whether `season` matched `thetvdb-season` directly.
+fn arm_lookup(value: &Value, season: u32) -> Option<(u32, bool)> {
     let positive = |value: Option<&Value>| -> Option<u32> {
         let number = value.and_then(Value::as_u64)?;
         u32::try_from(number).ok().filter(|n| *n > 0)
     };
     let Some(entries) = value.as_array() else {
-        return positive(value.get("myanimelist"));
+        return positive(value.get("myanimelist")).map(|mal| (mal, false));
     };
     if let Some(found) = entries
         .iter()
         .find(|entry| positive(entry.get("thetvdb-season")) == Some(season).filter(|s| *s > 0))
     {
         if let Some(mal) = positive(found.get("myanimelist")) {
-            return Some(mal);
+            return Some((mal, true));
         }
     }
     let index = if season > 0 {
@@ -254,11 +270,17 @@ fn arm_mal(value: &Value, season: u32) -> Option<u32> {
         .get(index)
         .and_then(|entry| positive(entry.get("myanimelist")))
     {
-        return Some(mal);
+        return Some((mal, false));
     }
     entries
         .iter()
         .find_map(|entry| positive(entry.get("myanimelist")))
+        .map(|mal| (mal, false))
+}
+
+#[cfg(test)]
+fn arm_mal(value: &Value, season: u32) -> Option<u32> {
+    arm_lookup(value, season).map(|(mal, _)| mal)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -268,12 +290,13 @@ enum Relation {
 }
 
 /// The season's own MyAnimeList id: walk the prequels to season one, then the sequels to the
-/// season wanted, and fall back to what was given.
-async fn season_mal(initial: u32, target: u32) -> u32 {
+/// season wanted. Returns `None` when the target season is outside the chain so season 1's
+/// timings are never applied to a missing season.
+async fn season_mal(initial: u32, target: u32) -> Option<u32> {
     season_mal_with(initial, target, |mal| async move { relations(mal).await }).await
 }
 
-async fn season_mal_with<F, Fut>(initial: u32, target: u32, fetch: F) -> u32
+async fn season_mal_with<F, Fut>(initial: u32, target: u32, fetch: F) -> Option<u32>
 where
     F: Fn(u32) -> Fut,
     Fut: std::future::Future<Output = Vec<Relation>>,
@@ -317,7 +340,6 @@ where
         .checked_sub(1)
         .and_then(|index| seasons.get(index as usize))
         .copied()
-        .unwrap_or(initial)
 }
 
 async fn relations(mal: u32) -> Vec<Relation> {
@@ -375,15 +397,16 @@ fn relation_cache() -> &'static Mutex<HashMap<u32, Vec<Relation>>> {
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-async fn skip_times(mal: u32, episode: u32, duration: f64) -> Vec<Rate> {
+async fn skip_times(mal: u32, episode: u32, duration: f64) -> Option<Vec<Rate>> {
     let url = format!(
         "{ANISKIP}/{mal}/{episode}?types[]=op&types[]=ed&types[]=recap&episodeLength={}",
         duration.round() as u64
     );
-    get_json(&url)
-        .await
-        .map(|value| rates_of(&value, duration))
-        .unwrap_or_default()
+    get_skip_json(&url).await.map(|value| {
+        value
+            .map(|json| rates_of(&json, duration))
+            .unwrap_or_default()
+    })
 }
 
 /// The segments one AniSkip answer holds, fitted to the file they are for.
@@ -596,12 +619,27 @@ mod tests {
             let found = relations.get(&mal).cloned().unwrap_or_default();
             async move { found }
         }));
-        assert_eq!(wanted, 3);
+        assert_eq!(wanted, Some(3));
         let first = futures::executor::block_on(season_mal_with(2, 1, |mal| {
             let found = relations.get(&mal).cloned().unwrap_or_default();
             async move { found }
         }));
-        assert_eq!(first, 1);
+        assert_eq!(first, Some(1));
+        let missing = futures::executor::block_on(season_mal_with(2, 5, |mal| {
+            let found = relations.get(&mal).cloned().unwrap_or_default();
+            async move { found }
+        }));
+        assert_eq!(missing, None);
+    }
+
+    #[test]
+    fn arm_reports_exact_season_matches() {
+        let value = json!([
+            { "myanimelist": 16498, "thetvdb-season": 1 },
+            { "myanimelist": 25777, "thetvdb-season": 2 }
+        ]);
+        assert_eq!(arm_lookup(&value, 2), Some((25777, true)));
+        assert_eq!(arm_lookup(&value, 9), Some((16498, false)));
     }
 
     #[test]
