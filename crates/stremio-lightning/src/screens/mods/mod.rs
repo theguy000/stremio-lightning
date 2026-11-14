@@ -226,13 +226,6 @@ impl Data {
         false
     }
 
-    /// The same screen after a press on one of the Logs page's records: the full text of that
-    /// record is on screen, or taken back when it is the one already open.
-    pub fn press_record(&mut self, logs: &crate::plumbing::logs::Logs, id: u64) {
-        let open = logs.detail().is_some_and(|entry| entry.id == id);
-        logs.set_detail(if open { None } else { Some(id) });
-    }
-
     /// The same screen after the user pressed something: the menu is not rebuilt, so the card
     /// whose button was pressed is not torn down under the pointer.
     pub fn with_notice(mut self, notice: Notice) -> Self {

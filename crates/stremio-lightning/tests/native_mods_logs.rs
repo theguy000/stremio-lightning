@@ -678,16 +678,30 @@ fn the_window_lists_what_was_logged_and_filters_it() {
     let mut detail: Vec<Outcome> = Vec::new();
     detail = step(
         detail,
-        "the newest record is pressed, and its text opens under the list",
+        "the newest record is pressed, and its text opens at once",
         {
-            // The row says the time, source and text it drew, which is the name a press looks for.
-            window
-                .get_mods()
-                .log_rows
-                .row_data(0)
-                .map(|row| format!("Show {} {}: {}", row.time, row.source, row.text))
-                .ok_or_else(|| "the list is empty".to_owned())
-                .and_then(|label| click(window, &label))
+            // The row says the time, source and text it drew, which is the name a press looks
+            // for. What the press did is judged before anything else can happen: a record landing
+            // a moment later would redraw the panel and hide a page that never opened it.
+            let newest = window.get_mods().log_rows.row_data(0);
+            match newest {
+                None => Err("the list is empty".to_owned()),
+                Some(row) => {
+                    let label = format!("Show {} {}: {}", row.time, row.source, row.text);
+                    click(window, &label).and_then(|pressed| {
+                        let heading = window.get_mods().log_detail_heading.to_string();
+                        let open = window.get_mods().log_open_id;
+                        let lines = window.get_mods().log_detail.row_count();
+                        if open == row.id && !heading.is_empty() && lines > 0 {
+                            Ok(format!("{pressed}; the panel is open on row {}", row.id))
+                        } else {
+                            Err(format!(
+                                "nothing opened: heading {heading:?}, open {open}, {lines} lines"
+                            ))
+                        }
+                    })
+                }
+            }
         },
     );
     detail = step(

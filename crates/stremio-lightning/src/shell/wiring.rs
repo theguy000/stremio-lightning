@@ -2080,8 +2080,12 @@ impl Wiring {
     /// A press on a record: its full text is on screen, or taken back when it is the one open. A
     /// record the list no longer holds opens nothing.
     fn open_log_record(&self, id: u32) {
-        let mut data = self.mods_data(mods::Page::Logs);
-        data.press_record(&self.logs, u64::from(id));
+        // The recorder is asked first: what is open is part of what the page holds, so the page is
+        // read after the press and not before it.
+        let id = u64::from(id);
+        let open = self.logs.detail().is_some_and(|entry| entry.id == id);
+        self.logs.set_detail(if open { None } else { Some(id) });
+        let data = self.mods_data(mods::Page::Logs);
         let mut snapshot = self.latest.lock().unwrap().clone();
         snapshot.mods = data.with_notice(snapshot.mods.notice.clone());
         self.finish_log_press(snapshot);
