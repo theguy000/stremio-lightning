@@ -8,7 +8,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use slint::Model;
+use slint::{ComponentHandle, Model};
 use stremio_lightning::plumbing::logs::{Filter, Level, Logs, Source};
 use stremio_lightning::screens::mods;
 use stremio_lightning::{MainWindow, Section};
@@ -55,6 +55,18 @@ fn wait(
             Err(error) if Instant::now() >= deadline => return Err(format!("gave up: {error}")),
             Err(_) => {}
         }
+    }
+}
+
+/// Types into whatever has the focus, one key at a time, letting the window draw between them.
+fn type_text(window: &MainWindow, text: &str) {
+    for character in text.chars() {
+        window
+            .window()
+            .dispatch_event(slint::platform::WindowEvent::KeyPressed {
+                text: character.to_string().into(),
+            });
+        ui_driver::pump(Duration::from_millis(20));
     }
 }
 
@@ -320,6 +332,11 @@ fn the_window_lists_what_was_logged_and_filters_it() {
 
     let booted = stremio_lightning::boot(data_dir.clone()).expect("the app boots");
     let window = &booted.window;
+    // The size a person opens the app at, so the page's widths are the ones its numbers were
+    // measured for rather than a test backend's default.
+    window
+        .window()
+        .set_size(slint::PhysicalSize::new(1100, 720));
     ui_driver::pump_for(window);
 
     let mut outcomes: Vec<Outcome> = Vec::new();
@@ -392,46 +409,89 @@ fn the_window_lists_what_was_logged_and_filters_it() {
             }
         }),
     );
-    outcomes = step(outcomes, "the page draws a header for its list", {
+    outcomes = step(outcomes, "no sentence above the list counts the records", {
         let texts = ui_driver::texts(window);
-        let header: Vec<&String> = texts
+        let counting: Vec<&String> = texts
             .iter()
-            .filter(|text| text.contains("records.") && text.contains("The filter keeps"))
+            .filter(|text| text.contains("The filter keeps") || text.contains("of up to 2000"))
             .collect();
-        match header.first() {
-            Some(text) => Ok((*text).clone()),
-            None => Err(format!("the page says {texts:?}")),
+        if counting.is_empty() {
+            Ok("no count on screen".to_owned())
+        } else {
+            Err(format!("the page says {counting:?}"))
         }
     });
-    outcomes = step(
-        outcomes,
-        "the header holds every record and keeps every one",
+    outcomes = step(outcomes, "the two filter menus offer every choice", {
+        let named = |options: &slint::ModelRc<stremio_lightning::SelectOption>| {
+            (0..options.row_count())
+                .filter_map(|row| options.row_data(row))
+                .map(|option| option.label.to_string())
+                .collect::<Vec<_>>()
+        };
+        let sources = named(&window.get_mods().log_source_options);
+        let levels = named(&window.get_mods().log_level_options);
+        let wanted_sources = ["Every source", "Plugin", "Theme", "Mods", "Server", "App"];
+        let wanted_levels = [
+            "Every level",
+            "Debug and worse",
+            "Info and worse",
+            "Warnings and errors",
+            "Errors only",
+        ];
+        if sources == wanted_sources && levels == wanted_levels {
+            Ok(format!("{sources:?} / {levels:?}"))
+        } else {
+            Err(format!("the menus say {sources:?} / {levels:?}"))
+        }
+    });
+    outcomes = step(outcomes, "each menu opens on a choice and says it", {
+        let sources = window.get_mods().log_source_options;
+        let levels = window.get_mods().log_level_options;
+        let title = |options: &slint::ModelRc<stremio_lightning::SelectOption>, index: i32| {
+            options
+                .row_data(usize::try_from(index).unwrap_or(0))
+                .map(|option| option.label.to_string())
+                .unwrap_or_default()
+        };
+        let source = title(&sources, window.get_mods().log_source_index);
+        let level = title(&levels, window.get_mods().log_level_index);
+        let names = ui_driver::labels(window);
+        // The closed menu is a button named for the choice it is showing.
+        if source == "Every source"
+            && level == "Every level"
+            && names.iter().any(|name| name == "Every source")
+            && names.iter().any(|name| name == "Every level")
         {
-            let rows = rows_on(window).len();
-            let texts = ui_driver::texts(window);
-            let header = texts
-                .iter()
-                .find(|text| text.contains("records.") && text.contains("The filter keeps"))
-                .cloned()
-                .unwrap_or_default();
-            let kept = format!("The filter keeps {rows} of them.");
-            if rows > 0 && header.contains("of up to 2000 records") && header.contains(&kept) {
-                Ok(format!("{rows} rows, and {header}"))
-            } else {
-                Err(format!("{rows} rows, and the header says {header:?}"))
-            }
-        },
-    );
+            Ok(format!("{source:?} / {level:?}"))
+        } else {
+            Err(format!(
+                "the menus show {source:?} / {level:?}; on screen: {names:?}"
+            ))
+        }
+    });
     verdict("the Logs page did not list what was logged", &outcomes);
 
     // ---- the level filter keeps fewer records -----------------------------------
+    //
+    // A menu's rows live in a popup, which is a window of its own and not part of the tree the
+    // testing backend's element search walks (the same limitation `addons_live_ui.rs` records).
+    // So the press is made the way the popup makes it: the window's own callback, with the row a
+    // press on the menu would send.
+    let rows_before = rows_on(window).len();
     let mut filtering: Vec<Outcome> = Vec::new();
     filtering = step(
         filtering,
-        "Warnings and errors is pressed, and the list gets shorter",
-        click(window, "Warnings and errors").and_then(|_| {
+        "Warnings and errors is picked, and only warnings and errors are left",
+        {
+            window.invoke_filter_mods_logs("level".into(), 3);
             wait(window, Duration::from_secs(10), |window| {
+                // The app keeps recording while the page is open (a failed picture fetch on boot
+                // is itself a record), so the count either side of the press is not the thing to
+                // judge: what the filter keeps is.
                 let rows = rows_on(window);
+                if rows.is_empty() {
+                    return Err("the filter keeps nothing".to_owned());
+                }
                 if rows
                     .iter()
                     .any(|(_, level, _)| level != "Warning" && level != "Error")
@@ -441,16 +501,6 @@ fn the_window_lists_what_was_logged_and_filters_it() {
                         rows.len()
                     ));
                 }
-                // Background image fetches on boot can append extra warnings/errors after the
-                // initial snapshot, so compare against the current total rather than a stale count.
-                let held = window.get_mods().log_held.to_string();
-                let total = held
-                    .strip_prefix("The app holds ")
-                    .and_then(|rest| rest.split_whitespace().next())
-                    .and_then(|word| word.parse::<usize>().ok());
-                if total.is_none_or(|total| rows.len() >= total) {
-                    return Err(format!("{} rows after, header {held:?}", rows.len()));
-                }
                 if !rows
                     .iter()
                     .any(|(source, level, _)| source == "Theme odd.theme.css" && level == "Warning")
@@ -459,17 +509,25 @@ fn the_window_lists_what_was_logged_and_filters_it() {
                 }
                 Ok(format!("{} rows, warnings and errors only", rows.len()))
             })
-        }),
+        },
     );
     filtering = step(
         filtering,
-        "the header says how many the filter keeps",
+        "the level menu now says Warnings and errors, on screen",
         wait(window, Duration::from_secs(5), |window| {
-            let held = window.get_mods().log_held.to_string();
-            if held.contains("The filter keeps") {
-                Ok(held)
+            let levels = window.get_mods().log_level_options;
+            let shown = levels
+                .row_data(usize::try_from(window.get_mods().log_level_index).unwrap_or(0))
+                .map(|option| option.label.to_string())
+                .unwrap_or_default();
+            let drawn = ui_driver::texts(window).contains(&shown);
+            if shown == "Warnings and errors" && drawn {
+                Ok(shown)
             } else {
-                Err(held)
+                Err(format!(
+                    "the model says {shown:?}, drawn: {drawn}; on screen: {:?}",
+                    ui_driver::texts(window)
+                ))
             }
         }),
     );
@@ -488,7 +546,239 @@ fn the_window_lists_what_was_logged_and_filters_it() {
             }
         }),
     );
+    filtering = step(
+        filtering,
+        "a source picked keeps only that source, and Every level brings the rest back",
+        {
+            window.invoke_filter_mods_logs("source".into(), 2);
+            wait(window, Duration::from_secs(5), |window| {
+                let rows = rows_on(window);
+                if rows.is_empty() {
+                    return Err("a source with records in it keeps none".to_owned());
+                }
+                if rows
+                    .iter()
+                    .any(|(source, _, _)| !source.starts_with("Theme"))
+                {
+                    return Err(format!("the list holds {rows:?}"));
+                }
+                Ok(format!("{} theme rows", rows.len()))
+            })
+            .and_then(|detail| {
+                window.invoke_filter_mods_logs("source".into(), 0);
+                window.invoke_filter_mods_logs("level".into(), 0);
+                wait(window, Duration::from_secs(5), |window| {
+                    let rows = rows_on(window).len();
+                    if rows >= rows_before {
+                        Ok(format!("{detail}; {rows} rows with every source and level"))
+                    } else {
+                        Err(format!("{detail}; {rows} of {rows_before} rows came back"))
+                    }
+                })
+            })
+        },
+    );
     verdict("the level filter did not narrow the list", &filtering);
+
+    // ---- the search box filters as it is typed, and clears in one press ------------------------
+    let mut searching: Vec<Outcome> = Vec::new();
+    searching = step(
+        searching,
+        "the search box takes the pointer",
+        click(window, "Search the logs"),
+    );
+    searching = step(
+        searching,
+        "typing red.theme keeps only the red theme's records",
+        wait(window, Duration::from_secs(5), |window| {
+            if window.get_mods().log_search.is_empty() {
+                type_text(window, "red.theme");
+            }
+            let rows = rows_on(window);
+            if rows.is_empty() {
+                return Err("nothing is listed while searching".to_owned());
+            }
+            if rows
+                .iter()
+                .any(|(source, _, _)| !source.contains("red.theme.css"))
+            {
+                return Err(format!("the list holds {rows:?}"));
+            }
+            Ok(format!("{} rows for red.theme", rows.len()))
+        }),
+    );
+    searching = step(
+        searching,
+        "the clear button is on screen and empty the box",
+        wait(window, Duration::from_secs(5), |window| {
+            ui_driver::labels(window)
+                .iter()
+                .any(|name| name == "Clear the search")
+                .then(|| "Clear the search".to_owned())
+                .ok_or_else(|| "the clear button is not on screen".to_owned())
+        })
+        .and_then(|_| click(window, "Clear the search")),
+    );
+    searching = step(
+        searching,
+        "clearing restores every record the filter keeps",
+        wait(window, Duration::from_secs(5), |window| {
+            let rows = rows_on(window).len();
+            let search = window.get_mods().log_search.to_string();
+            if !search.is_empty() {
+                return Err(format!("the filter still holds {search:?}"));
+            }
+            if rows < rows_before {
+                return Err(format!("{rows} of {rows_before} rows came back"));
+            }
+            Ok(format!("{rows} rows, and the filter is empty"))
+        }),
+    );
+    verdict("the search box did not filter or clear", &searching);
+
+    // ---- a record written while the page is open lands on it ----------------------------------
+    let mut live: Vec<Outcome> = Vec::new();
+    live = step(
+        live,
+        "a line recorded from another thread appears without a page switch",
+        {
+            // The page is open, and the recorder is the app's own: this is the line a plugin's
+            // timer or the stream server writes while someone is looking at the page.
+            booted.logs.record(
+                stremio_lightning::plumbing::logs::Source::App,
+                "Core",
+                stremio_lightning::plumbing::logs::Level::Error,
+                "a line written while the page was open",
+            );
+            let page_before = window.get_mods_page().to_string();
+            wait(window, Duration::from_secs(5), |window| {
+                let rows = rows_on(window);
+                if rows
+                    .iter()
+                    .any(|(_, _, text)| text == "a line written while the page was open")
+                {
+                    let page_after = window.get_mods_page().to_string();
+                    if page_after == page_before {
+                        Ok(format!("{page_after} still open, and the line is on it"))
+                    } else {
+                        Err(format!("the page became {page_after}"))
+                    }
+                } else {
+                    Err(format!("the line is not listed yet: {rows:?}"))
+                }
+            })
+        },
+    );
+    verdict(
+        "a record written while the page was open did not appear",
+        &live,
+    );
+
+    // ---- the detail panel opens, copies, closes ----------------------------------------------
+    let mut detail: Vec<Outcome> = Vec::new();
+    detail = step(
+        detail,
+        "the line this test recorded is pressed, and its text opens at once",
+        {
+            // The row says the time, source and text it drew, which is the name a press looks
+            // for. The record the test wrote is the one pressed, not the newest row: the app keeps
+            // recording (a boot failure, a server verdict), and a newer row would move the target
+            // out from under the press. What the press did is judged before anything else can
+            // happen, because a record landing a moment later would redraw the panel and hide a
+            // page that never opened it.
+            let written = (0..window.get_mods().log_rows.row_count())
+                .filter_map(|at| window.get_mods().log_rows.row_data(at))
+                .find(|row| row.text == "a line written while the page was open");
+            match written {
+                None => Err("the test's own line is not listed".to_owned()),
+                Some(row) => {
+                    let label = format!("Show {} {}: {}", row.time, row.source, row.text);
+                    click(window, &label).and_then(|pressed| {
+                        let heading = window.get_mods().log_detail_heading.to_string();
+                        let open = window.get_mods().log_open_id;
+                        let lines = window.get_mods().log_detail.row_count();
+                        if open == row.id && !heading.is_empty() && lines > 0 {
+                            Ok(format!("{pressed}; the panel is open on row {}", row.id))
+                        } else {
+                            Err(format!(
+                                "nothing opened: heading {heading:?}, open {open}, {lines} lines"
+                            ))
+                        }
+                    })
+                }
+            }
+        },
+    );
+    detail = step(
+        detail,
+        "the panel is drawn with the record's name, and the row it belongs to is marked",
+        wait(window, Duration::from_secs(5), |window| {
+            let heading = window.get_mods().log_detail_heading.to_string();
+            let lines: Vec<String> = (0..window.get_mods().log_detail.row_count())
+                .filter_map(|row| window.get_mods().log_detail.row_data(row))
+                .map(|line| line.to_string())
+                .collect();
+            if heading.is_empty() || lines.is_empty() {
+                return Err(format!("the panel holds {heading:?} / {lines:?}"));
+            }
+            if window.get_mods().log_open_id == 0 {
+                return Err("no row is marked as open".to_owned());
+            }
+            // What the section draws, not what the model holds: the heading is on screen and the
+            // row it belongs to says it is the open one.
+            let texts = ui_driver::texts(window);
+            if !texts.contains(&heading) {
+                return Err(format!("the panel draws no heading; on screen: {texts:?}"));
+            }
+            let names = ui_driver::labels(window);
+            let marked: Vec<&String> = names
+                .iter()
+                .filter(|name| {
+                    name.starts_with("Open ")
+                        && name.contains("a line written while the page was open")
+                })
+                .collect();
+            match marked.first() {
+                Some(name) => Ok(format!("{heading}; the row says {name:?}")),
+                None => Err(format!("no row is marked; on screen: {names:?}")),
+            }
+        }),
+    );
+    detail = step(
+        detail,
+        "Copy reports what the clipboard answered",
+        click(window, "Copy the record").and_then(|_| {
+            wait(window, Duration::from_secs(5), |window| {
+                // The press is judged by its answer, not by what the machine's clipboard does with
+                // it: Windows copies, Linux has no clipboard yet and says so.
+                let notice = window.get_mods().notice.to_string();
+                if notice.contains("Copied the record")
+                    || notice.contains("clipboard")
+                    || notice.contains("copying is not implemented")
+                {
+                    Ok(notice)
+                } else {
+                    Err(format!("the page says {notice:?}"))
+                }
+            })
+        }),
+    );
+    detail = step(
+        detail,
+        "Close takes the panel away and unmarks the row",
+        click(window, "Close the record").and_then(|_| {
+            wait(window, Duration::from_secs(5), |window| {
+                let heading = window.get_mods().log_detail_heading.to_string();
+                let open = window.get_mods().log_open_id;
+                if heading.is_empty() && open == 0 {
+                    Ok("the panel is gone".to_owned())
+                } else {
+                    Err(format!("the panel still says {heading:?}, open {open}"))
+                }
+            })
+        }),
+    );
+    verdict("the detail panel did not open, copy or close", &detail);
 
     // ---- Clear takes two presses and empties the list ---------------------------
     let mut clearing: Vec<Outcome> = Vec::new();
@@ -527,11 +817,10 @@ fn the_window_lists_what_was_logged_and_filters_it() {
         click(window, "Confirm clearing the log records").and_then(|_| {
             wait(window, Duration::from_secs(5), |window| {
                 let rows = slint::Model::row_count(&window.get_mods().log_rows);
-                let held = window.get_mods().log_held.to_string();
-                if rows == 0 && held.contains("holds no records") {
-                    Ok(held)
+                if rows == 0 {
+                    Ok("the list is empty".to_owned())
                 } else {
-                    Err(format!("{rows} rows, and the header says {held:?}"))
+                    Err(format!("{rows} rows are still listed"))
                 }
             })
         }),

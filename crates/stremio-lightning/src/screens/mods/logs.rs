@@ -7,14 +7,12 @@
 //!
 //! The list is held in memory for this run of the app and never written to a file. Clear empties
 //! it, which deletes nothing: it is the page's own copy of what happened, and the page says so.
-//! The list holds at most [`CAPACITY`] records.
+//! The list holds at most [`crate::plumbing::logs::CAPACITY`] records.
 
 pub use crate::plumbing::logs::{Entry, Filter, Level, Source};
 
-use crate::plumbing::logs::{Logs, CAPACITY};
+use crate::plumbing::logs::Logs;
 
-/// What the page says above its list about where the records come from and how long they last.
-pub const NOTE: &str = "One line per thing that happened, newest first. The list is kept in memory until the app closes, so nothing here is written to a file. Clear empties it and deletes nothing.";
 /// What the page says when nothing is held at all.
 pub const NONE: &str = "Nothing has been recorded yet.";
 /// What the page says when records are held but the filter keeps none.
@@ -52,66 +50,69 @@ impl Row {
     }
 }
 
-/// One choice of a filter: the id the window passes back and the label it shows.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Choice {
-    pub id: String,
-    pub label: String,
-    pub selected: bool,
+/// The source menu's choices, in the order it lists them: every source first.
+pub fn source_options() -> Vec<&'static str> {
+    let mut labels = vec!["Every source"];
+    labels.extend(Source::ALL.into_iter().map(Source::label));
+    labels
 }
 
-/// The filter's source choices, with the one picked marked. The first choice is every source.
-pub fn sources(filter: &Filter) -> Vec<Choice> {
-    let mut choices = vec![Choice {
-        id: String::new(),
-        label: "Every source".to_owned(),
-        selected: filter.picked_source().is_none(),
-    }];
-    choices.extend(Source::ALL.into_iter().map(|source| Choice {
-        id: source.id().to_owned(),
-        label: source.label().to_owned(),
-        selected: filter.picked_source() == Some(source),
-    }));
-    choices
+/// The level menu's choices: every level first, then the least level that is kept. A level keeps
+/// its own records and every worse one, which is what the label says.
+pub fn level_options() -> Vec<&'static str> {
+    vec![
+        "Every level",
+        "Debug and worse",
+        "Info and worse",
+        "Warnings and errors",
+        "Errors only",
+    ]
 }
 
-/// The filter's level choices, with the one picked marked: the least level that is kept. A level
-/// keeps its own records and every worse one, which is what the label says.
-pub fn levels(filter: &Filter) -> Vec<Choice> {
-    let mut choices = vec![Choice {
-        id: String::new(),
-        label: "Every level".to_owned(),
-        selected: filter.least_level().is_none(),
-    }];
-    choices.extend(Level::ALL.into_iter().map(|level| Choice {
-        id: level.id().to_owned(),
-        label: match level {
-            Level::Debug => "Debug and worse".to_owned(),
-            Level::Info => "Info and worse".to_owned(),
-            Level::Warn => "Warnings and errors".to_owned(),
-            Level::Error => "Errors only".to_owned(),
-        },
-        selected: filter.least_level() == Some(level),
-    }));
-    choices
+/// The row a filter's source menu opens on: zero for every source.
+pub fn source_index(filter: &Filter) -> usize {
+    row_of(&Source::ALL, filter.picked_source())
 }
 
-/// The header line: how many records are held, and how many the filter keeps of them.
-pub fn held(logs: &Logs, filter: &Filter) -> String {
-    let (held, shown) = (logs.len(), logs.matching(filter).len());
-    let kept = match shown {
-        0 => "The filter keeps none of them.".to_owned(),
-        1 => "The filter keeps 1 of them.".to_owned(),
-        shown => format!("The filter keeps {shown} of them."),
-    };
-    match held {
-        0 => format!(
-            "The app holds no records. It holds up to {} at once.",
-            CAPACITY
-        ),
-        1 => format!("The app holds 1 record. {kept}"),
-        held => format!("The app holds {held} of up to {} records. {kept}", CAPACITY),
-    }
+/// The row a filter's level menu opens on: zero for every level.
+pub fn level_index(filter: &Filter) -> usize {
+    row_of(&Level::ALL, filter.least_level())
+}
+
+/// The source a menu row names, or `None` for "every source" and for a row past the list.
+pub fn source_at(index: usize) -> Option<Source> {
+    index
+        .checked_sub(1)
+        .and_then(|at| Source::ALL.get(at))
+        .copied()
+}
+
+/// The level a menu row names as its least, or `None` for "every level" and for a row past the
+/// list.
+pub fn level_at(index: usize) -> Option<Level> {
+    index
+        .checked_sub(1)
+        .and_then(|at| Level::ALL.get(at))
+        .copied()
+}
+
+/// Applies a source menu row to the recorder's filter. Both menus speak rows, because that is what
+/// the window's single-choice menu answers with; the recorder itself only ever hears a source.
+pub fn pick_source(logs: &Logs, index: usize) {
+    logs.set_source(source_at(index).map_or("", Source::id));
+}
+
+/// Applies a level menu row to the recorder's filter, as "the least level kept".
+pub fn pick_level(logs: &Logs, index: usize) {
+    logs.set_level(level_at(index).map_or("", Level::id));
+}
+
+/// A choice's row in its menu: zero for the "every" row, then one per choice. The one function the
+/// two menus share, so a source row and a level row cannot be counted differently.
+fn row_of<T: PartialEq + Copy>(all: &[T], picked: Option<T>) -> usize {
+    picked
+        .and_then(|picked| all.iter().position(|choice| *choice == picked))
+        .map_or(0, |at| at + 1)
 }
 
 /// The rows the page lists: the records the filter keeps, newest first.
@@ -119,16 +120,30 @@ pub fn rows(logs: &Logs, filter: &Filter) -> Vec<Row> {
     logs.matching(filter).iter().map(Row::of).collect()
 }
 
-/// The full text of the record on screen, empty when none is open.
+/// The heading of the record on screen: what it came from, when, and how bad it is. Empty when
+/// nothing is open.
+pub fn detail_heading(logs: &Logs) -> String {
+    logs.detail().map_or_else(String::new, |entry| {
+        format!(
+            "{} at {} - {}",
+            entry.source_label(),
+            entry.at_shown(),
+            entry.level.label()
+        )
+    })
+}
+
+/// The text of the record on screen, one entry per line, empty when none is open. A plugin line
+/// can carry a stack trace, so its own line breaks are kept.
 pub fn detail(logs: &Logs) -> Vec<String> {
-    let Some(entry) = logs.detail() else {
-        return Vec::new();
-    };
-    let mut lines = vec![format!("{} at {}", entry.source_label(), entry.at_shown())];
-    lines.push(format!("Level: {}", entry.level.label()));
-    // A plugin line can carry a stack trace, so the text keeps its own line breaks.
-    lines.extend(entry.text.split('\n').map(str::to_owned));
-    lines
+    logs.detail().map_or_else(Vec::new, |entry| {
+        entry.text.split('\n').map(str::to_owned).collect()
+    })
+}
+
+/// The id of the record on screen, zero when none is: what the list marks as the open row.
+pub fn open_id(logs: &Logs) -> u64 {
+    logs.detail().map_or(0, |entry| entry.id)
 }
 
 /// The Clear button's label: armed says what the second press does.
@@ -156,41 +171,69 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_header_says_how_many_are_held_and_how_many_show() {
-        let logs = Logs::new();
-        assert!(held(&logs, &Filter::default()).contains("holds no records"));
-        logs.record(Source::App, "", Level::Info, "one");
-        logs.record(Source::App, "", Level::Error, "two");
-        let all = held(&logs, &Filter::default());
-        assert!(all.contains("holds 2 of up to 2000 records"), "{all}");
-        assert!(all.contains("keeps 2 of them"), "{all}");
-        let errors = Filter {
-            level: "error".to_owned(),
-            ..Filter::default()
-        };
-        assert!(held(&logs, &errors).contains("keeps 1 of them"));
-    }
-
-    #[test]
-    fn the_filter_lists_every_source_and_level_first() {
+    fn the_filter_menus_list_every_choice_and_open_on_the_picked_one() {
         let filter = Filter::default();
-        let sources = sources(&filter);
-        assert_eq!(sources[0].label, "Every source");
-        assert!(sources[0].selected);
-        let listed = levels(&filter);
-        assert_eq!(listed[0].label, "Every level");
-        assert!(listed[0].selected);
+        assert_eq!(
+            source_options(),
+            ["Every source", "Plugin", "Theme", "Mods", "Server", "App"]
+        );
+        assert_eq!(
+            level_options(),
+            [
+                "Every level",
+                "Debug and worse",
+                "Info and worse",
+                "Warnings and errors",
+                "Errors only"
+            ]
+        );
+        assert_eq!((source_index(&filter), level_index(&filter)), (0, 0));
         let picked = Filter {
+            source: "theme".to_owned(),
             level: "warn".to_owned(),
             ..Filter::default()
         };
-        let listed = levels(&picked);
-        let chosen: Vec<&str> = listed
-            .iter()
-            .filter(|choice| choice.selected)
-            .map(|choice| choice.label.as_str())
-            .collect();
-        assert_eq!(chosen, ["Warnings and errors"]);
+        assert_eq!((source_index(&picked), level_index(&picked)), (2, 3));
+
+        // Every row names the choice its label names, both ways round, and every label a menu
+        // shows is the label the record's own column would carry.
+        for (at, source) in Source::ALL.iter().enumerate() {
+            assert_eq!(source_at(at + 1), Some(*source));
+            assert_eq!(source_options()[at + 1], source.label());
+        }
+        assert_eq!(source_at(0), None);
+        assert_eq!(source_at(Source::ALL.len() + 1), None);
+        for (at, level) in Level::ALL.iter().enumerate() {
+            assert_eq!(
+                level_at(at + 1),
+                Some(*level),
+                "the level menu's row {at} names the level the page keeps from"
+            );
+            assert_eq!(
+                level_index(&Filter {
+                    level: level.id().to_owned(),
+                    ..Filter::default()
+                }),
+                at + 1
+            );
+        }
+        assert_eq!(level_at(0), None);
+    }
+
+    #[test]
+    fn a_menu_row_narrows_the_recorder_and_every_row_widens_it_back() {
+        let logs = Logs::new();
+        logs.record(Source::Plugin, "builtin:aniskip", Level::Info, "one");
+        logs.record(Source::Theme, "red.theme.css", Level::Warn, "two");
+        pick_source(&logs, 2);
+        assert_eq!(logs.filter().picked_source(), Some(Source::Theme));
+        assert_eq!(rows(&logs, &logs.filter()).len(), 1);
+        pick_level(&logs, 3);
+        assert_eq!(logs.filter().least_level(), Some(Level::Warn));
+        pick_source(&logs, 0);
+        pick_level(&logs, 0);
+        assert_eq!(logs.filter(), Filter::default());
+        assert_eq!(rows(&logs, &logs.filter()).len(), 2);
     }
 
     #[test]
@@ -208,14 +251,13 @@ mod tests {
         assert_eq!(rows[0].source, "Plugin builtin:aniskip");
         assert_eq!(rows[0].level_id, "error");
         assert!(logs.set_detail(Some(entry.id)));
-        let detail = detail(&logs);
         assert_eq!(
-            detail[0],
-            format!("Plugin builtin:aniskip at {}", entry.at_shown()),
-            "the open record is named by its source and the time it was recorded"
+            detail_heading(&logs),
+            format!("Plugin builtin:aniskip at {} - Error", entry.at_shown()),
+            "the open record is named by its source, the time and its level"
         );
-        assert!(detail.contains(&"first".to_owned()));
-        assert!(detail.contains(&"second".to_owned()));
+        assert_eq!(detail(&logs), ["first", "second"], "every line is kept");
+        assert_eq!(open_id(&logs), entry.id, "the list marks this row");
     }
 
     #[test]

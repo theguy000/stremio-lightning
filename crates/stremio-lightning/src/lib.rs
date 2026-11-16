@@ -61,6 +61,9 @@ pub struct Booted {
     pub runtime: Arc<AppRuntime>,
     /// Kept alive here: the effects run on its threads for as long as the window lives.
     pub tokio: tokio::runtime::Runtime,
+    /// The app's recorder. A test that wants a line the way a plugin writes one records it here,
+    /// which is the same list the Logs page reads.
+    pub logs: Arc<plumbing::logs::Logs>,
 }
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
@@ -92,7 +95,7 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
     // nothing until someone picks it. What a theme says that the app cannot use is recorded here,
     // which is what puts it on the Logs page as well as on its card.
     plumbing::theme::apply_and_record(&window, &data_dir, &logs);
-    let video = plumbing::player::VideoPlayer::install(&window);
+    let video = plumbing::player::VideoPlayer::install(&window, logs.clone());
 
     let server = Arc::new(plumbing::stream_server::Supervisor::new(
         stremio_lightning_core::streaming_server::RealProcessSpawner,
@@ -187,6 +190,21 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
         mods_export: Default::default(),
     };
     shell::wire(&window, wiring.clone());
+    // The Logs page hears about a new record when it lands, from whichever thread recorded it: no
+    // timer runs anywhere, and nothing is read while the page is not on screen. The page string is
+    // the window's own, and the list is redrawn on the window's thread.
+    {
+        let weak = window.as_weak();
+        let page_logs = logs.clone();
+        let page = mods_page.clone();
+        let armed = wiring.mods_clearing.clone();
+        logs.watch_records(move || {
+            if page.lock().unwrap().as_str() != screens::mods::Page::Logs.id() {
+                return;
+            }
+            shell::view::refresh_logs(&weak, page_logs.clone(), armed.clone());
+        });
+    }
     // The wheel is taken from the window itself: left to a Slint Flickable it costs a whole
     // animation, and a whole animation is a core.
     shell::wheel::wire(&window);
@@ -257,5 +275,6 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
         window,
         runtime,
         tokio,
+        logs,
     })
 }

@@ -16,8 +16,8 @@ use crate::screens::Preview;
 use crate::screens::{Card, Input};
 use crate::{
     AddonData, AddonPendingData, CalendarData, CalendarDay, CalendarSlot, CatalogRow, LibraryCard,
-    LibrarySort, LinkGroup, MainWindow, ModCardData, ModsAboutLine, ModsFilterChoice, ModsLogRow,
-    ModsNavItem, ModsViewData, PlayerEpisode, PlayerOption, PlayerTrack, PosterData, PreviewData,
+    LibrarySort, LinkGroup, MainWindow, ModCardData, ModsAboutLine, ModsLogRow, ModsNavItem,
+    ModsViewData, PlayerEpisode, PlayerOption, PlayerTrack, PosterData, PreviewData,
     SelectInputData, SelectOption, SettingsFieldData, SettingsPluginData, SettingsViewData,
     StreamData, VideoRow,
 };
@@ -452,24 +452,17 @@ pub(crate) fn mods_view(data: &crate::screens::mods::Data) -> ModsViewData {
         )),
         settings_empty: empty_settings(data).into(),
         settings_dirty: data.edits.dirty(),
-        log_sources: ModelRc::new(VecModel::from(
-            data.log_sources
-                .iter()
-                .map(filter_choice)
-                .collect::<Vec<_>>(),
-        )),
-        log_levels: ModelRc::new(VecModel::from(
-            data.log_levels
-                .iter()
-                .map(filter_choice)
-                .collect::<Vec<_>>(),
-        )),
+        log_source_options: menu_options(&data.log_source_options, data.log_source_index),
+        log_level_options: menu_options(&data.log_level_options, data.log_level_index),
+        log_source_index: data.log_source_index,
+        log_level_index: data.log_level_index,
         log_search: data.log_filter.search.clone().into(),
-        log_held: data.log_held.clone().into(),
         log_rows: ModelRc::new(VecModel::from(
             data.log_rows.iter().map(log_row).collect::<Vec<_>>(),
         )),
         log_empty: data.log_empty.clone().into(),
+        log_detail_heading: data.log_detail_heading.clone().into(),
+        log_open_id: i32::try_from(data.log_open_id).unwrap_or(0),
         log_detail: ModelRc::new(VecModel::from(
             data.log_detail
                 .iter()
@@ -486,13 +479,52 @@ pub(crate) fn mods_view(data: &crate::screens::mods::Data) -> ModsViewData {
     }
 }
 
-/// One pill of the Logs page's filter.
-fn filter_choice(choice: &mods::logs::Choice) -> ModsFilterChoice {
-    ModsFilterChoice {
-        id: choice.id.clone().into(),
-        label: choice.label.clone().into(),
-        selected: choice.selected,
-    }
+/// Draws the Logs page's list again after a record landed, on the window's thread. Only the list's
+/// own properties change: the menus, the search box and the scroll stay exactly as they were, so a
+/// line arriving mid-sentence never moves what the reader is looking at.
+pub(crate) fn refresh_logs(
+    weak: &Weak<MainWindow>,
+    logs: std::sync::Arc<crate::plumbing::logs::Logs>,
+    armed: std::sync::Arc<Mutex<bool>>,
+) {
+    let _ = weak.upgrade_in_event_loop(move |window| {
+        let filter = logs.filter();
+        let rows = mods::logs::rows(&logs, &filter);
+        let mut data = window.get_mods();
+        data.log_rows = ModelRc::new(VecModel::from(rows.iter().map(log_row).collect::<Vec<_>>()));
+        data.log_empty = if logs.is_empty() {
+            mods::logs::NONE
+        } else {
+            mods::logs::NONE_MATCH
+        }
+        .into();
+        data.log_detail_heading = mods::logs::detail_heading(&logs).into();
+        data.log_detail = ModelRc::new(VecModel::from(
+            mods::logs::detail(&logs)
+                .into_iter()
+                .map(SharedString::from)
+                .collect::<Vec<_>>(),
+        ));
+        data.log_open_id = i32::try_from(mods::logs::open_id(&logs)).unwrap_or(0);
+        data.log_source_index = i32::try_from(mods::logs::source_index(&filter)).unwrap_or(0);
+        data.log_level_index = i32::try_from(mods::logs::level_index(&filter)).unwrap_or(0);
+        data.log_clear_armed = *armed.lock().unwrap();
+        window.set_mods(data);
+    });
+}
+
+/// One filter menu of the Logs page: its choices, with the one the menu opens on marked.
+fn menu_options(labels: &[String], selected: i32) -> ModelRc<SelectOption> {
+    ModelRc::new(VecModel::from(
+        labels
+            .iter()
+            .enumerate()
+            .map(|(at, label)| SelectOption {
+                label: label.clone().into(),
+                selected: i32::try_from(at).unwrap_or(-1) == selected,
+            })
+            .collect::<Vec<_>>(),
+    ))
 }
 
 /// One record of the Logs page. A record id past what the window's integer holds keeps its low

@@ -154,20 +154,20 @@ impl Entry {
 
     /// The time column, in the reader's own time zone: hours:minutes:seconds.
     pub fn at_shown(&self) -> String {
-        let seconds = self.at % 86_400;
-        format!(
-            "{:02}:{:02}:{:02}",
-            seconds / 3600,
-            (seconds / 60) % 60,
-            seconds % 60
-        )
+        local(self.at).map_or_else(String::new, |at| at.format("%H:%M:%S").to_string())
+    }
+
+    /// The date and time the diagnostics file writes: the reader's own clock, to the second, so a
+    /// log sent in a report can be lined up with what the person saw.
+    pub fn at_stamped(&self) -> String {
+        local(self.at).map_or_else(String::new, |at| at.format("%Y-%m-%d %H:%M:%S").to_string())
     }
 
     /// The record as the diagnostics file writes it: the time, the level, the source, the text.
     pub fn written(&self) -> String {
         format!(
             "{} {} [{}] {}",
-            self.at_shown(),
+            self.at_stamped(),
             self.level.label(),
             self.source_label(),
             self.text
@@ -230,8 +230,11 @@ impl Filter {
     }
 }
 
+/// What a recorder tells when a record lands.
+type Notify = std::sync::Arc<dyn Fn() + Send + Sync>;
+
 /// The app's records and the counting of them. Shared by every part that records something.
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct Logs {
     entries: Mutex<VecDeque<Entry>>,
     /// Where every record is also written, line by line, so a log can be read when the window
@@ -249,6 +252,19 @@ pub struct Logs {
     filter_search: Mutex<String>,
     /// The record whose full text the page is showing, by id, and zero when none is.
     detail: AtomicU64,
+    /// What to tell when a record lands. The shell puts a repaint here while the Logs page is on
+    /// screen; nothing in this module knows what a window is.
+    notify: Mutex<Option<Notify>>,
+}
+
+impl std::fmt::Debug for Logs {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Logs")
+            .field("entries", &lock(&self.entries).len())
+            .field("watching", &lock(&self.notify).is_some())
+            .finish()
+    }
 }
 
 impl Logs {
@@ -290,21 +306,20 @@ impl Logs {
             if let Some(parent) = path.parent() {
                 let _ = std::fs::create_dir_all(parent);
             }
+            // Past the limit the current file becomes the one previous file, and a fresh one
+            // starts: the newest run is always the whole of `app.log`.
+            if std::fs::metadata(path).is_ok_and(|file| file.len() > FILE_LIMIT) {
+                let _ = std::fs::rename(path, path.with_extension("log.1"));
+            }
             if let Ok(mut file) = std::fs::OpenOptions::new()
                 .create(true)
                 .append(true)
                 .open(path)
             {
                 use std::io::Write;
-                let _ = writeln!(
-                    file,
-                    "{} {} {} {}: {}",
-                    entry.at,
-                    entry.level.id(),
-                    entry.source.id(),
-                    entry.origin,
-                    entry.text
-                );
+                // The same line the diagnostics export writes: one serializer, so the two files a
+                // report can carry say the same thing about the same record.
+                let _ = writeln!(file, "{}", entry.written());
             }
         }
         let mut entries = lock(&self.entries);
@@ -313,6 +328,11 @@ impl Logs {
         entries.drain(..over);
         drop(entries);
         self.count.fetch_add(1, Ordering::SeqCst);
+        // Told after the lock is let go: the listener reads the list back.
+        let notify = lock(&self.notify).clone();
+        if let Some(notify) = notify {
+            notify();
+        }
         entry
     }
 
@@ -357,6 +377,12 @@ impl Logs {
     /// A number that changes whenever a record is added or the list is cleared.
     pub fn count(&self) -> u64 {
         self.count.load(Ordering::SeqCst)
+    }
+
+    /// Says where a new record is announced. Called after the record is stored and no lock is
+    /// held, from whichever thread recorded it: the shell decides whether that is worth a repaint.
+    pub fn watch_records(&self, notify: impl Fn() + Send + Sync + 'static) {
+        *lock(&self.notify) = Some(std::sync::Arc::new(notify));
     }
 
     /// The filter the Logs page is showing.
@@ -423,6 +449,17 @@ impl Logs {
     pub fn theme_unreadable(&self, filename: &str, error: impl Into<String>) {
         self.record(Source::Theme, filename, Level::Error, error);
     }
+}
+
+/// How large the app's log file may grow before it is rotated. One previous file is kept, so an
+/// install left running for months cannot fill the disk.
+const FILE_LIMIT: u64 = 4 * 1024 * 1024;
+
+/// A record's time on the reader's own clock. The app records UTC seconds; a person reads their
+/// wall clock, and so does whoever is handed the file.
+fn local(at: u64) -> Option<chrono::DateTime<chrono::Local>> {
+    let at = i64::try_from(at).ok()?;
+    chrono::DateTime::from_timestamp(at, 0).map(|utc| utc.with_timezone(&chrono::Local))
 }
 
 /// The current time, in seconds since 1 January 1970. A clock before 1970 records zero rather than
@@ -571,6 +608,27 @@ mod tests {
     }
 
     #[test]
+    fn a_new_record_is_announced_once_and_the_announcement_reads_the_list() {
+        let logs = std::sync::Arc::new(Logs::new());
+        let seen = std::sync::Arc::new(Mutex::new(Vec::new()));
+        {
+            let (page_logs, seen) = (logs.clone(), seen.clone());
+            logs.watch_records(move || {
+                // The listener reads the recorder back while it runs: no lock is held on the way.
+                seen.lock().unwrap().push(page_logs.len());
+            });
+        }
+        logs.record(Source::App, "", Level::Info, "one");
+        assert_eq!(
+            *seen.lock().unwrap(),
+            [1],
+            "the page is told, and the line is there"
+        );
+        logs.record(Source::App, "", Level::Info, "two");
+        assert_eq!(*seen.lock().unwrap(), [1, 2]);
+    }
+
+    #[test]
     fn the_filter_the_page_shows_is_held_with_the_records() {
         let logs = Logs::new();
         logs.set_source("theme");
@@ -593,7 +651,7 @@ mod tests {
     }
 
     #[test]
-    fn a_record_is_written_with_its_time_and_source() {
+    fn a_record_is_written_with_the_readers_own_time() {
         let entry = Entry {
             id: 1,
             at: 3_600 + 120 + 3,
@@ -602,10 +660,58 @@ mod tests {
             level: Level::Warn,
             text: "unknown property".to_owned(),
         };
-        assert_eq!(entry.at_shown(), "01:02:03");
+        // The clock the page shows and the clock the file keeps are the reader's, not UTC.
+        let local = chrono::DateTime::from_timestamp(3_723, 0)
+            .unwrap()
+            .with_timezone(&chrono::Local);
+        assert_eq!(entry.at_shown(), local.format("%H:%M:%S").to_string());
+        assert_eq!(
+            entry.at_stamped(),
+            local.format("%Y-%m-%d %H:%M:%S").to_string()
+        );
         assert_eq!(
             entry.written(),
-            "01:02:03 Warning [Theme red.theme.css] unknown property"
+            format!(
+                "{} Warning [Theme red.theme.css] unknown property",
+                local.format("%Y-%m-%d %H:%M:%S")
+            )
         );
+    }
+
+    #[test]
+    fn the_file_keeps_one_previous_run_and_starts_a_fresh_one() {
+        let folder =
+            std::env::temp_dir().join(format!("stremio-lightning-logs-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&folder);
+        let path = folder.join("app.log");
+        let logs = Logs::recording_to(path.clone());
+        logs.record(Source::App, "Core", Level::Info, "the first line");
+
+        let written = std::fs::read_to_string(&path).expect("the file the recorder opened");
+        let first = logs.entries()[0].clone();
+        assert!(
+            written.starts_with(&first.at_stamped()),
+            "a line begins with the reader's own date and time: {written:?}"
+        );
+        assert!(
+            written.contains(&first.written()),
+            "the file holds the record exactly as the diagnostics export writes it: {written:?}"
+        );
+        assert!(
+            written.contains("Info [App Core] the first line"),
+            "a line says its level, what it came from, and what it said: {written:?}"
+        );
+
+        // The file past its limit becomes the one previous file, and the next line starts a
+        // fresh one.
+        std::fs::write(&path, vec![b'x'; (FILE_LIMIT + 1) as usize]).expect("a full file");
+        logs.record(Source::App, "Core", Level::Info, "after the limit");
+        let rotated =
+            std::fs::read_to_string(path.with_extension("log.1")).expect("the previous run's file");
+        assert_eq!(rotated.len(), (FILE_LIMIT + 1) as usize);
+        let fresh = std::fs::read_to_string(&path).expect("the fresh file");
+        assert!(fresh.contains("after the limit"), "{fresh:?}");
+        assert!(!fresh.contains("the first line"), "{fresh:?}");
+        let _ = std::fs::remove_dir_all(&folder);
     }
 }

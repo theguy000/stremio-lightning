@@ -2204,16 +2204,26 @@ impl Wiring {
 
     // ---- The Logs page -------------------------------------------------------
 
-    /// A press on one part of the Logs page's filter. The filter belongs to the recorder, which is
-    /// where a line a plugin logs from a timer finds it too: a page redrawn by a core event draws
-    /// the same filtered list. Pressing a control takes back an armed Clear.
-    fn filter_logs(&self, part: &str, value: String) {
+    /// A press on one of the Logs page's filter menus: the row picked, zero being every source or
+    /// every level. The filter belongs to the recorder, which is where a line a plugin logs from a
+    /// timer finds it too: a page redrawn by a core event draws the same filtered list. Pressing a
+    /// control takes back an armed Clear.
+    fn filter_logs(&self, part: &str, value: i32) {
         *self.mods_clearing.lock().unwrap() = false;
+        let index = usize::try_from(value).unwrap_or(0);
         match part {
-            "source" => self.logs.set_source(&value),
-            "level" => self.logs.set_level(&value),
-            _ => self.logs.set_search(&value),
+            "source" => mods::logs::pick_source(&self.logs, index),
+            "level" => mods::logs::pick_level(&self.logs, index),
+            other => debug_assert!(false, "no Logs filter is called {other:?}"),
         }
+        self.repaint_mods_now();
+    }
+
+    /// A change in the Logs page's search box. The filter belongs to the recorder for the same
+    /// reason the menus' choice does.
+    fn search_logs(&self, text: String) {
+        *self.mods_clearing.lock().unwrap() = false;
+        self.logs.set_search(&text);
         self.repaint_mods_now();
     }
 
@@ -2237,10 +2247,42 @@ impl Wiring {
     /// A press on a record: its full text is on screen, or taken back when it is the one open. A
     /// record the list no longer holds opens nothing.
     fn open_log_record(&self, id: u32) {
-        let mut data = self.mods_data(mods::Page::Logs);
-        data.press_record(&self.logs, u64::from(id));
+        // The recorder is asked first: what is open is part of what the page holds, so the page is
+        // read after the press and not before it.
+        let id = u64::from(id);
+        let open = self.logs.detail().is_some_and(|entry| entry.id == id);
+        self.logs.set_detail(if open { None } else { Some(id) });
+        let data = self.mods_data(mods::Page::Logs);
         let mut snapshot = self.latest.lock().unwrap().clone();
         snapshot.mods = data.with_notice(snapshot.mods.notice.clone());
+        self.finish_log_press(snapshot);
+    }
+
+    /// The detail panel's Copy press: the record on screen, heading and every line of it, goes to
+    /// the clipboard so it can be pasted into a report.
+    fn copy_log_record(&self) {
+        if self.logs.detail().is_none() {
+            return;
+        }
+        // The panel's own two pieces, so a change to how a record is named reaches the clipboard
+        // as well as the screen.
+        let text = format!(
+            "{}\n{}",
+            mods::logs::detail_heading(&self.logs),
+            mods::logs::detail(&self.logs).join("\n")
+        );
+        let notice = match crate::plumbing::clipboard::copy(&text) {
+            Ok(()) => mods::Notice::said("Copied the record."),
+            Err(error) => mods::Notice::failed(error),
+        };
+        self.after_mod_action(Some(notice));
+    }
+
+    /// The detail panel's Close press: the record is put away, and the row stops being marked.
+    fn close_log_record(&self) {
+        self.logs.set_detail(None);
+        let mut snapshot = self.latest.lock().unwrap().clone();
+        snapshot.mods = self.page_data(mods::Page::Logs);
         self.finish_log_press(snapshot);
     }
 
@@ -3271,18 +3313,26 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
     {
         let wiring = wiring.clone();
         window.on_filter_mods_logs(move |part, value| {
-            wiring.filter_logs(&part, value.to_string());
+            wiring.filter_logs(&part, value);
         });
     }
     {
         let wiring = wiring.clone();
         window.on_search_mods_logs(move |text| {
-            wiring.filter_logs("search", text.to_string());
+            wiring.search_logs(text.to_string());
         });
     }
     {
         let wiring = wiring.clone();
         window.on_open_mods_log(move |id| wiring.open_log_record(id.max(0) as u32));
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_copy_mods_log(move || wiring.copy_log_record());
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_close_mods_log(move || wiring.close_log_record());
     }
     {
         let wiring = wiring.clone();
