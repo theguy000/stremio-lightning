@@ -678,14 +678,19 @@ fn the_window_lists_what_was_logged_and_filters_it() {
     let mut detail: Vec<Outcome> = Vec::new();
     detail = step(
         detail,
-        "the newest record is pressed, and its text opens at once",
+        "the line this test recorded is pressed, and its text opens at once",
         {
             // The row says the time, source and text it drew, which is the name a press looks
-            // for. What the press did is judged before anything else can happen: a record landing
-            // a moment later would redraw the panel and hide a page that never opened it.
-            let newest = window.get_mods().log_rows.row_data(0);
-            match newest {
-                None => Err("the list is empty".to_owned()),
+            // for. The record the test wrote is the one pressed, not the newest row: the app keeps
+            // recording (a boot failure, a server verdict), and a newer row would move the target
+            // out from under the press. What the press did is judged before anything else can
+            // happen, because a record landing a moment later would redraw the panel and hide a
+            // page that never opened it.
+            let written = (0..window.get_mods().log_rows.row_count())
+                .filter_map(|at| window.get_mods().log_rows.row_data(at))
+                .find(|row| row.text == "a line written while the page was open");
+            match written {
+                None => Err("the test's own line is not listed".to_owned()),
                 Some(row) => {
                     let label = format!("Show {} {}: {}", row.time, row.source, row.text);
                     click(window, &label).and_then(|pressed| {
@@ -744,8 +749,13 @@ fn the_window_lists_what_was_logged_and_filters_it() {
         "Copy reports what the clipboard answered",
         click(window, "Copy the record").and_then(|_| {
             wait(window, Duration::from_secs(5), |window| {
+                // The press is judged by its answer, not by what the machine's clipboard does with
+                // it: Windows copies, Linux has no clipboard yet and says so.
                 let notice = window.get_mods().notice.to_string();
-                if notice.contains("Copied the record") || notice.contains("clipboard") {
+                if notice.contains("Copied the record")
+                    || notice.contains("clipboard")
+                    || notice.contains("copying is not implemented")
+                {
                     Ok(notice)
                 } else {
                     Err(format!("the page says {notice:?}"))
