@@ -12,7 +12,7 @@
 //! than the newest [`CAPACITY`] ones is dropped as it is added, so a plugin that logs in a loop
 //! cannot grow the list without end. Cleared means emptied from memory: no file is touched.
 
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -154,20 +154,20 @@ impl Entry {
 
     /// The time column, in the reader's own time zone: hours:minutes:seconds.
     pub fn at_shown(&self) -> String {
-        let seconds = self.at % 86_400;
-        format!(
-            "{:02}:{:02}:{:02}",
-            seconds / 3600,
-            (seconds / 60) % 60,
-            seconds % 60
-        )
+        local(self.at).map_or_else(String::new, |at| at.format("%H:%M:%S").to_string())
+    }
+
+    /// The date and time the diagnostics file writes: the reader's own clock, to the second, so a
+    /// log sent in a report can be lined up with what the person saw.
+    pub fn at_stamped(&self) -> String {
+        local(self.at).map_or_else(String::new, |at| at.format("%Y-%m-%d %H:%M:%S").to_string())
     }
 
     /// The record as the diagnostics file writes it: the time, the level, the source, the text.
     pub fn written(&self) -> String {
         format!(
             "{} {} [{}] {}",
-            self.at_shown(),
+            self.at_stamped(),
             self.level.label(),
             self.source_label(),
             self.text
@@ -203,6 +203,13 @@ impl Filter {
         Level::from_id(&self.level)
     }
 
+    /// Whether any part of the filter is narrowing the list.
+    pub fn is_active(&self) -> bool {
+        self.picked_source().is_some()
+            || self.least_level().is_some()
+            || !self.search.trim().is_empty()
+    }
+
     /// Whether `entry` passes every part of the filter.
     pub fn keeps(&self, entry: &Entry) -> bool {
         if self
@@ -230,8 +237,21 @@ impl Filter {
     }
 }
 
+/// What a recorder tells when a record lands.
+type Notify = std::sync::Arc<dyn Fn() + Send + Sync>;
+
+/// Tracks a pointer press-and-slide gesture across visible log rows.
+#[derive(Default)]
+struct DragState {
+    start_id: u64,
+    pressed_id: u64,
+    moved: bool,
+    toggle_off_if_unmoved: bool,
+    ctrl_base: Option<(HashSet<u64>, bool)>,
+}
+
 /// The app's records and the counting of them. Shared by every part that records something.
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct Logs {
     entries: Mutex<VecDeque<Entry>>,
     /// Where every record is also written, line by line, so a log can be read when the window
@@ -249,6 +269,23 @@ pub struct Logs {
     filter_search: Mutex<String>,
     /// The record whose full text the page is showing, by id, and zero when none is.
     detail: AtomicU64,
+    /// Currently selected record ids for multi-row copy.
+    selected: Mutex<HashSet<u64>>,
+    /// Anchor record id for Shift+click range selection.
+    anchor: AtomicU64,
+    /// Active drag-to-select state while the left mouse button is held on the log list.
+    drag: Mutex<DragState>,
+    notify: Mutex<Option<Notify>>,
+}
+
+impl std::fmt::Debug for Logs {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Logs")
+            .field("entries", &lock(&self.entries).len())
+            .field("watching", &lock(&self.notify).is_some())
+            .finish()
+    }
 }
 
 impl Logs {
@@ -290,29 +327,49 @@ impl Logs {
             if let Some(parent) = path.parent() {
                 let _ = std::fs::create_dir_all(parent);
             }
+            // Past the limit the current file becomes the one previous file, and a fresh one
+            // starts: the newest run is always the whole of `app.log`.
+            if std::fs::metadata(path).is_ok_and(|file| file.len() > FILE_LIMIT) {
+                let _ = std::fs::rename(path, path.with_extension("log.1"));
+            }
             if let Ok(mut file) = std::fs::OpenOptions::new()
                 .create(true)
                 .append(true)
                 .open(path)
             {
                 use std::io::Write;
-                let _ = writeln!(
-                    file,
-                    "{} {} {} {}: {}",
-                    entry.at,
-                    entry.level.id(),
-                    entry.source.id(),
-                    entry.origin,
-                    entry.text
-                );
+                // The same line the diagnostics export writes: one serializer, so the two files a
+                // report can carry say the same thing about the same record.
+                let _ = writeln!(file, "{}", entry.written());
             }
         }
         let mut entries = lock(&self.entries);
         entries.push_back(entry.clone());
         let over = entries.len().saturating_sub(CAPACITY);
-        entries.drain(..over);
+        let evicted: Vec<u64> = if over > 0 {
+            entries.drain(..over).map(|item| item.id).collect()
+        } else {
+            Vec::new()
+        };
         drop(entries);
+        if !evicted.is_empty() {
+            let mut sel = lock(&self.selected);
+            for id in &evicted {
+                sel.remove(id);
+                if self.detail.load(Ordering::SeqCst) == *id {
+                    self.detail.store(0, Ordering::SeqCst);
+                }
+                if self.anchor.load(Ordering::SeqCst) == *id {
+                    self.anchor.store(0, Ordering::SeqCst);
+                }
+            }
+        }
         self.count.fetch_add(1, Ordering::SeqCst);
+        // Told after the lock is let go: the listener reads the list back.
+        let notify = lock(&self.notify).clone();
+        if let Some(notify) = notify {
+            notify();
+        }
         entry
     }
 
@@ -349,7 +406,10 @@ impl Logs {
             entries.clear();
             went
         };
+        lock(&self.selected).clear();
+        self.anchor.store(0, Ordering::SeqCst);
         self.detail.store(0, Ordering::SeqCst);
+        *lock(&self.drag) = DragState::default();
         self.count.fetch_add(1, Ordering::SeqCst);
         went
     }
@@ -357,6 +417,12 @@ impl Logs {
     /// A number that changes whenever a record is added or the list is cleared.
     pub fn count(&self) -> u64 {
         self.count.load(Ordering::SeqCst)
+    }
+
+    /// Says where a new record is announced. Called after the record is stored and no lock is
+    /// held, from whichever thread recorded it: the shell decides whether that is worth a repaint.
+    pub fn watch_records(&self, notify: impl Fn() + Send + Sync + 'static) {
+        *lock(&self.notify) = Some(std::sync::Arc::new(notify));
     }
 
     /// The filter the Logs page is showing.
@@ -387,6 +453,13 @@ impl Logs {
         *lock(&self.filter_search) = search.to_owned();
     }
 
+    /// Clears source, level and search back to showing every record.
+    pub fn reset_filter(&self) {
+        lock(&self.filter_source).clear();
+        lock(&self.filter_level).clear();
+        lock(&self.filter_search).clear();
+    }
+
     /// The record whose full text is on screen, if one is.
     pub fn detail(&self) -> Option<Entry> {
         let id = self.detail.load(Ordering::SeqCst);
@@ -403,13 +476,268 @@ impl Logs {
     /// Returns whether the record is one the list holds.
     pub fn set_detail(&self, id: Option<u64>) -> bool {
         let Some(id) = id else {
-            self.detail.store(0, Ordering::SeqCst);
+            self.clear_selection();
             return true;
         };
         let held = lock(&self.entries).iter().any(|entry| entry.id == id);
-        self.detail
-            .store(if held { id } else { 0 }, Ordering::SeqCst);
+        if held {
+            *lock(&self.selected) = HashSet::from([id]);
+            self.anchor.store(id, Ordering::SeqCst);
+            self.detail.store(id, Ordering::SeqCst);
+        } else {
+            self.clear_selection();
+        }
         held
+    }
+
+    fn visible_ids(&self, filter: &Filter) -> Vec<u64> {
+        lock(&self.entries)
+            .iter()
+            .rev()
+            .filter(|entry| filter.keeps(entry))
+            .map(|entry| entry.id)
+            .collect()
+    }
+
+    /// Currently selected record ids.
+    pub fn selected_ids(&self) -> HashSet<u64> {
+        lock(&self.selected).clone()
+    }
+
+    /// Selected records matching `filter`, in visible newest-first order.
+    pub fn selected_in(&self, filter: &Filter) -> Vec<Entry> {
+        let selected = self.selected_ids();
+        if selected.is_empty() {
+            return Vec::new();
+        }
+        self.matching(filter)
+            .into_iter()
+            .filter(|entry| selected.contains(&entry.id))
+            .collect()
+    }
+
+    /// Clears every selected row and closes the detail panel.
+    pub fn clear_selection(&self) {
+        lock(&self.selected).clear();
+        self.anchor.store(0, Ordering::SeqCst);
+        self.detail.store(0, Ordering::SeqCst);
+        *lock(&self.drag) = DragState::default();
+    }
+
+    /// Selects every record currently visible under the active filter.
+    pub fn select_all(&self) {
+        let visible = self.visible_ids(&self.filter());
+        if visible.is_empty() {
+            self.clear_selection();
+            return;
+        }
+        let all: HashSet<u64> = visible.iter().copied().collect();
+        let current = self.detail.load(Ordering::SeqCst);
+        let focus = if current != 0 && all.contains(&current) {
+            current
+        } else {
+            visible[0]
+        };
+        *lock(&self.selected) = all;
+        self.anchor.store(focus, Ordering::SeqCst);
+        self.detail.store(focus, Ordering::SeqCst);
+        *lock(&self.drag) = DragState::default();
+    }
+
+    /// Moves the active selection up (`delta < 0`) or down (`delta > 0`) in visible newest-first
+    /// order. With `shift`, extends a contiguous range from the anchor instead of replacing it.
+    pub fn step_record(&self, delta: isize, shift: bool) -> Option<u64> {
+        let visible = self.visible_ids(&self.filter());
+        if visible.is_empty() {
+            return None;
+        }
+        let current = {
+            let detail = self.detail.load(Ordering::SeqCst);
+            if detail != 0 && visible.contains(&detail) {
+                Some(detail)
+            } else {
+                let sel = lock(&self.selected);
+                visible.iter().copied().find(|id| sel.contains(id))
+            }
+        };
+        let target_pos = match current.and_then(|id| visible.iter().position(|vid| *vid == id)) {
+            Some(pos) => (pos as isize + delta).clamp(0, visible.len() as isize - 1) as usize,
+            None if delta < 0 => visible.len() - 1,
+            None => 0,
+        };
+        let target = visible[target_pos];
+        if shift {
+            let anchor = self.anchor.load(Ordering::SeqCst);
+            let start_id = if anchor != 0 && visible.contains(&anchor) {
+                anchor
+            } else {
+                let fallback = current.unwrap_or(target);
+                self.anchor.store(fallback, Ordering::SeqCst);
+                fallback
+            };
+            *lock(&self.selected) = range_selection(&visible, start_id, target, None, false);
+            self.detail.store(target, Ordering::SeqCst);
+        } else {
+            *lock(&self.selected) = HashSet::from([target]);
+            self.anchor.store(target, Ordering::SeqCst);
+            self.detail.store(target, Ordering::SeqCst);
+        }
+        *lock(&self.drag) = DragState::default();
+        Some(target)
+    }
+
+    /// Starts a click or drag-to-select gesture on `id`, honoring Shift and Ctrl/Cmd modifiers.
+    pub fn press_record(&self, id: u64, shift: bool, ctrl: bool) {
+        let filter = self.filter();
+        let visible = self.visible_ids(&filter);
+        if !visible.contains(&id) {
+            *lock(&self.drag) = DragState::default();
+            return;
+        }
+        let detail_open = self.detail.load(Ordering::SeqCst) != 0;
+        if shift {
+            let prev = lock(&self.selected).clone();
+            let anchor = self.anchor.load(Ordering::SeqCst);
+            let start_id = if anchor != 0 && visible.contains(&anchor) {
+                anchor
+            } else {
+                self.anchor.store(id, Ordering::SeqCst);
+                id
+            };
+            let next = range_selection(
+                &visible,
+                start_id,
+                id,
+                if ctrl { Some(&prev) } else { None },
+                false,
+            );
+            *lock(&self.selected) = next;
+            if detail_open {
+                self.detail.store(id, Ordering::SeqCst);
+            }
+            *lock(&self.drag) = DragState {
+                start_id,
+                pressed_id: id,
+                moved: false,
+                toggle_off_if_unmoved: false,
+                ctrl_base: if ctrl { Some((prev, false)) } else { None },
+            };
+        } else if ctrl {
+            let prev = lock(&self.selected).clone();
+            let removing = prev.contains(&id);
+            let mut next = prev.clone();
+            if removing {
+                next.remove(&id);
+            } else {
+                next.insert(id);
+            }
+            *lock(&self.selected) = next.clone();
+            self.anchor.store(id, Ordering::SeqCst);
+            if detail_open {
+                if !removing {
+                    self.detail.store(id, Ordering::SeqCst);
+                } else if self.detail.load(Ordering::SeqCst) == id {
+                    let fallback = visible
+                        .iter()
+                        .copied()
+                        .find(|vid| next.contains(vid))
+                        .unwrap_or(0);
+                    self.detail.store(fallback, Ordering::SeqCst);
+                }
+            }
+            *lock(&self.drag) = DragState {
+                start_id: id,
+                pressed_id: id,
+                moved: false,
+                toggle_off_if_unmoved: false,
+                ctrl_base: Some((prev, removing)),
+            };
+        } else {
+            let only_this = {
+                let sel = lock(&self.selected);
+                sel.contains(&id)
+                    && visible
+                        .iter()
+                        .filter(|vid| sel.contains(vid))
+                        .all(|vid| *vid == id)
+            };
+            if !only_this {
+                *lock(&self.selected) = HashSet::from([id]);
+                self.anchor.store(id, Ordering::SeqCst);
+                if detail_open {
+                    self.detail.store(id, Ordering::SeqCst);
+                }
+            }
+            *lock(&self.drag) = DragState {
+                start_id: id,
+                pressed_id: id,
+                moved: false,
+                toggle_off_if_unmoved: only_this,
+                ctrl_base: None,
+            };
+        }
+    }
+
+    /// Updates the range selection as the pointer slides across visible log rows while held.
+    pub fn drag_record(&self, id: u64) {
+        let filter = self.filter();
+        let visible = self.visible_ids(&filter);
+        if !visible.contains(&id) {
+            return;
+        }
+        let (start_id, ctrl_base) = {
+            let mut drag = lock(&self.drag);
+            if drag.start_id == 0 {
+                return;
+            }
+            if id != drag.pressed_id {
+                drag.moved = true;
+                drag.toggle_off_if_unmoved = false;
+            }
+            (drag.start_id, drag.ctrl_base.clone())
+        };
+        let next = match ctrl_base {
+            Some((base, remove)) => range_selection(&visible, start_id, id, Some(&base), remove),
+            None => range_selection(&visible, start_id, id, None, false),
+        };
+        *lock(&self.selected) = next.clone();
+        if self.detail.load(Ordering::SeqCst) != 0 {
+            let target = if next.contains(&id) {
+                id
+            } else {
+                visible
+                    .iter()
+                    .copied()
+                    .find(|vid| next.contains(vid))
+                    .unwrap_or(0)
+            };
+            self.detail.store(target, Ordering::SeqCst);
+        }
+    }
+
+    /// Finishes a click or drag-to-select gesture, opening detail on the active selected record
+    /// or clearing selection if the user plain-clicked the sole selected row without sliding.
+    pub fn release_record(&self, id: u64) {
+        let drag = std::mem::take(&mut *lock(&self.drag));
+        if drag.toggle_off_if_unmoved && !drag.moved {
+            self.clear_selection();
+            return;
+        }
+        let filter = self.filter();
+        let visible = self.visible_ids(&filter);
+        let target = {
+            let sel = lock(&self.selected);
+            if id != 0 && sel.contains(&id) && visible.contains(&id) {
+                id
+            } else {
+                visible
+                    .iter()
+                    .copied()
+                    .find(|vid| sel.contains(vid))
+                    .unwrap_or(0)
+            }
+        };
+        self.detail.store(target, Ordering::SeqCst);
     }
 
     /// Records what a theme file says that this app does not understand, one record per warning.
@@ -423,6 +751,43 @@ impl Logs {
     pub fn theme_unreadable(&self, filename: &str, error: impl Into<String>) {
         self.record(Source::Theme, filename, Level::Error, error);
     }
+}
+
+fn range_selection(
+    visible: &[u64],
+    from_id: u64,
+    to_id: u64,
+    base: Option<&HashSet<u64>>,
+    remove: bool,
+) -> HashSet<u64> {
+    let mut out = base.cloned().unwrap_or_default();
+    let Some(to_pos) = visible.iter().position(|id| *id == to_id) else {
+        return out;
+    };
+    let from_pos = visible
+        .iter()
+        .position(|id| *id == from_id)
+        .unwrap_or(to_pos);
+    let (lo, hi) = (from_pos.min(to_pos), from_pos.max(to_pos));
+    for &id in &visible[lo..=hi] {
+        if remove {
+            out.remove(&id);
+        } else {
+            out.insert(id);
+        }
+    }
+    out
+}
+
+/// How large the app's log file may grow before it is rotated. One previous file is kept, so an
+/// install left running for months cannot fill the disk.
+const FILE_LIMIT: u64 = 4 * 1024 * 1024;
+
+/// A record's time on the reader's own clock. The app records UTC seconds; a person reads their
+/// wall clock, and so does whoever is handed the file.
+fn local(at: u64) -> Option<chrono::DateTime<chrono::Local>> {
+    let at = i64::try_from(at).ok()?;
+    chrono::DateTime::from_timestamp(at, 0).map(|utc| utc.with_timezone(&chrono::Local))
 }
 
 /// The current time, in seconds since 1 January 1970. A clock before 1970 records zero rather than
@@ -571,6 +936,27 @@ mod tests {
     }
 
     #[test]
+    fn a_new_record_is_announced_once_and_the_announcement_reads_the_list() {
+        let logs = std::sync::Arc::new(Logs::new());
+        let seen = std::sync::Arc::new(Mutex::new(Vec::new()));
+        {
+            let (page_logs, seen) = (logs.clone(), seen.clone());
+            logs.watch_records(move || {
+                // The listener reads the recorder back while it runs: no lock is held on the way.
+                seen.lock().unwrap().push(page_logs.len());
+            });
+        }
+        logs.record(Source::App, "", Level::Info, "one");
+        assert_eq!(
+            *seen.lock().unwrap(),
+            [1],
+            "the page is told, and the line is there"
+        );
+        logs.record(Source::App, "", Level::Info, "two");
+        assert_eq!(*seen.lock().unwrap(), [1, 2]);
+    }
+
+    #[test]
     fn the_filter_the_page_shows_is_held_with_the_records() {
         let logs = Logs::new();
         logs.set_source("theme");
@@ -593,7 +979,7 @@ mod tests {
     }
 
     #[test]
-    fn a_record_is_written_with_its_time_and_source() {
+    fn a_record_is_written_with_the_readers_own_time() {
         let entry = Entry {
             id: 1,
             at: 3_600 + 120 + 3,
@@ -602,10 +988,183 @@ mod tests {
             level: Level::Warn,
             text: "unknown property".to_owned(),
         };
-        assert_eq!(entry.at_shown(), "01:02:03");
+        // The clock the page shows and the clock the file keeps are the reader's, not UTC.
+        let local = chrono::DateTime::from_timestamp(3_723, 0)
+            .unwrap()
+            .with_timezone(&chrono::Local);
+        assert_eq!(entry.at_shown(), local.format("%H:%M:%S").to_string());
+        assert_eq!(
+            entry.at_stamped(),
+            local.format("%Y-%m-%d %H:%M:%S").to_string()
+        );
         assert_eq!(
             entry.written(),
-            "01:02:03 Warning [Theme red.theme.css] unknown property"
+            format!(
+                "{} Warning [Theme red.theme.css] unknown property",
+                local.format("%Y-%m-%d %H:%M:%S")
+            )
         );
+    }
+
+    #[test]
+    fn the_file_keeps_one_previous_run_and_starts_a_fresh_one() {
+        let folder =
+            std::env::temp_dir().join(format!("stremio-lightning-logs-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&folder);
+        let path = folder.join("app.log");
+        let logs = Logs::recording_to(path.clone());
+        logs.record(Source::App, "Core", Level::Info, "the first line");
+
+        let written = std::fs::read_to_string(&path).expect("the file the recorder opened");
+        let first = logs.entries()[0].clone();
+        assert!(
+            written.starts_with(&first.at_stamped()),
+            "a line begins with the reader's own date and time: {written:?}"
+        );
+        assert!(
+            written.contains(&first.written()),
+            "the file holds the record exactly as the diagnostics export writes it: {written:?}"
+        );
+        assert!(
+            written.contains("Info [App Core] the first line"),
+            "a line says its level, what it came from, and what it said: {written:?}"
+        );
+
+        // The file past its limit becomes the one previous file, and the next line starts a
+        // fresh one.
+        std::fs::write(&path, vec![b'x'; (FILE_LIMIT + 1) as usize]).expect("a full file");
+        logs.record(Source::App, "Core", Level::Info, "after the limit");
+        let rotated =
+            std::fs::read_to_string(path.with_extension("log.1")).expect("the previous run's file");
+        assert_eq!(rotated.len(), (FILE_LIMIT + 1) as usize);
+        let fresh = std::fs::read_to_string(&path).expect("the fresh file");
+        assert!(fresh.contains("after the limit"), "{fresh:?}");
+        assert!(!fresh.contains("the first line"), "{fresh:?}");
+        let _ = std::fs::remove_dir_all(&folder);
+    }
+
+    #[test]
+    fn multi_select_supports_click_shift_ctrl_and_drag() {
+        let logs = Logs::new();
+        let a = logs.record(Source::App, "Core", Level::Info, "row a").id;
+        let b = logs.record(Source::App, "Core", Level::Info, "row b").id;
+        let c = logs.record(Source::App, "Core", Level::Info, "row c").id;
+        let d = logs.record(Source::App, "Core", Level::Info, "row d").id;
+        // Visible order is newest first: [d, c, b, a].
+
+        // Single click selects on press and opens detail on release; clicking the sole selected row
+        // again without dragging clears both selection and detail.
+        logs.press_record(c, false, false);
+        assert_eq!(logs.selected_ids(), HashSet::from([c]));
+        assert_eq!(logs.detail(), None, "detail opens on release, not mid-drag");
+        logs.release_record(c);
+        assert_eq!(logs.detail().map(|entry| entry.id), Some(c));
+
+        logs.press_record(c, false, false);
+        logs.release_record(c);
+        assert!(logs.selected_ids().is_empty());
+        assert_eq!(logs.detail(), None);
+
+        // Shift+click selects contiguous visible range from anchor, preserving anchor across
+        // repeated Shift+clicks.
+        logs.press_record(b, false, false);
+        logs.release_record(b);
+        logs.press_record(d, true, false);
+        logs.release_record(d);
+        assert_eq!(logs.selected_ids(), HashSet::from([d, c, b]));
+        assert_eq!(logs.detail().map(|entry| entry.id), Some(d));
+
+        logs.press_record(a, true, false);
+        logs.release_record(a);
+        assert_eq!(logs.selected_ids(), HashSet::from([b, a]));
+
+        // Ctrl+click toggles individual rows and clears detail when the last row is toggled off.
+        logs.press_record(d, false, true);
+        logs.release_record(d);
+        assert_eq!(logs.selected_ids(), HashSet::from([d, b, a]));
+        logs.press_record(b, false, true);
+        logs.release_record(b);
+        assert_eq!(logs.selected_ids(), HashSet::from([d, a]));
+
+        logs.press_record(d, false, false);
+        logs.release_record(d);
+        assert_eq!(logs.selected_ids(), HashSet::from([d]));
+        logs.press_record(d, false, true);
+        logs.release_record(d);
+        assert!(logs.selected_ids().is_empty());
+        assert_eq!(logs.detail(), None);
+
+        // Plain drag from an unselected row keeps detail closed until release, and also works
+        // starting directly from an already-selected single row (without toggling it off).
+        logs.press_record(d, false, false);
+        logs.drag_record(b);
+        assert_eq!(logs.selected_ids(), HashSet::from([d, c, b]));
+        assert_eq!(logs.detail(), None);
+        logs.release_record(b);
+        assert_eq!(logs.detail().map(|entry| entry.id), Some(b));
+
+        // Reverse drag starting on an already-selected single row selects [b, c, d].
+        logs.press_record(b, false, false);
+        logs.release_record(b);
+        assert_eq!(logs.selected_ids(), HashSet::from([b]));
+        logs.press_record(b, false, false);
+        logs.drag_record(d);
+        logs.release_record(d);
+        assert_eq!(logs.selected_ids(), HashSet::from([d, c, b]));
+        assert_eq!(logs.detail().map(|entry| entry.id), Some(d));
+
+        // Ctrl+drag adds or removes a range relative to the prior selection.
+        logs.press_record(a, false, true);
+        logs.drag_record(b);
+        logs.release_record(b);
+        assert_eq!(logs.selected_ids(), HashSet::from([d, c, b, a]));
+
+        logs.press_record(c, false, true);
+        logs.drag_record(b);
+        logs.release_record(b);
+        assert_eq!(logs.selected_ids(), HashSet::from([d, a]));
+    }
+
+    #[test]
+    fn keyboard_step_select_all_and_reset_filter_behave_consistently() {
+        let logs = Logs::new();
+        assert_eq!(logs.step_record(1, false), None);
+
+        let a = logs.record(Source::App, "Core", Level::Info, "row a").id;
+        let b = logs.record(Source::Theme, "t.css", Level::Warn, "row b").id;
+        let c = logs.record(Source::App, "Core", Level::Error, "row c").id;
+        // Visible newest-first: [c, b, a].
+
+        // Stepping down from no selection picks the top row; stepping again advances.
+        assert_eq!(logs.step_record(1, false), Some(c));
+        assert_eq!(logs.selected_ids(), HashSet::from([c]));
+        assert_eq!(logs.detail().map(|e| e.id), Some(c));
+
+        assert_eq!(logs.step_record(1, true), Some(b));
+        assert_eq!(logs.selected_ids(), HashSet::from([c, b]));
+        assert_eq!(logs.detail().map(|e| e.id), Some(b));
+
+        assert_eq!(logs.step_record(1, true), Some(a));
+        assert_eq!(logs.selected_ids(), HashSet::from([c, b, a]));
+        assert_eq!(logs.step_record(1, true), Some(a), "clamps at bottom");
+
+        // Plain step collapses selection back to the single target row.
+        assert_eq!(logs.step_record(-1, false), Some(b));
+        assert_eq!(logs.selected_ids(), HashSet::from([b]));
+
+        // Select all picks every visible row under the active filter only.
+        logs.set_source("app");
+        assert!(logs.filter().is_active());
+        logs.select_all();
+        assert_eq!(logs.selected_ids(), HashSet::from([c, a]));
+        assert_eq!(logs.detail().map(|e| e.id), Some(c));
+
+        // Reset filter clears source, level and search together.
+        logs.set_level("warn");
+        logs.set_search("row");
+        assert!(logs.filter().is_active());
+        logs.reset_filter();
+        assert!(!logs.filter().is_active());
+        assert_eq!(logs.filter(), Filter::default());
     }
 }

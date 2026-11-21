@@ -4,6 +4,7 @@ import { Theme } from "theme.slint";
 import { ModsNavItem } from "shell.slint";
 import { ScrollBar } from "scroll-bar.slint";
 import { LineEdit, Slider, VerticalBox } from "std-widgets.slint";
+import { MultiselectMenu, SelectOption } from "multiselect-menu.slint";
 
 // One plugin or theme file, as its card draws it.
 export struct ModCardData {
@@ -65,14 +66,6 @@ export struct SettingsFieldData {
     shown: string,
 }
 
-// One choice of a Logs page filter: the id the press sends back, the word it shows, and whether
-// it is the one picked.
-export struct ModsFilterChoice {
-    id: string,
-    label: string,
-    selected: bool,
-}
-
 // One record on the Logs page. `id` is what a press on the row names it by.
 export struct ModsLogRow {
     id: int,
@@ -85,6 +78,8 @@ export struct ModsLogRow {
     time: string,
     /// The record's text on one line. The full text is the detail.
     text: string,
+    /// Whether this record is part of the active selection.
+    selected: bool,
 }
 
 // One label and its value on the About page.
@@ -117,16 +112,31 @@ export struct ModsViewData {
     settings-empty: string,
     /// Whether the page has something typed and not saved. Only this turns Save on.
     settings-dirty: bool,
-    /// The Logs page: the filter's two lists of choices with the picked one marked, what the search
-    /// box holds, the header that says how many records are held, the rows, and the full text of
-    /// the one record that is open.
-    log-sources: [ModsFilterChoice],
-    log-levels: [ModsFilterChoice],
+    /// The Logs page: each filter menu's choices and the row it opens on, what the search box
+    /// holds, the rows, and the full text of the one record that is open.
+    log-source-options: [SelectOption],
+    log-level-options: [SelectOption],
+    log-source-index: int,
+    log-level-index: int,
     log-search: string,
-    log-held: string,
     log-rows: [ModsLogRow],
     log-empty: string,
+    /// The heading of the record on screen, the lines of its text, and the id the list marks.
+    log-detail-heading: string,
     log-detail: [string],
+    log-open-id: int,
+    /// Visible row index of `log-open-id`, or -1 when none is open.
+    log-active-index: int,
+    /// How many visible rows are currently selected.
+    log-selected-count: int,
+    /// Compact record count badge ("42 records", "5 of 42", or empty when none).
+    log-count: string,
+    /// Whether any source, level, or search filter is narrowing the list.
+    log-filtered: bool,
+    /// Number of live records prepended at the top on the latest update, plus a monotonic token
+    /// so the view can anchor scroll only when live rows land while scrolled down.
+    log-prepended: int,
+    log-prepend-seq: int,
     /// Whether Clear has been pressed once and the second press is the one that empties the list.
     log-clear-armed: bool,
     /// The About page: the build, the places, the counts, the enabled lists, the licence, and the
@@ -670,6 +680,7 @@ component SettingsButton inherits Rectangle {
     in property <string> label-text;
     in property <bool> enabled;
     in property <bool> primary;
+    in property <bool> danger: false;
     in property <string> name;
     in property <length> rem-size;
     callback clicked();
@@ -678,8 +689,11 @@ component SettingsButton inherits Rectangle {
     width: settings-button-label.width + 2 * rem-size;
     border-radius: self.height / 2;
     border-width: 2px;
-    border-color: root.primary && root.enabled ? Theme.accent-green : Theme.text;
-    background: (root.enabled && root.primary) ? Theme.accent-green
+    border-color: (root.danger && root.enabled) ? Theme.accent-red
+        : (root.primary && root.enabled) ? Theme.accent-green : Theme.text;
+    background: (root.danger && root.enabled)
+        ? (settings-button-touch.has-hover ? #ff707033 : #ff70701a)
+        : (root.enabled && root.primary) ? Theme.accent-green
         : (root.enabled && settings-button-touch.has-hover) ? Theme.overlay : transparent;
     opacity: root.enabled ? 1.0 : 0.3;
 
@@ -690,7 +704,8 @@ component SettingsButton inherits Rectangle {
         text: root.label-text;
         font-size: rem-size;
         font-weight: 700;
-        color: root.primary && root.enabled ? Theme.on-accent : Theme.text;
+        color: (root.danger && root.enabled) ? Theme.accent-red
+            : (root.primary && root.enabled) ? Theme.on-accent : Theme.text;
     }
     settings-button-touch := TouchArea {
         width: 100%;
@@ -709,122 +724,120 @@ component SettingsButton inherits Rectangle {
 
 
 
-// A pill on the Logs page: one choice of a filter, with the picked one marked. Web: the addon
-// card's pills, round and dim until picked.
-component ModsFilterPill inherits Rectangle {
-    in property <string> id;
-    in property <string> label-text;
-    in property <bool> selected;
-    in property <length> rem-size;
-    callback clicked();
-
-    height: 2.6 * rem-size;
-    width: filter-pill-label.width + 1.6 * rem-size;
-    border-radius: self.height / 2;
-    border-width: 1px;
-    border-color: root.selected ? Theme.accent-green : Theme.placeholder;
-    background: (root.selected || filter-pill-touch.has-hover) ? Theme.overlay : transparent;
-    visible: !ClassStyles.mods-log-filter.hidden;
-
-    filter-pill-label := Text {
-        x: 0.8 * root.rem-size;
-        y: (parent.height - self.height) / 2;
-        width: self.preferred-width;
-        text: root.label-text;
-        font-size: 0.9 * root.rem-size;
-        color: ClassStyles.color-or(ClassStyles.mods-log-filter, root.selected ? Theme.accent-green : Theme.text);
-        visible: !ClassStyles.mods-log-filter.hidden;
-    }
-    filter-pill-touch := TouchArea {
-        width: 100%;
-        height: 100%;
-        mouse-cursor: pointer;
-        // The word on it, so a test presses the filter it means.
-        accessible-role: radio-button;
-        accessible-label: root.label-text;
-        accessible-checkable: true;
-        accessible-checked: root.selected;
-        clicked => {
-            root.clicked();
-        }
-    }
-}
-
 // One record on the Logs page: the time, the source, the level and the text on one line. A press
 // opens the whole record under the list. Web: a row of the addon list, one line per record.
 component ModsLogRowView inherits Rectangle {
     in property <ModsLogRow> record;
     in property <length> rem-size;
-    callback opened();
+    /// Whether this row is part of the active selection.
+    in property <bool> selected;
+    /// Whether this row is the record currently shown in the detail panel.
+    in property <bool> active;
+    /// Whether the list's drag-select area is currently hovering this row.
+    in property <bool> hovered;
+    /// Width of the Source column, shared with the table header so columns line up cleanly.
+    in property <length> source-width: Math.min(15 * root.rem-size, Math.max(9 * root.rem-size, root.width * 0.27));
 
     height: 2.2 * rem-size;
-    background: log-row-touch.has-hover ? Theme.overlay : transparent;
+    background: (root.selected && root.active)
+        ? (root.hovered ? #22b36530 : #22b36524)
+        : root.selected
+        ? (root.hovered ? #22b36520 : #22b36514)
+        : root.hovered ? Theme.overlay : transparent;
+    // The text, so a test presses the record it means. The time is in it, because two lines
+    // of the same text are two records.
+    accessible-role: button;
+    // The row says whether it is selected, so what a press did is readable on screen and not only
+    // in the model behind it.
+    accessible-label: (root.selected ? "Open " : "Show ")
+        + root.record.time + " " + root.record.source + ": " + root.record.text;
+    // A hairline on the left marks every selected row, brighter on the active detail row.
+    if root.selected: Rectangle {
+        x: 0px;
+        y: 0.2 * root.rem-size;
+        width: 3px;
+        height: root.height - 0.4 * root.rem-size;
+        border-radius: 1.5px;
+        background: Theme.accent-green;
+        opacity: root.active ? 1.0 : 0.55;
+    }
 
     log-row-time := Text {
-        x: 0.4 * rem-size;
+        x: 0.75 * rem-size;
         y: 0px;
-        width: 6 * rem-size;
+        width: 4.8 * rem-size;
         height: parent.height;
         text: root.record.time;
         vertical-alignment: center;
-        font-size: 0.85 * rem-size;
+        font-size: 0.82 * rem-size;
         color: ClassStyles.color-or(ClassStyles.mods-log-time, Theme.placeholder);
         opacity: ClassStyles.opacity-or(ClassStyles.mods-log-time, 1.0);
         visible: !ClassStyles.mods-log-time.hidden;
     }
     log-row-source := Text {
-        x: log-row-time.width + 0.8 * rem-size;
+        x: log-row-time.x + log-row-time.width + 0.6 * rem-size;
         y: 0px;
-        width: 17 * rem-size;
+        width: root.source-width;
         height: parent.height;
         text: root.record.source;
         overflow: elide;
         vertical-alignment: center;
         font-size: 0.85 * rem-size;
         color: ClassStyles.color-or(ClassStyles.mods-log-source, Theme.text);
-        opacity: ClassStyles.opacity-or(ClassStyles.mods-log-source, 1.0);
+        opacity: ClassStyles.opacity-or(ClassStyles.mods-log-source, root.record.level-id == "debug" ? 0.75 : 1.0);
         visible: !ClassStyles.mods-log-source.hidden;
     }
-    log-row-level := Text {
-        x: log-row-source.x + log-row-source.width;
-        y: 0px;
-        width: 8 * rem-size;
-        height: parent.height;
-        text: root.record.level;
-        overflow: elide;
-        vertical-alignment: center;
-        font-size: 0.85 * rem-size;
-        // The level's own colour: an error is red, a warning yellow, and the rest the page's text.
-        color: ClassStyles.color-or(ClassStyles.mods-log-level,
-            root.record.level-id == "error" ? Theme.accent-red
-            : root.record.level-id == "warn" ? Theme.accent-yellow : Theme.text);
-        opacity: ClassStyles.opacity-or(ClassStyles.mods-log-level, 1.0);
+    log-row-level-pill := Rectangle {
+        x: log-row-source.x + log-row-source.width + 0.6 * rem-size;
+        y: (parent.height - self.height) / 2;
+        width: 5.4 * rem-size;
+        height: 1.4 * rem-size;
+        border-radius: 0.35 * rem-size;
+        background: root.record.level-id == "error" ? #ff707022
+            : root.record.level-id == "warn" ? #ffba191f
+            : root.record.level-id == "info" ? #7b5bf520 : #ffffff0a;
         visible: !ClassStyles.mods-log-level.hidden;
+
+        log-row-level := Text {
+            x: 0.35 * rem-size;
+            y: 0px;
+            width: parent.width - 0.7 * rem-size;
+            height: parent.height;
+            text: root.record.level;
+            overflow: elide;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            font-size: 0.78 * rem-size;
+            font-weight: 600;
+            // Each severity has its own weight: red error, yellow warning, soft accent info, muted debug.
+            color: ClassStyles.color-or(ClassStyles.mods-log-level,
+                root.record.level-id == "error" ? Theme.accent-red
+                : root.record.level-id == "warn" ? Theme.accent-yellow
+                : root.record.level-id == "info" ? Theme.accent-soft : Theme.placeholder);
+            opacity: ClassStyles.opacity-or(ClassStyles.mods-log-level, 1.0);
+        }
     }
     log-row-text := Text {
-        x: log-row-level.x + log-row-level.width + 0.8 * rem-size;
+        x: log-row-level-pill.x + log-row-level-pill.width + 0.8 * rem-size;
         y: 0px;
-        width: Math.max(0px, parent.width - self.x - 0.4 * rem-size);
+        width: Math.max(0px, parent.width - self.x - 0.75 * rem-size);
         height: parent.height;
         text: root.record.text;
         overflow: elide;
         vertical-alignment: center;
         font-size: 0.85 * rem-size;
-        color: ClassStyles.color-or(ClassStyles.mods-log-text, Theme.text);
+        color: ClassStyles.color-or(ClassStyles.mods-log-text,
+            root.record.level-id == "debug" ? Theme.placeholder : Theme.text);
         opacity: ClassStyles.opacity-or(ClassStyles.mods-log-text, 1.0);
         visible: !ClassStyles.mods-log-text.hidden;
     }
-    log-row-touch := TouchArea {
-        width: 100%;
-        height: 100%;
-        mouse-cursor: pointer;
-        // The text, so a test presses the record it means. The time is in it, because two lines
-        // of the same text are two records.
-        accessible-role: button;
-        accessible-label: "Show " + root.record.time + " " + root.record.source + ": " + root.record.text;
-        clicked => {
-            root.opened();
-        }
+    // Subtle hairline separator to help track columns horizontally across wide windows.
+    Rectangle {
+        x: 0px;
+        y: parent.height - 1px;
+        width: parent.width;
+        height: 1px;
+        background: #ffffff08;
     }
 }
 
@@ -874,6 +887,11 @@ export component ModsContent inherits Rectangle {
             + cards[0].warnings.length * 1.2 * rem-size);
     }
 
+    pure function log-row-at(y: length, row-height: length, count: int) -> int {
+        return count <= 0 ? -1
+            : Math.max(0, Math.min(count - 1, Math.floor(y / row-height)));
+    }
+
     in property <ModsViewData> data;
     /// The width of the window, which decides one rem.
     in property <length> viewport-width;
@@ -899,13 +917,24 @@ export component ModsContent inherits Rectangle {
     callback edit-settings-number(string, float);
     /// The Save press: what the page holds goes into the plugin's settings file.
     callback save-settings();
-    /// A press on one of the Logs page's filter pills: which part of the filter ("source" or
-    /// "level") and the id picked, empty for "every one".
-    callback filter-logs(string, string);
+    /// A press on one of the Logs page's filter menus: which part of the filter ("source" or
+    /// "level") and the row picked, zero being every source or every level.
+    callback filter-logs(string, int);
     /// The Logs page's search box. Each change is a press.
     callback search-logs(string);
-    /// A press on a record: its full text opens, or closes when it is the one open.
-    callback open-log(int);
+    /// Clears source, level, and search filters in one press.
+    callback reset-logs-filter();
+    /// Pointer press, drag-over, and release on log rows (carrying Shift and Ctrl modifiers).
+    callback press-log(int, bool, bool);
+    callback drag-log(int);
+    callback release-log(int);
+    /// Keyboard actions on the log list: select all visible rows, or step active row up/down.
+    callback select-all-logs();
+    callback step-log(int, bool);
+    /// The toolbar's Copy press: copies all selected visible records to the clipboard.
+    callback copy-log();
+    /// The detail panel's Close press: the record is put away.
+    callback close-log();
     /// The Logs page's Clear button. The first press arms it and empties nothing.
     callback clear-logs();
     /// The About page's buttons: read the folders again, write the diagnostics file, and copy the
@@ -993,14 +1022,18 @@ export component ModsContent inherits Rectangle {
         }
 
         if root.data.notice != "": mod-notice := Text {
-            x: root.page-padding;
-            y: 5.4 * root.rem-size;
-            width: root.page-width;
+            // On Logs, sit inline on the title row so clicking Copy never jumps the toolbar and
+            // log list downward under the pointer.
+            x: root.on-logs ? root.page-padding + 8 * root.rem-size : root.page-padding;
+            y: root.on-logs ? 2 * root.rem-size : 5.4 * root.rem-size;
+            width: root.on-logs ? Math.max(0px, root.page-width - 8 * root.rem-size) : root.page-width;
             height: 3 * root.rem-size;
             text: root.data.notice;
-            wrap: word-wrap;
-            vertical-alignment: top;
-            font-size: root.rem-size;
+            wrap: root.on-logs ? no-wrap : word-wrap;
+            overflow: elide;
+            horizontal-alignment: root.on-logs ? right : left;
+            vertical-alignment: root.on-logs ? center : top;
+            font-size: root.on-logs ? 0.9 * root.rem-size : root.rem-size;
             color: ClassStyles.color-or(ClassStyles.mod-notice, root.data.notice-failed ? Theme.accent-red : Theme.text);
             opacity: ClassStyles.opacity-or(ClassStyles.mod-notice, root.data.notice-failed ? 1.0 : 0.7);
             visible: !ClassStyles.mod-notice.hidden;
@@ -1015,14 +1048,16 @@ export component ModsContent inherits Rectangle {
             height: 4 * root.rem-size;
             text: root.on-plugins ? ""
                 : root.on-themes ? root.data.themes-note
-                : root.data.page == "logs" ? root.data.log-held
+                // The Logs page puts its filter where the others put a sentence: nothing counts
+                // records above a list that is already saying what it holds.
+                : root.on-logs ? ""
                 : "What this build is and what it keeps.";
             wrap: word-wrap;
             vertical-alignment: top;
             font-size: root.rem-size;
             color: ClassStyles.color-or(ClassStyles.mods-page-note, Theme.text);
             opacity: ClassStyles.opacity-or(ClassStyles.mods-page-note, 0.7);
-            visible: !root.on-settings && !ClassStyles.mods-page-note.hidden;
+            visible: !root.on-settings && !root.on-logs && !ClassStyles.mods-page-note.hidden;
         }
 
         if root.on-plugins && root.data.plugins.length == 0: mods-empty-plugins := Text {
@@ -1257,151 +1292,698 @@ export component ModsContent inherits Rectangle {
         }
 
         // ---- Logs -----------------------------------------------------------------------
-        // Every record the app holds, newest first, with the filter above the list and the full
-        // text of one record under it. Clear empties the list on its second press and deletes no
-        // file: the header says how many are held and that nothing is written.
-        if root.on-logs: Rectangle {
+        // Every record the app holds, newest first, with the filter above the list. Clear empties
+        // the list on its second press and deletes no file.
+        if root.on-logs: logs-box := Rectangle {
             x: root.page-padding;
-            y: root.list-top;
+            // Fixed top offset on Logs with breathing room under the "Logs" heading (notice sits
+            // inline on the title row) so copying never shifts the toolbar and list downward.
+            y: 6.4 * root.rem-size;
             width: root.page-width;
-            height: Math.max(root.height - root.list-top, 0px);
+            // Keep bottom breathing room below the detail panel and list so neither sits flush
+            // against the bottom edge of the window.
+            height: Math.max(root.height - 6.4 * root.rem-size - 2 * root.rem-size, 0px);
 
-            property <length> filter-height: 8 * root.rem-size;
-            property <length> detail-height: root.data.log-detail.length == 0 ? 0px
-                : (root.data.log-detail.length + 1) * 1.4 * root.rem-size + 0.8 * root.rem-size;
-            property <length> rows-height: Math.max(0px, parent.height - filter-height - detail-height);
+            // One row of filter menus + count/reset, then search + Copy + Clear, then the table.
+            property <length> filter-height: 7.9 * root.rem-size;
+            property <length> row-height: 2.2 * root.rem-size;
+            property <int> active-index: root.data.log-active-index;
+            property <bool> detail-open: root.data.log-detail.length > 0;
+            property <bool> scroll-after-detail: false;
+            property <length> watched-rows-height: log-rows.height;
+            property <length> watched-content-height: log-rows.content-height;
+            property <int> prepend-seq: root.data.log-prepend-seq;
+            property <string> external-search: root.data.log-search;
+            property <int> watched-source-index: root.data.log-source-index;
+            property <int> watched-level-index: root.data.log-level-index;
 
-            // One row of pills per part of the filter, and the search box beside the Clear button.
-            log-source-filter := HorizontalLayout {
+            function clamp-log-scroll() {
+                if (log-rows.content-height <= log-rows.height) {
+                    log-rows.content-y = 0px;
+                } else {
+                    log-rows.content-y = Math.min(
+                        0px,
+                        Math.max(log-rows.height - log-rows.content-height, log-rows.content-y)
+                    );
+                }
+            }
+
+            function ensure-row-visible(index: int) {
+                if (index < 0 || index >= root.data.log-rows.length) {
+                    return;
+                }
+                if (log-rows.height <= 0px || log-rows.content-height <= log-rows.height) {
+                    log-rows.content-y = 0px;
+                    return;
+                }
+                if (index * self.row-height < -log-rows.content-y) {
+                    log-rows.content-y = -(index * self.row-height);
+                } else if ((index + 1) * self.row-height > -log-rows.content-y + log-rows.height) {
+                    log-rows.content-y = Math.max(
+                        log-rows.height - log-rows.content-height,
+                        log-rows.height - (index + 1) * self.row-height
+                    );
+                }
+            }
+
+            init => {
+                log-keys.focus();
+            }
+            changed active-index => {
+                if (self.active-index >= 0) {
+                    self.ensure-row-visible(self.active-index);
+                }
+            }
+            changed detail-open => {
+                if (self.detail-open) {
+                    self.scroll-after-detail = true;
+                } else {
+                    self.scroll-after-detail = false;
+                }
+            }
+            changed watched-rows-height => {
+                self.clamp-log-scroll();
+                if (self.scroll-after-detail) {
+                    self.scroll-after-detail = false;
+                    self.ensure-row-visible(root.data.log-active-index);
+                }
+            }
+            changed watched-content-height => {
+                self.clamp-log-scroll();
+            }
+            changed prepend-seq => {
+                if (log-rows.content-y < 0px && root.data.log-prepended > 0) {
+                    log-rows.content-y = Math.max(
+                        log-rows.height - log-rows.content-height,
+                        log-rows.content-y - root.data.log-prepended * self.row-height
+                    );
+                }
+            }
+            changed external-search => {
+                if (log-search.text != root.data.log-search) {
+                    log-search.text = root.data.log-search;
+                }
+                log-rows.content-y = 0px;
+            }
+            changed watched-source-index => {
+                log-rows.content-y = 0px;
+            }
+            changed watched-level-index => {
+                log-rows.content-y = 0px;
+            }
+
+            // Keyboard navigation for the log list: Ctrl+C copies selection, Ctrl+A selects all
+            // visible rows, Esc clears selection/detail/armed Clear, Up/Down step (with Shift).
+            log-keys := FocusScope {
+                width: 0px;
+                height: 0px;
+                key-pressed(event) => {
+                    if (event.text == Key.Escape) {
+                        if (root.data.log-selected-count > 0 || root.data.log-open-id != 0 || root.data.log-clear-armed) {
+                            root.close-log();
+                            return accept;
+                        }
+                        return reject;
+                    }
+                    if (event.text == Key.DownArrow) {
+                        if (root.data.log-rows.length > 0) {
+                            root.step-log(1, event.modifiers.shift);
+                            return accept;
+                        }
+                        return reject;
+                    }
+                    if (event.text == Key.UpArrow) {
+                        if (root.data.log-rows.length > 0) {
+                            root.step-log(-1, event.modifiers.shift);
+                            return accept;
+                        }
+                        return reject;
+                    }
+                    if ((event.modifiers.control || event.modifiers.meta)
+                        && (event.text == "c" || event.text == "C" || event.text == "\u{0003}"))
+                    {
+                        if (root.data.log-selected-count > 0) {
+                            root.copy-log();
+                            return accept;
+                        }
+                        return reject;
+                    }
+                    if ((event.modifiers.control || event.modifiers.meta)
+                        && (event.text == "a" || event.text == "A" || event.text == "\u{0001}"))
+                    {
+                        if (root.data.log-rows.length > 0) {
+                            root.select-all-logs();
+                            return accept;
+                        }
+                        return reject;
+                    }
+                    return reject;
+                }
+            }
+
+            // Row 1: responsive source & level dropdowns on the left, compact count & Reset on the right.
+            log-filter-row := HorizontalLayout {
                 x: 0px;
                 y: 0px;
-                width: parent.width - 12 * root.rem-size;
-                height: 2.6 * root.rem-size;
-                spacing: 0.4 * root.rem-size;
-                alignment: start;
-
-                for choice[index] in root.data.log-sources: ModsFilterPill {
-                    id: choice.id;
-                    label-text: choice.label;
-                    selected: choice.selected;
-                    rem-size: root.rem-size;
-                    clicked => {
-                        root.filter-logs("source", choice.id);
-                    }
-                }
-            }
-            log-level-filter := HorizontalLayout {
-                x: 0px;
-                y: 3 * root.rem-size;
-                width: parent.width - 12 * root.rem-size;
-                height: 2.6 * root.rem-size;
-                spacing: 0.4 * root.rem-size;
-                alignment: start;
-
-                for choice[index] in root.data.log-levels: ModsFilterPill {
-                    id: choice.id;
-                    label-text: choice.label;
-                    selected: choice.selected;
-                    rem-size: root.rem-size;
-                    clicked => {
-                        root.filter-logs("level", choice.id);
-                    }
-                }
-            }
-            log-search := LineEdit {
-                x: 0px;
-                y: 6 * root.rem-size;
-                width: root.page-width - 22 * root.rem-size;
-                height: 2.6 * root.rem-size;
-                font-size: 0.95 * root.rem-size;
-                // The box says what it searches, so a test finds the box it means.
-                accessible-description: "Search the log records";
-                init => {
-                    self.text = root.data.log-search;
-                }
-                edited(text) => {
-                    root.search-logs(text);
-                }
-            }
-            // The Clear button: a press arms it, and while it is armed the button says what the
-            // second press does.
-            SettingsButton {
-                x: parent.width - 18 * root.rem-size;
-                y: 6 * root.rem-size;
-                rem-size: root.rem-size;
-                label-text: root.data.log-clear-armed ? "Press again to clear" : "Clear";
-                name: root.data.log-clear-armed ? "Confirm clearing the log records" : "Clear the log records";
-                primary: false;
-                enabled: root.data.log-rows.length > 0 || root.data.log-clear-armed;
-                clicked => {
-                    root.clear-logs();
-                }
-            }
-
-            // The records: the newest first, and a press on one opens its full text below.
-            log-rows := Flickable {
-                x: 0px;
-                y: parent.filter-height;
-                width: parent.width - 8px;
-                height: parent.rows-height;
-                content-width: self.width;
-                content-height: root.data.log-rows.length * 2.2 * root.rem-size;
-
-                for row[index] in root.data.log-rows: ModsLogRowView {
-                    x: 0px;
-                    y: index * 2.2 * root.rem-size;
-                    width: log-rows.width;
-                    rem-size: root.rem-size;
-                    record: row;
-                    opened => {
-                        root.open-log(row.id);
-                    }
-                }
-            }
-            if root.data.log-rows.length == 0: log-empty := Text {
-                x: 0px;
-                y: parent.filter-height;
                 width: parent.width;
                 height: 3 * root.rem-size;
-                text: root.data.log-empty;
-                font-size: 1.1 * root.rem-size;
-                color: ClassStyles.color-or(ClassStyles.mods-empty, Theme.text);
-                opacity: ClassStyles.opacity-or(ClassStyles.mods-empty, 0.8);
-                visible: !ClassStyles.mods-empty.hidden;
-            }
-            // The record that was pressed, every line of it.
-            if root.data.log-detail.length > 0: log-detail := Rectangle {
-                x: 0px;
-                y: parent.height - parent.detail-height;
-                width: parent.width;
-                height: parent.detail-height;
-                border-radius: 0.5 * root.rem-size;
-                background: ClassStyles.background-or(ClassStyles.mods-log-detail, Theme.overlay);
-                opacity: ClassStyles.opacity-or(ClassStyles.mods-log-detail, 1.0);
-                visible: !ClassStyles.mods-log-detail.hidden;
+                spacing: 0.8 * root.rem-size;
 
-                for line[index] in root.data.log-detail: detail-line := Text {
-                    x: 0.8 * root.rem-size;
-                    y: 0.4 * root.rem-size + index * 1.4 * root.rem-size;
-                    width: parent.width - 1.6 * root.rem-size;
-                    height: 1.4 * root.rem-size;
-                    text: line;
-                    overflow: elide;
+                log-source-filter := MultiselectMenu {
+                    horizontal-stretch: 0;
+                    preferred-width: 14 * root.rem-size;
+                    min-width: 9 * root.rem-size;
+                    max-width: 16 * root.rem-size;
+                    rem-size: root.rem-size;
+                    title: root.data.log-source-options[root.data.log-source-index].label;
+                    options: root.data.log-source-options;
+                    selected-index: root.data.log-source-index;
+                    select(index) => {
+                        root.filter-logs("source", index);
+                    }
+                }
+                log-level-filter := MultiselectMenu {
+                    horizontal-stretch: 0;
+                    preferred-width: 17 * root.rem-size;
+                    min-width: 10 * root.rem-size;
+                    max-width: 20 * root.rem-size;
+                    rem-size: root.rem-size;
+                    title: root.data.log-level-options[root.data.log-level-index].label;
+                    options: root.data.log-level-options;
+                    selected-index: root.data.log-level-index;
+                    select(index) => {
+                        root.filter-logs("level", index);
+                    }
+                }
+                Rectangle {
+                    horizontal-stretch: 1;
+                }
+                if root.data.log-count != "": log-count := Text {
+                    horizontal-stretch: 0;
+                    text: root.data.log-count;
+                    vertical-alignment: center;
                     font-size: 0.85 * root.rem-size;
-                    color: ClassStyles.color-or(ClassStyles.mods-log-detail-text, Theme.text);
-                    opacity: ClassStyles.opacity-or(ClassStyles.mods-log-detail-text, 1.0);
-                    visible: !ClassStyles.mods-log-detail-text.hidden;
+                    color: Theme.placeholder;
+                }
+                if root.data.log-filtered: log-reset-slot := Rectangle {
+                    horizontal-stretch: 0;
+                    width: log-reset-pill.width;
+                    height: 3 * root.rem-size;
+
+                    log-reset-pill := Rectangle {
+                        x: 0px;
+                        y: (parent.height - self.height) / 2;
+                        width: log-reset-label.width + 1.4 * root.rem-size;
+                        height: 2.1 * root.rem-size;
+                        border-radius: self.height / 2;
+                        border-width: 1px;
+                        border-color: log-reset-touch.has-hover ? Theme.text : #ffffff33;
+                        background: log-reset-touch.has-hover ? #ffffff1a : transparent;
+
+                        log-reset-label := Text {
+                            x: 0.7 * root.rem-size;
+                            y: (parent.height - self.height) / 2;
+                            width: self.preferred-width;
+                            text: "Reset filters";
+                            font-size: 0.82 * root.rem-size;
+                            font-weight: 600;
+                            color: Theme.text;
+                        }
+                        log-reset-touch := TouchArea {
+                            width: 100%;
+                            height: 100%;
+                            mouse-cursor: pointer;
+                            accessible-role: button;
+                            accessible-label: "Reset filters";
+                            clicked => {
+                                root.reset-logs-filter();
+                                log-keys.focus();
+                            }
+                        }
+                    }
                 }
             }
-            ScrollBar {
-                x: parent.width - 8px;
-                y: parent.filter-height;
-                height: parent.rows-height;
-                view-height: parent.rows-height;
-                content-height: log-rows.content-height;
-                offset <=> log-rows.content-y;
+
+            // Row 2: search box stretching on the left, Copy and Clear grouped on the right.
+            log-toolbar := HorizontalLayout {
+                x: 0px;
+                y: 3.9 * root.rem-size;
+                width: parent.width;
+                height: 3 * root.rem-size;
+                spacing: 0.8 * root.rem-size;
+
+                log-search-scope := FocusScope {
+                    horizontal-stretch: 1;
+                    min-width: 8 * root.rem-size;
+                    height: 3 * root.rem-size;
+                    key-pressed(event) => {
+                        if (event.text == Key.Escape) {
+                            log-keys.focus();
+                            return accept;
+                        }
+                        return reject;
+                    }
+
+                    log-search-bar := Rectangle {
+                        width: parent.width;
+                        height: parent.height;
+                        border-radius: self.height / 2;
+                        border-width: 1px;
+                        border-color: log-search.has-focus ? Theme.accent : #ffffff14;
+                        background: ClassStyles.background-or(ClassStyles.search-bar-container, Theme.overlay);
+                        opacity: ClassStyles.opacity-or(ClassStyles.search-bar-container, 1.0);
+                        visible: !ClassStyles.search-bar-container.hidden;
+
+                        // Behind the box, so a press on the pill's own edge puts the cursor in it.
+                        search-bar-touch := TouchArea {
+                            width: 100%;
+                            height: 100%;
+                            mouse-cursor: text;
+                            clicked => {
+                                log-search.focus();
+                            }
+                        }
+                        search-icon := Image {
+                            source: @image-url("icons/search.svg");
+                            x: 1.0 * root.rem-size;
+                            y: (parent.height - self.height) / 2;
+                            width: 1.15 * root.rem-size;
+                            height: self.width;
+                            colorize: ClassStyles.color-or(ClassStyles.icon, Theme.search-icon);
+                            opacity: ClassStyles.icon.has-color ? 0.6 : 0.85;
+                            visible: !ClassStyles.icon.hidden;
+                        }
+                        log-search := TextInput {
+                            x: 2.8 * root.rem-size;
+                            y: 0px;
+                            width: Math.max(0px, parent.width - (self.text != "" ? 5.6 * root.rem-size : 3.8 * root.rem-size));
+                            height: parent.height;
+                            single-line: true;
+                            vertical-alignment: center;
+                            font-size: 0.95 * root.rem-size;
+                            color: ClassStyles.color-or(ClassStyles.search, Theme.text);
+                            // The box says what it searches, so a test finds the box it means.
+                            accessible-label: "Search the logs";
+                            init => {
+                                self.text = root.data.log-search;
+                            }
+                            edited => {
+                                root.search-logs(self.text);
+                            }
+                        }
+                        if log-search.text == "": search-placeholder := Text {
+                            x: log-search.x;
+                            width: log-search.width;
+                            height: parent.height;
+                            text: "Search logs";
+                            vertical-alignment: center;
+                            overflow: elide;
+                            font-size: 0.95 * root.rem-size;
+                            color: Theme.placeholder;
+                        }
+                        // The way back to every record, in one press.
+                        if log-search.text != "": search-clear := Rectangle {
+                            x: parent.width - 2.3 * root.rem-size;
+                            y: (parent.height - self.height) / 2;
+                            width: 1.6 * root.rem-size;
+                            height: self.width;
+                            border-radius: self.width / 2;
+                            background: search-clear-touch.has-hover ? #ffffff24 : transparent;
+
+                            search-clear-icon := Image {
+                                source: @image-url("icons/close.svg");
+                                x: 0.3 * root.rem-size;
+                                y: self.x;
+                                width: parent.width - 0.6 * root.rem-size;
+                                height: self.width;
+                                colorize: Theme.search-icon;
+                            }
+                            search-clear-touch := TouchArea {
+                                width: 100%;
+                                height: 100%;
+                                mouse-cursor: pointer;
+                                accessible-role: button;
+                                accessible-label: "Clear the search";
+                                clicked => {
+                                    log-search.text = "";
+                                    root.search-logs("");
+                                }
+                            }
+                        }
+                    }
+                }
+                log-copy := SettingsButton {
+                    horizontal-stretch: 0;
+                    rem-size: root.rem-size;
+                    label-text: root.data.log-selected-count > 1 ? "Copy (" + root.data.log-selected-count + ")" : "Copy";
+                    name: root.data.log-selected-count > 1 ? "Copy " + root.data.log-selected-count + " selected records" : "Copy the record";
+                    primary: false;
+                    enabled: root.data.log-selected-count > 0;
+                    clicked => {
+                        root.copy-log();
+                    }
+                }
+                // The Clear button: first press arms it in danger red; second press empties the list.
+                log-clear := SettingsButton {
+                    horizontal-stretch: 0;
+                    rem-size: root.rem-size;
+                    label-text: root.data.log-clear-armed ? "Confirm clear" : "Clear";
+                    name: root.data.log-clear-armed ? "Confirm clearing the log records" : "Clear the log records";
+                    primary: false;
+                    danger: root.data.log-clear-armed;
+                    enabled: root.data.log-rows.length > 0 || root.data.log-clear-armed;
+                    clicked => {
+                        root.clear-logs();
+                    }
+                }
+            }
+
+            // Table + content-fitted detail drawer stacked cleanly in a VerticalLayout.
+            logs-body := VerticalLayout {
+                x: 0px;
+                y: logs-box.filter-height;
+                width: parent.width;
+                height: Math.max(0px, parent.height - logs-box.filter-height);
+                spacing: root.data.log-detail.length > 0 ? 0.8 * root.rem-size : 0px;
+
+                log-table-box := Rectangle {
+                    vertical-stretch: 1;
+                    min-height: 6 * root.rem-size;
+                    border-radius: 0.75 * root.rem-size;
+                    border-width: 1px;
+                    border-color: #ffffff14;
+                    background: #00000022;
+                    clip: true;
+
+                    property <length> header-height: 2.1 * root.rem-size;
+                    property <bool> has-scroll: root.data.log-rows.length * logs-box.row-height > Math.max(0px, self.height - self.header-height);
+                    property <length> rows-width: Math.max(0px, self.width - (self.has-scroll ? 8px : 0px));
+                    property <length> source-width: Math.min(15 * root.rem-size, Math.max(9 * root.rem-size, self.rows-width * 0.27));
+
+                    // Column header aligned to the exact geometry of `ModsLogRowView`.
+                    log-header := Rectangle {
+                        x: 0px;
+                        y: 0px;
+                        width: parent.width;
+                        height: log-table-box.header-height;
+                        background: #ffffff08;
+
+                        Text {
+                            x: 0.75 * root.rem-size;
+                            y: 0px;
+                            width: 4.8 * root.rem-size;
+                            height: parent.height;
+                            text: "Time";
+                            vertical-alignment: center;
+                            font-size: 0.78 * root.rem-size;
+                            font-weight: 600;
+                            color: Theme.placeholder;
+                        }
+                        Text {
+                            x: 6.15 * root.rem-size;
+                            y: 0px;
+                            width: log-table-box.source-width;
+                            height: parent.height;
+                            text: "Source";
+                            overflow: elide;
+                            vertical-alignment: center;
+                            font-size: 0.78 * root.rem-size;
+                            font-weight: 600;
+                            color: Theme.placeholder;
+                        }
+                        Text {
+                            x: 6.15 * root.rem-size + log-table-box.source-width + 0.6 * root.rem-size;
+                            y: 0px;
+                            width: 5.4 * root.rem-size;
+                            height: parent.height;
+                            text: "Level";
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                            font-size: 0.78 * root.rem-size;
+                            font-weight: 600;
+                            color: Theme.placeholder;
+                        }
+                        Text {
+                            x: 6.15 * root.rem-size + log-table-box.source-width + 6.8 * root.rem-size;
+                            y: 0px;
+                            width: Math.max(0px, log-table-box.rows-width - self.x - 0.75 * root.rem-size);
+                            height: parent.height;
+                            text: "Message";
+                            overflow: elide;
+                            vertical-alignment: center;
+                            font-size: 0.78 * root.rem-size;
+                            font-weight: 600;
+                            color: Theme.placeholder;
+                        }
+                        Rectangle {
+                            x: 0px;
+                            y: parent.height - 1px;
+                            width: parent.width;
+                            height: 1px;
+                            background: #ffffff14;
+                        }
+                    }
+
+                    // The records: newest first. Supports click, Shift+click, Ctrl+click, and drag-slide
+                    // selection via a persistent TouchArea over the rows (`interactive: false` keeps wheel
+                    // scrolling while preventing Flickable from stealing vertical pointer drags).
+                    log-rows := Flickable {
+                        x: 0px;
+                        y: log-table-box.header-height;
+                        width: log-table-box.rows-width;
+                        height: Math.max(0px, parent.height - log-table-box.header-height);
+                        content-width: self.width;
+                        content-height: root.data.log-rows.length * logs-box.row-height;
+                        interactive: false;
+
+                        for row[index] in root.data.log-rows: ModsLogRowView {
+                            x: 0px;
+                            y: index * logs-box.row-height;
+                            width: log-rows.width;
+                            rem-size: root.rem-size;
+                            source-width: log-table-box.source-width;
+                            record: row;
+                            selected: row.selected;
+                            active: row.id == root.data.log-open-id && root.data.log-open-id != 0;
+                            hovered: log-drag-area.has-hover && index == log-drag-area.hover-index;
+                        }
+
+                        log-drag-area := TouchArea {
+                            x: 0px;
+                            y: 0px;
+                            width: log-rows.content-width;
+                            height: Math.max(log-rows.height, log-rows.content-height);
+                            property <length> row-height: logs-box.row-height;
+                            property <int> hover-index: (self.has-hover && root.data.log-rows.length > 0 && self.mouse-y >= 0px && self.mouse-y < root.data.log-rows.length * self.row-height)
+                                ? root.log-row-at(self.mouse-y, self.row-height, root.data.log-rows.length) : -1;
+                            property <bool> dragging: false;
+                            property <int> last-drag-index: -1;
+                            property <length> drag-viewport-y: 0px;
+                            mouse-cursor: self.hover-index >= 0 ? pointer : default;
+
+                            pointer-event(event) => {
+                                if (event.kind == PointerEventKind.down && event.button == PointerEventButton.left) {
+                                    log-keys.focus();
+                                    if (root.data.log-rows.length > 0 && self.mouse-y >= 0px && self.mouse-y < root.data.log-rows.length * self.row-height) {
+                                        self.dragging = true;
+                                        self.drag-viewport-y = self.mouse-y + log-rows.content-y;
+                                        self.last-drag-index = root.log-row-at(self.mouse-y, self.row-height, root.data.log-rows.length);
+                                        root.press-log(
+                                            root.data.log-rows[self.last-drag-index].id,
+                                            event.modifiers.shift,
+                                            event.modifiers.control,
+                                        );
+                                    } else if (root.data.log-selected-count > 0 || root.data.log-open-id != 0 || root.data.log-clear-armed) {
+                                        // Clicking empty space below the last row clears selection.
+                                        root.close-log();
+                                    }
+                                } else if (event.kind == PointerEventKind.move && self.dragging && root.data.log-rows.length > 0) {
+                                    self.drag-viewport-y = self.mouse-y + log-rows.content-y;
+                                    if (log-rows.content-height > log-rows.height) {
+                                        if (self.drag-viewport-y < 2 * self.row-height) {
+                                            log-rows.content-y = Math.min(0px, log-rows.content-y + self.row-height * 0.5);
+                                        } else if (self.drag-viewport-y > log-rows.height - 2 * self.row-height) {
+                                            log-rows.content-y = Math.max(log-rows.height - log-rows.content-height, log-rows.content-y - self.row-height * 0.5);
+                                        }
+                                    }
+                                    if (root.log-row-at(self.mouse-y, self.row-height, root.data.log-rows.length) != self.last-drag-index) {
+                                        self.last-drag-index = root.log-row-at(self.mouse-y, self.row-height, root.data.log-rows.length);
+                                        root.drag-log(root.data.log-rows[self.last-drag-index].id);
+                                    }
+                                } else if ((event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel) && self.dragging) {
+                                    self.dragging = false;
+                                    if (self.last-drag-index >= 0 && self.last-drag-index < root.data.log-rows.length) {
+                                        root.release-log(root.data.log-rows[self.last-drag-index].id);
+                                    } else {
+                                        root.release-log(0);
+                                    }
+                                    self.last-drag-index = -1;
+                                }
+                            }
+                        }
+
+                        // Continuous edge auto-scroll while holding a drag near the top or bottom edge.
+                        drag-scroll-timer := Timer {
+                            interval: 50ms;
+                            running: log-drag-area.dragging && log-rows.content-height > log-rows.height && root.data.log-rows.length > 0;
+                            triggered => {
+                                if (log-drag-area.drag-viewport-y < 2 * logs-box.row-height && log-rows.content-y < 0px) {
+                                    log-rows.content-y = Math.min(0px, log-rows.content-y + logs-box.row-height * 0.6);
+                                    if (root.log-row-at(log-drag-area.drag-viewport-y - log-rows.content-y, logs-box.row-height, root.data.log-rows.length) != log-drag-area.last-drag-index) {
+                                        log-drag-area.last-drag-index = root.log-row-at(log-drag-area.drag-viewport-y - log-rows.content-y, logs-box.row-height, root.data.log-rows.length);
+                                        root.drag-log(root.data.log-rows[log-drag-area.last-drag-index].id);
+                                    }
+                                } else if (log-drag-area.drag-viewport-y > log-rows.height - 2 * logs-box.row-height
+                                    && log-rows.content-y > log-rows.height - log-rows.content-height)
+                                {
+                                    log-rows.content-y = Math.max(log-rows.height - log-rows.content-height, log-rows.content-y - logs-box.row-height * 0.6);
+                                    if (root.log-row-at(log-drag-area.drag-viewport-y - log-rows.content-y, logs-box.row-height, root.data.log-rows.length) != log-drag-area.last-drag-index) {
+                                        log-drag-area.last-drag-index = root.log-row-at(log-drag-area.drag-viewport-y - log-rows.content-y, logs-box.row-height, root.data.log-rows.length);
+                                        root.drag-log(root.data.log-rows[log-drag-area.last-drag-index].id);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if root.data.log-rows.length == 0: log-empty := Text {
+                        x: 1.5 * root.rem-size;
+                        y: log-table-box.header-height;
+                        width: Math.max(0px, parent.width - 3 * root.rem-size);
+                        height: Math.max(3 * root.rem-size, parent.height - log-table-box.header-height);
+                        text: root.data.log-empty;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                        font-size: 1.0 * root.rem-size;
+                        color: ClassStyles.color-or(ClassStyles.mods-empty, Theme.placeholder);
+                        opacity: ClassStyles.opacity-or(ClassStyles.mods-empty, 0.9);
+                        visible: !ClassStyles.mods-empty.hidden;
+                    }
+
+                    ScrollBar {
+                        x: parent.width - 8px;
+                        y: log-table-box.header-height;
+                        height: log-rows.height;
+                        view-height: log-rows.height;
+                        content-height: log-rows.content-height;
+                        offset <=> log-rows.content-y;
+                    }
+                }
+
+                // Content-fitted detail drawer: stays compact for 1-line records, expands and
+                // scrolls up to 48% of the page height for long multi-line stack traces.
+                if root.data.log-detail.length > 0: log-detail := Rectangle {
+                    vertical-stretch: 0;
+                    property <length> pad: 0.9 * root.rem-size;
+                    property <length> header-height: 2.0 * root.rem-size;
+                    property <length> body-top: self.pad + self.header-height + 0.7 * root.rem-size;
+                    property <int> open-id: root.data.log-open-id;
+
+                    height: Math.min(
+                        Math.max(0px, logs-body.height * 0.48),
+                        Math.min(
+                            34 * root.rem-size,
+                            Math.max(7.5 * root.rem-size, self.body-top + detail-body.preferred-height + self.pad + 0.5 * root.rem-size)
+                        )
+                    );
+                    border-radius: 0.75 * root.rem-size;
+                    border-width: 1px;
+                    border-color: #ffffff1a;
+                    background: ClassStyles.background-or(ClassStyles.mods-log-detail, Theme.overlay);
+                    opacity: ClassStyles.opacity-or(ClassStyles.mods-log-detail, 1.0);
+                    visible: !ClassStyles.mods-log-detail.hidden;
+
+                    changed open-id => {
+                        detail-scroll.content-y = 0px;
+                    }
+
+                    detail-heading := Text {
+                        x: log-detail.pad;
+                        y: log-detail.pad;
+                        width: Math.max(0px, parent.width - 2 * log-detail.pad - 2.6 * root.rem-size);
+                        height: log-detail.header-height;
+                        text: root.data.log-detail-heading;
+                        overflow: elide;
+                        vertical-alignment: center;
+                        font-size: 0.85 * root.rem-size;
+                        font-weight: 600;
+                        color: ClassStyles.color-or(ClassStyles.mods-log-detail-text, Theme.text);
+                        opacity: ClassStyles.opacity-or(ClassStyles.mods-log-detail-text, 1.0);
+                        visible: !ClassStyles.mods-log-detail-text.hidden;
+                    }
+                    detail-close := Rectangle {
+                        x: parent.width - log-detail.pad - self.width;
+                        y: log-detail.pad;
+                        width: log-detail.header-height;
+                        height: log-detail.header-height;
+                        border-radius: self.width / 2;
+                        background: detail-close-touch.has-hover ? #ffffff24 : #ffffff10;
+
+                        Image {
+                            source: @image-url("icons/close.svg");
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                            width: 1.0 * root.rem-size;
+                            height: self.width;
+                            colorize: Theme.text;
+                            opacity: detail-close-touch.has-hover ? 1.0 : 0.75;
+                        }
+                        detail-close-touch := TouchArea {
+                            width: 100%;
+                            height: 100%;
+                            mouse-cursor: pointer;
+                            accessible-role: button;
+                            accessible-label: "Close the record";
+                            clicked => {
+                                root.close-log();
+                            }
+                        }
+                    }
+                    Rectangle {
+                        x: log-detail.pad;
+                        y: log-detail.pad + log-detail.header-height + 0.35 * root.rem-size;
+                        width: Math.max(0px, parent.width - 2 * log-detail.pad);
+                        height: 1px;
+                        background: #ffffff14;
+                    }
+
+                    // The text, wrapped and scrolling: a message keeps its own line breaks, and a long
+                    // one can be read to the end.
+                    detail-scroll := Flickable {
+                        x: 0px;
+                        y: log-detail.body-top;
+                        width: parent.width - 8px;
+                        height: Math.max(0px, parent.height - log-detail.body-top - log-detail.pad);
+                        content-width: self.width;
+                        content-height: detail-body.preferred-height + 0.4 * root.rem-size;
+
+                        detail-body := VerticalLayout {
+                            x: log-detail.pad;
+                            width: Math.max(0px, detail-scroll.width - 2 * log-detail.pad);
+                            spacing: 0.25 * root.rem-size;
+
+                            for line[index] in root.data.log-detail: Text {
+                                text: line;
+                                wrap: word-wrap;
+                                font-size: 0.85 * root.rem-size;
+                                color: ClassStyles.color-or(ClassStyles.mods-log-detail-text, Theme.text);
+                                opacity: ClassStyles.opacity-or(ClassStyles.mods-log-detail-text, 1.0);
+                                visible: !ClassStyles.mods-log-detail-text.hidden;
+                            }
+                        }
+                    }
+                    ScrollBar {
+                        x: parent.width - 8px;
+                        y: log-detail.body-top;
+                        height: Math.max(0px, parent.height - log-detail.body-top - log-detail.pad);
+                        view-height: self.height;
+                        content-height: detail-scroll.content-height;
+                        offset <=> detail-scroll.content-y;
+                    }
+                }
             }
         }
+
 
         // ---- About ----------------------------------------------------------------------
         // What this build is, where it keeps the two folders, what is installed, and the one

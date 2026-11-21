@@ -103,16 +103,23 @@ pub struct Data {
     pub settings_plugins: Vec<settings::Plugin>,
     pub plugin: String,
     pub edits: settings::Edits,
-    /// The Logs page: the filter it is showing, the records it keeps, the choices of each part of
-    /// the filter, the header that says how many are held, and the one record whose full text is
-    /// open.
+    /// The Logs page: the filter it is showing, each filter menu's choices and the row it opens
+    /// on, the records the filter keeps, and the one record whose full text is open.
     pub log_filter: logs::Filter,
-    pub log_sources: Vec<logs::Choice>,
-    pub log_levels: Vec<logs::Choice>,
+    pub log_source_options: Vec<String>,
+    pub log_level_options: Vec<String>,
+    pub log_source_index: i32,
+    pub log_level_index: i32,
     pub log_rows: Vec<logs::Row>,
-    pub log_held: String,
     pub log_empty: String,
+    /// The heading and the lines of the record on screen, and the id the list marks as open.
+    pub log_detail_heading: String,
     pub log_detail: Vec<String>,
+    pub log_open_id: u64,
+    pub log_active_index: i32,
+    pub log_selected_count: usize,
+    pub log_count: String,
+    pub log_filtered: bool,
     pub log_clear_armed: bool,
     /// The About page: what this build is, where it keeps themes, counts, and diagnostics path.
     pub about: about::Data,
@@ -133,12 +140,25 @@ impl Data {
             plugin: String::new(),
             edits: settings::Edits::default(),
             log_filter: logs::Filter::default(),
-            log_sources: logs::sources(&logs::Filter::default()),
-            log_levels: logs::levels(&logs::Filter::default()),
+            log_source_options: logs::source_options()
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+            log_level_options: logs::level_options()
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+            log_source_index: 0,
+            log_level_index: 0,
             log_rows: Vec::new(),
-            log_held: logs::NOTE.to_owned(),
             log_empty: logs::NONE.to_owned(),
+            log_detail_heading: String::new(),
             log_detail: Vec::new(),
+            log_open_id: 0,
+            log_active_index: -1,
+            log_selected_count: 0,
+            log_count: String::new(),
+            log_filtered: false,
             log_clear_armed: false,
             about: about::Data::default(),
         }
@@ -171,16 +191,24 @@ impl Data {
     #[must_use]
     pub fn with_logs(mut self, logs: &crate::plumbing::logs::Logs, armed: bool) -> Self {
         self.log_filter = logs.filter();
-        self.log_sources = logs::sources(&self.log_filter);
-        self.log_levels = logs::levels(&self.log_filter);
+        self.log_source_index = i32::try_from(logs::source_index(&self.log_filter)).unwrap_or(0);
+        self.log_level_index = i32::try_from(logs::level_index(&self.log_filter)).unwrap_or(0);
         self.log_rows = logs::rows(logs, &self.log_filter);
-        self.log_held = logs::held(logs, &self.log_filter);
-        self.log_empty = if logs.is_empty() {
+        let total = logs.len();
+        self.log_filtered = self.log_filter.is_active();
+        self.log_count = logs::count_label(self.log_rows.len(), total, self.log_filtered);
+        self.log_empty = if total == 0 {
             logs::NONE.to_owned()
         } else {
             logs::NONE_MATCH.to_owned()
         };
+        self.log_detail_heading = logs::detail_heading(logs);
         self.log_detail = logs::detail(logs);
+        self.log_open_id = logs::open_id(logs);
+        self.log_active_index = logs::active_index(&self.log_rows, self.log_open_id)
+            .and_then(|at| i32::try_from(at).ok())
+            .unwrap_or(-1);
+        self.log_selected_count = logs::selected_count(logs, &self.log_filter);
         self.log_clear_armed = armed;
         self
     }
@@ -211,13 +239,6 @@ impl Data {
         }
         logs.clear();
         false
-    }
-
-    /// The same screen after a press on one of the Logs page's records: the full text of that
-    /// record is on screen, or taken back when it is the one already open.
-    pub fn press_record(&mut self, logs: &crate::plumbing::logs::Logs, id: u64) {
-        let open = logs.detail().is_some_and(|entry| entry.id == id);
-        logs.set_detail(if open { None } else { Some(id) });
     }
 
     /// The same screen after the user pressed something: the menu is not rebuilt, so the card
