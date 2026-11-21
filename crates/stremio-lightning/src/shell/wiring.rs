@@ -2060,6 +2060,13 @@ impl Wiring {
         self.repaint_mods_now();
     }
 
+    /// Clears source, level and search filters in one press.
+    fn reset_logs_filter(&self) {
+        *self.mods_clearing.lock().unwrap() = false;
+        self.logs.reset_filter();
+        self.repaint_mods_now();
+    }
+
     /// Draws the Mods section with the page the window holds, and the last notice: the answer to a
     /// press that changed something the screen shows and nothing on disk.
     fn repaint_mods_now(&self) {
@@ -2077,46 +2084,72 @@ impl Wiring {
         data
     }
 
-    /// A press on a record: its full text is on screen, or taken back when it is the one open. A
-    /// record the list no longer holds opens nothing.
-    fn open_log_record(&self, id: u32) {
-        // The recorder is asked first: what is open is part of what the page holds, so the page is
-        // read after the press and not before it.
-        let id = u64::from(id);
-        let open = self.logs.detail().is_some_and(|entry| entry.id == id);
-        self.logs.set_detail(if open { None } else { Some(id) });
-        let data = self.mods_data(mods::Page::Logs);
-        let mut snapshot = self.latest.lock().unwrap().clone();
-        snapshot.mods = data.with_notice(snapshot.mods.notice.clone());
-        self.finish_log_press(snapshot);
+    /// Starts a click or drag-to-select gesture on `id` (with Shift / Ctrl modifiers).
+    fn press_log_record(&self, id: u32, shift: bool, ctrl: bool) {
+        *self.mods_clearing.lock().unwrap() = false;
+        self.logs.press_record(u64::from(id), shift, ctrl);
+        self.sync_log_selection_now();
     }
 
-    /// The detail panel's Copy press: the record on screen, heading and every line of it, goes to
-    /// the clipboard so it can be pasted into a report.
-    fn copy_log_record(&self) {
-        if self.logs.detail().is_none() {
-            return;
+    /// Extends selection as the pointer slides across log rows while held.
+    fn drag_log_record(&self, id: u32) {
+        self.logs.drag_record(u64::from(id));
+        self.sync_log_selection_now();
+    }
+
+    /// Finishes a click or drag-to-select gesture and updates the detail panel.
+    fn release_log_record(&self, id: u32) {
+        self.logs.release_record(u64::from(id));
+        self.sync_log_selection_now();
+    }
+
+    fn sync_log_selection_now(&self) {
+        let armed = *self.mods_clearing.lock().unwrap();
+        {
+            let mut snapshot = self.latest.lock().unwrap();
+            let mut next = snapshot.mods.clone().with_logs(&self.logs, armed);
+            next.notice = snapshot.mods.notice.clone();
+            snapshot.mods = next;
         }
-        // The panel's own two pieces, so a change to how a record is named reaches the clipboard
-        // as well as the screen.
-        let text = format!(
-            "{}\n{}",
-            mods::logs::detail_heading(&self.logs),
-            mods::logs::detail(&self.logs).join("\n")
-        );
+        if let Some(window) = self.window.upgrade() {
+            shell::view::apply_logs(&window, &self.logs, armed);
+        }
+    }
+
+    /// The toolbar's Copy press: copies all selected visible records (or the open detail record)
+    /// to the clipboard.
+    fn copy_log_record(&self) {
+        let Some((count, text)) = mods::logs::copy_text(&self.logs, &self.logs.filter()) else {
+            return;
+        };
         let notice = match crate::plumbing::clipboard::copy(&text) {
-            Ok(()) => mods::Notice::said("Copied the record."),
+            Ok(()) if count == 1 => mods::Notice::said("Copied the record."),
+            Ok(()) => mods::Notice::said(format!("Copied {count} records.")),
             Err(error) => mods::Notice::failed(error),
         };
         self.after_mod_action(Some(notice));
     }
 
-    /// The detail panel's Close press: the record is put away, and the row stops being marked.
+    /// The detail panel's Close press (or Escape / empty-space click): clears the selection,
+    /// puts the detail panel away, and disarms an armed Clear button.
     fn close_log_record(&self) {
-        self.logs.set_detail(None);
-        let mut snapshot = self.latest.lock().unwrap().clone();
-        snapshot.mods = self.page_data(mods::Page::Logs);
-        self.finish_log_press(snapshot);
+        *self.mods_clearing.lock().unwrap() = false;
+        self.logs.clear_selection();
+        self.sync_log_selection_now();
+    }
+
+    /// Selects every visible log record (Ctrl+A).
+    fn select_all_logs(&self) {
+        *self.mods_clearing.lock().unwrap() = false;
+        self.logs.select_all();
+        self.sync_log_selection_now();
+    }
+
+    /// Moves selection up or down by `delta` rows (Up/Down, optionally with Shift).
+    fn step_log_record(&self, delta: i32, shift: bool) {
+        *self.mods_clearing.lock().unwrap() = false;
+        self.logs.step_record(delta as isize, shift);
+        self.sync_log_selection_now();
     }
 
     /// The Clear button. The first press arms it and removes nothing; the second empties the
@@ -3128,7 +3161,29 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
     }
     {
         let wiring = wiring.clone();
-        window.on_open_mods_log(move |id| wiring.open_log_record(id.max(0) as u32));
+        window.on_reset_mods_logs_filter(move || wiring.reset_logs_filter());
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_press_mods_log(move |id, shift, ctrl| {
+            wiring.press_log_record(id.max(0) as u32, shift, ctrl)
+        });
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_drag_mods_log(move |id| wiring.drag_log_record(id.max(0) as u32));
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_release_mods_log(move |id| wiring.release_log_record(id.max(0) as u32));
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_select_all_mods_logs(move || wiring.select_all_logs());
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_step_mods_log(move |delta, shift| wiring.step_log_record(delta, shift));
     }
     {
         let wiring = wiring.clone();

@@ -116,6 +116,10 @@ pub struct Data {
     pub log_detail_heading: String,
     pub log_detail: Vec<String>,
     pub log_open_id: u64,
+    pub log_active_index: i32,
+    pub log_selected_count: usize,
+    pub log_count: String,
+    pub log_filtered: bool,
     pub log_clear_armed: bool,
     /// The About page: what this build is, where it keeps themes, counts, and diagnostics path.
     pub about: about::Data,
@@ -151,6 +155,10 @@ impl Data {
             log_detail_heading: String::new(),
             log_detail: Vec::new(),
             log_open_id: 0,
+            log_active_index: -1,
+            log_selected_count: 0,
+            log_count: String::new(),
+            log_filtered: false,
             log_clear_armed: false,
             about: about::Data::default(),
         }
@@ -186,7 +194,10 @@ impl Data {
         self.log_source_index = i32::try_from(logs::source_index(&self.log_filter)).unwrap_or(0);
         self.log_level_index = i32::try_from(logs::level_index(&self.log_filter)).unwrap_or(0);
         self.log_rows = logs::rows(logs, &self.log_filter);
-        self.log_empty = if logs.is_empty() {
+        let total = logs.len();
+        self.log_filtered = self.log_filter.is_active();
+        self.log_count = logs::count_label(self.log_rows.len(), total, self.log_filtered);
+        self.log_empty = if total == 0 {
             logs::NONE.to_owned()
         } else {
             logs::NONE_MATCH.to_owned()
@@ -194,6 +205,10 @@ impl Data {
         self.log_detail_heading = logs::detail_heading(logs);
         self.log_detail = logs::detail(logs);
         self.log_open_id = logs::open_id(logs);
+        self.log_active_index = logs::active_index(&self.log_rows, self.log_open_id)
+            .and_then(|at| i32::try_from(at).ok())
+            .unwrap_or(-1);
+        self.log_selected_count = logs::selected_count(logs, &self.log_filter);
         self.log_clear_armed = armed;
         self
     }

@@ -117,7 +117,12 @@ export component MainWindow inherits Window {
     /// opens its full text; and Clear, whose second press empties the list.
     callback filter-mods-logs(string, int);
     callback search-mods-logs(string);
-    callback open-mods-log(int);
+    callback reset-mods-logs-filter();
+    callback press-mods-log(int, bool, bool);
+    callback drag-mods-log(int);
+    callback release-mods-log(int);
+    callback select-all-mods-logs();
+    callback step-mods-log(int, bool);
     callback copy-mods-log();
     callback close-mods-log();
     callback clear-mods-logs();
@@ -813,6 +818,12 @@ callback player-skip();
             log-detail-heading: root.mods.log-detail-heading,
             log-detail: root.mods.log-detail,
             log-open-id: root.mods.log-open-id,
+            log-active-index: root.mods.log-active-index,
+            log-selected-count: root.mods.log-selected-count,
+            log-count: root.mods.log-count,
+            log-filtered: root.mods.log-filtered,
+            log-prepended: root.mods.log-prepended,
+            log-prepend-seq: root.mods.log-prepend-seq,
             log-clear-armed: root.mods.log-clear-armed,
             about-build: root.mods.about-build,
             about-places: root.mods.about-places,
@@ -854,8 +865,23 @@ callback player-skip();
         search-logs(text) => {
             root.search-mods-logs(text);
         }
-        open-log(id) => {
-            root.open-mods-log(id);
+        reset-logs-filter => {
+            root.reset-mods-logs-filter();
+        }
+        press-log(id, shift, ctrl) => {
+            root.press-mods-log(id, shift, ctrl);
+        }
+        drag-log(id) => {
+            root.drag-mods-log(id);
+        }
+        release-log(id) => {
+            root.release-mods-log(id);
+        }
+        select-all-logs => {
+            root.select-all-mods-logs();
+        }
+        step-log(delta, shift) => {
+            root.step-mods-log(delta, shift);
         }
         copy-log => {
             root.copy-mods-log();

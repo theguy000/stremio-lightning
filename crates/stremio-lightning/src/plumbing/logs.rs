@@ -12,7 +12,7 @@
 //! than the newest [`CAPACITY`] ones is dropped as it is added, so a plugin that logs in a loop
 //! cannot grow the list without end. Cleared means emptied from memory: no file is touched.
 
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -203,6 +203,13 @@ impl Filter {
         Level::from_id(&self.level)
     }
 
+    /// Whether any part of the filter is narrowing the list.
+    pub fn is_active(&self) -> bool {
+        self.picked_source().is_some()
+            || self.least_level().is_some()
+            || !self.search.trim().is_empty()
+    }
+
     /// Whether `entry` passes every part of the filter.
     pub fn keeps(&self, entry: &Entry) -> bool {
         if self
@@ -233,6 +240,16 @@ impl Filter {
 /// What a recorder tells when a record lands.
 type Notify = std::sync::Arc<dyn Fn() + Send + Sync>;
 
+/// Tracks a pointer press-and-slide gesture across visible log rows.
+#[derive(Default)]
+struct DragState {
+    start_id: u64,
+    pressed_id: u64,
+    moved: bool,
+    toggle_off_if_unmoved: bool,
+    ctrl_base: Option<(HashSet<u64>, bool)>,
+}
+
 /// The app's records and the counting of them. Shared by every part that records something.
 #[derive(Default)]
 pub struct Logs {
@@ -252,8 +269,12 @@ pub struct Logs {
     filter_search: Mutex<String>,
     /// The record whose full text the page is showing, by id, and zero when none is.
     detail: AtomicU64,
-    /// What to tell when a record lands. The shell puts a repaint here while the Logs page is on
-    /// screen; nothing in this module knows what a window is.
+    /// Currently selected record ids for multi-row copy.
+    selected: Mutex<HashSet<u64>>,
+    /// Anchor record id for Shift+click range selection.
+    anchor: AtomicU64,
+    /// Active drag-to-select state while the left mouse button is held on the log list.
+    drag: Mutex<DragState>,
     notify: Mutex<Option<Notify>>,
 }
 
@@ -325,8 +346,24 @@ impl Logs {
         let mut entries = lock(&self.entries);
         entries.push_back(entry.clone());
         let over = entries.len().saturating_sub(CAPACITY);
-        entries.drain(..over);
+        let evicted: Vec<u64> = if over > 0 {
+            entries.drain(..over).map(|item| item.id).collect()
+        } else {
+            Vec::new()
+        };
         drop(entries);
+        if !evicted.is_empty() {
+            let mut sel = lock(&self.selected);
+            for id in &evicted {
+                sel.remove(id);
+                if self.detail.load(Ordering::SeqCst) == *id {
+                    self.detail.store(0, Ordering::SeqCst);
+                }
+                if self.anchor.load(Ordering::SeqCst) == *id {
+                    self.anchor.store(0, Ordering::SeqCst);
+                }
+            }
+        }
         self.count.fetch_add(1, Ordering::SeqCst);
         // Told after the lock is let go: the listener reads the list back.
         let notify = lock(&self.notify).clone();
@@ -369,7 +406,10 @@ impl Logs {
             entries.clear();
             went
         };
+        lock(&self.selected).clear();
+        self.anchor.store(0, Ordering::SeqCst);
         self.detail.store(0, Ordering::SeqCst);
+        *lock(&self.drag) = DragState::default();
         self.count.fetch_add(1, Ordering::SeqCst);
         went
     }
@@ -413,6 +453,13 @@ impl Logs {
         *lock(&self.filter_search) = search.to_owned();
     }
 
+    /// Clears source, level and search back to showing every record.
+    pub fn reset_filter(&self) {
+        lock(&self.filter_source).clear();
+        lock(&self.filter_level).clear();
+        lock(&self.filter_search).clear();
+    }
+
     /// The record whose full text is on screen, if one is.
     pub fn detail(&self) -> Option<Entry> {
         let id = self.detail.load(Ordering::SeqCst);
@@ -429,13 +476,268 @@ impl Logs {
     /// Returns whether the record is one the list holds.
     pub fn set_detail(&self, id: Option<u64>) -> bool {
         let Some(id) = id else {
-            self.detail.store(0, Ordering::SeqCst);
+            self.clear_selection();
             return true;
         };
         let held = lock(&self.entries).iter().any(|entry| entry.id == id);
-        self.detail
-            .store(if held { id } else { 0 }, Ordering::SeqCst);
+        if held {
+            *lock(&self.selected) = HashSet::from([id]);
+            self.anchor.store(id, Ordering::SeqCst);
+            self.detail.store(id, Ordering::SeqCst);
+        } else {
+            self.clear_selection();
+        }
         held
+    }
+
+    fn visible_ids(&self, filter: &Filter) -> Vec<u64> {
+        lock(&self.entries)
+            .iter()
+            .rev()
+            .filter(|entry| filter.keeps(entry))
+            .map(|entry| entry.id)
+            .collect()
+    }
+
+    /// Currently selected record ids.
+    pub fn selected_ids(&self) -> HashSet<u64> {
+        lock(&self.selected).clone()
+    }
+
+    /// Selected records matching `filter`, in visible newest-first order.
+    pub fn selected_in(&self, filter: &Filter) -> Vec<Entry> {
+        let selected = self.selected_ids();
+        if selected.is_empty() {
+            return Vec::new();
+        }
+        self.matching(filter)
+            .into_iter()
+            .filter(|entry| selected.contains(&entry.id))
+            .collect()
+    }
+
+    /// Clears every selected row and closes the detail panel.
+    pub fn clear_selection(&self) {
+        lock(&self.selected).clear();
+        self.anchor.store(0, Ordering::SeqCst);
+        self.detail.store(0, Ordering::SeqCst);
+        *lock(&self.drag) = DragState::default();
+    }
+
+    /// Selects every record currently visible under the active filter.
+    pub fn select_all(&self) {
+        let visible = self.visible_ids(&self.filter());
+        if visible.is_empty() {
+            self.clear_selection();
+            return;
+        }
+        let all: HashSet<u64> = visible.iter().copied().collect();
+        let current = self.detail.load(Ordering::SeqCst);
+        let focus = if current != 0 && all.contains(&current) {
+            current
+        } else {
+            visible[0]
+        };
+        *lock(&self.selected) = all;
+        self.anchor.store(focus, Ordering::SeqCst);
+        self.detail.store(focus, Ordering::SeqCst);
+        *lock(&self.drag) = DragState::default();
+    }
+
+    /// Moves the active selection up (`delta < 0`) or down (`delta > 0`) in visible newest-first
+    /// order. With `shift`, extends a contiguous range from the anchor instead of replacing it.
+    pub fn step_record(&self, delta: isize, shift: bool) -> Option<u64> {
+        let visible = self.visible_ids(&self.filter());
+        if visible.is_empty() {
+            return None;
+        }
+        let current = {
+            let detail = self.detail.load(Ordering::SeqCst);
+            if detail != 0 && visible.contains(&detail) {
+                Some(detail)
+            } else {
+                let sel = lock(&self.selected);
+                visible.iter().copied().find(|id| sel.contains(id))
+            }
+        };
+        let target_pos = match current.and_then(|id| visible.iter().position(|vid| *vid == id)) {
+            Some(pos) => (pos as isize + delta).clamp(0, visible.len() as isize - 1) as usize,
+            None if delta < 0 => visible.len() - 1,
+            None => 0,
+        };
+        let target = visible[target_pos];
+        if shift {
+            let anchor = self.anchor.load(Ordering::SeqCst);
+            let start_id = if anchor != 0 && visible.contains(&anchor) {
+                anchor
+            } else {
+                let fallback = current.unwrap_or(target);
+                self.anchor.store(fallback, Ordering::SeqCst);
+                fallback
+            };
+            *lock(&self.selected) = range_selection(&visible, start_id, target, None, false);
+            self.detail.store(target, Ordering::SeqCst);
+        } else {
+            *lock(&self.selected) = HashSet::from([target]);
+            self.anchor.store(target, Ordering::SeqCst);
+            self.detail.store(target, Ordering::SeqCst);
+        }
+        *lock(&self.drag) = DragState::default();
+        Some(target)
+    }
+
+    /// Starts a click or drag-to-select gesture on `id`, honoring Shift and Ctrl/Cmd modifiers.
+    pub fn press_record(&self, id: u64, shift: bool, ctrl: bool) {
+        let filter = self.filter();
+        let visible = self.visible_ids(&filter);
+        if !visible.contains(&id) {
+            *lock(&self.drag) = DragState::default();
+            return;
+        }
+        let detail_open = self.detail.load(Ordering::SeqCst) != 0;
+        if shift {
+            let prev = lock(&self.selected).clone();
+            let anchor = self.anchor.load(Ordering::SeqCst);
+            let start_id = if anchor != 0 && visible.contains(&anchor) {
+                anchor
+            } else {
+                self.anchor.store(id, Ordering::SeqCst);
+                id
+            };
+            let next = range_selection(
+                &visible,
+                start_id,
+                id,
+                if ctrl { Some(&prev) } else { None },
+                false,
+            );
+            *lock(&self.selected) = next;
+            if detail_open {
+                self.detail.store(id, Ordering::SeqCst);
+            }
+            *lock(&self.drag) = DragState {
+                start_id,
+                pressed_id: id,
+                moved: false,
+                toggle_off_if_unmoved: false,
+                ctrl_base: if ctrl { Some((prev, false)) } else { None },
+            };
+        } else if ctrl {
+            let prev = lock(&self.selected).clone();
+            let removing = prev.contains(&id);
+            let mut next = prev.clone();
+            if removing {
+                next.remove(&id);
+            } else {
+                next.insert(id);
+            }
+            *lock(&self.selected) = next.clone();
+            self.anchor.store(id, Ordering::SeqCst);
+            if detail_open {
+                if !removing {
+                    self.detail.store(id, Ordering::SeqCst);
+                } else if self.detail.load(Ordering::SeqCst) == id {
+                    let fallback = visible
+                        .iter()
+                        .copied()
+                        .find(|vid| next.contains(vid))
+                        .unwrap_or(0);
+                    self.detail.store(fallback, Ordering::SeqCst);
+                }
+            }
+            *lock(&self.drag) = DragState {
+                start_id: id,
+                pressed_id: id,
+                moved: false,
+                toggle_off_if_unmoved: false,
+                ctrl_base: Some((prev, removing)),
+            };
+        } else {
+            let only_this = {
+                let sel = lock(&self.selected);
+                sel.contains(&id)
+                    && visible
+                        .iter()
+                        .filter(|vid| sel.contains(vid))
+                        .all(|vid| *vid == id)
+            };
+            if !only_this {
+                *lock(&self.selected) = HashSet::from([id]);
+                self.anchor.store(id, Ordering::SeqCst);
+                if detail_open {
+                    self.detail.store(id, Ordering::SeqCst);
+                }
+            }
+            *lock(&self.drag) = DragState {
+                start_id: id,
+                pressed_id: id,
+                moved: false,
+                toggle_off_if_unmoved: only_this,
+                ctrl_base: None,
+            };
+        }
+    }
+
+    /// Updates the range selection as the pointer slides across visible log rows while held.
+    pub fn drag_record(&self, id: u64) {
+        let filter = self.filter();
+        let visible = self.visible_ids(&filter);
+        if !visible.contains(&id) {
+            return;
+        }
+        let (start_id, ctrl_base) = {
+            let mut drag = lock(&self.drag);
+            if drag.start_id == 0 {
+                return;
+            }
+            if id != drag.pressed_id {
+                drag.moved = true;
+                drag.toggle_off_if_unmoved = false;
+            }
+            (drag.start_id, drag.ctrl_base.clone())
+        };
+        let next = match ctrl_base {
+            Some((base, remove)) => range_selection(&visible, start_id, id, Some(&base), remove),
+            None => range_selection(&visible, start_id, id, None, false),
+        };
+        *lock(&self.selected) = next.clone();
+        if self.detail.load(Ordering::SeqCst) != 0 {
+            let target = if next.contains(&id) {
+                id
+            } else {
+                visible
+                    .iter()
+                    .copied()
+                    .find(|vid| next.contains(vid))
+                    .unwrap_or(0)
+            };
+            self.detail.store(target, Ordering::SeqCst);
+        }
+    }
+
+    /// Finishes a click or drag-to-select gesture, opening detail on the active selected record
+    /// or clearing selection if the user plain-clicked the sole selected row without sliding.
+    pub fn release_record(&self, id: u64) {
+        let drag = std::mem::take(&mut *lock(&self.drag));
+        if drag.toggle_off_if_unmoved && !drag.moved {
+            self.clear_selection();
+            return;
+        }
+        let filter = self.filter();
+        let visible = self.visible_ids(&filter);
+        let target = {
+            let sel = lock(&self.selected);
+            if id != 0 && sel.contains(&id) && visible.contains(&id) {
+                id
+            } else {
+                visible
+                    .iter()
+                    .copied()
+                    .find(|vid| sel.contains(vid))
+                    .unwrap_or(0)
+            }
+        };
+        self.detail.store(target, Ordering::SeqCst);
     }
 
     /// Records what a theme file says that this app does not understand, one record per warning.
@@ -449,6 +751,32 @@ impl Logs {
     pub fn theme_unreadable(&self, filename: &str, error: impl Into<String>) {
         self.record(Source::Theme, filename, Level::Error, error);
     }
+}
+
+fn range_selection(
+    visible: &[u64],
+    from_id: u64,
+    to_id: u64,
+    base: Option<&HashSet<u64>>,
+    remove: bool,
+) -> HashSet<u64> {
+    let mut out = base.cloned().unwrap_or_default();
+    let Some(to_pos) = visible.iter().position(|id| *id == to_id) else {
+        return out;
+    };
+    let from_pos = visible
+        .iter()
+        .position(|id| *id == from_id)
+        .unwrap_or(to_pos);
+    let (lo, hi) = (from_pos.min(to_pos), from_pos.max(to_pos));
+    for &id in &visible[lo..=hi] {
+        if remove {
+            out.remove(&id);
+        } else {
+            out.insert(id);
+        }
+    }
+    out
 }
 
 /// How large the app's log file may grow before it is rotated. One previous file is kept, so an
@@ -713,5 +1041,130 @@ mod tests {
         assert!(fresh.contains("after the limit"), "{fresh:?}");
         assert!(!fresh.contains("the first line"), "{fresh:?}");
         let _ = std::fs::remove_dir_all(&folder);
+    }
+
+    #[test]
+    fn multi_select_supports_click_shift_ctrl_and_drag() {
+        let logs = Logs::new();
+        let a = logs.record(Source::App, "Core", Level::Info, "row a").id;
+        let b = logs.record(Source::App, "Core", Level::Info, "row b").id;
+        let c = logs.record(Source::App, "Core", Level::Info, "row c").id;
+        let d = logs.record(Source::App, "Core", Level::Info, "row d").id;
+        // Visible order is newest first: [d, c, b, a].
+
+        // Single click selects on press and opens detail on release; clicking the sole selected row
+        // again without dragging clears both selection and detail.
+        logs.press_record(c, false, false);
+        assert_eq!(logs.selected_ids(), HashSet::from([c]));
+        assert_eq!(logs.detail(), None, "detail opens on release, not mid-drag");
+        logs.release_record(c);
+        assert_eq!(logs.detail().map(|entry| entry.id), Some(c));
+
+        logs.press_record(c, false, false);
+        logs.release_record(c);
+        assert!(logs.selected_ids().is_empty());
+        assert_eq!(logs.detail(), None);
+
+        // Shift+click selects contiguous visible range from anchor, preserving anchor across
+        // repeated Shift+clicks.
+        logs.press_record(b, false, false);
+        logs.release_record(b);
+        logs.press_record(d, true, false);
+        logs.release_record(d);
+        assert_eq!(logs.selected_ids(), HashSet::from([d, c, b]));
+        assert_eq!(logs.detail().map(|entry| entry.id), Some(d));
+
+        logs.press_record(a, true, false);
+        logs.release_record(a);
+        assert_eq!(logs.selected_ids(), HashSet::from([b, a]));
+
+        // Ctrl+click toggles individual rows and clears detail when the last row is toggled off.
+        logs.press_record(d, false, true);
+        logs.release_record(d);
+        assert_eq!(logs.selected_ids(), HashSet::from([d, b, a]));
+        logs.press_record(b, false, true);
+        logs.release_record(b);
+        assert_eq!(logs.selected_ids(), HashSet::from([d, a]));
+
+        logs.press_record(d, false, false);
+        logs.release_record(d);
+        assert_eq!(logs.selected_ids(), HashSet::from([d]));
+        logs.press_record(d, false, true);
+        logs.release_record(d);
+        assert!(logs.selected_ids().is_empty());
+        assert_eq!(logs.detail(), None);
+
+        // Plain drag from an unselected row keeps detail closed until release, and also works
+        // starting directly from an already-selected single row (without toggling it off).
+        logs.press_record(d, false, false);
+        logs.drag_record(b);
+        assert_eq!(logs.selected_ids(), HashSet::from([d, c, b]));
+        assert_eq!(logs.detail(), None);
+        logs.release_record(b);
+        assert_eq!(logs.detail().map(|entry| entry.id), Some(b));
+
+        // Reverse drag starting on an already-selected single row selects [b, c, d].
+        logs.press_record(b, false, false);
+        logs.release_record(b);
+        assert_eq!(logs.selected_ids(), HashSet::from([b]));
+        logs.press_record(b, false, false);
+        logs.drag_record(d);
+        logs.release_record(d);
+        assert_eq!(logs.selected_ids(), HashSet::from([d, c, b]));
+        assert_eq!(logs.detail().map(|entry| entry.id), Some(d));
+
+        // Ctrl+drag adds or removes a range relative to the prior selection.
+        logs.press_record(a, false, true);
+        logs.drag_record(b);
+        logs.release_record(b);
+        assert_eq!(logs.selected_ids(), HashSet::from([d, c, b, a]));
+
+        logs.press_record(c, false, true);
+        logs.drag_record(b);
+        logs.release_record(b);
+        assert_eq!(logs.selected_ids(), HashSet::from([d, a]));
+    }
+
+    #[test]
+    fn keyboard_step_select_all_and_reset_filter_behave_consistently() {
+        let logs = Logs::new();
+        assert_eq!(logs.step_record(1, false), None);
+
+        let a = logs.record(Source::App, "Core", Level::Info, "row a").id;
+        let b = logs.record(Source::Theme, "t.css", Level::Warn, "row b").id;
+        let c = logs.record(Source::App, "Core", Level::Error, "row c").id;
+        // Visible newest-first: [c, b, a].
+
+        // Stepping down from no selection picks the top row; stepping again advances.
+        assert_eq!(logs.step_record(1, false), Some(c));
+        assert_eq!(logs.selected_ids(), HashSet::from([c]));
+        assert_eq!(logs.detail().map(|e| e.id), Some(c));
+
+        assert_eq!(logs.step_record(1, true), Some(b));
+        assert_eq!(logs.selected_ids(), HashSet::from([c, b]));
+        assert_eq!(logs.detail().map(|e| e.id), Some(b));
+
+        assert_eq!(logs.step_record(1, true), Some(a));
+        assert_eq!(logs.selected_ids(), HashSet::from([c, b, a]));
+        assert_eq!(logs.step_record(1, true), Some(a), "clamps at bottom");
+
+        // Plain step collapses selection back to the single target row.
+        assert_eq!(logs.step_record(-1, false), Some(b));
+        assert_eq!(logs.selected_ids(), HashSet::from([b]));
+
+        // Select all picks every visible row under the active filter only.
+        logs.set_source("app");
+        assert!(logs.filter().is_active());
+        logs.select_all();
+        assert_eq!(logs.selected_ids(), HashSet::from([c, a]));
+        assert_eq!(logs.detail().map(|e| e.id), Some(c));
+
+        // Reset filter clears source, level and search together.
+        logs.set_level("warn");
+        logs.set_search("row");
+        assert!(logs.filter().is_active());
+        logs.reset_filter();
+        assert!(!logs.filter().is_active());
+        assert_eq!(logs.filter(), Filter::default());
     }
 }

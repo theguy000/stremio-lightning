@@ -463,6 +463,12 @@ pub(crate) fn mods_view(data: &crate::screens::mods::Data) -> ModsViewData {
         log_empty: data.log_empty.clone().into(),
         log_detail_heading: data.log_detail_heading.clone().into(),
         log_open_id: i32::try_from(data.log_open_id).unwrap_or(0),
+        log_active_index: data.log_active_index,
+        log_selected_count: i32::try_from(data.log_selected_count).unwrap_or(0),
+        log_count: data.log_count.clone().into(),
+        log_filtered: data.log_filtered,
+        log_prepended: 0,
+        log_prepend_seq: 0,
         log_detail: ModelRc::new(VecModel::from(
             data.log_detail
                 .iter()
@@ -488,29 +494,88 @@ pub(crate) fn refresh_logs(
     armed: std::sync::Arc<Mutex<bool>>,
 ) {
     let _ = weak.upgrade_in_event_loop(move |window| {
-        let filter = logs.filter();
-        let rows = mods::logs::rows(&logs, &filter);
-        let mut data = window.get_mods();
-        data.log_rows = ModelRc::new(VecModel::from(rows.iter().map(log_row).collect::<Vec<_>>()));
-        data.log_empty = if logs.is_empty() {
-            mods::logs::NONE
-        } else {
-            mods::logs::NONE_MATCH
-        }
-        .into();
-        data.log_detail_heading = mods::logs::detail_heading(&logs).into();
-        data.log_detail = ModelRc::new(VecModel::from(
-            mods::logs::detail(&logs)
-                .into_iter()
-                .map(SharedString::from)
-                .collect::<Vec<_>>(),
-        ));
-        data.log_open_id = i32::try_from(mods::logs::open_id(&logs)).unwrap_or(0);
-        data.log_source_index = i32::try_from(mods::logs::source_index(&filter)).unwrap_or(0);
-        data.log_level_index = i32::try_from(mods::logs::level_index(&filter)).unwrap_or(0);
-        data.log_clear_armed = *armed.lock().unwrap();
-        window.set_mods(data);
+        apply_logs(&window, &logs, *armed.lock().unwrap());
     });
+}
+
+/// Applies the current log list, selection, and detail panel onto `window`, updating row selection
+/// flags in place when the filtered row ids are unchanged and reporting live prepends so a
+/// scrolled reader stays anchored on the same rows.
+pub(crate) fn apply_logs(window: &MainWindow, logs: &crate::plumbing::logs::Logs, armed: bool) {
+    let filter = logs.filter();
+    let rows = mods::logs::rows(logs, &filter);
+    let old = window.get_mods();
+    let mut data = old.clone();
+    let total = logs.len();
+    let filtered = filter.is_active();
+    let open_id = mods::logs::open_id(logs);
+    data.log_source_index = i32::try_from(mods::logs::source_index(&filter)).unwrap_or(0);
+    data.log_level_index = i32::try_from(mods::logs::level_index(&filter)).unwrap_or(0);
+    data.log_search = filter.search.clone().into();
+    data.log_empty = if total == 0 {
+        mods::logs::NONE
+    } else {
+        mods::logs::NONE_MATCH
+    }
+    .into();
+    data.log_count = mods::logs::count_label(rows.len(), total, filtered).into();
+    data.log_filtered = filtered;
+    data.log_detail_heading = mods::logs::detail_heading(logs).into();
+    data.log_detail = ModelRc::new(VecModel::from(
+        mods::logs::detail(logs)
+            .into_iter()
+            .map(SharedString::from)
+            .collect::<Vec<_>>(),
+    ));
+    data.log_open_id = i32::try_from(open_id).unwrap_or(0);
+    data.log_active_index = mods::logs::active_index(&rows, open_id)
+        .and_then(|at| i32::try_from(at).ok())
+        .unwrap_or(-1);
+    data.log_selected_count = i32::try_from(mods::logs::selected_count(logs, &filter)).unwrap_or(0);
+    data.log_clear_armed = armed;
+    reconcile_log_rows(&old, &rows, &mut data);
+    window.set_mods(data);
+}
+
+/// Keeps the existing `log_rows` model in place when the visible row ids are unchanged, and
+/// detects live records prepended at the top under an unchanged filter so the UI can preserve
+/// the reader's scroll offset.
+fn reconcile_log_rows(old: &ModsViewData, rows: &[mods::logs::Row], next: &mut ModsViewData) {
+    next.log_prepend_seq = old.log_prepend_seq;
+    next.log_prepended = 0;
+    let same_filter = old.log_source_index == next.log_source_index
+        && old.log_level_index == next.log_level_index
+        && old.log_search == next.log_search;
+    let same_rows = old.log_rows.row_count() == rows.len()
+        && rows.iter().enumerate().all(|(at, row)| {
+            old.log_rows
+                .row_data(at)
+                .is_some_and(|existing| existing.id == row.id as i32)
+        });
+    if same_rows {
+        if let Some(existing) = old.log_rows.as_any().downcast_ref::<VecModel<ModsLogRow>>() {
+            for (at, row) in rows.iter().enumerate() {
+                if let Some(mut cur) = existing.row_data(at) {
+                    if cur.selected != row.selected {
+                        cur.selected = row.selected;
+                        existing.set_row_data(at, cur);
+                    }
+                }
+            }
+            next.log_rows = old.log_rows.clone();
+            return;
+        }
+    } else if same_filter {
+        if let Some(old_top) = old.log_rows.row_data(0).map(|row| row.id) {
+            if let Some(prepended) = rows.iter().position(|row| row.id as i32 == old_top) {
+                if prepended > 0 {
+                    next.log_prepended = i32::try_from(prepended).unwrap_or(0);
+                    next.log_prepend_seq = old.log_prepend_seq.wrapping_add(1);
+                }
+            }
+        }
+    }
+    next.log_rows = ModelRc::new(VecModel::from(rows.iter().map(log_row).collect::<Vec<_>>()));
 }
 
 /// One filter menu of the Logs page: its choices, with the one the menu opens on marked.
@@ -537,6 +602,7 @@ fn log_row(row: &mods::logs::Row) -> ModsLogRow {
         level_id: row.level_id.clone().into(),
         time: row.time.clone().into(),
         text: row.text.clone().into(),
+        selected: row.selected,
     }
 }
 
@@ -684,8 +750,10 @@ fn armed_card() -> Option<String> {
 /// because a new model tears down every row -- including the one a press may be standing on. Which
 /// row is marked is not in the model: the menu marks the page `data.page` names.
 pub(crate) fn show_mods(window: &MainWindow, data: &crate::screens::mods::Data) {
+    let old = window.get_mods();
     let mut view = mods_view(data);
     keep_settings_fields(window, &mut view);
+    reconcile_log_rows(&old, &data.log_rows, &mut view);
     let rows: Vec<(String, String)> = data
         .menu
         .iter()

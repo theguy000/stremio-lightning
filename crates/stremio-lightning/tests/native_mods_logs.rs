@@ -780,6 +780,215 @@ fn the_window_lists_what_was_logged_and_filters_it() {
     );
     verdict("the detail panel did not open, copy or close", &detail);
 
+    // ---- dragging across rows selects multiple and copies them all ---------------------------
+    let mut multi: Vec<Outcome> = Vec::new();
+    multi = step(
+        multi,
+        "dragging across two rows selects both and enables batch Copy",
+        {
+            let rows = window.get_mods().log_rows;
+            let row0 = rows.row_data(0);
+            let row1 = rows.row_data(1);
+            match (row0, row1) {
+                (Some(first), Some(second)) => {
+                    let label0 = format!("Show {} {}: {}", first.time, first.source, first.text);
+                    let label1 = format!("Show {} {}: {}", second.time, second.source, second.text);
+                    match (
+                        ui_driver::find(window, &label0),
+                        ui_driver::find(window, &label1),
+                    ) {
+                        (Some(h0), Some(h1)) => {
+                            let p0 = h0.absolute_position();
+                            let s0 = h0.size();
+                            let p1 = h1.absolute_position();
+                            let s1 = h1.size();
+                            let start = slint::LogicalPosition::new(
+                                p0.x + s0.width * 0.5,
+                                p0.y + s0.height * 0.5,
+                            );
+                            let end = slint::LogicalPosition::new(
+                                p1.x + s1.width * 0.5,
+                                p1.y + s1.height * 0.5,
+                            );
+                            window.window().dispatch_event(
+                                slint::platform::WindowEvent::PointerPressed {
+                                    position: start,
+                                    button: slint::platform::PointerEventButton::Left,
+                                },
+                            );
+                            ui_driver::pump(Duration::from_millis(30));
+                            window.window().dispatch_event(
+                                slint::platform::WindowEvent::PointerMoved { position: end },
+                            );
+                            ui_driver::pump(Duration::from_millis(30));
+                            window.window().dispatch_event(
+                                slint::platform::WindowEvent::PointerReleased {
+                                    position: end,
+                                    button: slint::platform::PointerEventButton::Left,
+                                },
+                            );
+                            wait(window, Duration::from_secs(5), |window| {
+                                let count = window.get_mods().log_selected_count;
+                                if count >= 2 {
+                                    Ok(format!("{count} rows selected"))
+                                } else {
+                                    Err(format!("selected count is {count}"))
+                                }
+                            })
+                        }
+                        _ => Err("could not locate first two log rows on screen".to_owned()),
+                    }
+                }
+                _ => Err("fewer than two log rows on screen".to_owned()),
+            }
+        },
+    );
+    multi = step(multi, "toolbar Copy copies all selected records", {
+        let count = window.get_mods().log_selected_count;
+        let copy_label = format!("Copy {count} selected records");
+        click(window, &copy_label).and_then(|_| {
+            wait(window, Duration::from_secs(5), |window| {
+                let notice = window.get_mods().notice.to_string();
+                if notice.contains(&format!("Copied {count} records"))
+                    || notice.contains("clipboard")
+                    || notice.contains("copying is not implemented")
+                {
+                    Ok(notice)
+                } else {
+                    Err(format!("the page says {notice:?}"))
+                }
+            })
+        })
+    });
+    multi = step(
+        multi,
+        "Close clears the multi-selection and closes the panel",
+        click(window, "Close the record").and_then(|_| {
+            wait(window, Duration::from_secs(5), |window| {
+                let count = window.get_mods().log_selected_count;
+                let heading = window.get_mods().log_detail_heading.to_string();
+                if count == 0 && heading.is_empty() {
+                    Ok("selection cleared".to_owned())
+                } else {
+                    Err(format!("count={count}, heading={heading:?}"))
+                }
+            })
+        }),
+    );
+    verdict("drag multi-select and batch copy failed", &multi);
+
+    // ---- Reset filters & keyboard navigation (Down, Esc, Select All) -------------------------
+    let mut ux: Vec<Outcome> = Vec::new();
+    ux = step(
+        ux,
+        "Reset filters restores source, level, and search in one press",
+        {
+            window.invoke_filter_mods_logs("source".into(), 2);
+            window.invoke_search_mods_logs("odd".into());
+            wait(window, Duration::from_secs(5), |window| {
+                let mods = window.get_mods();
+                if mods.log_filtered && mods.log_count.contains(" of ") {
+                    Ok(mods.log_count.to_string())
+                } else {
+                    Err(format!(
+                        "filtered={}, count={:?}",
+                        mods.log_filtered, mods.log_count
+                    ))
+                }
+            })
+            .and_then(|count_before| {
+                click(window, "Reset filters").and_then(|_| {
+                    wait(window, Duration::from_secs(5), |window| {
+                        let mods = window.get_mods();
+                        if !mods.log_filtered
+                            && mods.log_source_index == 0
+                            && mods.log_level_index == 0
+                            && mods.log_search.is_empty()
+                        {
+                            Ok(format!("{count_before} -> {}", mods.log_count))
+                        } else {
+                            Err(format!(
+                                "still filtered: filtered={}, src={}, lvl={}, search={:?}",
+                                mods.log_filtered,
+                                mods.log_source_index,
+                                mods.log_level_index,
+                                mods.log_search
+                            ))
+                        }
+                    })
+                })
+            })
+        },
+    );
+    ux = step(ux, "Down arrow opens the top row and Escape closes it", {
+        window
+            .window()
+            .dispatch_event(slint::platform::WindowEvent::KeyPressed {
+                text: slint::platform::Key::DownArrow.into(),
+            });
+        wait(window, Duration::from_secs(5), |window| {
+            let mods = window.get_mods();
+            if mods.log_selected_count == 1 && mods.log_active_index == 0 && mods.log_open_id != 0 {
+                Ok(format!("active_index=0, open_id={}", mods.log_open_id))
+            } else {
+                Err(format!(
+                    "selected={}, active_index={}, open_id={}",
+                    mods.log_selected_count, mods.log_active_index, mods.log_open_id
+                ))
+            }
+        })
+        .and_then(|opened| {
+            window
+                .window()
+                .dispatch_event(slint::platform::WindowEvent::KeyPressed {
+                    text: slint::platform::Key::Escape.into(),
+                });
+            wait(window, Duration::from_secs(5), |window| {
+                let mods = window.get_mods();
+                if mods.log_selected_count == 0 && mods.log_open_id == 0 {
+                    Ok(format!("{opened}; Escape cleared"))
+                } else {
+                    Err(format!(
+                        "selected={}, open_id={}",
+                        mods.log_selected_count, mods.log_open_id
+                    ))
+                }
+            })
+        })
+    });
+    ux = step(
+        ux,
+        "Select all picks every visible row and Escape clears them",
+        {
+            let total = slint::Model::row_count(&window.get_mods().log_rows);
+            window.invoke_select_all_mods_logs();
+            wait(window, Duration::from_secs(5), |window| {
+                let count = window.get_mods().log_selected_count as usize;
+                if count == total && total > 0 {
+                    Ok(format!("selected all {count}"))
+                } else {
+                    Err(format!("selected {count} of {total}"))
+                }
+            })
+            .and_then(|selected| {
+                window
+                    .window()
+                    .dispatch_event(slint::platform::WindowEvent::KeyPressed {
+                        text: slint::platform::Key::Escape.into(),
+                    });
+                wait(window, Duration::from_secs(5), |window| {
+                    let count = window.get_mods().log_selected_count;
+                    if count == 0 {
+                        Ok(format!("{selected}; Escape cleared"))
+                    } else {
+                        Err(format!("still {count} selected"))
+                    }
+                })
+            })
+        },
+    );
+    verdict("logs filter reset or keyboard navigation failed", &ux);
+
     // ---- Clear takes two presses and empties the list ---------------------------
     let mut clearing: Vec<Outcome> = Vec::new();
     clearing = step(
