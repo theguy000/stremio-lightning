@@ -6,6 +6,7 @@ import "./fonts/PlusJakartaSans-SemiBold.ttf";
 import "./fonts/PlusJakartaSans-Bold.ttf";
 
 export global Theme {
+    in-out property <bool> amoled: false;
     out property <string> font-family: "Plus Jakarta Sans";
 
     // Web: the root font size steps up with the viewport width (src/App/styles.less).
@@ -15,7 +16,7 @@ export global Theme {
             : viewport-width <= 2200px ? 15px : 16px;
     }
 
-    out property <color> background: #2a2843;
+    out property <color> background: root.amoled ? #000000 : #2a2843;
     out property <color> primary: #664181;
     out property <color> secondary: #3b4b81;
     out property <color> surface: #bfbfbf;
@@ -24,7 +25,7 @@ export global Theme {
     out property <color> accent-yellow: #ffba19;
 
     // Measured on web.stremio.com at 1100x720. Composited readings, not the page's CSS values.
-    out property <brush> page-background: @linear-gradient(41deg, #0c0b11 0%, #1a173e 100%);
+    out property <brush> page-background: root.amoled ? #000000 : @linear-gradient(41deg, #0c0b11 0%, #1a173e 100%);
     out property <color> text: #ffffffe6;
     out property <color> accent: #7b5bf5;
     /// Web: `--quaternary-accent-color`, the fill of a selected Library sort chip
@@ -44,7 +45,7 @@ export global Theme {
     out property <color> search-icon: #9998a6;
     out property <color> caret-icon: #9594a6;
     out property <color> avatar: #8088bc;
-    out property <color> modal-background: #0f0d20;
+    out property <color> modal-background: root.amoled ? #000000 : #0f0d20;
     /// The modal colour lifted enough to sit on itself: the drawer's own dropdowns use it.
     out property <color> modal-raised: #201c3c;
     /// The ink the web puts on its bright chips: `--secondary-foreground-color`.

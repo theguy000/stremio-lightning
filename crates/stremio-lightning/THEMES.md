@@ -1,6 +1,8 @@
 # Themes in the app
 
-The app reads `*.theme.css` files and restyles its Slint UI by stremio-web class name.
+The app ships a built-in **Amoled Theme** (`builtin:amoled`) that turns the page, card, and modal
+backgrounds pitch black (`#000000`), and also reads local `*.theme.css` files to restyle its Slint
+UI by stremio-web class name.
 Each component that has a web class name uses the same name as its element id in `ui/*.slint`.
 
 ## Where the files go

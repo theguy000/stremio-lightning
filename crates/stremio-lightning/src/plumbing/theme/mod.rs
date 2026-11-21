@@ -30,7 +30,7 @@ use std::path::Path;
 use slint::{Color, ComponentHandle};
 use stremio_lightning_core::mods::{read_mod_content, ModType};
 
-use crate::{ClassStyle, ClassStyles, MainWindow};
+use crate::{ClassStyle, ClassStyles, MainWindow, Theme as SlintTheme};
 
 pub mod parse;
 
@@ -223,9 +223,17 @@ fn to_slint(style: Style) -> ClassStyle {
 pub fn apply_enabled(window: &MainWindow, data_dir: &Path) -> Vec<(String, String)> {
     let enabled = crate::screens::settings::LocalExtras::load(data_dir).enabled_themes;
     let mut troubles = Vec::new();
+    let mut amoled = false;
 
     let mut rules = Vec::new();
     for filename in &enabled {
+        if filename == "builtin:amoled" {
+            amoled = true;
+            continue;
+        }
+        if crate::screens::mods::builtin::get_theme(filename).is_some() {
+            continue;
+        }
         match read_mod_content(data_dir, filename, ModType::Theme) {
             Ok(css) => {
                 let theme = parse::parse_theme(&css);
@@ -237,6 +245,8 @@ pub fn apply_enabled(window: &MainWindow, data_dir: &Path) -> Vec<(String, Strin
             Err(error) => troubles.push((filename.clone(), error)),
         }
     }
+
+    window.global::<SlintTheme>().set_amoled(amoled);
 
     let (styles, unmatched) = parse::resolve(&rules, CLASSES);
     for warning in unmatched {

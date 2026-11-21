@@ -193,7 +193,7 @@ fn the_screen_lists_what_is_installed_and_its_actions_reach_the_disk() {
     assert!(!plugins[0].removable, "a built-in plugin cannot be removed");
 
     let themes = cards_of(&data, Page::Themes);
-    assert_eq!(names(&themes), ["Green", "Odd", "Red"]);
+    assert_eq!(names(&themes), ["Amoled Theme", "Green", "Odd", "Red"]);
     let odd = catalogue::card(&themes, "odd.theme.css").expect("the third theme");
     assert!(
         odd.warnings
@@ -253,7 +253,7 @@ fn the_screen_lists_what_is_installed_and_its_actions_reach_the_disk() {
     );
     assert_eq!(
         file_names(&cards_of(&data, Page::Themes)),
-        ["green.theme.css", "odd.theme.css"],
+        ["builtin:amoled", "green.theme.css", "odd.theme.css"],
         "the card is gone from the page"
     );
 
@@ -300,7 +300,9 @@ fn a_choice_survives_a_restart() {
         "AniSkip stays off across restart"
     );
     assert!(
-        cards_of(&again, Page::Themes)[0].enabled,
+        catalogue::card(&cards_of(&again, Page::Themes), "blue.theme.css")
+            .expect("the blue theme")
+            .enabled,
         "the theme comes back on"
     );
 
@@ -484,7 +486,7 @@ fn the_window_opens_every_page_and_removes_a_theme_in_two_presses() {
                 .filter_map(|row| themes.row_data(row))
                 .map(|card| card.name.to_string())
                 .collect();
-            if names == ["Red"] {
+            if names == ["Amoled Theme", "Red"] {
                 Ok(names.join(", "))
             } else {
                 Err(format!("the page shows {names:?}"))
@@ -493,7 +495,10 @@ fn the_window_opens_every_page_and_removes_a_theme_in_two_presses() {
     );
     outcomes = step(outcomes, "the card starts out unarmed", {
         let themes = window.get_mods().themes;
-        match themes.row_data(0) {
+        match (0..themes.row_count())
+            .filter_map(|row| themes.row_data(row))
+            .find(|card| card.filename == "red.theme.css")
+        {
             Some(card) if !card.armed => Ok("armed: false".to_owned()),
             Some(card) => Err(format!("the card says armed: {}", card.armed)),
             None => Err("no theme card on the page".to_owned()),
@@ -511,7 +516,11 @@ fn the_window_opens_every_page_and_removes_a_theme_in_two_presses() {
                 if !red.exists() {
                     return Err("the first press deleted the file".to_owned());
                 }
-                match window.get_mods().themes.row_data(0) {
+                let themes = window.get_mods().themes;
+                match (0..themes.row_count())
+                    .filter_map(|row| themes.row_data(row))
+                    .find(|card| card.filename == "red.theme.css")
+                {
                     Some(card) if card.armed => Ok("armed, the file is still there".to_owned()),
                     Some(card) => Err(format!("the card says armed: {}", card.armed)),
                     None => Err("the card left the page".to_owned()),
@@ -557,8 +566,8 @@ fn the_window_opens_every_page_and_removes_a_theme_in_two_presses() {
         "the card leaves the page",
         wait(window, Duration::from_secs(10), move |window| {
             let now = on_screen(window);
-            if before == ["Red"] && now.is_empty() {
-                Ok("the page is empty".to_owned())
+            if before == ["Amoled Theme", "Red"] && now == ["Amoled Theme"] {
+                Ok("only the built-in theme remains".to_owned())
             } else {
                 Err(format!(
                     "the page listed {before:?} before the press and {now:?} after"

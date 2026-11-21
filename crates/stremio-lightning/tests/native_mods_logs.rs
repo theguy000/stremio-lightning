@@ -1101,9 +1101,9 @@ fn the_window_lists_what_was_logged_and_filters_it() {
             );
             match said {
                 (Some(a), Some(b), Some(c), Some(d))
-                    if a == "1" && b == "1" && c == "2" && d == "1" =>
+                    if a == "1" && b == "1" && c == "3" && d == "1" =>
                 {
-                    Ok("1 built-in plugin, 1 enabled, 2 themes, 1 enabled".to_owned())
+                    Ok("1 built-in plugin, 1 enabled, 3 themes, 1 enabled".to_owned())
                 }
                 _ => Err(format!("the counts are {said:?}")),
             }

@@ -53,6 +53,12 @@ pub fn set_enabled(extras: &mut LocalExtras, filename: &str, enabled: bool) -> O
 /// Removes the theme file. A theme that was on stops being named, so the app goes back to its own
 /// colours once the removal is applied.
 pub fn remove(data_dir: &Path, extras: &mut LocalExtras, filename: &str) -> Notice {
+    if let Some(builtin) = super::builtin::get_theme(filename) {
+        return Notice::failed(format!(
+            "{} is built into the app, so there is no file to remove.",
+            builtin.name
+        ));
+    }
     let notice = catalogue::remove(data_dir, Kind::Theme, filename);
     if !notice.failed {
         extras.enabled_themes.retain(|name| name != filename);

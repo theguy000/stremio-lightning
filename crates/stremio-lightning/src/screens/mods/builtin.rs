@@ -246,6 +246,56 @@ pub fn cards(extras: &LocalExtras) -> Vec<ModCard> {
         .collect()
 }
 
+/// One theme the app ships.
+pub struct BuiltinTheme {
+    /// What the card's switch names it by (`builtin:...`), never a file name.
+    pub id: &'static str,
+    /// What the card's title says.
+    pub name: &'static str,
+    /// The app's version.
+    pub version: &'static str,
+    /// One line about what the theme does.
+    pub description: &'static str,
+}
+
+/// Every built-in theme, in the order the Themes page lists them ahead of local files.
+pub const THEMES: &[BuiltinTheme] = &[BuiltinTheme {
+    id: "builtin:amoled",
+    name: "Amoled Theme",
+    version: env!("CARGO_PKG_VERSION"),
+    description: "A theme that uses amoled pitch black color.",
+}];
+
+/// The built-in theme `id` names, if there is one.
+#[must_use]
+pub fn get_theme(id: &str) -> Option<&'static BuiltinTheme> {
+    THEMES.iter().find(|theme| theme.id == id)
+}
+
+/// The cards the Themes page shows for the built-in themes.
+#[must_use]
+pub fn theme_cards(extras: &LocalExtras) -> Vec<ModCard> {
+    THEMES
+        .iter()
+        .map(|theme| {
+            let is_on = extras.enabled_themes.iter().any(|name| name == theme.id);
+            ModCard {
+                id: theme.id.to_owned(),
+                filename: theme.id.to_owned(),
+                name: theme.name.to_owned(),
+                author: String::new(),
+                version: theme.version.to_owned(),
+                description: theme.description.to_owned(),
+                enabled: is_on,
+                has_settings: false,
+                warnings: Vec::new(),
+                removable: false,
+                builtin: true,
+            }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -331,5 +381,33 @@ mod tests {
             json!("nope"),
         );
         assert!(submitter(&extras).is_none());
+    }
+
+    #[test]
+    fn the_builtin_amoled_theme_card_shows_name_version_and_description_only() {
+        let mut extras = LocalExtras::default();
+        let cards = theme_cards(&extras);
+        assert_eq!(cards.len(), 1);
+        let card = &cards[0];
+        assert_eq!(card.id, "builtin:amoled");
+        assert_eq!(card.filename, "builtin:amoled");
+        assert_eq!(card.name, "Amoled Theme");
+        assert_eq!(card.version, env!("CARGO_PKG_VERSION"));
+        assert_eq!(
+            catalogue::byline(card),
+            format!("v{}", env!("CARGO_PKG_VERSION"))
+        );
+        assert_eq!(
+            card.description,
+            "A theme that uses amoled pitch black color."
+        );
+        assert!(!card.enabled);
+        assert!(!card.removable);
+        assert!(card.builtin);
+        assert!(!card.has_settings);
+        assert!(card.warnings.is_empty());
+
+        extras.enabled_themes = vec!["builtin:amoled".to_owned()];
+        assert!(theme_cards(&extras)[0].enabled);
     }
 }

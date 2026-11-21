@@ -85,50 +85,49 @@ impl Notice {
         Self::failed(text)
     }
 }
-/// Built-in plugins or local `.theme.css` files under `data_dir`, sorted by file name, with
-/// the enabled state applied.
+/// Built-in plugins or built-in and local `.theme.css` themes under `data_dir`, sorted by file
+/// name, with the enabled state applied.
 pub fn cards(data_dir: &Path, kind: Kind, extras: &LocalExtras) -> Result<Vec<ModCard>, String> {
     if kind == Kind::Plugin {
         return Ok(super::builtin::cards(extras));
     }
+    let mut list = super::builtin::theme_cards(extras);
     let mut installed = list_mods(data_dir, ModType::Theme)?;
     installed.sort_by(|a, b| a.filename.cmp(&b.filename));
-    Ok(installed
-        .into_iter()
-        .map(|file| {
-            let is_on = extras.enabled_themes.contains(&file.filename);
-            let warnings = read_mod_content(data_dir, &file.filename, ModType::Theme)
-                .map(|css| theme::warnings(&css))
-                .unwrap_or_else(|error| vec![error]);
-            let (name, author, version, description) = match file.metadata {
-                Some(metadata) => (
-                    non_empty_or(metadata.name, &file.filename),
-                    metadata.author,
-                    metadata.version,
-                    metadata.description,
-                ),
-                None => (
-                    file.filename.clone(),
-                    String::new(),
-                    String::new(),
-                    String::new(),
-                ),
-            };
-            ModCard {
-                id: file.filename.clone(),
-                filename: file.filename,
-                name,
-                author,
-                version,
-                description,
-                enabled: is_on,
-                has_settings: false,
-                warnings,
-                removable: true,
-                builtin: false,
-            }
-        })
-        .collect())
+    list.extend(installed.into_iter().map(|file| {
+        let is_on = extras.enabled_themes.contains(&file.filename);
+        let warnings = read_mod_content(data_dir, &file.filename, ModType::Theme)
+            .map(|css| theme::warnings(&css))
+            .unwrap_or_else(|error| vec![error]);
+        let (name, author, version, description) = match file.metadata {
+            Some(metadata) => (
+                non_empty_or(metadata.name, &file.filename),
+                metadata.author,
+                metadata.version,
+                metadata.description,
+            ),
+            None => (
+                file.filename.clone(),
+                String::new(),
+                String::new(),
+                String::new(),
+            ),
+        };
+        ModCard {
+            id: file.filename.clone(),
+            filename: file.filename,
+            name,
+            author,
+            version,
+            description,
+            enabled: is_on,
+            has_settings: false,
+            warnings,
+            removable: true,
+            builtin: false,
+        }
+    }));
+    Ok(list)
 }
 
 /// A name the file left empty is no name, so the file name stands in for it.
