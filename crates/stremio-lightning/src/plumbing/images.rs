@@ -24,13 +24,10 @@ pub(crate) const BACKDROP_SUFFIX: &str = "#backdrop";
 
 /// How much decoded picture the cache may hold before the least recently used ones are let go.
 ///
-/// The pictures the window is showing are never let go of at all (see [`Cached::insert`]), so this
-/// has to fit what a screen draws, with room left over for the one coming next. A poster is
-/// 300x450, 540 kB: a board of eight catalogs of ten cards is 49 MB, a settled screenful of Discover
-/// of up to forty cards is 22 MB, the player's artwork and its drawer's Episode thumbnails are
-/// about 21 MB, and twenty addon logos are 9 MB. The widest of those screens is a little under
-/// a hundred megabytes, which leaves a screen and a half of Discover to scroll back through.
-const CACHE_LIMIT: usize = 128 * 1024 * 1024;
+/// A poster is 300x450 RGBA8 (~540 kB). Because `wanted` only pins the active screen's visible
+/// viewport (+ one slack row, ~11–18 MB), 32 MB holds ~60 posters (two to three screenfuls) while
+/// keeping decoded CPU RAM flat as you scroll Board or Discover.
+const CACHE_LIMIT: usize = 32 * 1024 * 1024;
 
 pub(crate) type Cache = Arc<Mutex<Cached>>;
 
@@ -53,6 +50,7 @@ impl Cached {
         }
     }
 
+    #[cfg(test)]
     fn get(&mut self, key: &str) -> Option<SharedPixelBuffer<Rgba8Pixel>> {
         self.tick += 1;
         let (buffer, _, used) = self.entries.get_mut(key)?;
@@ -60,8 +58,50 @@ impl Cached {
         Some(buffer.clone())
     }
 
+    /// Reads a cached buffer without advancing its LRU timestamp, so syncing off-screen `VecModel`
+    /// rows does not make scrolled-past posters look recently used.
+    fn peek(&self, key: &str) -> Option<SharedPixelBuffer<Rgba8Pixel>> {
+        self.entries.get(key).map(|(buffer, _, _)| buffer.clone())
+    }
+
+    fn touch_all(&mut self, keys: &HashSet<String>) {
+        self.tick += 1;
+        let tick = self.tick;
+        for key in keys {
+            if let Some((_, _, used)) = self.entries.get_mut(key) {
+                *used = tick;
+            }
+        }
+    }
+
     fn contains_key(&self, key: &str) -> bool {
         self.entries.contains_key(key)
+    }
+
+    fn trim(&mut self, keep: &HashSet<String>, protect: Option<&str>) -> Vec<String> {
+        let limit = if self.limit == 0 {
+            CACHE_LIMIT
+        } else {
+            self.limit
+        };
+        let mut let_go = Vec::new();
+        while self.bytes > limit {
+            // Never the picture just made, and never one that is on screen.
+            let Some(oldest) = self
+                .entries
+                .iter()
+                .filter(|(k, _)| protect != Some(k.as_str()) && !keep.contains(*k))
+                .min_by_key(|(_, (_, _, used))| *used)
+                .map(|(k, _)| k.clone())
+            else {
+                break;
+            };
+            if let Some((_, bytes, _)) = self.entries.remove(&oldest) {
+                self.bytes -= bytes;
+                let_go.push(oldest);
+            }
+        }
+        let_go
     }
 
     /// Puts a picture in, and says which keys it had to let go of to make room. Those have to be
@@ -83,29 +123,7 @@ impl Cached {
             self.bytes -= was;
         }
         self.bytes += bytes;
-        let limit = if self.limit == 0 {
-            CACHE_LIMIT
-        } else {
-            self.limit
-        };
-        let mut let_go = Vec::new();
-        while self.bytes > limit {
-            // Never the picture just made, and never one that is on screen.
-            let Some(oldest) = self
-                .entries
-                .iter()
-                .filter(|(k, _)| **k != key && !keep.contains(*k))
-                .min_by_key(|(_, (_, _, used))| *used)
-                .map(|(k, _)| k.clone())
-            else {
-                break;
-            };
-            if let Some((_, bytes, _)) = self.entries.remove(&oldest) {
-                self.bytes -= bytes;
-                let_go.push(oldest);
-            }
-        }
-        let_go
+        self.trim(keep, Some(&key))
     }
 
     fn iter(&self) -> impl Iterator<Item = (&String, &SharedPixelBuffer<Rgba8Pixel>)> {
@@ -134,6 +152,9 @@ const BULK_FETCHES: usize = 16;
 /// The pictures a click is waiting on -- the panel's backdrop and its logo -- have a lane of their
 /// own, so they are never queued behind a grid's worth of posters.
 const URGENT_FETCHES: usize = 4;
+/// Cap concurrent full-resolution decodes on the blocking pool so a burst of fast HTTP/2 downloads
+/// does not allocate dozens of transient 20+ MB uncompressed bitmaps at once.
+const DECODE_CONCURRENCY: usize = 4;
 
 #[derive(Clone)]
 pub(crate) struct Images {
@@ -149,6 +170,7 @@ pub(crate) struct Images {
     wanted: Arc<Mutex<HashSet<String>>>,
     bulk: Arc<tokio::sync::Semaphore>,
     urgent: Arc<tokio::sync::Semaphore>,
+    decode: Arc<tokio::sync::Semaphore>,
     /// The runtime the fetches run on. Carried rather than assumed: a request can be made from the
     /// window's thread (a repaint asks for its own pictures), where there is no runtime context to
     /// `tokio::spawn` into.
@@ -173,27 +195,45 @@ impl Default for Images {
             wanted: Default::default(),
             bulk: Arc::new(tokio::sync::Semaphore::new(BULK_FETCHES)),
             urgent: Arc::new(tokio::sync::Semaphore::new(URGENT_FETCHES)),
+            decode: Arc::new(tokio::sync::Semaphore::new(DECODE_CONCURRENCY)),
             runtime: tokio::runtime::Handle::current(),
         }
     }
 }
 
 impl Images {
-    /// Says which pictures the window is showing, so the cache keeps them while it makes room for
-    /// others. Called whenever that changes: on every new snapshot, and on every report the
-    /// Discover grid sends of what it has scrolled to.
-    pub(crate) fn set_wanted(&self, keys: impl IntoIterator<Item = String>) {
+    /// Says which pictures the window is showing, so the cache keeps them while trimming entries
+    /// that scrolled off screen back under `CACHE_LIMIT`. Returns whether any entries were evicted
+    /// so the caller can clear dropped images from Slint models immediately.
+    pub(crate) fn set_wanted(&self, keys: impl IntoIterator<Item = String>) -> bool {
         let keys: HashSet<String> = keys.into_iter().collect();
-        let mut wanted = self.wanted.lock().unwrap();
-        if *wanted != keys {
-            *wanted = keys;
+        let changed = {
+            let mut wanted = self.wanted.lock().unwrap();
+            if *wanted == keys {
+                false
+            } else {
+                *wanted = keys.clone();
+                true
+            }
+        };
+        if !changed {
+            return false;
         }
+        let let_go = {
+            let mut cache = self.cache.lock().unwrap();
+            cache.touch_all(&keys);
+            cache.trim(&keys, None)
+        };
+        let evicted = !let_go.is_empty();
+        forget(&self.requested, let_go);
+        evicted
     }
 
-    /// The image for a key, if it has arrived. Read while the window is being filled in.
+    /// The image for a key, if it has arrived. Does not advance LRU timestamps so syncing
+    /// off-screen `VecModel` rows does not keep scrolled-past posters pinned ahead of active ones.
     pub(crate) fn get(&self, key: &Option<String>) -> Option<Image> {
         key.as_ref()
-            .and_then(|key| self.cache.lock().unwrap().get(key))
+            .and_then(|key| self.cache.lock().unwrap().peek(key))
             .map(Image::from_rgba8)
     }
 
@@ -221,6 +261,7 @@ impl Images {
         } else {
             self.bulk.clone()
         };
+        let decode_gate = self.decode.clone();
         self.runtime.clone().spawn(async move {
             // Another size of the same picture is here often enough to matter: the Discover panel
             // wants the poster it already shows blurred, and the details column wants the artwork
@@ -262,7 +303,7 @@ impl Images {
                     trace(format_args!("made {key}"));
                     Fetched::Ready(buffer)
                 }
-                None => fetch(&client, &key, &gate).await,
+                None => fetch(&client, &key, &gate, &decode_gate).await,
             };
             match result {
                 Fetched::Ready(buffer) => {
@@ -492,7 +533,12 @@ fn derive(cache: &Cache, key: &str) -> Option<SharedPixelBuffer<Rgba8Pixel>> {
     prepare(&source, size, blur)
 }
 
-async fn fetch(client: &reqwest::Client, key: &str, gate: &Arc<tokio::sync::Semaphore>) -> Fetched {
+async fn fetch(
+    client: &reqwest::Client,
+    key: &str,
+    gate: &Arc<tokio::sync::Semaphore>,
+    decode_gate: &Arc<tokio::sync::Semaphore>,
+) -> Fetched {
     let (url, size, blur) = source(key);
     let permit = match gate.acquire().await {
         Ok(permit) => permit,
@@ -532,6 +578,10 @@ async fn fetch(client: &reqwest::Client, key: &str, gate: &Arc<tokio::sync::Sema
     // The wire is free again as soon as the body is in; decoding happens on the blocking pool, and
     // holding the permit through it would keep the next picture waiting on the CPU instead.
     drop(permit);
+    let _decode_permit = match decode_gate.acquire().await {
+        Ok(permit) => permit,
+        Err(_) => return Fetched::Retry,
+    };
     let net = started.elapsed().as_millis();
     let length = bytes.len();
     let decoded = tokio::task::spawn_blocking(move || {
@@ -628,6 +678,22 @@ mod tests {
         // Once nothing is on screen, the oldest goes as usual.
         cache.insert("c".to_owned(), picture(), &on_nothing());
         assert!(cache.contains_key("c"));
+    }
+
+    #[test]
+    fn shrinking_wanted_trims_excess_entries_and_peek_preserves_lru_order() {
+        let mut cache = Cached::with_limit(64);
+        let both: HashSet<String> = ["a".to_owned(), "b".to_owned()].into_iter().collect();
+        cache.insert("a".to_owned(), picture(), &both);
+        cache.insert("b".to_owned(), picture(), &both);
+        // Peeking "a" must not refresh its LRU timestamp ahead of "b".
+        assert!(cache.peek("a").is_some());
+        let only_b: HashSet<String> = ["b".to_owned()].into_iter().collect();
+        let evicted = cache.trim(&only_b, None);
+        assert_eq!(evicted, vec!["a".to_owned()]);
+        assert!(!cache.contains_key("a"));
+        assert!(cache.contains_key("b"));
+        assert_eq!(cache.bytes(), 64);
     }
 
     #[test]

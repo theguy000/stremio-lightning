@@ -61,12 +61,36 @@ struct GridReport {
 fn remember_wanted(
     images: &Images,
     latest: &Mutex<Snapshot>,
+    active_screen: &Mutex<crate::app::events::ActiveScreen>,
+    board_visible: &Mutex<crate::screens::board::Viewport>,
     visible: &Mutex<(usize, usize)>,
     selected: usize,
-) {
+) -> bool {
+    let screen = *active_screen.lock().unwrap();
+    let board_view = *board_visible.lock().unwrap();
     let range = drawn_range(visible);
     let snapshot = latest.lock().unwrap();
-    images.set_wanted(crate::app::events::shown_images(&snapshot, range, selected));
+    images.set_wanted(crate::app::events::shown_images(
+        &snapshot, screen, board_view, range, selected,
+    ))
+}
+
+fn active_screen_of(window: &MainWindow) -> crate::app::events::ActiveScreen {
+    use crate::app::events::ActiveScreen;
+    if window.get_playing() {
+        return ActiveScreen::Player;
+    }
+    if window.get_details_open() {
+        return ActiveScreen::Details;
+    }
+    match window.get_section() {
+        crate::Section::Board => ActiveScreen::Board,
+        crate::Section::Discover => ActiveScreen::Discover,
+        crate::Section::Library => ActiveScreen::Library,
+        crate::Section::Calendar => ActiveScreen::Calendar,
+        crate::Section::Addons => ActiveScreen::Addons,
+        crate::Section::Settings | crate::Section::Mods => ActiveScreen::Other,
+    }
 }
 
 /// The cards the Discover grid is drawing, as the last report it sent describes them. It draws the
@@ -95,6 +119,10 @@ pub(crate) struct Wiring {
     /// The Discover cards on screen, as the first one and how many. Only these have their posters
     /// asked for; the grid reports the range again whenever it is scrolled.
     pub(crate) visible: Arc<Mutex<(usize, usize)>>,
+    /// The Board viewport reported whenever the home screen scrolls or resizes.
+    pub(crate) board_visible: Arc<Mutex<crate::screens::board::Viewport>>,
+    /// Which top-level screen or overlay currently owns the viewport.
+    pub(crate) active_screen: Arc<Mutex<crate::app::events::ActiveScreen>>,
     /// The Season the details screen's episode picker is showing, if it has been touched.
     pub(crate) season: Arc<AtomicUsize>,
     /// The Video id whose Streams the details screen is showing, if one was picked.
@@ -297,9 +325,13 @@ impl Wiring {
             &self.images,
         );
         self.remember_wanted();
+        let screen = *self.active_screen.lock().unwrap();
+        let board_view = *self.board_visible.lock().unwrap();
         let visible = *self.visible.lock().unwrap();
         let selected = self.selected.load(Ordering::Relaxed);
-        for url in crate::app::events::snapshot_images(&snapshot, visible, selected) {
+        for url in
+            crate::app::events::snapshot_images(&snapshot, screen, board_view, visible, selected)
+        {
             self.request_painting(url);
         }
     }
@@ -331,6 +363,8 @@ impl Wiring {
         *self.picked.lock().unwrap() = None;
         *self.moved.lock().unwrap() = None;
         *self.video_query.lock().unwrap() = String::new();
+        *self.active_screen.lock().unwrap() = crate::app::events::ActiveScreen::Details;
+        self.remember_wanted();
         if let Some(window) = self.window.upgrade() {
             window.set_details_has_preview(false);
             window.set_play_message("".into());
@@ -2001,12 +2035,70 @@ impl Wiring {
     /// it that is exactly what happened: a grid of blank cards after some scrolling -- and, since
     /// only the Discover grid ever said so, a board of them after a visit to Discover.
     fn remember_wanted(&self) {
-        remember_wanted(
+        if remember_wanted(
             &self.images,
             &self.latest,
+            &self.active_screen,
+            &self.board_visible,
             &self.visible,
             self.selected.load(Ordering::Relaxed),
+        ) {
+            shell::show(
+                &self.window,
+                &self.latest,
+                &self.repaint_pending,
+                &self.images,
+            );
+        }
+    }
+
+    fn section_changed(&self) {
+        let Some(window) = self.window.upgrade() else {
+            return;
+        };
+        let screen = active_screen_of(&window);
+        *self.active_screen.lock().unwrap() = screen;
+        self.remember_wanted();
+        let urls = {
+            let board_view = *self.board_visible.lock().unwrap();
+            let visible = drawn_range(&self.visible);
+            let selected = self.selected.load(Ordering::Relaxed);
+            let snapshot = self.latest.lock().unwrap();
+            crate::app::events::snapshot_images(&snapshot, screen, board_view, visible, selected)
+        };
+        for url in urls {
+            self.request_painting(url);
+        }
+        shell::show(
+            &self.window,
+            &self.latest,
+            &self.repaint_pending,
+            &self.images,
         );
+    }
+
+    fn board_visible(&self, scroll: f32, height: f32, content_width: f32, viewport_width: f32) {
+        let next = crate::screens::board::Viewport {
+            scroll,
+            height,
+            content_width,
+            viewport_width,
+        };
+        let prev = *self.board_visible.lock().unwrap();
+        let (prev_urls, next_urls) = {
+            let snapshot = self.latest.lock().unwrap();
+            (
+                crate::screens::board::visible_images(&snapshot.rows, prev),
+                crate::screens::board::visible_images(&snapshot.rows, next),
+            )
+        };
+        *self.board_visible.lock().unwrap() = next;
+        if prev_urls != next_urls {
+            self.remember_wanted();
+            for url in next_urls {
+                self.request_painting(url);
+            }
+        }
     }
 
     /// The grid moved. Its cards' posters are asked for as they come on screen -- a page of Discover
@@ -3231,6 +3323,16 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
         window.on_visible_range(move |scroll, height, pitch, columns| {
             wiring.visible_range(scroll, height, pitch, columns)
         });
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_board_visible(move |scroll, height, content_width, viewport_width| {
+            wiring.board_visible(scroll, height, content_width, viewport_width)
+        });
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_section_changed(move || wiring.section_changed());
     }
     {
         let wiring = wiring.clone();

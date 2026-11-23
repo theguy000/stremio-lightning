@@ -119,3 +119,169 @@ fn card_of_library_item(model: &AppModel, item: &LibraryItem) -> Card {
         playable: can_play(model, item),
     }
 }
+
+/// Viewport snapshot reported by `BoardContent` whenever it scrolls or resizes.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Viewport {
+    pub scroll: f32,
+    pub height: f32,
+    pub content_width: f32,
+    pub viewport_width: f32,
+}
+
+impl Default for Viewport {
+    fn default() -> Self {
+        Self {
+            scroll: 0.0,
+            height: 0.0,
+            content_width: 0.0,
+            viewport_width: 1280.0,
+        }
+    }
+}
+
+fn rem_size(viewport_width: f32) -> f32 {
+    if viewport_width > 2800.0 {
+        18.0
+    } else if viewport_width <= 1600.0 {
+        14.0
+    } else if viewport_width <= 2200.0 {
+        15.0
+    } else {
+        16.0
+    }
+}
+
+fn poster_items(viewport_width: f32) -> usize {
+    if viewport_width <= 800.0 {
+        4
+    } else if viewport_width <= 1000.0 {
+        5
+    } else if viewport_width <= 1300.0 {
+        6
+    } else if viewport_width <= 1600.0 {
+        7
+    } else if viewport_width <= 1900.0 {
+        8
+    } else if viewport_width <= 2200.0 {
+        9
+    } else {
+        10
+    }
+}
+
+/// Posters for the Board rows within the viewport (+ one row slack above and below), taking only
+/// the cards visible horizontally (`visible-items` in `ui/board.slint`).
+pub fn visible_images(rows: &[Row], viewport: Viewport) -> Vec<String> {
+    if rows.is_empty() {
+        return Vec::new();
+    }
+    let vw = if viewport.viewport_width > 0.0 {
+        viewport.viewport_width
+    } else {
+        1280.0
+    };
+    let rem = rem_size(vw);
+    let posters = poster_items(vw);
+    let visible_count = |shape: &str| {
+        if shape == "landscape" && posters < 10 {
+            posters - 1
+        } else {
+            posters
+        }
+    };
+    if viewport.height <= 0.0 || viewport.content_width <= 0.0 {
+        // Before the first layout report, keep the top screenful warm without pinning every row.
+        return rows
+            .iter()
+            .take(4)
+            .flat_map(|row| {
+                row.cards
+                    .iter()
+                    .take(visible_count(row.shape))
+                    .filter_map(|card| card.poster.clone())
+            })
+            .collect();
+    }
+    let row_width = (viewport.content_width - 2.0 * rem).max(1.0);
+    let spacing = 2.0 * rem;
+    let mut y = rem;
+    let mut out = Vec::new();
+    for row in rows {
+        let count = visible_count(row.shape);
+        let ratio = match row.shape {
+            "square" => 1.0,
+            "landscape" => 0.5625,
+            _ => 1.464,
+        };
+        let item_width = row_width / count as f32;
+        let item_height = 2.0 * rem + (item_width - 2.0 * rem).max(0.0) * ratio + 4.0 * rem;
+        let row_height = 2.75 * rem + item_height;
+        if y + row_height >= viewport.scroll - row_height
+            && y <= viewport.scroll + viewport.height + row_height
+        {
+            out.extend(
+                row.cards
+                    .iter()
+                    .take(count)
+                    .filter_map(|card| card.poster.clone()),
+            );
+        }
+        y += row_height + spacing;
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn row(id: usize) -> Row {
+        Row {
+            title: format!("Row {id}"),
+            shape: "poster",
+            cards: (0..10)
+                .map(|card| Card {
+                    id: format!("r{id}c{card}"),
+                    kind: "movie".to_owned(),
+                    title: format!("Card {card}"),
+                    poster: Some(format!("https://example.com/r{id}c{card}.jpg")),
+                    progress: 0.0,
+                    watched: false,
+                    playable: false,
+                })
+                .collect(),
+            menu: false,
+        }
+    }
+
+    #[test]
+    fn visible_images_caps_horizontally_and_drops_far_rows() {
+        let rows: Vec<Row> = (0..12).map(row).collect();
+        let at_top = visible_images(
+            &rows,
+            Viewport {
+                scroll: 0.0,
+                height: 700.0,
+                content_width: 1200.0,
+                viewport_width: 1280.0,
+            },
+        );
+        // 1280px shows 6 poster items per row; cards 6..10 are never visible.
+        assert!(at_top.contains(&"https://example.com/r0c5.jpg".to_owned()));
+        assert!(!at_top.contains(&"https://example.com/r0c6.jpg".to_owned()));
+        assert!(!at_top.contains(&"https://example.com/r10c0.jpg".to_owned()));
+
+        let scrolled = visible_images(
+            &rows,
+            Viewport {
+                scroll: 2200.0,
+                height: 700.0,
+                content_width: 1200.0,
+                viewport_width: 1280.0,
+            },
+        );
+        assert!(!scrolled.contains(&"https://example.com/r0c0.jpg".to_owned()));
+        assert!(scrolled.contains(&"https://example.com/r6c0.jpg".to_owned()));
+    }
+}

@@ -130,6 +130,8 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
     // The Discover cards on screen, until the grid says otherwise. A screenful and a bit, so the
     // first frame of a catalog is never empty while the grid works its own range out.
     let visible = Arc::new(Mutex::new((0, 24)));
+    let board_visible = Arc::new(Mutex::new(screens::board::Viewport::default()));
+    let active_screen = Arc::new(Mutex::new(app::events::ActiveScreen::Board));
     let season = Arc::new(AtomicUsize::new(screens::details::NO_SEASON));
     let picked: Arc<Mutex<Option<String>>> = Default::default();
     let video_query: Arc<Mutex<String>> = Default::default();
@@ -152,6 +154,8 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
         repaint_pending: repaint_pending.clone(),
         selected: selected.clone(),
         visible: visible.clone(),
+        board_visible: board_visible.clone(),
+        active_screen: active_screen.clone(),
         season: season.clone(),
         picked: picked.clone(),
         video_query: video_query.clone(),
@@ -251,6 +255,8 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
             repaint_pending,
             selected,
             visible,
+            board_visible,
+            active_screen,
             season,
             player_season,
             picked,

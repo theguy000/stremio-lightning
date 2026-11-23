@@ -13,7 +13,7 @@ use stremio_lightning_env::AppEnv;
 
 use super::{AppModel, AppRuntime, Snapshot};
 use crate::plumbing::images::{backdrop_key, Images};
-use crate::screens::{auth, discover, library, player, settings};
+use crate::screens::{auth, board, discover, library, player, settings};
 use crate::shell;
 use crate::MainWindow;
 
@@ -21,6 +21,21 @@ use crate::MainWindow;
 /// Both halves matter: installing an addon adds ids, and the catalog list itself arrives a beat
 /// after startup, so the count grows on its own.
 pub(crate) type BoardCatalogRange = (Vec<String>, usize);
+
+/// Which screen currently owns the viewport, so image prefetching and cache retention stay bounded
+/// to what the user is actually looking at instead of pinning every tab in RAM at once.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum ActiveScreen {
+    #[default]
+    Board,
+    Discover,
+    Library,
+    Calendar,
+    Addons,
+    Details,
+    Player,
+    Other,
+}
 
 /// Everything an event needs in order to repaint. Cloned once per event, because the stream
 /// outlives any one of them.
@@ -36,6 +51,10 @@ pub(crate) struct Context {
     /// The Discover cards on screen, as the first one and how many: the only cards whose posters
     /// are asked for. The grid reports this whenever it is scrolled.
     pub(crate) visible: Arc<Mutex<(usize, usize)>>,
+    /// The Board viewport reported whenever the home screen scrolls or resizes.
+    pub(crate) board_visible: Arc<Mutex<board::Viewport>>,
+    /// Which screen is currently visible on the window.
+    pub(crate) active_screen: Arc<Mutex<ActiveScreen>>,
     /// The Season the details screen's episode picker is showing, if it has been touched.
     pub(crate) season: Arc<AtomicUsize>,
     /// The Season the player's side drawer is showing, if it has been touched.
@@ -259,72 +278,65 @@ fn snapshot(model: &AppModel, context: &Context) -> Snapshot {
 /// Asks for every image the new snapshot needs, and says which of them the window is showing, so
 /// the cache keeps those. The cache ignores keys it has already asked for.
 fn request_images(snapshot: &Snapshot, context: &Context) {
+    let screen = *context.active_screen.lock().unwrap();
+    let board_view = *context.board_visible.lock().unwrap();
     let visible = *context.visible.lock().unwrap();
     let selected = context.selected.load(Ordering::Relaxed);
     // Said before the first request goes out, so the first picture to land is already protected
     // from the ones queued behind it.
-    context
-        .images
-        .set_wanted(shown_images(snapshot, visible, selected));
-    for url in snapshot_images(snapshot, visible, selected) {
+    if context.images.set_wanted(shown_images(
+        snapshot, screen, board_view, visible, selected,
+    )) {
+        (context.repaint)();
+    }
+    for url in snapshot_images(snapshot, screen, board_view, visible, selected) {
         let repaint = context.repaint.clone();
         context.images.request(url, move || repaint());
     }
 }
 
-/// Every image a snapshot wants on screen, or is about to want: the cards it shows, the Season of
-/// Episodes it lists, the drawer's Video pictures and the player's own logo and backdrop.
-///
-/// This is the one list, so a repaint that never touches the core (a Season switch in the details
-/// picker is exactly that) can still ask for the pictures its rows need. Waiting for the next core
-/// event instead is what made a later Season's thumbnails crawl in.
+/// Every image the active screen wants now or is about to want (such as the player drawer's other
+/// Seasons). Inactive tabs are not prefetched ahead of time, keeping memory bounded to the active
+/// screen.
 pub(crate) fn snapshot_images(
     snapshot: &Snapshot,
+    screen: ActiveScreen,
+    board_view: board::Viewport,
     visible: (usize, usize),
     selected: usize,
-) -> impl Iterator<Item = String> + '_ {
-    board_images(snapshot)
-        // Only the cards on screen: the rest of the catalog is asked for as it is scrolled to.
-        .chain(discover_images(snapshot, visible, selected))
-        .chain(library_images(snapshot))
-        .chain(details_images(snapshot))
-        .chain(addon_images(snapshot))
-        .chain(calendar_images(snapshot))
-        .chain(player_images(snapshot))
+) -> Vec<String> {
+    let mut urls = shown_images(snapshot, screen, board_view, visible, selected);
+    if snapshot.player.open || screen == ActiveScreen::Player {
         // Every Episode of every Season, so picking another Season in the drawer paints at once
         // instead of leaving its rows as empty rectangles while the pictures arrive.
-        .chain(snapshot.player.every_thumbnail.iter().cloned())
+        urls.extend(snapshot.player.every_thumbnail.iter().cloned());
+    }
+    urls
 }
 
-/// The pictures the window is showing, which are the ones the cache may not let go of: the same
-/// list as `snapshot_images` minus the pictures asked for ahead of being seen -- the rest of a
-/// Discover catalog, and the thumbnails of Seasons the drawer is not showing.
-///
-/// That difference is the whole point of it. Asking for a picture early costs a download; holding
-/// one costs a poster's worth of memory, and holding every picture ever asked for is what filled
-/// the cache with posters nobody was looking at and let go of the ones that were.
+/// The pictures the window is showing on its active screen, which are the ones the cache may not
+/// evict. Scoping this to the active screen and visible viewport keeps the 32 MB cache limit real
+/// instead of letting every tab's catalogs pin hundreds of megabytes at once.
 pub(crate) fn shown_images(
     snapshot: &Snapshot,
+    screen: ActiveScreen,
+    board_view: board::Viewport,
     visible: (usize, usize),
     selected: usize,
-) -> impl Iterator<Item = String> + '_ {
-    board_images(snapshot)
-        .chain(discover_images(snapshot, visible, selected))
-        .chain(library_images(snapshot))
-        .chain(details_images(snapshot))
-        .chain(addon_images(snapshot))
-        .chain(player_images(snapshot))
-}
-
-/// The Board's rows: Continue Watching and one row per catalog, which is what the home screen
-/// draws. Kept whatever screen is showing, because it is the one every visit back from Discover
-/// lands on and it does not grow: eight catalogs of ten cards, plus the continued titles.
-fn board_images(snapshot: &Snapshot) -> impl Iterator<Item = String> + '_ {
-    snapshot
-        .rows
-        .iter()
-        .flat_map(|row| row.cards.iter())
-        .filter_map(|card| card.poster.clone())
+) -> Vec<String> {
+    if snapshot.player.open || screen == ActiveScreen::Player {
+        return player_images(snapshot).collect();
+    }
+    match screen {
+        ActiveScreen::Board => board::visible_images(&snapshot.rows, board_view),
+        ActiveScreen::Discover => discover_images(snapshot, visible, selected).collect(),
+        ActiveScreen::Library => library_images(snapshot).collect(),
+        ActiveScreen::Calendar => calendar_images(snapshot).collect(),
+        ActiveScreen::Addons => addon_images(snapshot).collect(),
+        ActiveScreen::Details => details_images(snapshot).collect(),
+        ActiveScreen::Player => player_images(snapshot).collect(),
+        ActiveScreen::Other => Vec::new(),
+    }
 }
 
 /// A screenful of the Discover grid, and the preview panel's pictures for the card it has open.
@@ -434,7 +446,7 @@ mod tests {
     use crate::app::Snapshot;
     use crate::screens::{board, details, discover, player, Card, Preview};
 
-    use super::{shown_images, snapshot_images};
+    use super::{shown_images, snapshot_images, ActiveScreen};
 
     fn card(poster: &str) -> Card {
         Card {
@@ -486,24 +498,41 @@ mod tests {
         }
     }
 
-    fn listed(list: impl Iterator<Item = String>) -> Vec<String> {
-        list.collect()
-    }
-
     #[test]
-    fn the_board_is_shown_whatever_screen_the_window_is_on() {
-        // The board is what every visit back from Discover lands on, so it is held even while
-        // the grid is the screen on the window -- which is when it used to be let go of.
+    fn only_the_active_screen_pins_its_images() {
         let snapshot = snapshot();
-        let shown = listed(shown_images(&snapshot, (0, 2), 0));
-        assert!(shown.contains(&"https://example.com/board-1".to_owned()));
-        assert!(shown.contains(&"https://example.com/board-2".to_owned()));
+        let board_shown = shown_images(
+            &snapshot,
+            ActiveScreen::Board,
+            board::Viewport::default(),
+            (0, 2),
+            0,
+        );
+        assert!(board_shown.contains(&"https://example.com/board-1".to_owned()));
+        assert!(board_shown.contains(&"https://example.com/board-2".to_owned()));
+        assert!(!board_shown.contains(&"https://example.com/card-1".to_owned()));
+
+        let discover_shown = shown_images(
+            &snapshot,
+            ActiveScreen::Discover,
+            board::Viewport::default(),
+            (0, 2),
+            0,
+        );
+        assert!(!discover_shown.contains(&"https://example.com/board-1".to_owned()));
+        assert!(discover_shown.contains(&"https://example.com/card-1".to_owned()));
     }
 
     #[test]
     fn the_screenful_on_display_is_shown_and_the_rest_of_the_catalog_is_not() {
         let snapshot = snapshot();
-        let shown = listed(shown_images(&snapshot, (0, 2), 0));
+        let shown = shown_images(
+            &snapshot,
+            ActiveScreen::Discover,
+            board::Viewport::default(),
+            (0, 2),
+            0,
+        );
         assert!(shown.contains(&"https://example.com/card-1".to_owned()));
         assert!(shown.contains(&"https://example.com/card-2".to_owned()));
         // The card scrolled out of the range is drawn blank and filled in when it comes back.
@@ -517,11 +546,24 @@ mod tests {
     #[test]
     fn what_is_asked_for_ahead_of_being_seen_is_asked_for_but_not_held() {
         let mut snapshot = snapshot();
+        snapshot.player.open = true;
         snapshot.player.every_thumbnail = vec!["https://example.com/season-4.jpg".to_owned()];
-        assert!(listed(snapshot_images(&snapshot, (0, 3), 0))
-            .contains(&"https://example.com/season-4.jpg".to_owned()));
-        assert!(!listed(shown_images(&snapshot, (0, 3), 0))
-            .contains(&"https://example.com/season-4.jpg".to_owned()));
+        assert!(snapshot_images(
+            &snapshot,
+            ActiveScreen::Player,
+            board::Viewport::default(),
+            (0, 3),
+            0,
+        )
+        .contains(&"https://example.com/season-4.jpg".to_owned()));
+        assert!(!shown_images(
+            &snapshot,
+            ActiveScreen::Player,
+            board::Viewport::default(),
+            (0, 3),
+            0,
+        )
+        .contains(&"https://example.com/season-4.jpg".to_owned()));
     }
 
     #[test]
@@ -536,7 +578,13 @@ mod tests {
             thumbnail: Some("https://example.com/episode.jpg".to_owned()),
             ..details::Episode::default()
         }];
-        let shown = listed(shown_images(&snapshot, (0, 2), 0));
+        let shown = shown_images(
+            &snapshot,
+            ActiveScreen::Details,
+            board::Viewport::default(),
+            (0, 2),
+            0,
+        );
         assert!(shown.contains(&"https://example.com/art#logo".to_owned()));
         assert!(shown.contains(&"https://example.com/art#page".to_owned()));
         // The column's blurred backdrop is made from the page artwork, and is a key of its own.
@@ -550,7 +598,13 @@ mod tests {
             thumbnail: Some("https://example.com/drawer.jpg".to_owned()),
             ..player::Episode::default()
         }];
-        let shown = listed(shown_images(&snapshot, (0, 2), 0));
+        let shown = shown_images(
+            &snapshot,
+            ActiveScreen::Details,
+            board::Viewport::default(),
+            (0, 2),
+            0,
+        );
         assert!(!shown.contains(&"https://example.com/episode.jpg".to_owned()));
         assert!(!shown.contains(&"https://example.com/art#page".to_owned()));
         assert!(shown.contains(&"https://example.com/wide#blur".to_owned()));
