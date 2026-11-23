@@ -52,6 +52,18 @@ pub(crate) fn is_urgent(key: &str) -> bool {
     is_blurred(key) || key.ends_with(LOGO_SUFFIX) || key.ends_with(PAGE_SUFFIX)
 }
 
+pub(crate) fn logo_key(url: impl std::fmt::Display) -> String {
+    format!("{url}{LOGO_SUFFIX}")
+}
+
+pub(crate) fn blur_key(url: impl std::fmt::Display) -> String {
+    format!("{url}{BLUR_SUFFIX}")
+}
+
+pub(crate) fn page_key(url: impl std::fmt::Display) -> String {
+    format!("{url}{PAGE_SUFFIX}")
+}
+
 /// The blurred copy of a page-size artwork that the details column paints under itself.
 pub(crate) fn backdrop_key(key: &str) -> String {
     key.strip_suffix(PAGE_SUFFIX)

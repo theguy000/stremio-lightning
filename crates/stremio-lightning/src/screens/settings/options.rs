@@ -7,7 +7,7 @@
 
 use serde_json::{json, Value};
 
-use super::super::Input;
+use super::super::SelectMenu;
 
 /// What a setting's options are: text codes, or numbers.
 #[derive(Clone, Copy)]
@@ -311,9 +311,9 @@ fn current(setting: &Setting, value: &Value) -> String {
 }
 
 /// The closed label and options of the setting `key`, chosen by the value in `settings`.
-pub(crate) fn input(key: &str, settings: &Value) -> Input {
+pub(crate) fn input(key: &str, settings: &Value) -> SelectMenu {
     let Some(setting) = setting(key) else {
-        return Input::default();
+        return SelectMenu::default();
     };
     let current = current(setting, settings);
     let (labels, selected): (Vec<&str>, usize) = match setting.options {
@@ -333,7 +333,7 @@ pub(crate) fn input(key: &str, settings: &Value) -> Input {
             (pairs.iter().map(|(_, label)| *label).collect(), selected)
         }
     };
-    Input {
+    SelectMenu {
         title: labels.get(selected).copied().unwrap_or_default().to_owned(),
         selected,
         options: labels
@@ -341,7 +341,6 @@ pub(crate) fn input(key: &str, settings: &Value) -> Input {
             .enumerate()
             .map(|(index, label)| ((*label).to_owned(), index == selected))
             .collect(),
-        requests: vec![],
     }
 }
 

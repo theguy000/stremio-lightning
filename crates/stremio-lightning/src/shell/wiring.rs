@@ -1845,7 +1845,7 @@ impl Wiring {
                 .and_then(|input| {
                     usize::try_from(option)
                         .ok()
-                        .and_then(|option| input.requests.get(option))
+                        .and_then(|option| input.values.get(option))
                 })
                 .cloned()
         };
@@ -1865,7 +1865,7 @@ impl Wiring {
             let snapshot = self.latest.lock().unwrap();
             usize::try_from(option)
                 .ok()
-                .and_then(|option| snapshot.library.type_requests.get(option))
+                .and_then(|option| snapshot.library.types.values.get(option))
                 .cloned()
         };
         if let Some(request) = request {

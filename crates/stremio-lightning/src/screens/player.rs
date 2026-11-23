@@ -630,14 +630,14 @@ pub fn data(model: &AppModel, wanted_season: Option<usize>) -> Data {
             meta.preview
                 .logo
                 .as_ref()
-                .map(|url| format!("{url}{}", crate::plumbing::images::LOGO_SUFFIX))
+                .map(crate::plumbing::images::logo_key)
         }),
         background: meta.and_then(|meta| {
             meta.preview
                 .background
                 .as_ref()
                 .or(meta.preview.poster.as_ref())
-                .map(|url| format!("{url}{}", crate::plumbing::images::BLUR_SUFFIX))
+                .map(crate::plumbing::images::blur_key)
         }),
         key: format!(
             "{}|{}",

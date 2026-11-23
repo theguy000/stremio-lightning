@@ -13,7 +13,7 @@ use stremio_core::runtime::msg::{Action, ActionCtx, ActionStreamingServer};
 use stremio_core::runtime::RuntimeAction;
 use stremio_core::types::profile::{Profile, Settings as ProfileSettings};
 
-use super::{AppModel, Input};
+use super::{AppModel, SelectMenu};
 use crate::AppRuntime;
 
 mod options;
@@ -96,28 +96,28 @@ pub struct Data {
     pub logged_in: bool,
     pub trakt_authenticated: bool,
     pub streaming_server_url: String,
-    pub ui_language: Input,
+    pub ui_language: SelectMenu,
     pub quit_on_close: bool,
     pub esc_exit_fullscreen: bool,
     pub hide_spoilers: bool,
-    pub subtitles_language: Input,
-    pub subtitles_size: Input,
-    pub subtitles_text_color: Input,
-    pub subtitles_bg_color: Input,
-    pub subtitles_outline_color: Input,
-    pub audio_language: Input,
+    pub subtitles_language: SelectMenu,
+    pub subtitles_size: SelectMenu,
+    pub subtitles_text_color: SelectMenu,
+    pub subtitles_bg_color: SelectMenu,
+    pub subtitles_outline_color: SelectMenu,
+    pub audio_language: SelectMenu,
     pub surround_sound: bool,
-    pub seek_time: Input,
-    pub seek_short_time: Input,
+    pub seek_time: SelectMenu,
+    pub seek_short_time: SelectMenu,
     pub play_in_background: bool,
     pub binge_watching: bool,
-    pub next_video_duration: Input,
-    pub external_player: Input,
+    pub next_video_duration: SelectMenu,
+    pub external_player: SelectMenu,
     pub hardware_decoding: bool,
     pub pause_on_minimize: bool,
-    pub caching: Input,
-    pub torrent_profile: Input,
-    pub transcoding_profile: Input,
+    pub caching: SelectMenu,
+    pub torrent_profile: SelectMenu,
+    pub transcoding_profile: SelectMenu,
     pub player_config: PlayerConfig,
     /// Whether the Streams list wraps its descriptions.
     pub wrap_streams: bool,

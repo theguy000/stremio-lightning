@@ -211,9 +211,11 @@ fn the_grid_lists_the_whole_library_newest_watched_first() {
     );
 
     assert_eq!(data.message, "");
-    assert!(data.type_title == "All");
+    assert!(data.types.menu.title == "All");
     assert_eq!(
-        data.type_options
+        data.types
+            .menu
+            .options
             .iter()
             .map(|(label, _)| label.as_str())
             .collect::<Vec<_>>(),
@@ -271,7 +273,7 @@ fn choosing_a_type_loads_only_that_type_and_the_message_says_when_it_is_empty() 
     let request = {
         let model = runtime.model().expect("the model is readable");
         let data = screens::library::data(&model);
-        data.type_requests[2].clone()
+        data.types.values[2].clone()
     };
     runtime.dispatch(RuntimeAction {
         field: None,
@@ -280,7 +282,7 @@ fn choosing_a_type_loads_only_that_type_and_the_message_says_when_it_is_empty() 
 
     let model = runtime.model().expect("the model is readable");
     let data = screens::library::data(&model);
-    assert_eq!(data.type_title, "Series");
+    assert_eq!(data.types.menu.title, "Series");
     assert_eq!(
         data.cards
             .iter()

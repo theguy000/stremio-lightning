@@ -14,7 +14,7 @@ use stremio_core::runtime::RuntimeAction;
 use stremio_core::types::addon::{Descriptor, ResourceRequest};
 use url::Url;
 
-use super::{capitalise, AppModel, Input};
+use super::{capitalise, AppModel, SelectMenu};
 use crate::app::{AppModelField, AppRuntime};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -54,7 +54,7 @@ pub enum Choice {
 pub struct Data {
     /// The catalog menu ("Installed", then every addon catalog an installed addon declares) and
     /// the type menu ("All", "Movie", ...).
-    pub inputs: Vec<Input>,
+    pub inputs: Vec<SelectMenu>,
     /// What each option of each menu loads, menu by menu, in the menus' order.
     pub choices: Vec<Vec<Choice>>,
     pub cards: Vec<AddonCard>,
@@ -174,7 +174,7 @@ pub fn data(model: &AppModel) -> Data {
         catalog_options.push((selectable.catalog.clone(), selectable.selected));
         catalog_choices.push(Choice::Remote(selectable.request.clone()));
     }
-    let catalog = Input {
+    let catalog = SelectMenu {
         title: catalog_options
             .iter()
             .find(|(_, selected)| *selected)
@@ -184,7 +184,6 @@ pub fn data(model: &AppModel) -> Data {
             .position(|(_, selected)| *selected)
             .unwrap_or(0),
         options: catalog_options,
-        requests: vec![],
     };
 
     // Menu 1: the types of whichever list is on screen.
@@ -221,14 +220,13 @@ pub fn data(model: &AppModel) -> Data {
                 .map_or_else(|| "All".to_owned(), type_label),
         )
     };
-    let kinds = Input {
+    let kinds = SelectMenu {
         title: type_title,
         selected: type_options
             .iter()
             .position(|(_, selected)| *selected)
             .unwrap_or(0),
         options: type_options,
-        requests: vec![],
     };
 
     let loading = remote_selected

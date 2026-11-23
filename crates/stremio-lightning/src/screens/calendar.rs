@@ -170,7 +170,7 @@ fn slot_of(content: &stremio_core::models::calendar::ContentItem) -> Slot {
         label: video
             .series_info
             .as_ref()
-            .map(|info| format!("S{}E{}", info.season, info.episode))
+            .map(super::videos::episode_code)
             .unwrap_or_default(),
         poster: meta.poster.as_ref().map(|url| url.to_string()),
         thumbnail: video.thumbnail.clone(),

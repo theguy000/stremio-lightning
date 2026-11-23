@@ -10,7 +10,7 @@ mod decode;
 mod fetch;
 
 pub(crate) use cache::DecodedImage;
-pub(crate) use decode::{backdrop_key, BLUR_SUFFIX, LOGO_SUFFIX, PAGE_SUFFIX};
+pub(crate) use decode::{backdrop_key, blur_key, logo_key, page_key};
 pub(crate) use fetch::tracing;
 
 use cache::Cached;

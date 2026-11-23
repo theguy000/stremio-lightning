@@ -54,7 +54,7 @@ use crate::screens::mods::{self, ModCard};
 use crate::screens::player::Data as PlayerData;
 use crate::screens::settings::Data as SettingsData;
 use crate::screens::Preview;
-use crate::screens::{Card, Input};
+use crate::screens::{Card, SelectMenu};
 use crate::{
     AddonData, AddonPendingData, CalendarData, CalendarDay, CalendarSlot, CatalogRow, LibraryCard,
     LibrarySort, LinkGroup, MainWindow, ModCardData, ModsAboutLine, ModsLogRow, ModsNavItem,
@@ -349,12 +349,28 @@ fn sync_discover_previews(window: &MainWindow, previews: &[Preview], images: &Im
     )));
 }
 
-fn select_input_same(old: &SelectInputData, input: &Input) -> bool {
-    let selected_index = i32::try_from(input.selected).unwrap_or_default();
-    old.title.as_str() == input.title
+fn select_input_data(menu: &SelectMenu) -> SelectInputData {
+    SelectInputData {
+        title: menu.title.clone().into(),
+        selected_index: i32::try_from(menu.selected).unwrap_or(0),
+        options: ModelRc::new(VecModel::from(
+            menu.options
+                .iter()
+                .map(|(label, selected)| SelectOption {
+                    label: label.clone().into(),
+                    selected: *selected,
+                })
+                .collect::<Vec<_>>(),
+        )),
+    }
+}
+
+fn select_input_same(old: &SelectInputData, menu: &SelectMenu) -> bool {
+    let selected_index = i32::try_from(menu.selected).unwrap_or_default();
+    old.title.as_str() == menu.title
         && old.selected_index == selected_index
-        && old.options.row_count() == input.options.len()
-        && input
+        && old.options.row_count() == menu.options.len()
+        && menu
             .options
             .iter()
             .enumerate()
@@ -365,10 +381,11 @@ fn select_input_same(old: &SelectInputData, input: &Input) -> bool {
             })
 }
 
-fn sync_inputs(
+fn sync_inputs<'a>(
     existing: &ModelRc<SelectInputData>,
-    next: &[Input],
+    next: impl ExactSizeIterator<Item = &'a SelectMenu>,
 ) -> Option<ModelRc<SelectInputData>> {
+    let next: Vec<&SelectMenu> = next.collect();
     if let Some(model) = existing
         .as_any()
         .downcast_ref::<VecModel<SelectInputData>>()
@@ -376,17 +393,17 @@ fn sync_inputs(
         let old_len = model.row_count();
         let new_len = next.len();
         let common = old_len.min(new_len);
-        for (index, input) in next.iter().enumerate() {
+        for (index, menu) in next.iter().enumerate() {
             if index < common {
                 if model
                     .row_data(index)
-                    .is_some_and(|old| select_input_same(&old, input))
+                    .is_some_and(|old| select_input_same(&old, menu))
                 {
                     continue;
                 }
-                model.set_row_data(index, crate::screens::select_input_data(input.clone()));
+                model.set_row_data(index, select_input_data(menu));
             } else {
-                model.push(crate::screens::select_input_data(input.clone()));
+                model.push(select_input_data(menu));
             }
         }
         while model.row_count() > new_len {
@@ -394,7 +411,7 @@ fn sync_inputs(
         }
         return None;
     }
-    Some(inputs(next.to_vec()))
+    Some(inputs(&next))
 }
 
 pub(crate) fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
@@ -414,25 +431,21 @@ pub(crate) fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
     {
         window.set_discover_cards(replaced);
     }
-    if let Some(replaced) = sync_inputs(&window.get_discover_inputs(), &snapshot.discover.inputs) {
+    if let Some(replaced) = sync_inputs(
+        &window.get_discover_inputs(),
+        snapshot.discover.inputs.iter().map(|i| &i.menu),
+    ) {
         window.set_discover_inputs(replaced);
     }
     sync_discover_previews(window, &snapshot.discover.previews, images);
 
     let library = &snapshot.library;
-    window.set_library_type_title(library.type_title.clone().into());
-    window.set_library_type_index(
-        i32::try_from(
-            library
-                .type_options
-                .iter()
-                .position(|(_, selected)| *selected)
-                .unwrap_or(0),
-        )
-        .unwrap_or_default(),
-    );
+    window.set_library_type_title(library.types.menu.title.clone().into());
+    window.set_library_type_index(i32::try_from(library.types.menu.selected).unwrap_or_default());
     let library_types: Vec<SelectOption> = library
-        .type_options
+        .types
+        .menu
+        .options
         .iter()
         .map(|(label, selected)| SelectOption {
             label: label.clone().into(),
@@ -506,7 +519,7 @@ pub(crate) fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
         window.set_addons(replaced);
     }
     window.set_calendar(calendar_view(&snapshot.calendar, images));
-    if let Some(replaced) = sync_inputs(&window.get_addon_inputs(), &snapshot.addons.inputs) {
+    if let Some(replaced) = sync_inputs(&window.get_addon_inputs(), snapshot.addons.inputs.iter()) {
         window.set_addon_inputs(replaced);
     }
     window.set_addon_pending(addon_pending(&snapshot.addons.pending, images));
@@ -1239,44 +1252,43 @@ fn poster_data(card: &Card, images: &Images) -> PosterData {
     }
 }
 
-fn inputs(inputs: Vec<Input>) -> ModelRc<SelectInputData> {
+fn inputs(menus: &[&SelectMenu]) -> ModelRc<SelectInputData> {
     ModelRc::new(VecModel::from(
-        inputs
-            .into_iter()
-            .map(crate::screens::select_input_data)
+        menus
+            .iter()
+            .map(|menu| select_input_data(menu))
             .collect::<Vec<_>>(),
     ))
 }
 
 pub(crate) fn settings_view(data: &SettingsData) -> SettingsViewData {
-    let select = crate::screens::select_input_data;
     SettingsViewData {
         user_email: data.user_email.clone().into(),
         logged_in: data.logged_in,
         trakt_authenticated: data.trakt_authenticated,
         streaming_server_url: data.streaming_server_url.clone().into(),
-        ui_language: select(data.ui_language.clone()),
+        ui_language: select_input_data(&data.ui_language),
         quit_on_close: data.quit_on_close,
         esc_exit_fullscreen: data.esc_exit_fullscreen,
         hide_spoilers: data.hide_spoilers,
-        subtitles_language: select(data.subtitles_language.clone()),
-        subtitles_size: select(data.subtitles_size.clone()),
-        subtitles_text_color: select(data.subtitles_text_color.clone()),
-        subtitles_bg_color: select(data.subtitles_bg_color.clone()),
-        subtitles_outline_color: select(data.subtitles_outline_color.clone()),
-        audio_language: select(data.audio_language.clone()),
+        subtitles_language: select_input_data(&data.subtitles_language),
+        subtitles_size: select_input_data(&data.subtitles_size),
+        subtitles_text_color: select_input_data(&data.subtitles_text_color),
+        subtitles_bg_color: select_input_data(&data.subtitles_bg_color),
+        subtitles_outline_color: select_input_data(&data.subtitles_outline_color),
+        audio_language: select_input_data(&data.audio_language),
         surround_sound: data.surround_sound,
-        seek_time: select(data.seek_time.clone()),
-        seek_short_time: select(data.seek_short_time.clone()),
+        seek_time: select_input_data(&data.seek_time),
+        seek_short_time: select_input_data(&data.seek_short_time),
         play_in_background: data.play_in_background,
         binge_watching: data.binge_watching,
-        next_video_duration: select(data.next_video_duration.clone()),
-        external_player: select(data.external_player.clone()),
+        next_video_duration: select_input_data(&data.next_video_duration),
+        external_player: select_input_data(&data.external_player),
         hardware_decoding: data.hardware_decoding,
         pause_on_minimize: data.pause_on_minimize,
-        caching: select(data.caching.clone()),
-        torrent_profile: select(data.torrent_profile.clone()),
-        transcoding_profile: select(data.transcoding_profile.clone()),
+        caching: select_input_data(&data.caching),
+        torrent_profile: select_input_data(&data.torrent_profile),
+        transcoding_profile: select_input_data(&data.transcoding_profile),
     }
 }
 

@@ -553,7 +553,7 @@ pub fn data(
                 .preview
                 .background
                 .as_ref()
-                .map(|url| format!("{url}{}", crate::plumbing::images::PAGE_SUFFIX));
+                .map(crate::plumbing::images::page_key);
             (preview.in_library, preview.watched) =
                 crate::screens::library_state(model, &item.preview.id);
             preview
