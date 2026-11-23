@@ -3,13 +3,53 @@
 //! This is the only place in the app that knows both a screen's data and the window it lands in.
 //! It decides nothing: every value here was decided by the screen that produced it.
 
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use slint::{Model, ModelRc, SharedString, VecModel, Weak};
+use slint::{Image, Model, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel, Weak};
 
 use crate::app::Snapshot;
-use crate::plumbing::images::Images;
+use crate::plumbing::images::{DecodedImage, Images};
+
+thread_local! {
+    /// UI-thread cache from image key to `(DecodedImage::rev, slint::Image)` so unchanged frames
+    /// share the same `SharedPixelBuffer` allocation and GPU texture, while entries evicted from
+    /// `Images` are pruned immediately on `apply`.
+    static SLINT_IMAGES: RefCell<HashMap<String, (u64, Image)>> = RefCell::new(HashMap::new());
+}
+
+fn to_slint_image(decoded: &DecodedImage) -> Image {
+    Image::from_rgba8(SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(
+        decoded.as_raw(),
+        decoded.width(),
+        decoded.height(),
+    ))
+}
+
+fn slint_image(images: &Images, key: &Option<String>) -> Option<Image> {
+    let key = key.as_ref()?;
+    let decoded = images.get(&Some(key.clone()))?;
+    let rev = decoded.rev();
+    SLINT_IMAGES.with(|cell| {
+        let mut cache = cell.borrow_mut();
+        if let Some((cached_rev, img)) = cache.get(key) {
+            if *cached_rev == rev {
+                return Some(img.clone());
+            }
+        }
+        let img = to_slint_image(&decoded);
+        cache.insert(key.clone(), (rev, img.clone()));
+        Some(img)
+    })
+}
+
+fn prune_slint_images(images: &Images) {
+    SLINT_IMAGES.with(|cell| {
+        cell.borrow_mut().retain(|key, _| images.contains(key));
+    });
+}
 use crate::screens::mods::{self, ModCard};
 use crate::screens::player::Data as PlayerData;
 use crate::screens::settings::Data as SettingsData;
@@ -228,12 +268,12 @@ fn sync_board_rows(window: &MainWindow, rows: &[crate::screens::board::Row], ima
 
 fn preview_same(old: &PreviewData, preview: &Preview, images: &Images, with_images: bool) -> bool {
     let logo = if with_images {
-        images.get(&preview.logo)
+        slint_image(images, &preview.logo)
     } else {
         None
     };
     let background = if with_images {
-        images.get(&preview.background)
+        slint_image(images, &preview.background)
     } else {
         None
     };
@@ -358,6 +398,7 @@ fn sync_inputs(
 }
 
 pub(crate) fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
+    prune_slint_images(images);
     window.set_status(snapshot.status.clone().into());
     sync_board_rows(window, &snapshot.rows, images);
 
@@ -416,7 +457,7 @@ pub(crate) fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
         .cards
         .iter()
         .map(|card| {
-            let poster = images.get(&card.poster);
+            let poster = slint_image(images, &card.poster);
             LibraryCard {
                 item_id: card.id.clone().into(),
                 kind: card.kind.clone().into(),
@@ -446,7 +487,7 @@ pub(crate) fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
         crate::screens::addons::visible(&snapshot.addons.cards, &window.get_addons_query())
             .into_iter()
             .map(|card| {
-                let logo = images.get(&card.logo);
+                let logo = slint_image(images, &card.logo);
                 AddonData {
                     transport_url: card.transport_url.clone().into(),
                     name: card.name.clone().into(),
@@ -486,7 +527,7 @@ pub(crate) fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
             .background
             .as_ref()
             .map(|key| crate::plumbing::images::backdrop_key(key));
-        let backdrop = images.get(&backdrop);
+        let backdrop = slint_image(images, &backdrop);
         data.has_panel_backdrop = backdrop.is_some();
         data.panel_backdrop = backdrop.unwrap_or_default();
         window.set_details_preview(data);
@@ -561,7 +602,7 @@ pub(crate) fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
         .episodes
         .iter()
         .map(|episode| {
-            let thumbnail = images.get(&episode.thumbnail);
+            let thumbnail = slint_image(images, &episode.thumbnail);
             VideoRow {
                 id: episode.id.clone().into(),
                 title: episode.title.clone().into(),
@@ -588,12 +629,12 @@ pub(crate) fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
 /// hovered cards do not retain decoded `#logo` and `#blur` buffers inside the `VecModel`.
 fn preview_data(preview: &Preview, images: &Images, with_images: bool) -> PreviewData {
     let logo = if with_images {
-        images.get(&preview.logo)
+        slint_image(images, &preview.logo)
     } else {
         None
     };
     let background = if with_images {
-        images.get(&preview.background)
+        slint_image(images, &preview.background)
     } else {
         None
     };
@@ -639,7 +680,7 @@ fn addon_pending(
     let Some(pending) = pending else {
         return AddonPendingData::default();
     };
-    let logo = images.get(&pending.logo);
+    let logo = slint_image(images, &pending.logo);
     AddonPendingData {
         open: true,
         transport_url: pending.transport_url.clone().into(),
@@ -666,8 +707,8 @@ fn calendar_view(data: &crate::screens::calendar::Data, images: &Images) -> Cale
             day.slots
                 .iter()
                 .map(|slot| {
-                    let poster = images.get(&slot.poster);
-                    let thumbnail = images.get(&slot.thumbnail);
+                    let poster = slint_image(images, &slot.poster);
+                    let thumbnail = slint_image(images, &slot.thumbnail);
                     CalendarSlot {
                         video_id: slot.video_id.clone().into(),
                         meta_id: slot.meta_id.clone().into(),
@@ -1176,7 +1217,7 @@ fn nav_rows(data: &crate::screens::mods::Data) -> NavRows {
 }
 
 fn poster_data(card: &Card, images: &Images) -> PosterData {
-    let poster = images.get(&card.poster);
+    let poster = slint_image(images, &card.poster);
     PosterData {
         item_id: card.id.clone().into(),
         kind: card.kind.clone().into(),
@@ -1237,10 +1278,10 @@ fn player_view(window: &MainWindow, data: &PlayerData, images: &Images) {
     window.set_playing(data.open);
     window.set_player_title(data.title.clone().into());
     window.set_player_error(data.error.clone().into());
-    let logo = images.get(&data.logo);
+    let logo = slint_image(images, &data.logo);
     window.set_player_has_logo(logo.is_some());
     window.set_player_logo(logo.unwrap_or_default());
-    let backdrop = images.get(&data.background);
+    let backdrop = slint_image(images, &data.background);
     window.set_player_has_backdrop(backdrop.is_some());
     window.set_player_backdrop(backdrop.unwrap_or_default());
     window.set_player_options(ModelRc::new(VecModel::from(
@@ -1263,7 +1304,7 @@ fn player_view(window: &MainWindow, data: &PlayerData, images: &Images) {
                 watched: episode.watched,
                 progress: episode.progress as f32,
                 released: episode.released.clone().into(),
-                thumbnail: images.get(&episode.thumbnail).unwrap_or_default(),
+                thumbnail: slint_image(images, &episode.thumbnail).unwrap_or_default(),
             })
             .collect::<Vec<_>>(),
     )));
