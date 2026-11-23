@@ -22,9 +22,8 @@ debug = 0
 # scrolling). Dependencies build once and stay cached; workspace crates remain at opt-level 0.
 opt-level = 2
 
-# Decoding one 300x450 poster took ~180ms unoptimised, and a catalog's worth of them kept the CPU
-# busy for seconds while the Discover grid filled in a card at a time -- longer than the download
-# that preceded each one. The decoders are the dependencies worth optimising even in a dev build.
+# Keep the image decoders at opt-level 3 (above the opt-level 2 dev-dependency default) so decoding
+# a catalog's worth of posters stays faster than downloading them.
 [profile.dev.package.image]
 opt-level = 3
 

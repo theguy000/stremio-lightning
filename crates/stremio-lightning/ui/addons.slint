@@ -459,9 +459,21 @@ export component AddonsContent inherits Rectangle {
     property <length> watched-height: addons-list-container.height;
     property <length> watched-content: addons-list-container.content-height;
     changed watched-width => { root.report-bounds(); }
-    changed watched-height => { root.report-bounds(); }
-    changed watched-content => { root.report-bounds(); }
+    changed watched-height => {
+        root.clamp-scroll();
+        root.report-bounds();
+    }
+    changed watched-content => {
+        root.clamp-scroll();
+        root.report-bounds();
+    }
     init => { root.report-bounds(); }
+
+    function clamp-scroll() {
+        if (addons-list-container.content-y < Math.min(0px, addons-list-container.height - addons-list-container.content-height)) {
+            addons-list-container.content-y = Math.min(0px, addons-list-container.height - addons-list-container.content-height);
+        }
+    }
 
     function report-bounds() {
         root.scroll-bounds(

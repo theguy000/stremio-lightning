@@ -190,6 +190,9 @@ export component LibraryContent inherits Rectangle {
         Math.floor((-meta-items-container.content-y - root.grid-padding) / Math.max(root.row-pitch, 1px)) - 1);
     property <float> last-shown-row: Math.floor(
         (-meta-items-container.content-y + meta-items-container.height - root.grid-padding) / Math.max(root.row-pitch, 1px)) + 1;
+    /// The content height a page was last asked for at, so scrolling near the bottom fires once
+    /// per page instead of on every notch.
+    property <length> page-asked-at: -1px;
     property <length> watched-y: meta-items-container.absolute-position.y;
     property <length> watched-width: meta-items-container.width;
     property <length> watched-height: meta-items-container.height;
@@ -213,6 +216,7 @@ export component LibraryContent inherits Rectangle {
     // Web: `Library.js` returns the grid to the top when a page-1 request (a type or sort
     // change) arrives. The key changes for those requests only, not when a page is appended.
     changed grid-key => {
+        root.page-asked-at = -1px;
         if (!root.empty) {
             meta-items-container.content-y = 0px;
         }
@@ -310,8 +314,10 @@ export component LibraryContent inherits Rectangle {
             // arrives. The key changes for those requests only, not when a later page is appended.
             // Web: `useOnScrollToBottom` loads the next page 400px before the bottom.
             changed content-y => {
-                if (root.has-more && self.content-height > self.height + 400px
+                if (root.has-more && self.content-height > self.height
+                    && self.content-height != root.page-asked-at
                     && -self.content-y > self.content-height - self.height - 400px) {
+                    root.page-asked-at = self.content-height;
                     root.load-more();
                 }
             }

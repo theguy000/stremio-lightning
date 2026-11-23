@@ -32,7 +32,7 @@ pub(crate) fn show(
     pending: &Arc<AtomicBool>,
     images: &Images,
 ) {
-    if pending.swap(true, Ordering::AcqRel) {
+    if pending.swap(true, Ordering::SeqCst) {
         return;
     }
     let latest = latest.clone();
@@ -40,21 +40,116 @@ pub(crate) fn show(
     let images = images.clone();
     if weak
         .upgrade_in_event_loop(move |window| {
-            pending_run.store(false, Ordering::Release);
+            pending_run.store(false, Ordering::SeqCst);
             let snapshot = latest.lock().unwrap().clone();
             apply(&window, &snapshot, &images);
         })
         .is_err()
     {
-        pending.store(false, Ordering::Release);
+        pending.store(false, Ordering::SeqCst);
     }
 }
 
-/// Updates an existing `VecModel` in place so unchanged rows keep their Slint items instead of
-/// tearing down and rebuilding every repeater on each poster load.
-fn sync_vec_model<T: Clone + PartialEq + 'static>(
+/// Slint's `Image::default()` (`ImageInner::None`) does not compare equal to itself, so structs
+/// carrying an optional `Image` + `has_*` flag must compare loaded images only.
+fn opt_image_eq(has_a: bool, a: &slint::Image, has_b: bool, b: &slint::Image) -> bool {
+    has_a == has_b && (!has_a || a == b)
+}
+
+fn poster_same(a: &PosterData, b: &PosterData) -> bool {
+    let PosterData {
+        item_id,
+        kind,
+        title,
+        has_poster,
+        poster,
+        progress,
+        watched,
+        playable,
+    } = a;
+    item_id == &b.item_id
+        && kind == &b.kind
+        && title == &b.title
+        && opt_image_eq(*has_poster, poster, b.has_poster, &b.poster)
+        && progress == &b.progress
+        && watched == &b.watched
+        && playable == &b.playable
+}
+
+fn library_card_same(a: &LibraryCard, b: &LibraryCard) -> bool {
+    let LibraryCard {
+        item_id,
+        kind,
+        title,
+        has_poster,
+        poster,
+        shape,
+        progress,
+        watched,
+        playable,
+        new_videos,
+    } = a;
+    item_id == &b.item_id
+        && kind == &b.kind
+        && title == &b.title
+        && opt_image_eq(*has_poster, poster, b.has_poster, &b.poster)
+        && shape == &b.shape
+        && progress == &b.progress
+        && watched == &b.watched
+        && playable == &b.playable
+        && new_videos == &b.new_videos
+}
+
+fn addon_data_same(a: &AddonData, b: &AddonData) -> bool {
+    let AddonData {
+        transport_url,
+        name,
+        version,
+        types,
+        description,
+        has_logo,
+        logo,
+        installed,
+        configuration_required,
+        configurable,
+    } = a;
+    transport_url == &b.transport_url
+        && name == &b.name
+        && version == &b.version
+        && types == &b.types
+        && description == &b.description
+        && opt_image_eq(*has_logo, logo, b.has_logo, &b.logo)
+        && installed == &b.installed
+        && configuration_required == &b.configuration_required
+        && configurable == &b.configurable
+}
+
+fn video_row_same(a: &VideoRow, b: &VideoRow) -> bool {
+    let VideoRow {
+        id,
+        title,
+        released,
+        has_thumbnail,
+        thumbnail,
+        selected,
+        watched,
+        progress,
+    } = a;
+    id == &b.id
+        && title == &b.title
+        && released == &b.released
+        && opt_image_eq(*has_thumbnail, thumbnail, b.has_thumbnail, &b.thumbnail)
+        && selected == &b.selected
+        && watched == &b.watched
+        && progress == &b.progress
+}
+
+/// Updates an existing `VecModel` in place using `same` so unchanged rows keep their Slint items
+/// instead of tearing down and rebuilding every repeater on each poster load.
+fn sync_vec_model_by<T: Clone + 'static>(
     existing: &ModelRc<T>,
     next: Vec<T>,
+    same: impl Fn(&T, &T) -> bool,
 ) -> Option<ModelRc<T>> {
     if let Some(model) = existing.as_any().downcast_ref::<VecModel<T>>() {
         let old_len = model.row_count();
@@ -62,7 +157,7 @@ fn sync_vec_model<T: Clone + PartialEq + 'static>(
         let common = old_len.min(new_len);
         for (index, item) in next.into_iter().enumerate() {
             if index < common {
-                if model.row_data(index).as_ref() != Some(&item) {
+                if !model.row_data(index).is_some_and(|old| same(&old, &item)) {
                     model.set_row_data(index, item);
                 }
             } else {
@@ -75,6 +170,13 @@ fn sync_vec_model<T: Clone + PartialEq + 'static>(
         return None;
     }
     Some(ModelRc::new(VecModel::from(next)))
+}
+
+fn sync_vec_model<T: Clone + PartialEq + 'static>(
+    existing: &ModelRc<T>,
+    next: Vec<T>,
+) -> Option<ModelRc<T>> {
+    sync_vec_model_by(existing, next, |a, b| a == b)
 }
 
 fn sync_board_rows(window: &MainWindow, rows: &[crate::screens::board::Row], images: &Images) {
@@ -96,7 +198,9 @@ fn sync_board_rows(window: &MainWindow, rows: &[crate::screens::board::Row], ima
                         .iter()
                         .map(|card| poster_data(card, images))
                         .collect();
-                    if let Some(replaced) = sync_vec_model(&existing_row.cards, cards) {
+                    if let Some(replaced) =
+                        sync_vec_model_by(&existing_row.cards, cards, poster_same)
+                    {
                         existing_row.cards = replaced;
                         model.set_row_data(index, existing_row);
                     }
@@ -131,10 +235,18 @@ fn preview_same(old: &PreviewData, preview: &Preview, images: &Images) -> bool {
         && old.rating.as_str() == preview.rating
         && old.description.as_str() == preview.description
         && old.has_trailer == preview.has_trailer
-        && old.has_logo == logo.is_some()
-        && old.logo == logo.unwrap_or_default()
-        && old.has_background == background.is_some()
-        && old.background == background.unwrap_or_default()
+        && opt_image_eq(
+            old.has_logo,
+            &old.logo,
+            logo.is_some(),
+            &logo.unwrap_or_default(),
+        )
+        && opt_image_eq(
+            old.has_background,
+            &old.background,
+            background.is_some(),
+            &background.unwrap_or_default(),
+        )
         && !old.has_panel_backdrop
         && old.in_library == preview.in_library
         && old.watched == preview.watched
@@ -245,7 +357,9 @@ pub(crate) fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
         .iter()
         .map(|card| poster_data(card, images))
         .collect();
-    if let Some(replaced) = sync_vec_model(&window.get_discover_cards(), discover_cards) {
+    if let Some(replaced) =
+        sync_vec_model_by(&window.get_discover_cards(), discover_cards, poster_same)
+    {
         window.set_discover_cards(replaced);
     }
     if let Some(replaced) = sync_inputs(&window.get_discover_inputs(), &snapshot.discover.inputs) {
@@ -306,7 +420,11 @@ pub(crate) fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
             }
         })
         .collect();
-    if let Some(replaced) = sync_vec_model(&window.get_library_cards(), library_cards) {
+    if let Some(replaced) = sync_vec_model_by(
+        &window.get_library_cards(),
+        library_cards,
+        library_card_same,
+    ) {
         window.set_library_cards(replaced);
     }
     window.set_library_message(library.message.clone().into());
@@ -332,7 +450,7 @@ pub(crate) fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
                 }
             })
             .collect();
-    if let Some(replaced) = sync_vec_model(&window.get_addons(), addons) {
+    if let Some(replaced) = sync_vec_model_by(&window.get_addons(), addons, addon_data_same) {
         window.set_addons(replaced);
     }
     window.set_calendar(calendar_view(&snapshot.calendar, images));
@@ -442,7 +560,11 @@ pub(crate) fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
             }
         })
         .collect();
-    if let Some(replaced) = sync_vec_model(&window.get_details_episodes(), details_episodes) {
+    if let Some(replaced) = sync_vec_model_by(
+        &window.get_details_episodes(),
+        details_episodes,
+        video_row_same,
+    ) {
         window.set_details_episodes(replaced);
     }
 }
