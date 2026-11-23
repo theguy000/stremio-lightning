@@ -84,9 +84,6 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
     AppEnv::init(data_dir.clone(), tokio.handle().clone()).map_err(|e| e.message())?;
 
     let window = MainWindow::new()?;
-    // Before anything is painted: the window is created with no icon, and on Windows that
-    // means a blank one in the titlebar and the taskbar until this is set.
-    shell::window_icon::install(&window);
     // The app's log records, made before anything that has something to say: the theme reader,
     // this shell's own errors and the streaming server all record into it.
     let logs = Arc::new(plumbing::logs::Logs::recording_to(
@@ -159,6 +156,7 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
         repaint_pending: repaint_pending.clone(),
         selected: selected.clone(),
         visible: visible.clone(),
+        grid: Default::default(),
         board_visible: board_visible.clone(),
         active_screen: active_screen.clone(),
         season: season.clone(),
@@ -227,9 +225,10 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
             );
         });
     }
-    // The wheel is taken from the window itself: left to a Slint Flickable it costs a whole
-    // animation, and a whole animation is a core.
-    shell::wheel::wire(&window);
+    {
+        let runtime = runtime.clone();
+        shell::winit_host::install(&window, move || app::build::pull_from_api(&runtime));
+    }
     // Playback news goes to the wiring, which is the only thing that knows both mpv and the
     // core: it moves the window, tells the core where the play head is, and moves on to the
     // next Video when a stream ends.

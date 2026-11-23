@@ -9,8 +9,7 @@ pub(crate) mod auth;
 pub(crate) mod theme_apply;
 pub(crate) mod video_host;
 pub(crate) mod view;
-pub(crate) mod wheel;
-pub(crate) mod window_icon;
+pub(crate) mod winit_host;
 pub(crate) mod wiring;
 
 pub(crate) use view::show;

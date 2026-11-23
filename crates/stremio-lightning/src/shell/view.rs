@@ -762,9 +762,8 @@ fn calendar_view(data: &crate::screens::calendar::Data, images: &Images) -> Cale
 /// on their pages. What is armed for removal is the window's own state, not this snapshot's, so
 /// it is left alone here and the cards carry whatever arm the wiring last set.
 pub(crate) fn mods_view(data: &crate::screens::mods::Data) -> ModsViewData {
-    let armed = armed_card();
     let card = |kind: mods::catalogue::Kind, card: &ModCard| {
-        let armed_here = armed.as_deref() == Some(card.filename.as_str());
+        let armed_here = data.armed.as_deref() == Some(card.filename.as_str());
         let state = match kind {
             mods::catalogue::Kind::Plugin => "enabled",
             mods::catalogue::Kind::Theme => "on",
@@ -1090,25 +1089,6 @@ fn empty_settings(data: &crate::screens::mods::Data) -> String {
     } else {
         String::new()
     }
-}
-
-/// The card whose Remove button has been pressed once and waits for the second press.
-///
-/// One card at a time: pressing Remove on another card moves the arm to it, and `None` takes it
-/// back. `shell::wiring` takes it back when the page changes, another control is pressed, or five
-/// seconds pass.
-static ARMED: Mutex<Option<String>> = Mutex::new(None);
-
-/// Arms `filename`'s Remove button, or takes the arm back with `None`.
-pub(crate) fn arm(filename: Option<&str>) {
-    if let Ok(mut armed) = ARMED.lock() {
-        *armed = filename.map(str::to_owned);
-    }
-}
-
-/// The card whose Remove button is armed, if any.
-fn armed_card() -> Option<String> {
-    ARMED.lock().ok().and_then(|armed| armed.clone())
 }
 
 /// Sets every property the Mods section draws from: the page on screen, the menu with it, and the

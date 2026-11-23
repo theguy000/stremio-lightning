@@ -40,13 +40,8 @@ const SETTLE_MS: u64 = 150;
 /// it. Below this the screenful is fetched as it arrives, as a browser's `loading="lazy"` does.
 const FLYING: f32 = 1800.0;
 
-/// The grid's last report: where it is scrolled to, how tall it is, how far apart its rows are, how
-/// many columns it has, and when it said so -- the last two numbers are what tells a flick from a
-/// scroll. Kept for `fill_the_slack`, which runs after the scrolling has stopped.
-static GRID: Mutex<Option<GridReport>> = Mutex::new(None);
-
 #[derive(Clone, Copy)]
-struct GridReport {
+pub(crate) struct GridReport {
     scroll: f32,
     height: f32,
     pitch: f32,
@@ -63,11 +58,12 @@ fn remember_wanted(
     active_screen: &Mutex<crate::app::events::ActiveScreen>,
     board_visible: &Mutex<crate::screens::board::Viewport>,
     visible: &Mutex<(usize, usize)>,
+    grid: &Mutex<Option<GridReport>>,
     selected: usize,
 ) -> bool {
     let screen = *active_screen.lock().unwrap();
     let board_view = *board_visible.lock().unwrap();
-    let range = drawn_range(visible);
+    let range = drawn_range(visible, grid);
     let snapshot = latest.lock().unwrap();
     images.set_wanted(crate::app::events::shown_images(
         &snapshot, screen, board_view, range, selected,
@@ -96,9 +92,11 @@ fn active_screen_of(window: &MainWindow) -> crate::app::events::ActiveScreen {
 /// rows on screen and one either side of them, so a poster is worth keeping while its card is still
 /// drawn rather than only while it is in the viewport. Before the first report, the screenful the
 /// shell starts from.
-fn drawn_range(visible: &Mutex<(usize, usize)>) -> (usize, usize) {
-    // Read out and the lock let go of, so the two are never held at the same time.
-    let grid = *GRID.lock().unwrap();
+fn drawn_range(
+    visible: &Mutex<(usize, usize)>,
+    grid: &Mutex<Option<GridReport>>,
+) -> (usize, usize) {
+    let grid = *grid.lock().unwrap();
     match grid {
         Some(grid) => discover::settled_range(grid.scroll, grid.height, grid.pitch, grid.columns),
         None => *visible.lock().unwrap(),
@@ -118,6 +116,7 @@ pub(crate) struct Wiring {
     /// The Discover cards on screen, as the first one and how many. Only these have their posters
     /// asked for; the grid reports the range again whenever it is scrolled.
     pub(crate) visible: Arc<Mutex<(usize, usize)>>,
+    pub(crate) grid: Arc<Mutex<Option<GridReport>>>,
     /// The Board viewport reported whenever the home screen scrolls or resizes.
     pub(crate) board_visible: Arc<Mutex<crate::screens::board::Viewport>>,
     /// Which top-level screen or overlay currently owns the viewport.
@@ -2101,6 +2100,7 @@ impl Wiring {
             &self.active_screen,
             &self.board_visible,
             &self.visible,
+            &self.grid,
             self.selected.load(Ordering::Relaxed),
         ) {
             shell::show(
@@ -2121,7 +2121,7 @@ impl Wiring {
         self.remember_wanted();
         let urls = {
             let board_view = *self.board_visible.lock().unwrap();
-            let visible = drawn_range(&self.visible);
+            let visible = drawn_range(&self.visible, &self.grid);
             let selected = self.selected.load(Ordering::Relaxed);
             let snapshot = self.latest.lock().unwrap();
             crate::app::events::snapshot_images(&snapshot, screen, board_view, visible, selected)
@@ -2166,8 +2166,8 @@ impl Wiring {
     /// does. The range is kept, so a repaint for any other reason asks for the same cards.
     fn visible_range(&self, scroll: f32, height: f32, pitch: f32, columns: i32) {
         let now = std::time::Instant::now();
-        let previous = *GRID.lock().unwrap();
-        *GRID.lock().unwrap() = Some(GridReport {
+        let previous = *self.grid.lock().unwrap();
+        *self.grid.lock().unwrap() = Some(GridReport {
             scroll,
             height,
             pitch,
@@ -2225,7 +2225,7 @@ impl Wiring {
     /// Cards already asked for are dropped by the image cache, so a scroll that stopped where it was
     /// costs nothing.
     fn fill_the_slack(&self) {
-        let Some(grid) = *GRID.lock().unwrap() else {
+        let Some(grid) = *self.grid.lock().unwrap() else {
             return;
         };
         let range = discover::settled_range(grid.scroll, grid.height, grid.pitch, grid.columns);
@@ -2743,8 +2743,15 @@ impl Wiring {
         } else {
             pick
         };
+        let armed = self
+            .mods_armed
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|a| a.id.clone());
         screen
             .with_edits(pick, self.mods_edits.lock().unwrap().clone())
+            .with_armed(armed)
             .with_logs(
                 &self.logs.entries(),
                 &self.log_selection.lock().unwrap(),
@@ -2766,8 +2773,8 @@ impl Wiring {
             page,
         };
         if self.armed_mod() != Some(pressed.clone()) {
-            shell::view::arm(Some(&id));
             *self.mods_armed.lock().unwrap() = Some(pressed);
+            self.latest.lock().unwrap().mods.armed = Some(id);
             self.restart_disarm();
             self.show_mods_now();
             return;
@@ -2817,7 +2824,7 @@ impl Wiring {
     /// Takes the arm back and returns whether there was one to take back.
     fn disarm_mods(&self) -> bool {
         let had = self.mods_armed.lock().unwrap().take().is_some();
-        shell::view::arm(None);
+        self.latest.lock().unwrap().mods.armed = None;
         if had {
             self.mods_disarm.stop();
         }
@@ -2850,7 +2857,9 @@ impl Wiring {
                 }
                 // The outline on the card is part of what the window draws, so the arm going away
                 // is a repaint, not just a change of state the next press would reveal.
-                shell::view::arm(None);
+                if let Ok(mut snap) = latest.lock() {
+                    snap.mods.armed = None;
+                }
                 shell::show(&window, &latest, &pending, &images);
             },
         );
@@ -3154,20 +3163,6 @@ pub(crate) fn start_player_sync(wiring: &Wiring) {
 /// clicked, do it, and let the window catch up.
 pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
     start_player_sync(&wiring);
-    {
-        // Web: `src/App/App.js` re-reads the account on mount and on every window focus, which
-        // is how a mark made in the browser reaches another client. Slint's `Window` has no focus
-        // flag, so the shell asks the platform, and only the rising edge pulls.
-        let wiring = wiring.clone();
-        let mut was_focused = false;
-        window.on_check_focus(move || {
-            let focused = window_is_in_front();
-            if focused && !was_focused {
-                crate::app::build::pull_from_api(&wiring.runtime);
-            }
-            was_focused = focused;
-        });
-    }
     {
         let wiring = wiring.clone();
         window.on_player_back(move || wiring.player_back());
@@ -3739,29 +3734,6 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
         window.on_auth_forgot_password(move |email| wiring.forgot_password(email.to_string()));
     }
     window.on_auth_dismissed(move || wiring.dismiss_sign_in());
-}
-
-/// Whether this process owns the window in front of the user. On Windows that is
-/// `GetForegroundWindow` and the id of the process that made it; everywhere else there is no
-/// cheap answer, so the app treats itself as in front and leaves the pulls to startup.
-fn window_is_in_front() -> bool {
-    #[cfg(windows)]
-    {
-        use windows::Win32::UI::WindowsAndMessaging::{
-            GetForegroundWindow, GetWindowThreadProcessId,
-        };
-        let front = unsafe { GetForegroundWindow() };
-        if front.0.is_null() {
-            return false;
-        }
-        let mut pid = 0u32;
-        unsafe { GetWindowThreadProcessId(front, Some(&mut pid)) };
-        pid == std::process::id()
-    }
-    #[cfg(not(windows))]
-    {
-        true
-    }
 }
 
 fn compute_skip_marks(

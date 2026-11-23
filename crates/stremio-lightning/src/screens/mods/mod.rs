@@ -76,6 +76,7 @@ pub struct Data {
     pub page: String,
     pub menu: Vec<NavItem>,
     pub notice: Notice,
+    pub armed: Option<String>,
     pub plugins: Vec<ModCard>,
     pub themes: Vec<ModCard>,
     pub themes_note: String,
@@ -93,6 +94,7 @@ impl Data {
             page: Page::default().id().to_owned(),
             menu: menu(Page::default()),
             notice: Notice::default(),
+            armed: None,
             plugins: Vec::new(),
             themes: Vec::new(),
             themes_note: catalogue::NONE_ON.to_owned(),
@@ -138,6 +140,12 @@ impl Data {
 
     pub fn with_notice(mut self, notice: Notice) -> Self {
         self.notice = notice;
+        self
+    }
+
+    #[must_use]
+    pub fn with_armed(mut self, armed: Option<String>) -> Self {
+        self.armed = armed;
         self
     }
 }

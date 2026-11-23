@@ -228,6 +228,7 @@ fn handle(event: RuntimeEvent<AppEnv, AppModel>, context: &Context) {
                 &context.mods_page.lock().unwrap(),
             ))
             .with_notice(slot.mods.notice.clone())
+            .with_armed(slot.mods.armed.clone())
             .with_logs(&entries, &sel, armed);
         *slot = snapshot.clone();
     }
