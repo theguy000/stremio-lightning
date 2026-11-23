@@ -21,12 +21,12 @@ use crate::app::{AppModel, AppModelField, AppRuntime, Snapshot};
 use crate::plumbing::clipboard;
 use crate::plumbing::images::Images;
 use crate::plumbing::links;
-use crate::plumbing::player::VideoPlayer;
 use crate::plumbing::skip;
 use crate::plumbing::stream_server::{self, Supervisor};
 use crate::screens::player::{auto_subtitle, SubtitleChoice, SubtitleTrackFacts};
 use crate::screens::{addons, auth, calendar, details, discover, mods, player, settings};
 use crate::shell;
+use crate::shell::video_host::VideoPlayer;
 use crate::MainWindow;
 
 /// How long the Discover grid has to keep still before the posters for what is on screen are
@@ -2975,7 +2975,7 @@ pub(crate) fn start_player_sync(wiring: &Wiring) {
                 *attempted.lock().unwrap() = None;
                 return;
             }
-            if !crate::plumbing::player::should_open(
+            if !should_open(
                 &data.key,
                 &loaded.lock().unwrap(),
                 attempted.lock().unwrap().as_deref(),
@@ -3910,6 +3910,11 @@ fn parse_clock(text: &str) -> Option<f64> {
         parts += 1;
     }
     (1..=3).contains(&parts).then_some(seconds)
+}
+
+/// Whether a stream still needs handing to mpv (skips already-open or already-refused keys).
+fn should_open(key: &str, loaded: &str, attempted: Option<&str>) -> bool {
+    key != loaded && Some(key) != attempted
 }
 
 fn skip_kind_short(kind: skip::Kind) -> &'static str {

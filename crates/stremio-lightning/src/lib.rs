@@ -96,7 +96,7 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
     // nothing until someone picks it. What a theme says that the app cannot use is recorded here,
     // which is what puts it on the Logs page as well as on its card.
     shell::theme_apply::apply_and_record(&window, &data_dir, &logs);
-    let video = plumbing::player::VideoPlayer::install(&window, logs.clone());
+    let video = shell::video_host::VideoPlayer::install(&window, logs.clone());
 
     let server = Arc::new(plumbing::stream_server::Supervisor::new(
         &plumbing::stream_server::bundle_dir(),

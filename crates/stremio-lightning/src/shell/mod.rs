@@ -6,6 +6,7 @@
 //! it in.
 
 pub(crate) mod theme_apply;
+pub(crate) mod video_host;
 pub(crate) mod view;
 pub(crate) mod wheel;
 pub(crate) mod window_icon;

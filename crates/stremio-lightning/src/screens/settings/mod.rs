@@ -20,32 +20,7 @@ mod options;
 
 pub(crate) use options::TOGGLES;
 
-/// The settings the player itself needs, pulled out of the profile so mpv does not have to read
-/// JSON.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct PlayerConfig {
-    pub hardware_decoding: bool,
-    pub subtitles_size: u32,
-    pub subtitles_language: String,
-    pub subtitles_text_color: String,
-    pub subtitles_background_color: String,
-    pub subtitles_outline_color: String,
-    pub audio_language: String,
-}
-
-impl Default for PlayerConfig {
-    fn default() -> Self {
-        Self {
-            hardware_decoding: true,
-            subtitles_size: 100,
-            subtitles_language: "eng".to_owned(),
-            subtitles_text_color: "#FFFFFFFF".to_owned(),
-            subtitles_background_color: "#00000000".to_owned(),
-            subtitles_outline_color: "#FF000000".to_owned(),
-            audio_language: "eng".to_owned(),
-        }
-    }
-}
+pub use crate::plumbing::player::PlayerConfig;
 
 /// Settings this shell keeps beside the profile: values that stremio-web stores but the core's
 /// `Profile` does not carry. They are written next to the app's data, not into the profile, and
