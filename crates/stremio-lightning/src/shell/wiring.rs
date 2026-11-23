@@ -267,8 +267,7 @@ struct ActionTarget {
 impl Wiring {
     /// Repaints with the snapshot the last event produced.
     fn repaint(&self) {
-        let snapshot = self.latest.lock().unwrap().clone();
-        shell::show(&self.window, snapshot, &self.images);
+        shell::show(&self.window, &self.latest, &self.images);
         self.remember_wanted();
     }
 
@@ -285,7 +284,7 @@ impl Wiring {
         if let Some(window) = self.window.upgrade() {
             shell::view::show_mods(&window, &snapshot.mods);
         }
-        shell::show(&self.window, snapshot.clone(), &self.images);
+        shell::show(&self.window, &self.latest, &self.images);
         self.remember_wanted();
         let visible = *self.visible.lock().unwrap();
         let selected = self.selected.load(Ordering::Relaxed);
@@ -307,11 +306,7 @@ impl Wiring {
             self.images.clone(),
         );
         self.images.request(url, move || {
-            let snapshot = latest.lock().unwrap().clone();
-            let images = images.clone();
-            let _ = window.upgrade_in_event_loop(move |window| {
-                crate::shell::view::apply(&window, &snapshot, &images);
-            });
+            shell::show(&window, &latest, &images);
         });
     }
 
@@ -1682,8 +1677,8 @@ impl Wiring {
             let mut snapshot = self.latest.lock().unwrap().clone();
             snapshot.player = player::data(&model, Some(index));
             drop(model);
-            *self.latest.lock().unwrap() = snapshot.clone();
-            shell::show(&self.window, snapshot, &self.images);
+            *self.latest.lock().unwrap() = snapshot;
+            shell::show(&self.window, &self.latest, &self.images);
         }
     }
 
@@ -1906,15 +1901,15 @@ impl Wiring {
         self.selected.store(index, Ordering::Relaxed);
         // The panel's pictures are on screen now, and the ones it had are not.
         self.remember_wanted();
-        let snapshot = self.latest.lock().unwrap().clone();
+        let discover = self.latest.lock().unwrap().discover.clone();
         // Paint the panel now: its title, rating, genres and the rest are already in this snapshot,
         // and the pictures are baked into what is painted. Waiting for a picture to arrive before
         // repainting was the whole of why a click could open a blank panel -- a card whose pictures
         // had already been fetched on hover never repainted at all, because the request for them is
         // deduped and nothing ever fired, and a card whose pictures had not been fetched opened
         // blank until the last of them landed.
-        shell::show(&self.window, snapshot.clone(), &self.images);
-        for url in discover::preview_images(&snapshot.discover, index) {
+        shell::show(&self.window, &self.latest, &self.images);
+        for url in discover::preview_images(&discover, index) {
             self.request_painting(url);
         }
     }
@@ -2592,8 +2587,7 @@ impl Wiring {
                 // The outline on the card is part of what the window draws, so the arm going away
                 // is a repaint, not just a change of state the next press would reveal.
                 shell::view::arm(None);
-                let snapshot = latest.lock().unwrap().clone();
-                shell::show(&window, snapshot, &images);
+                shell::show(&window, &latest, &images);
             },
         );
     }

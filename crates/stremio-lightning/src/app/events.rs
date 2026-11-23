@@ -192,9 +192,22 @@ fn handle(event: RuntimeEvent<AppEnv, AppModel>, context: &Context) {
         }
     }
 
-    *context.latest.lock().unwrap() = snapshot.clone();
+    {
+        let armed = *context.mods_clearing.lock().unwrap();
+        let mut slot = context.latest.lock().unwrap();
+        // Re-read live Mods state under `latest` so a core snapshot built concurrently with a UI
+        // press cannot roll back the active page, notice, or log selection.
+        snapshot.mods = snapshot
+            .mods
+            .with_page(crate::screens::mods::Page::from_id(
+                &context.mods_page.lock().unwrap(),
+            ))
+            .with_notice(slot.mods.notice.clone())
+            .with_logs(&context.logs, armed);
+        *slot = snapshot.clone();
+    }
     request_images(&snapshot, context);
-    shell::show(&context.weak, snapshot, &context.images);
+    shell::show(&context.weak, &context.latest, &context.images);
 }
 
 /// Rebuilds everything the window shows from the model.
@@ -225,21 +238,10 @@ fn snapshot(model: &AppModel, context: &Context) -> Snapshot {
         ),
         settings: settings::data(model, &context.extras()),
         mods: crate::screens::mods::data(&context.data_dir)
-            .with_page(crate::screens::mods::Page::from_id(
-                &context.mods_page.lock().unwrap(),
-            ))
             .with_edits(
                 context.mods_plugin.lock().unwrap().clone(),
                 context.mods_edits.lock().unwrap().clone(),
             )
-            // The line about the last action belongs to the section, not to the folders: it is read
-            // back with the rest so a core event -- a library update, a catalog arriving -- does
-            // not take the answer to a press off the screen before it was read.
-            .with_notice(context.latest.lock().unwrap().mods.notice.clone())
-            // The rest of the section: the Logs page's rows from the app's one recorder, the
-            // About page's counts, and the diagnostics path the window holds. Without these a core
-            // event would draw both pages empty.
-            .with_logs(&context.logs, *context.mods_clearing.lock().unwrap())
             .with_about(
                 &context.local_extras.lock().unwrap().clone(),
                 context.mods_export.lock().unwrap().as_ref(),
