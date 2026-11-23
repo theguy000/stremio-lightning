@@ -1,9 +1,16 @@
-//! The shell: what the window itself owns, how a snapshot becomes window content, and the wiring
-//! that turns a click into an action.
-//!
-//! The shell owns three things no screen may touch: which screen is showing, which overlay is
-//! open, and whether video is playing. Everything else a screen describes, and the shell copies
-//! it in.
+//! The desktop shell: the sole Slint/winit/mpv adapter attached to a Slint-free `Arc<App>`.
+
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::{Rc, Weak as RcWeak};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
+
+use slint::ComponentHandle;
+
+use crate::app::{App, AppNotice};
+use crate::plumbing::stream_server::Supervisor;
+use crate::MainWindow;
 
 pub(crate) mod auth;
 pub(crate) mod theme_apply;
@@ -12,5 +19,122 @@ pub(crate) mod view;
 pub(crate) mod winit_host;
 pub(crate) mod wiring;
 
-pub(crate) use view::show;
-pub(crate) use wiring::wire;
+static NEXT_SHELL_ID: AtomicU64 = AtomicU64::new(1);
+
+thread_local! {
+    /// UI-thread weak registry for attached shells so cross-thread `AppNotice::PlayerStreamChanged`
+    /// notifications can dispatch directly to UI-thread-only `VideoPlayer` / `Wiring` handles with
+    /// zero polling timers and automatic cleanup when a `MainWindow` drops.
+    static ATTACHED: RefCell<HashMap<u64, RcWeak<wiring::Wiring>>> = RefCell::new(HashMap::new());
+}
+
+fn register_shell(wiring: &Rc<wiring::Wiring>) -> u64 {
+    let id = NEXT_SHELL_ID.fetch_add(1, Ordering::Relaxed);
+    ATTACHED.with(|map| {
+        let mut map = map.borrow_mut();
+        map.retain(|_, weak| weak.strong_count() > 0);
+        map.insert(id, Rc::downgrade(wiring));
+    });
+    id
+}
+
+fn dispatch_player_sync(id: u64) {
+    let target = ATTACHED.with(|map| {
+        let mut map = map.borrow_mut();
+        let live = map.get(&id).and_then(RcWeak::upgrade);
+        if live.is_none() {
+            map.remove(&id);
+        }
+        live
+    });
+    if let Some(wiring) = target {
+        wiring.sync_player_stream();
+    }
+}
+
+/// Attaches the desktop window, winit host, themes, video host, stream server, and callbacks to
+/// `app`, wiring `AppNotice` push notifications so zero polling timers are needed.
+pub(crate) fn attach(window: &MainWindow, app: Arc<App>, tokio: tokio::runtime::Handle) {
+    theme_apply::apply_and_record(window, app.data_dir(), app.logs());
+    let video = video_host::VideoPlayer::install(window, app.logs().clone());
+    let server = Arc::new(Supervisor::new(
+        &crate::plumbing::stream_server::bundle_dir(),
+        app.data_dir(),
+        app.logs().clone(),
+    ));
+
+    let wiring = Rc::new(wiring::Wiring::new(
+        window.as_weak(),
+        app.clone(),
+        video.clone(),
+        server.clone(),
+        tokio,
+    ));
+    let shell_id = register_shell(&wiring);
+    wiring::wire(window, (*wiring).clone());
+
+    {
+        let weak = window.as_weak();
+        let app_obs = app.clone();
+        let sync_pending = Arc::new(AtomicBool::new(false));
+        app.set_observer(move |notice| match notice {
+            AppNotice::Dirty => {
+                let app_run = app_obs.clone();
+                let _ = weak.upgrade_in_event_loop(move |window| {
+                    view::apply_dirty(&window, &app_run);
+                });
+            }
+            AppNotice::PlayerStreamChanged => {
+                if sync_pending.swap(true, Ordering::SeqCst) {
+                    return;
+                }
+                let flag = sync_pending.clone();
+                if weak
+                    .upgrade_in_event_loop(move |_| {
+                        flag.store(false, Ordering::SeqCst);
+                        dispatch_player_sync(shell_id);
+                    })
+                    .is_err()
+                {
+                    sync_pending.store(false, Ordering::SeqCst);
+                }
+            }
+            AppNotice::AuthSucceeded => {
+                let _ = weak.upgrade_in_event_loop(|window| {
+                    auth::clear_progress(&window);
+                    window.set_auth_error("".into());
+                    window.set_auth_open(false);
+                });
+            }
+            AppNotice::AuthFailed(message) => {
+                let _ = weak.upgrade_in_event_loop(move |window| {
+                    auth::clear_progress(&window);
+                    if let Some(message) = message {
+                        window.set_auth_error(message.into());
+                    }
+                });
+            }
+        });
+    }
+
+    {
+        let app_focus = app.clone();
+        winit_host::install(window, move || app_focus.sync_account());
+    }
+    {
+        // Keep `Rc<Wiring>` alive inside the window-owned `VideoPlayer` listener so the
+        // `ATTACHED` weak entry stays valid for the exact lifetime of `window`.
+        let wiring_vid = Rc::clone(&wiring);
+        video.listen(move |status| wiring_vid.playback_changed(status));
+    }
+
+    let initial_settings = app.settings().view();
+    video.apply_settings(&initial_settings.player_config);
+    window.set_settings(view::settings_view(&initial_settings));
+    window.set_details_wrap_streams(initial_settings.wrap_streams);
+    window.set_app_version(env!("CARGO_PKG_VERSION").into());
+    window.set_build_version(option_env!("GITHUB_SHA").unwrap_or("dev").into());
+
+    wiring.report_server_state(server.start());
+    wiring.init_mods();
+}

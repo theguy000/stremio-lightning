@@ -5,12 +5,10 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
 
-use slint::{Image, Model, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel, Weak};
+use slint::{Image, Model, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel};
 
-use crate::app::Snapshot;
+use crate::app::{App, ScreenMask, Snapshot};
 use crate::plumbing::images::{DecodedImage, Images};
 
 thread_local! {
@@ -63,31 +61,15 @@ use crate::{
     StreamData, VideoRow,
 };
 
-/// Copies the latest snapshot onto the window on the UI thread, coalescing bursts of repaints
-/// (such as posters finishing in parallel) into one pass and reading `latest` on the UI thread so
-/// an already-queued repaint cannot roll back a newer synchronous UI update.
-pub(crate) fn show(
-    weak: &Weak<MainWindow>,
-    latest: &Arc<Mutex<Snapshot>>,
-    pending: &Arc<AtomicBool>,
-    images: &Images,
-) {
-    if pending.swap(true, Ordering::SeqCst) {
+/// Drains `app`'s pending dirty `ScreenMask` on the UI thread and projects only the changed
+/// screen slices onto `window`, cloning only `Arc` handles from `Snapshot`.
+pub(crate) fn apply_dirty(window: &MainWindow, app: &App) {
+    let mask = app.take_dirty();
+    if mask.is_empty() {
         return;
     }
-    let latest = latest.clone();
-    let pending_run = pending.clone();
-    let images = images.clone();
-    if weak
-        .upgrade_in_event_loop(move |window| {
-            pending_run.store(false, Ordering::SeqCst);
-            let snapshot = latest.lock().unwrap().clone();
-            apply(&window, &snapshot, &images);
-        })
-        .is_err()
-    {
-        pending.store(false, Ordering::SeqCst);
-    }
+    let snapshot = app.snapshot();
+    apply_mask(window, &snapshot, mask, app.images());
 }
 
 /// Slint's `Image::default()` (`ImageInner::None`) does not compare equal to itself, so structs
@@ -414,229 +396,261 @@ fn sync_inputs<'a>(
     Some(inputs(&next))
 }
 
-pub(crate) fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
+pub(crate) fn apply_mask(
+    window: &MainWindow,
+    snapshot: &Snapshot,
+    mask: ScreenMask,
+    images: &Images,
+) {
     prune_slint_images(images);
-    window.set_status(snapshot.status.clone().into());
-    sync_board_rows(window, &snapshot.rows, images);
 
-    window.set_discover_shape(snapshot.discover.shape.into());
-    let discover_cards: Vec<PosterData> = snapshot
-        .discover
-        .cards
-        .iter()
-        .map(|card| poster_data(card, images))
-        .collect();
-    if let Some(replaced) =
-        sync_vec_model_by(&window.get_discover_cards(), discover_cards, poster_same)
-    {
-        window.set_discover_cards(replaced);
+    if mask.contains(ScreenMask::BOARD) {
+        window.set_status(snapshot.board.status.clone().into());
+        sync_board_rows(window, &snapshot.board.rows, images);
     }
-    if let Some(replaced) = sync_inputs(
-        &window.get_discover_inputs(),
-        snapshot.discover.inputs.iter().map(|i| &i.menu),
-    ) {
-        window.set_discover_inputs(replaced);
-    }
-    sync_discover_previews(window, &snapshot.discover.previews, images);
 
-    let library = &snapshot.library;
-    window.set_library_type_title(library.types.menu.title.clone().into());
-    window.set_library_type_index(i32::try_from(library.types.menu.selected).unwrap_or_default());
-    let library_types: Vec<SelectOption> = library
-        .types
-        .menu
-        .options
-        .iter()
-        .map(|(label, selected)| SelectOption {
-            label: label.clone().into(),
-            selected: *selected,
-        })
-        .collect();
-    if let Some(replaced) = sync_vec_model(&window.get_library_types(), library_types) {
-        window.set_library_types(replaced);
+    if mask.contains(ScreenMask::DISCOVER) {
+        window.set_discover_shape(snapshot.discover.shape.into());
+        let discover_cards: Vec<PosterData> = snapshot
+            .discover
+            .cards
+            .iter()
+            .map(|card| poster_data(card, images))
+            .collect();
+        if let Some(replaced) =
+            sync_vec_model_by(&window.get_discover_cards(), discover_cards, poster_same)
+        {
+            window.set_discover_cards(replaced);
+        }
+        if let Some(replaced) = sync_inputs(
+            &window.get_discover_inputs(),
+            snapshot.discover.inputs.iter().map(|i| &i.menu),
+        ) {
+            window.set_discover_inputs(replaced);
+        }
+        sync_discover_previews(window, &snapshot.discover.previews, images);
     }
-    let library_sorts: Vec<LibrarySort> = library
-        .sorts
-        .iter()
-        .map(|sort| LibrarySort {
-            label: sort.label.clone().into(),
-            selected: sort.selected,
-        })
-        .collect();
-    if let Some(replaced) = sync_vec_model(&window.get_library_sorts(), library_sorts) {
-        window.set_library_sorts(replaced);
-    }
-    let library_cards: Vec<LibraryCard> = library
-        .cards
-        .iter()
-        .map(|card| {
-            let poster = slint_image(images, &card.poster);
-            LibraryCard {
-                item_id: card.id.clone().into(),
-                kind: card.kind.clone().into(),
-                title: card.title.clone().into(),
-                has_poster: poster.is_some(),
-                poster: poster.unwrap_or_default(),
-                shape: card.shape.into(),
-                progress: card.progress as f32,
-                watched: card.watched,
-                playable: card.playable,
-                new_videos: i32::try_from(card.new_videos).unwrap_or(i32::MAX),
-            }
-        })
-        .collect();
-    if let Some(replaced) = sync_vec_model_by(
-        &window.get_library_cards(),
-        library_cards,
-        library_card_same,
-    ) {
-        window.set_library_cards(replaced);
-    }
-    window.set_library_message(library.message.clone().into());
-    window.set_library_has_more(library.has_more);
-    window.set_library_grid_key(library.grid_key.clone().into());
 
-    let addons: Vec<AddonData> =
-        crate::screens::addons::visible(&snapshot.addons.cards, &window.get_addons_query())
-            .into_iter()
+    if mask.contains(ScreenMask::LIBRARY) {
+        let library = &snapshot.library;
+        window.set_library_type_title(library.types.menu.title.clone().into());
+        window
+            .set_library_type_index(i32::try_from(library.types.menu.selected).unwrap_or_default());
+        let library_types: Vec<SelectOption> = library
+            .types
+            .menu
+            .options
+            .iter()
+            .map(|(label, selected)| SelectOption {
+                label: label.clone().into(),
+                selected: *selected,
+            })
+            .collect();
+        if let Some(replaced) = sync_vec_model(&window.get_library_types(), library_types) {
+            window.set_library_types(replaced);
+        }
+        let library_sorts: Vec<LibrarySort> = library
+            .sorts
+            .iter()
+            .map(|sort| LibrarySort {
+                label: sort.label.clone().into(),
+                selected: sort.selected,
+            })
+            .collect();
+        if let Some(replaced) = sync_vec_model(&window.get_library_sorts(), library_sorts) {
+            window.set_library_sorts(replaced);
+        }
+        let library_cards: Vec<LibraryCard> = library
+            .cards
+            .iter()
             .map(|card| {
-                let logo = slint_image(images, &card.logo);
-                AddonData {
-                    transport_url: card.transport_url.clone().into(),
-                    name: card.name.clone().into(),
-                    version: card.version.clone().into(),
-                    types: card.types.clone().into(),
-                    description: card.description.clone().into(),
-                    has_logo: logo.is_some(),
-                    logo: logo.unwrap_or_default(),
-                    installed: card.installed,
-                    configuration_required: card.configuration_required,
-                    configurable: card.configurable,
+                let poster = slint_image(images, &card.poster);
+                LibraryCard {
+                    item_id: card.id.clone().into(),
+                    kind: card.kind.clone().into(),
+                    title: card.title.clone().into(),
+                    has_poster: poster.is_some(),
+                    poster: poster.unwrap_or_default(),
+                    shape: card.shape.into(),
+                    progress: card.progress as f32,
+                    watched: card.watched,
+                    playable: card.playable,
+                    new_videos: i32::try_from(card.new_videos).unwrap_or(i32::MAX),
                 }
             })
             .collect();
-    if let Some(replaced) = sync_vec_model_by(&window.get_addons(), addons, addon_data_same) {
-        window.set_addons(replaced);
+        if let Some(replaced) = sync_vec_model_by(
+            &window.get_library_cards(),
+            library_cards,
+            library_card_same,
+        ) {
+            window.set_library_cards(replaced);
+        }
+        window.set_library_message(library.message.clone().into());
+        window.set_library_has_more(library.has_more);
+        window.set_library_grid_key(library.grid_key.clone().into());
     }
-    window.set_calendar(calendar_view(&snapshot.calendar, images));
-    if let Some(replaced) = sync_inputs(
-        &window.get_addon_inputs(),
-        snapshot.addons.inputs.iter().map(|i| &i.menu),
-    ) {
-        window.set_addon_inputs(replaced);
-    }
-    window.set_addon_pending(addon_pending(&snapshot.addons.pending, images));
-    window.set_addons_message(snapshot.addons.message.clone().into());
 
-    window.set_settings(settings_view(&snapshot.settings));
-    show_mods(window, &snapshot.mods);
-    player_view(window, &snapshot.player, images);
-
-    let details = &snapshot.details;
-    window.set_details_has_preview(details.preview.is_some());
-    if let Some(preview) = &details.preview {
-        let mut data = preview_data(preview, images, true);
-        // Web: the column on the right has `backdrop-filter: blur(15px)`, so it paints the artwork
-        // behind it blurred under its own 0.4 wash. Slint has no backdrop filter; the column draws
-        // this copy instead, lined up with the page's layer.
-        let backdrop = preview
-            .background
-            .as_ref()
-            .map(|key| crate::plumbing::images::backdrop_key(key));
-        let backdrop = slint_image(images, &backdrop);
-        data.has_panel_backdrop = backdrop.is_some();
-        data.panel_backdrop = backdrop.unwrap_or_default();
-        window.set_details_preview(data);
-    } else {
-        window.set_details_preview(PreviewData::default());
+    if mask.contains(ScreenMask::ADDONS) {
+        let addons: Vec<AddonData> =
+            crate::screens::addons::visible(&snapshot.addons.cards, &window.get_addons_query())
+                .into_iter()
+                .map(|card| {
+                    let logo = slint_image(images, &card.logo);
+                    AddonData {
+                        transport_url: card.transport_url.clone().into(),
+                        name: card.name.clone().into(),
+                        version: card.version.clone().into(),
+                        types: card.types.clone().into(),
+                        description: card.description.clone().into(),
+                        has_logo: logo.is_some(),
+                        logo: logo.unwrap_or_default(),
+                        installed: card.installed,
+                        configuration_required: card.configuration_required,
+                        configurable: card.configurable,
+                    }
+                })
+                .collect();
+        if let Some(replaced) = sync_vec_model_by(&window.get_addons(), addons, addon_data_same) {
+            window.set_addons(replaced);
+        }
+        if let Some(replaced) = sync_inputs(
+            &window.get_addon_inputs(),
+            snapshot.addons.inputs.iter().map(|i| &i.menu),
+        ) {
+            window.set_addon_inputs(replaced);
+        }
+        window.set_addon_pending(addon_pending(&snapshot.addons.pending, images));
+        window.set_addons_message(snapshot.addons.message.clone().into());
     }
-    let streams: Vec<StreamData> = details
-        .streams
-        .iter()
-        .map(|source| StreamData {
-            name: source.name.clone().into(),
-            description: source.description.clone().into(),
-            addon: source.addon.clone().into(),
-        })
-        .collect();
-    if let Some(replaced) = sync_vec_model(&window.get_streams(), streams) {
-        window.set_streams(replaced);
-    }
-    window.set_streams_loading(i32::try_from(details.sources_loading).unwrap_or_default());
-    window.set_details_waits_for_streams(details.waits_for_streams);
 
-    window.set_details_rate_visible(details.rating_known);
-    window.set_details_rate_enabled(details.rating_ready);
-    window.set_details_rated_liked(
-        details.rating == Some(stremio_core::types::rating::Rating::Liked),
-    );
-    window.set_details_rated_loved(
-        details.rating == Some(stremio_core::types::rating::Rating::Loved),
-    );
-    window.set_details_show_picker(details.show_picker);
-    window.set_details_has_steps(details.steps.is_some());
-    window.set_details_season_number(
-        details
-            .steps
-            .map(|steps| i32::try_from(steps.season).unwrap_or_default())
-            .unwrap_or_default(),
-    );
-    window.set_details_episode_number(
-        details
-            .steps
-            .map(|steps| i32::try_from(steps.episode).unwrap_or_default())
-            .unwrap_or_default(),
-    );
-    window
-        .set_details_can_show_streams(details.steps.map(|steps| steps.ask_again).unwrap_or(false));
-    window.set_details_season_index(i32::try_from(details.season).unwrap_or_default());
-    window.set_details_season_watched(details.season_watched);
-    window.set_details_picked_label(details.picked_label.clone().unwrap_or_default().into());
-    window.set_details_wrap_streams(snapshot.settings.wrap_streams);
-    window.set_details_has_next_episode(details.next_episode.is_some());
-    window.set_details_season_title(
-        details
+    if mask.contains(ScreenMask::CALENDAR) {
+        window.set_calendar(calendar_view(&snapshot.calendar, images));
+    }
+
+    if mask.contains(ScreenMask::SETTINGS) {
+        window.set_settings(settings_view(&snapshot.settings));
+        window.set_details_wrap_streams(snapshot.settings.wrap_streams);
+    }
+
+    if mask.contains(ScreenMask::MODS) {
+        show_mods(window, &snapshot.mods);
+    } else if mask.contains(ScreenMask::MODS_LOGS) {
+        apply_logs_data(window, &snapshot.mods.logs);
+    }
+
+    if mask.contains(ScreenMask::PLAYER) {
+        player_view(window, &snapshot.player, images);
+    }
+
+    if mask.contains(ScreenMask::DETAILS) {
+        let details = &snapshot.details;
+        window.set_details_has_preview(details.preview.is_some());
+        if let Some(preview) = &details.preview {
+            let mut data = preview_data(preview, images, true);
+            // Web: the column on the right has `backdrop-filter: blur(15px)`, so it paints the artwork
+            // behind it blurred under its own 0.4 wash. Slint has no backdrop filter; the column draws
+            // this copy instead, lined up with the page's layer.
+            let backdrop = preview
+                .background
+                .as_ref()
+                .map(|key| crate::plumbing::images::backdrop_key(key));
+            let backdrop = slint_image(images, &backdrop);
+            data.has_panel_backdrop = backdrop.is_some();
+            data.panel_backdrop = backdrop.unwrap_or_default();
+            window.set_details_preview(data);
+        } else {
+            window.set_details_preview(PreviewData::default());
+        }
+        let streams: Vec<StreamData> = details
+            .streams
+            .iter()
+            .map(|source| StreamData {
+                name: source.name.clone().into(),
+                description: source.description.clone().into(),
+                addon: source.addon.clone().into(),
+            })
+            .collect();
+        if let Some(replaced) = sync_vec_model(&window.get_streams(), streams) {
+            window.set_streams(replaced);
+        }
+        window.set_streams_loading(i32::try_from(details.sources_loading).unwrap_or_default());
+        window.set_details_waits_for_streams(details.waits_for_streams);
+
+        window.set_details_rate_visible(details.rating_known);
+        window.set_details_rate_enabled(details.rating_ready);
+        window.set_details_rated_liked(
+            details.rating == Some(stremio_core::types::rating::Rating::Liked),
+        );
+        window.set_details_rated_loved(
+            details.rating == Some(stremio_core::types::rating::Rating::Loved),
+        );
+        window.set_details_show_picker(details.show_picker);
+        window.set_details_has_steps(details.steps.is_some());
+        window.set_details_season_number(
+            details
+                .steps
+                .map(|steps| i32::try_from(steps.season).unwrap_or_default())
+                .unwrap_or_default(),
+        );
+        window.set_details_episode_number(
+            details
+                .steps
+                .map(|steps| i32::try_from(steps.episode).unwrap_or_default())
+                .unwrap_or_default(),
+        );
+        window.set_details_can_show_streams(
+            details.steps.map(|steps| steps.ask_again).unwrap_or(false),
+        );
+        window.set_details_season_index(i32::try_from(details.season).unwrap_or_default());
+        window.set_details_season_watched(details.season_watched);
+        window.set_details_picked_label(details.picked_label.clone().unwrap_or_default().into());
+        window.set_details_wrap_streams(snapshot.settings.wrap_streams);
+        window.set_details_has_next_episode(details.next_episode.is_some());
+        window.set_details_season_title(
+            details
+                .seasons
+                .get(details.season)
+                .map(|season| season.label.clone())
+                .unwrap_or_default()
+                .into(),
+        );
+        let details_seasons: Vec<SelectOption> = details
             .seasons
-            .get(details.season)
-            .map(|season| season.label.clone())
-            .unwrap_or_default()
-            .into(),
-    );
-    let details_seasons: Vec<SelectOption> = details
-        .seasons
-        .iter()
-        .enumerate()
-        .map(|(index, season)| SelectOption {
-            label: season.label.clone().into(),
-            selected: index == details.season,
-        })
-        .collect();
-    if let Some(replaced) = sync_vec_model(&window.get_details_seasons(), details_seasons) {
-        window.set_details_seasons(replaced);
-    }
-    let details_episodes: Vec<VideoRow> = details
-        .episodes
-        .iter()
-        .map(|episode| {
-            let thumbnail = slint_image(images, &episode.thumbnail);
-            VideoRow {
-                id: episode.id.clone().into(),
-                title: episode.title.clone().into(),
-                released: episode.released.clone().into(),
-                has_thumbnail: thumbnail.is_some(),
-                thumbnail: thumbnail.unwrap_or_default(),
-                selected: details.picked.as_deref() == Some(episode.id.as_str()),
-                watched: episode.watched,
-                progress: episode.progress as f32,
-            }
-        })
-        .collect();
-    if let Some(replaced) = sync_vec_model_by(
-        &window.get_details_episodes(),
-        details_episodes,
-        video_row_same,
-    ) {
-        window.set_details_episodes(replaced);
+            .iter()
+            .enumerate()
+            .map(|(index, season)| SelectOption {
+                label: season.label.clone().into(),
+                selected: index == details.season,
+            })
+            .collect();
+        if let Some(replaced) = sync_vec_model(&window.get_details_seasons(), details_seasons) {
+            window.set_details_seasons(replaced);
+        }
+        let details_episodes: Vec<VideoRow> = details
+            .episodes
+            .iter()
+            .map(|episode| {
+                let thumbnail = slint_image(images, &episode.thumbnail);
+                VideoRow {
+                    id: episode.id.clone().into(),
+                    title: episode.title.clone().into(),
+                    released: episode.released.clone().into(),
+                    has_thumbnail: thumbnail.is_some(),
+                    thumbnail: thumbnail.unwrap_or_default(),
+                    selected: details.picked.as_deref() == Some(episode.id.as_str()),
+                    watched: episode.watched,
+                    progress: episode.progress as f32,
+                }
+            })
+            .collect();
+        if let Some(replaced) = sync_vec_model_by(
+            &window.get_details_episodes(),
+            details_episodes,
+            video_row_same,
+        ) {
+            window.set_details_episodes(replaced);
+        }
     }
 }
 
@@ -883,57 +897,22 @@ pub(crate) fn mods_view(data: &crate::screens::mods::Data) -> ModsViewData {
     }
 }
 
-/// Draws the Logs page's list again after a record landed, on the window's thread. Only the list's
-/// own properties change: the menus, the search box and the scroll stay exactly as they were, so a
-/// line arriving mid-sentence never moves what the reader is looking at.
-pub(crate) fn refresh_logs(
-    weak: &Weak<MainWindow>,
-    latest: &Arc<Mutex<Snapshot>>,
-    logs: Arc<crate::plumbing::logs::Logs>,
-    selection: Arc<Mutex<mods::log_selection::LogSelection>>,
-    armed: Arc<Mutex<bool>>,
-) {
-    let latest = latest.clone();
-    let _ = weak.upgrade_in_event_loop(move |window| {
-        let armed = *armed.lock().unwrap();
-        let entries = logs.entries();
-        let sel = selection.lock().unwrap().clone();
-        {
-            let mut snapshot = latest.lock().unwrap();
-            let notice = snapshot.mods.notice.clone();
-            snapshot.mods = snapshot
-                .mods
-                .clone()
-                .with_logs(&entries, &sel, armed)
-                .with_notice(notice);
-        }
-        apply_logs(&window, &entries, &sel, armed);
-    });
-}
-
-/// Applies the current log list, selection, and detail panel onto `window`, updating row selection
-/// flags in place when the filtered row ids are unchanged and reporting live prepends so a
-/// scrolled reader stays anchored on the same rows.
-pub(crate) fn apply_logs(
-    window: &MainWindow,
-    entries: &[crate::plumbing::logs::Entry],
-    sel: &mods::log_selection::LogSelection,
-    armed: bool,
-) {
-    let logs = mods::logs::data(entries, sel, armed);
+/// Applies the precomputed log slice onto `window`, updating row selection flags in place when
+/// filtered row ids are unchanged and reporting live prepends so a scrolled reader stays anchored.
+pub(crate) fn apply_logs_data(window: &MainWindow, logs: &mods::logs::Data) {
     let old = window.get_mods();
     let mut data = old.clone();
     data.log_source_index = logs.source_index;
     data.log_level_index = logs.level_index;
-    data.log_search = logs.filter.search.into();
-    data.log_empty = logs.empty.into();
-    data.log_count = logs.count.into();
+    data.log_search = logs.filter.search.clone().into();
+    data.log_empty = logs.empty.clone().into();
+    data.log_count = logs.count.clone().into();
     data.log_filtered = logs.filtered;
-    data.log_detail_heading = logs.detail_heading.into();
+    data.log_detail_heading = logs.detail_heading.clone().into();
     data.log_detail = ModelRc::new(VecModel::from(
         logs.detail
-            .into_iter()
-            .map(SharedString::from)
+            .iter()
+            .map(|line| SharedString::from(line.clone()))
             .collect::<Vec<_>>(),
     ));
     data.log_open_id = i32::try_from(logs.open_id).unwrap_or(0);

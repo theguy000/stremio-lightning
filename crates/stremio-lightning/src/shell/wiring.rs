@@ -3,7 +3,7 @@
 //! Nothing here decides anything. A callback works out what was clicked, hands it to a screen's
 //! action, and puts the result where the window can see it.
 
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use slint::{ComponentHandle, ModelRc, Timer, VecModel, Weak};
@@ -16,10 +16,8 @@ use stremio_core::runtime::msg::{
 use stremio_core::runtime::RuntimeAction;
 use stremio_core::types::profile::GDPRConsent;
 
-use crate::app::events::BoardCatalogRange;
-use crate::app::{AppModel, AppModelField, AppRuntime, Snapshot};
+use crate::app::{ActiveScreen, App, AppModelField, ArmedMod, GridReport, ScreenMask};
 use crate::plumbing::clipboard;
-use crate::plumbing::images::Images;
 use crate::plumbing::links;
 use crate::plumbing::skip;
 use crate::plumbing::stream_server::{self, Supervisor};
@@ -29,49 +27,10 @@ use crate::shell;
 use crate::shell::video_host::VideoPlayer;
 use crate::MainWindow;
 
-/// How long the Discover grid has to keep still before the posters for what is on screen are
-/// fetched. Long enough that a scroll in progress never triggers it, short enough that the
-/// screenful is asked for the moment the scrolling stops.
 const SETTLE_MS: u64 = 150;
-
-/// How fast the grid has to be moving before its posters wait for it to stop, in pixels a second.
-/// A wheel turned at ten notches a second is about a thousand; a flick of a touchpad is three times
-/// that, and at that speed a row of cards is on screen for a tenth of a second and nobody has read
-/// it. Below this the screenful is fetched as it arrives, as a browser's `loading="lazy"` does.
 const FLYING: f32 = 1800.0;
 
-#[derive(Clone, Copy)]
-pub(crate) struct GridReport {
-    scroll: f32,
-    height: f32,
-    pitch: f32,
-    columns: i32,
-    at: std::time::Instant,
-}
-
-/// Says which pictures the window is showing, so the cache keeps those while it makes room for
-/// others. A free function rather than a method: nothing of the window's own is needed, and the
-/// events that ask for pictures run it from the thread they arrive on.
-fn remember_wanted(
-    images: &Images,
-    latest: &Mutex<Snapshot>,
-    active_screen: &Mutex<crate::app::events::ActiveScreen>,
-    board_visible: &Mutex<crate::screens::board::Viewport>,
-    visible: &Mutex<(usize, usize)>,
-    grid: &Mutex<Option<GridReport>>,
-    selected: usize,
-) -> bool {
-    let screen = *active_screen.lock().unwrap();
-    let board_view = *board_visible.lock().unwrap();
-    let range = drawn_range(visible, grid);
-    let snapshot = latest.lock().unwrap();
-    images.set_wanted(crate::app::events::shown_images(
-        &snapshot, screen, board_view, range, selected,
-    ))
-}
-
-fn active_screen_of(window: &MainWindow) -> crate::app::events::ActiveScreen {
-    use crate::app::events::ActiveScreen;
+fn active_screen_of(window: &MainWindow) -> ActiveScreen {
     if window.get_playing() {
         return ActiveScreen::Player;
     }
@@ -84,146 +43,73 @@ fn active_screen_of(window: &MainWindow) -> crate::app::events::ActiveScreen {
         crate::Section::Library => ActiveScreen::Library,
         crate::Section::Calendar => ActiveScreen::Calendar,
         crate::Section::Addons => ActiveScreen::Addons,
-        crate::Section::Settings | crate::Section::Mods => ActiveScreen::Other,
+        crate::Section::Settings => ActiveScreen::Settings,
+        crate::Section::Mods => ActiveScreen::Mods,
     }
 }
 
-/// The cards the Discover grid is drawing, as the last report it sent describes them. It draws the
-/// rows on screen and one either side of them, so a poster is worth keeping while its card is still
-/// drawn rather than only while it is in the viewport. Before the first report, the screenful the
-/// shell starts from.
-fn drawn_range(
-    visible: &Mutex<(usize, usize)>,
-    grid: &Mutex<Option<GridReport>>,
-) -> (usize, usize) {
-    let grid = *grid.lock().unwrap();
-    match grid {
-        Some(grid) => discover::settled_range(grid.scroll, grid.height, grid.pitch, grid.columns),
-        None => *visible.lock().unwrap(),
-    }
-}
-
-/// Every handle the callbacks need, in one value, so registering a callback is one line.
+/// Desktop shell callback adapter attached to `Arc<App>`.
+///
+/// Holds only shell/UI-local state (mpv player session, AniSkip UI form, one-shot UI timers,
+/// toast counter); all authoritative app state lives in `app`.
 #[derive(Clone)]
 pub(crate) struct Wiring {
     pub(crate) window: Weak<MainWindow>,
-    pub(crate) runtime: Arc<AppRuntime>,
+    pub(crate) app: Arc<App>,
     pub(crate) video: VideoPlayer,
-    pub(crate) images: Images,
-    pub(crate) latest: Arc<Mutex<Snapshot>>,
-    pub(crate) repaint_pending: Arc<AtomicBool>,
-    pub(crate) selected: Arc<AtomicUsize>,
-    /// The Discover cards on screen, as the first one and how many. Only these have their posters
-    /// asked for; the grid reports the range again whenever it is scrolled.
-    pub(crate) visible: Arc<Mutex<(usize, usize)>>,
-    pub(crate) grid: Arc<Mutex<Option<GridReport>>>,
-    /// The Board viewport reported whenever the home screen scrolls or resizes.
-    pub(crate) board_visible: Arc<Mutex<crate::screens::board::Viewport>>,
-    /// Which top-level screen or overlay currently owns the viewport.
-    pub(crate) active_screen: Arc<Mutex<crate::app::events::ActiveScreen>>,
-    /// The Season the details screen's episode picker is showing, if it has been touched.
-    pub(crate) season: Arc<AtomicUsize>,
-    /// The Video id whose Streams the details screen is showing, if one was picked.
-    pub(crate) picked: Arc<Mutex<Option<String>>>,
-    /// What the details screen's search box holds.
-    pub(crate) video_query: Arc<Mutex<String>>,
-    /// The Season and Episode the no-Streams message's steppers were moved to, while they name a
-    /// Video other than the picked one.
-    pub(crate) moved: Arc<Mutex<Option<(u32, u32)>>>,
-    /// Counts the messages shown at the bottom of the window, so an older one cannot clear a
-    /// newer one on its way out.
-    pub(crate) said: Arc<AtomicU64>,
-    pub(crate) local_extras: Arc<Mutex<settings::LocalExtras>>,
-    pub(crate) data_dir: std::path::PathBuf,
     pub(crate) server: Arc<Supervisor>,
-    pub(crate) auth: auth::Generation,
     pub(crate) handle: tokio::runtime::Handle,
-    /// The Session's own player state: the Season the drawer shows, the stream mpv already has,
-    /// and how far through it is.
-    pub(crate) player_season: Arc<AtomicUsize>,
+    pub(crate) said: Arc<AtomicU64>,
     pub(crate) player_loaded: Arc<Mutex<String>>,
-    /// The stream mpv was last asked for and refused. Without it the sync timer reads a failed
-    /// play as "not loaded yet" and reloads the same address five times a second, each load
-    /// cancelling the one before it -- so a stream that needed a moment to open never got one.
     pub(crate) player_attempted: Arc<Mutex<Option<String>>>,
-    pub(crate) playback_error: Arc<Mutex<String>>,
     pub(crate) playback: Arc<Mutex<Playback>>,
-    pub(crate) player_sync: Arc<Timer>,
-    /// Restarted by the Discover grid every time it moves; fires when it has stopped, which is when
-    /// the row of cards either side of the screen is fetched.
     pub(crate) settle: Arc<Timer>,
-    /// What the library looked like when the Calendar last loaded: how many items, and the
-    /// newest of them. A visit with the same signature reuses the month already in the model.
-    pub(crate) calendar_library: Arc<Mutex<Option<calendar::LibrarySignature>>>,
-    /// The addons the Board's catalog range was last asked for. Installing or removing one has to
-    /// ask again, or its catalogs stay on the list the core never fetched.
-    pub(crate) board_catalogs: Arc<Mutex<Option<BoardCatalogRange>>>,
-    /// What the tracks looked like the last time they were handed to the window. mpv reports the
-    /// same list ten times a second, and rebuilding the model each time destroys the row under the
-    /// pointer -- which is why a press on a subtitle row could do nothing at all.
     pub(crate) shown_tracks: Arc<Mutex<ShownTracks>>,
-    /// The subtitle the viewer picked in this session, in the web's own terms: whether subtitles
-    /// are on, which side the track came from, and in which language. It outranks the profile's
-    /// preferred language until the player closes.
     pub(crate) subtitle_choice: Arc<Mutex<SubtitleChoice>>,
-    /// Whether this stream has already been auto-selected for. Once per load, as the web does it
-    /// (`appliedTrack`), so a track the viewer picks is never overruled a moment later.
     pub(crate) subtitle_auto: Arc<Mutex<bool>>,
-    /// The subtitle language the menu's Variants column is showing. Pressing a language row only
-    /// looks -- it never touches the picture -- so this is the one piece of the menu that is the
-    /// window's own state and not mpv's. Empty means "whichever language is playing", so a fresh
-    /// player starts out following the track auto-selection chose.
     pub(crate) browsed_language: Arc<Mutex<String>>,
-    /// Which page of the Mods menu is on screen. The shell owns the choice, as it owns which
-    /// section is showing; the Mods screen only describes each page's content.
-    pub(crate) mods_page: Arc<Mutex<String>>,
-    /// The skip category the timing panel is about, kept across a redraw so a fetch that answers
-    /// while the panel is open fills the same category it was showing.
     pub(crate) skip_client: Arc<skip::SkipClient>,
     pub(crate) skip_kind: Arc<Mutex<String>>,
-    /// Whether the AniSkip page's switch offers the timing button, and with it whether the skip
-    /// times are fetched even when the button that skips them is off.
     pub(crate) skip_submit: Arc<Mutex<bool>>,
-    /// The video and category the timing form was last seeded for. Opening the panel again on the
-    /// same two keeps what was typed; a new video or category starts from its own times.
     pub(crate) skip_seeded: Arc<Mutex<String>>,
-    /// Incremented whenever the player leaves or switches videos, so in-flight AniSkip requests,
-    /// submissions, and votes from an earlier video never touch the current window.
     pub(crate) skip_generation: Arc<AtomicU64>,
-    /// The `(start, end)` strings most recently seeded into the timing panel automatically, so a
-    /// background fetch knows whether the user has edited the inputs or clicked Now.
     pub(crate) skip_auto_times: Arc<Mutex<Option<(String, String)>>>,
-    /// The Mods card whose Remove button was pressed once and waits for the second press, with
-    /// the page and the button it was pressed on. Pressing anything else, changing page, or this
-    /// timer firing clears it; the second press is the one that removes the file.
-    pub(crate) mods_armed: Arc<Mutex<Option<ArmedMod>>>,
     pub(crate) mods_disarm: Arc<Timer>,
-    /// The plugin the Plugin settings page is showing, by id. It opens on the first built-in
-    /// plugin, and says so when none is.
-    pub(crate) mods_plugin: Arc<Mutex<String>>,
-    /// What the settings page holds for the plugin on screen: its schema, the values its file
-    /// holds, and anything typed since. The page is built from this rather than read again on
-    /// every press, so a control cannot lose what was typed while another was pressed.
-    pub(crate) mods_edits: Arc<Mutex<crate::screens::mods::settings::Edits>>,
-    pub(crate) installed_themes:
-        Arc<Mutex<Result<Vec<crate::plumbing::theme::store::InstalledTheme>, String>>>,
-    /// The app's log records, which the Logs page lists.
-    pub(crate) logs: Arc<crate::plumbing::logs::Logs>,
-    pub(crate) log_selection: Arc<Mutex<mods::log_selection::LogSelection>>,
-    /// own state, like an armed Remove, because the screen only describes what it shows.
-    pub(crate) mods_clearing: Arc<Mutex<bool>>,
-    /// Where the diagnostics file was written, shown on the About page until the app closes.
-    pub(crate) mods_export: Arc<Mutex<Option<String>>>,
 }
 
-/// A Mods card that is one press away from its file being deleted, with the page it was on. A
-/// second press on the same card, on the same page, is what deletes the file.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ArmedMod {
-    pub(crate) id: String,
-    pub(crate) page: String,
+impl Wiring {
+    pub(crate) fn new(
+        window: Weak<MainWindow>,
+        app: Arc<App>,
+        video: VideoPlayer,
+        server: Arc<Supervisor>,
+        handle: tokio::runtime::Handle,
+    ) -> Self {
+        Self {
+            window,
+            app,
+            video,
+            server,
+            handle,
+            said: Default::default(),
+            player_loaded: Default::default(),
+            player_attempted: Default::default(),
+            playback: Default::default(),
+            settle: Default::default(),
+            shown_tracks: Default::default(),
+            subtitle_choice: Default::default(),
+            subtitle_auto: Default::default(),
+            browsed_language: Default::default(),
+            skip_client: Arc::new(skip::SkipClient::new()),
+            skip_kind: Default::default(),
+            skip_submit: Default::default(),
+            skip_seeded: Default::default(),
+            skip_generation: Default::default(),
+            skip_auto_times: Default::default(),
+            mods_disarm: Default::default(),
+        }
+    }
 }
-
 /// How long an armed Remove stays armed. Long enough to press twice on purpose, short enough that
 /// a card left alone never deletes anything on a later, unrelated press.
 const DISARM_MS: u64 = 5000;
@@ -306,77 +192,19 @@ struct ActionTarget {
 }
 
 impl Wiring {
-    /// Repaints with the snapshot the last event produced.
     fn repaint(&self) {
-        shell::show(
-            &self.window,
-            &self.latest,
-            &self.repaint_pending,
-            &self.images,
-        );
-        self.remember_wanted();
+        self.app.mark_dirty(ScreenMask::ALL);
+        self.app.viewport().sync_images();
     }
 
-    /// Repaints with a snapshot the caller has just changed, and asks for every picture that
-    /// snapshot shows. A Season switch in the details picker never goes near the core, so without
-    /// this its thumbnails waited for the next core event -- which is why a later Season crawled
-    /// in while the first one, requested during a real core update, arrived at once.
-    fn repaint_with(&self, snapshot: Snapshot) {
-        *self.latest.lock().unwrap() = snapshot.clone();
-        // The Mods section is written before the rest of the window. `shell::show` posts its own
-        // copy of the same snapshot, which repaints the Mods section from it when it lands; a
-        // marketplace card pressed by then would be pressed on the copy this write had just
-        // replaced.
-        if let Some(window) = self.window.upgrade() {
-            shell::view::show_mods(&window, &snapshot.mods);
-        }
-        shell::show(
-            &self.window,
-            &self.latest,
-            &self.repaint_pending,
-            &self.images,
-        );
-        self.remember_wanted();
-        let screen = *self.active_screen.lock().unwrap();
-        let board_view = *self.board_visible.lock().unwrap();
-        let visible = *self.visible.lock().unwrap();
-        let selected = self.selected.load(Ordering::Relaxed);
-        for url in
-            crate::app::events::snapshot_images(&snapshot, screen, board_view, visible, selected)
-        {
-            self.request_painting(url);
-        }
-    }
-
-    /// Asks for a picture and repaints when it lands. Everything the window is waiting to show goes
-    /// through here: a key asked for without this arrives in the cache and stays a grey rectangle,
-    /// which is what a grid scrolled into view used to look like.
-    ///
-    /// It does not say what is on screen: every caller of this asked for the picture *after*
-    /// saying so, which is why the key is already being kept when it lands.
     fn request_painting(&self, url: String) {
-        let (latest, pending, window, images) = (
-            self.latest.clone(),
-            self.repaint_pending.clone(),
-            self.window.clone(),
-            self.images.clone(),
-        );
-        self.images.request(url, move || {
-            shell::show(&window, &latest, &pending, &images);
-        });
+        self.app.viewport().request_image(url);
     }
 
     fn open_item(&self, id: String, kind: String, _title: String) {
-        // Drop what the previous item left behind so it can't flash up before the new data.
-        self.latest.lock().unwrap().details = details::Data::default();
-        // A new title opens on the Season the core suggests, not the one last browsed, and with
-        // no Episode picked.
-        self.season.store(details::NO_SEASON, Ordering::Relaxed);
-        *self.picked.lock().unwrap() = None;
-        *self.moved.lock().unwrap() = None;
-        *self.video_query.lock().unwrap() = String::new();
-        *self.active_screen.lock().unwrap() = crate::app::events::ActiveScreen::Details;
-        self.remember_wanted();
+        self.app.details().clear_snapshot();
+        self.app.details().reset_inputs();
+        self.app.viewport().set_active_screen(ActiveScreen::Details);
         if let Some(window) = self.window.upgrade() {
             window.set_details_has_preview(false);
             window.set_play_message("".into());
@@ -387,63 +215,40 @@ impl Wiring {
             window.set_details_season_watched(false);
             window.set_details_show_picker(false);
         }
-        details::open(&self.runtime, &id, &kind);
+        details::open(self.app.runtime(), &id, &kind);
     }
 
-    /// Recomputes the details screen from the model and everything the user has touched there:
-    /// the Season being browsed, the Video picked, the steppers' position, the search box.
-    fn refresh_details(&self, model: &AppModel) {
-        let picked = self.picked.lock().unwrap().clone();
-        let moved = *self.moved.lock().unwrap();
-        let chosen = details::chosen_season(self.season.load(Ordering::Relaxed));
-        let query = self.video_query.lock().unwrap().clone();
-        let mut snapshot = self.latest.lock().unwrap().clone();
-        snapshot.details = details::data(model, chosen, picked.as_deref(), moved, &query);
-        self.repaint_with(snapshot);
+    fn refresh_details(&self) {
+        self.app.details().refresh();
+        self.app.viewport().request_active_images();
     }
 
-    /// Browsing the episode picker: nothing is loaded, so this only remembers the Season and
-    /// repaints the list.
     fn select_season(&self, index: i32) {
-        let Some(season) = usize::try_from(index).ok().and_then(|index| {
-            self.latest
-                .lock()
-                .unwrap()
-                .details
-                .seasons
-                .get(index)
-                .map(|season| season.number)
-        }) else {
+        let Some(season) = usize::try_from(index)
+            .ok()
+            .and_then(|i| self.app.details().view().seasons.get(i).map(|s| s.number))
+        else {
             return;
         };
-        self.season.store(season as usize, Ordering::Relaxed);
-        let Ok(model) = self.runtime.model() else {
-            return;
-        };
-        self.refresh_details(&model);
+        self.app.details().set_season(season as usize);
+        self.refresh_details();
     }
 
-    /// The search box changed: refilter the rows, nothing to load.
     fn search_videos(&self, query: String) {
-        *self.video_query.lock().unwrap() = query;
-        let Ok(model) = self.runtime.model() else {
-            return;
-        };
-        self.refresh_details(&model);
+        self.app.details().set_video_query(query);
+        self.refresh_details();
     }
 
-    /// Picking an Episode: remember it, then ask the core for that Video's Streams.
     fn pick_video(&self, video_id: String) {
-        *self.picked.lock().unwrap() = Some(video_id.clone());
-        // The steppers start over from the Video that is now on screen.
-        *self.moved.lock().unwrap() = None;
-        details::pick(&self.runtime, &video_id);
+        self.app.details().set_picked(Some(video_id.clone()));
+        self.app.details().set_moved(None);
+        details::pick(self.app.runtime(), &video_id);
     }
 
     /// Episode context menu -> "Watch": plays an embedded stream if the Video carries one, else
     /// opens that Episode's Streams List (matching Web's `deepLinks.player ?? metaDetailsStreams`).
     fn watch_episode(&self, video_id: String) {
-        match player::open_video(&self.runtime, &video_id) {
+        match player::open_video(self.app.runtime(), &video_id) {
             Ok(player::VideoOpen::Opened) => {
                 if let Some(window) = self.window.upgrade() {
                     window.set_play_message("".into());
@@ -466,94 +271,87 @@ impl Wiring {
 
     /// Episode context menu -> "Mark as watched" / "Mark as non-watched".
     fn toggle_episode_watched(&self, video_id: String) {
-        details::mark_video_watched(&self.runtime, &video_id);
+        details::mark_video_watched(self.app.runtime(), &video_id);
     }
 
     /// Episode context menu -> "Mark rest as watched" / "Mark rest as non-watched".
     fn toggle_season_watched(&self) {
-        let season = {
-            let latest = self.latest.lock().unwrap();
-            latest
-                .details
-                .seasons
-                .get(latest.details.season)
-                .map(|season| season.number)
-        };
-        if let Some(season) = season {
-            details::mark_season_watched(&self.runtime, season);
+        let details = self.app.details().view();
+        if let Some(season) = details.seasons.get(details.season).map(|s| s.number) {
+            details::mark_season_watched(self.app.runtime(), season);
         }
     }
 
-    /// One press of a stepper in the no-Streams message. It only moves the pair on screen;
-    /// "Show Streams" is what asks the addons.
     fn step(&self, seasons: i32, episodes: i32) {
-        let Ok(model) = self.runtime.model() else {
-            return;
+        let next = {
+            let Ok(model) = self.app.runtime().model() else {
+                return;
+            };
+            let Some(item) = details::meta_item(&model.meta_details) else {
+                return;
+            };
+            let Some(picked) = self.app.details().picked() else {
+                return;
+            };
+            let moved = self.app.details().moved();
+            let Some(at) = details::shown_pair(&item.videos, &picked, moved) else {
+                return;
+            };
+            details::step(&item.videos, at, seasons, episodes)
         };
-        let Some(item) = details::meta_item(&model.meta_details) else {
-            return;
-        };
-        let Some(picked) = self.picked.lock().unwrap().clone() else {
-            return;
-        };
-        let moved = *self.moved.lock().unwrap();
-        let Some(at) = details::shown_pair(&item.videos, &picked, moved) else {
-            return;
-        };
-        *self.moved.lock().unwrap() = Some(details::step(&item.videos, at, seasons, episodes));
-        self.refresh_details(&model);
+        self.app.details().set_moved(Some(next));
+        self.refresh_details();
     }
 
-    /// Web: "Show Streams" — the Video the steppers name, loaded the way a row is.
     fn show_streams(&self) {
-        let Ok(model) = self.runtime.model() else {
-            return;
+        let video = {
+            let Ok(model) = self.app.runtime().model() else {
+                return;
+            };
+            let Some(item) = details::meta_item(&model.meta_details) else {
+                return;
+            };
+            let Some(picked) = self.app.details().picked() else {
+                return;
+            };
+            let moved = self.app.details().moved();
+            let Some(at) = details::shown_pair(&item.videos, &picked, moved) else {
+                return;
+            };
+            details::stepped_video(&item.videos, at).map(str::to_owned)
         };
-        let Some(item) = details::meta_item(&model.meta_details) else {
-            return;
-        };
-        let Some(picked) = self.picked.lock().unwrap().clone() else {
-            return;
-        };
-        let moved = *self.moved.lock().unwrap();
-        let Some(at) = details::shown_pair(&item.videos, &picked, moved) else {
-            return;
-        };
-        let Some(video) = details::stepped_video(&item.videos, at).map(str::to_owned) else {
-            return;
-        };
-        drop(model);
-        self.pick_video(video);
+        if let Some(video) = video {
+            self.pick_video(video);
+        }
     }
 
-    /// Next Episode: whatever the core says follows the pick, selected the same way a row is.
     fn next_episode(&self) {
-        let next = self.latest.lock().unwrap().details.next_episode.clone();
-        if let Some(next) = next {
+        if let Some(next) = self.app.details().view().next_episode.clone() {
             self.pick_video(next);
         }
     }
 
-    /// A rating button: the like or the love, whichever was pressed, toggled against what the
-    /// core last said the title carries.
     fn rate(&self, like: bool) {
-        let current = self.latest.lock().unwrap().details.rating.clone();
-        details::rate(&self.runtime, details::next_rating(current.as_ref(), like));
+        let current = self.app.details().view().rating.clone();
+        details::rate(
+            self.app.runtime(),
+            details::next_rating(current.as_ref(), like),
+        );
     }
 
     /// The library pair's first cell: out of the library it adds the title, in it it removes it.
     fn toggle_library(&self) {
-        details::toggle_library(&self.runtime);
+        details::toggle_library(self.app.runtime());
     }
 
     /// The library pair's second cell: marks the title watched, or not.
     fn toggle_watched(&self) {
-        details::toggle_watched(&self.runtime);
+        details::toggle_watched(self.app.runtime());
     }
 
     /// The share button: works out the link web would offer and opens the dialog that offers it.
     fn share(&self) {
-        let Ok(model) = self.runtime.model() else {
+        let Ok(model) = self.app.runtime().model() else {
             return;
         };
         let Some(selected) = model.meta_details.selected.as_ref() else {
@@ -631,30 +429,27 @@ impl Wiring {
 
     /// Back to the Episode Picker: the pick is gone, and the core drops the Streams with it.
     fn back_to_episodes(&self) {
-        *self.picked.lock().unwrap() = None;
-        *self.moved.lock().unwrap() = None;
-        details::back_to_episodes(&self.runtime);
+        self.app.details().set_picked(None);
+        self.app.details().set_moved(None);
+        details::back_to_episodes(self.app.runtime());
     }
 
     /// The Streams list's cut/wrap toggle. The choice is this shell's own, so it goes to
     /// `settings.json` beside the profile rather than through the core, and the screen
     /// only has to redraw: no request is sent for it.
     fn toggle_stream_wrap(&self) {
-        let wrap = {
-            let mut extras = self.local_extras.lock().unwrap();
+        {
+            let mut extras = self.app.local_extras();
             extras.wrap_streams = !extras.wrap_streams;
-            extras.save(&self.data_dir);
-            extras.wrap_streams
-        };
-        let mut snapshot = self.latest.lock().unwrap().clone();
-        snapshot.settings.wrap_streams = wrap;
-        self.repaint_with(snapshot);
+            extras.save(self.app.data_dir());
+        }
+        self.app.settings().refresh();
     }
 
     /// A Stream was clicked: the player screen opens on it, and the core loads the rest.
     fn play_stream(&self, index: i32) {
         let index = usize::try_from(index).unwrap_or(usize::MAX);
-        let message = match player::open(&self.runtime, index) {
+        let message = match player::open(self.app.runtime(), index) {
             Ok(Some(url)) => {
                 crate::plumbing::links::open(&url);
                 String::new()
@@ -693,7 +488,7 @@ impl Wiring {
         // second, and handing the window a fresh model each time rebuilds the rows -- which threw
         // away the row under the pointer mid-press, so a click on a subtitle did nothing, and made
         // the selected dot flicker.
-        let candidates = self.latest.lock().unwrap().player.subtitles.clone();
+        let candidates = self.app.player().view().subtitles.clone();
         let active_language = status
             .subtitles
             .iter()
@@ -774,17 +569,16 @@ impl Wiring {
         }
 
         if status.error.is_empty() {
-            // A file that is open has no error, whatever the one before it said.
-            if !self.playback_error.lock().unwrap().is_empty() {
-                *self.playback_error.lock().unwrap() = String::new();
+            if !self.app.player().playback_error().is_empty() {
+                self.app.player().set_playback_error(String::new());
                 window.set_player_error("".into());
             }
-        } else if *self.playback_error.lock().unwrap() != status.error {
-            *self.playback_error.lock().unwrap() = status.error.clone();
+        } else if self.app.player().playback_error() != status.error {
+            self.app.player().set_playback_error(status.error.clone());
             window.set_player_error(status.error.clone().into());
             // What mpv said about the address it was given is a record when it changes: the same
             // sentence reaches here many times a second while the picture holds.
-            self.logs.record(
+            self.app.logs().record(
                 crate::plumbing::logs::Source::App,
                 "Player",
                 crate::plumbing::logs::Level::Error,
@@ -809,13 +603,13 @@ impl Wiring {
         // updates are pushed to the server every three minutes anyway.
         if status.loaded && (time - sent).abs() >= 1.0 {
             self.playback.lock().unwrap().sent_time = time;
-            player::time_changed(&self.runtime, time, duration, "mpv".to_owned());
+            player::time_changed(self.app.runtime(), time, duration, "mpv".to_owned());
         }
         // The skip button. The segments are fetched once per Video, from the model rather than
         // the last snapshot: the core knows the Video the moment it is picked, and the snapshot
         // only after a repaint. Every status then decides whether the play head is inside one.
         // Each step says what it did on the Logs page, so a button that never appears can say why.
-        let skip_wanted = self.local_extras.lock().unwrap().skip_intros;
+        let skip_wanted = self.app.local_extras().skip_intros;
         // The timing panel needs the same answer even when the skip button is off: it lists what
         // AniSkip holds and votes on it without the button ever offering it.
         let rates_wanted = skip_wanted || *self.skip_submit.lock().unwrap();
@@ -831,7 +625,7 @@ impl Wiring {
                 )
             };
             if had_segments {
-                self.logs.record(
+                self.app.logs().record(
                     crate::plumbing::logs::Source::App,
                     "Skip",
                     crate::plumbing::logs::Level::Info,
@@ -881,7 +675,7 @@ impl Wiring {
                 };
                 if ask {
                     let (meta_id, season, episode) = (meta_id.clone(), *season, *episode);
-                    self.logs.record(
+                    self.app.logs().record(
                         crate::plumbing::logs::Source::App,
                         "Skip",
                         crate::plumbing::logs::Level::Info,
@@ -890,7 +684,7 @@ impl Wiring {
                         ),
                     );
                     let playback = Arc::clone(&self.playback);
-                    let logs = Arc::clone(&self.logs);
+                    let logs = Arc::clone(self.app.logs());
                     let skip_client = Arc::clone(&self.skip_client);
                     let skip_generation = Arc::clone(&self.skip_generation);
                     let skip_kind = Arc::clone(&self.skip_kind);
@@ -1051,7 +845,7 @@ impl Wiring {
         };
 
         if let Some(had) = total_changed {
-            self.logs.record(
+            self.app.logs().record(
                 crate::plumbing::logs::Source::App,
                 "Skip",
                 crate::plumbing::logs::Level::Debug,
@@ -1060,13 +854,13 @@ impl Wiring {
         }
         if now_changed {
             match skip_now_val {
-                Some(segment) => self.logs.record(
+                Some(segment) => self.app.logs().record(
                     crate::plumbing::logs::Source::App,
                     "Skip",
                     crate::plumbing::logs::Level::Info,
                     format!("Offering {} at {time:.0}s", skip_kind_label(segment.kind)),
                 ),
-                None => self.logs.record(
+                None => self.app.logs().record(
                     crate::plumbing::logs::Source::App,
                     "Skip",
                     crate::plumbing::logs::Level::Debug,
@@ -1080,7 +874,7 @@ impl Wiring {
         }
 
         if status.paused.is_some() && status.paused != was_paused {
-            player::paused_changed(&self.runtime, status.paused.unwrap_or(false));
+            player::paused_changed(self.app.runtime(), status.paused.unwrap_or(false));
         }
         if status.ended {
             self.ended();
@@ -1090,15 +884,16 @@ impl Wiring {
     /// The stream reached its end. Binge watching carries on to the next Video; anything else
     /// goes back to where the player was opened from, as the web's back navigation does.
     fn ended(&self) {
-        player::ended(&self.runtime);
+        player::ended(self.app.runtime());
         let binge = self
-            .runtime
+            .app
+            .runtime()
             .model()
             .map(|model| {
                 model.ctx.profile.settings.binge_watching && model.player.next_video.is_some()
             })
             .unwrap_or(false);
-        if binge && player::next(&self.runtime).is_ok() {
+        if binge && player::next(self.app.runtime()).is_ok() {
             return;
         }
         self.player_back();
@@ -1109,7 +904,7 @@ impl Wiring {
         self.video.stop();
         self.video.show(false);
         *self.player_loaded.lock().unwrap() = String::new();
-        *self.playback_error.lock().unwrap() = String::new();
+        self.app.player().set_playback_error(String::new());
         self.skip_generation.fetch_add(1, Ordering::AcqRel);
         *self.skip_seeded.lock().unwrap() = String::new();
         *self.skip_kind.lock().unwrap() = String::new();
@@ -1118,9 +913,8 @@ impl Wiring {
         if let Some(window) = self.window.upgrade() {
             reset_skip_window(&window, true);
         }
-        self.player_season
-            .store(player::FOLLOW_PLAYING_SEASON, Ordering::Relaxed);
-        player::unload(&self.runtime);
+        self.app.player().set_season(player::FOLLOW_PLAYING_SEASON);
+        player::unload(self.app.runtime());
     }
 
     fn player_play_pause(&self) {
@@ -1129,18 +923,18 @@ impl Wiring {
     }
 
     fn player_play_next(&self) {
-        let _ = player::next(&self.runtime);
+        let _ = player::next(self.app.runtime());
     }
 
     /// The Video on screen and what the skip source needs to name its Episode: the show's own id
     /// (not the Video's), the season and the episode. Anything that is not an Episode has none.
     fn skip_target(&self) -> Option<(String, String, u32, u32)> {
         let loaded = self.player_loaded.lock().unwrap().clone();
-        let latest_player = self.latest.lock().unwrap().player.clone();
+        let latest_player = self.app.player().view();
         if loaded.is_empty() || loaded != latest_player.key {
             return None;
         }
-        let model = self.runtime.model().ok()?;
+        let model = self.app.runtime().model().ok()?;
         let video = model
             .player
             .selected
@@ -1198,11 +992,11 @@ impl Wiring {
             return;
         };
         let length = duration.round() as u64;
-        let skip_wanted = self.local_extras.lock().unwrap().skip_intros;
+        let skip_wanted = self.app.local_extras().skip_intros;
         let (playback, weak, logs, skip_generation, skip_kind, skip_auto_times) = (
             self.playback.clone(),
             self.window.clone(),
-            self.logs.clone(),
+            self.app.logs().clone(),
             self.skip_generation.clone(),
             self.skip_kind.clone(),
             self.skip_auto_times.clone(),
@@ -1343,7 +1137,7 @@ impl Wiring {
             return;
         };
         let (provider, submitter, skip_wanted) = {
-            let extras = self.local_extras.lock().unwrap();
+            let extras = self.app.local_extras();
             let provider = builtin_text(&extras, "provider_name");
             let provider = if provider.is_empty() {
                 "Stremio Lightning".to_owned()
@@ -1362,7 +1156,7 @@ impl Wiring {
         };
         window.set_player_skip_notice("Sending…".into());
         let (logs, playback, weak, skip_generation, skip_client) = (
-            self.logs.clone(),
+            self.app.logs().clone(),
             self.playback.clone(),
             self.window.clone(),
             self.skip_generation.clone(),
@@ -1491,7 +1285,7 @@ impl Wiring {
         };
         window.set_player_skip_notice("Sending…".into());
         let (logs, weak, skip_generation, skip_client) = (
-            self.logs.clone(),
+            self.app.logs().clone(),
             self.window.clone(),
             self.skip_generation.clone(),
             self.skip_client.clone(),
@@ -1549,7 +1343,7 @@ impl Wiring {
         let _ = self.video.seek(time);
         let duration = self.playback.lock().unwrap().duration;
         self.playback.lock().unwrap().sent_time = time;
-        player::seek(&self.runtime, time, duration, "mpv".to_owned());
+        player::seek(self.app.runtime(), time, duration, "mpv".to_owned());
     }
 
     /// The arrow keys: ten seconds, or three with Shift, as the profile's own settings say.
@@ -1584,7 +1378,7 @@ impl Wiring {
         };
         self.playback.lock().unwrap().scale = next;
         let _ = self.video.set_scale(next);
-        player::scale_changed(&self.runtime, next);
+        player::scale_changed(self.app.runtime(), next);
         if let Some(window) = self.window.upgrade() {
             window.set_player_scale(
                 match next {
@@ -1672,7 +1466,7 @@ impl Wiring {
 
     /// The profile's preferred subtitle language, as the settings screen writes it.
     fn subtitles_language(&self) -> String {
-        let Ok(model) = self.runtime.model() else {
+        let Ok(model) = self.app.runtime().model() else {
             return String::new();
         };
         model
@@ -1687,7 +1481,7 @@ impl Wiring {
     /// The interface's language, which the web ranks just under the viewer's own when it orders
     /// the Languages column.
     fn interface_language(&self) -> String {
-        let Ok(model) = self.runtime.model() else {
+        let Ok(model) = self.app.runtime().model() else {
             return String::new();
         };
         model.ctx.profile.settings.interface_language.clone()
@@ -1711,10 +1505,9 @@ impl Wiring {
         // What the row the viewer pressed actually is: a track mpv already has, or a subtitle file
         // an addon (or the stream itself) offered, which has to be added beside the video first.
         let candidate = self
-            .latest
-            .lock()
-            .unwrap()
-            .player
+            .app
+            .player()
+            .view()
             .subtitles
             .iter()
             .find(|subtitle| subtitle.id == id)
@@ -1803,34 +1596,21 @@ impl Wiring {
 
     /// An Episode in the drawer: the player reloads on it, as picking a row does.
     fn player_select_episode(&self, video_id: String) {
-        let _ = player::load_video(&self.runtime, &video_id);
-        self.player_season
-            .store(player::FOLLOW_PLAYING_SEASON, Ordering::Relaxed);
+        let _ = player::load_video(self.app.runtime(), &video_id);
+        self.app.player().set_season(player::FOLLOW_PLAYING_SEASON);
     }
 
-    /// A season in the drawer. Nothing is loaded: the list is rebuilt from the same title.
     fn player_select_season(&self, index: i32) {
         let Ok(index) = usize::try_from(index) else {
             return;
         };
-        self.player_season.store(index, Ordering::Relaxed);
-        if let Ok(model) = self.runtime.model() {
-            let mut snapshot = self.latest.lock().unwrap().clone();
-            snapshot.player = player::data(&model, Some(index));
-            drop(model);
-            *self.latest.lock().unwrap() = snapshot;
-            shell::show(
-                &self.window,
-                &self.latest,
-                &self.repaint_pending,
-                &self.images,
-            );
-        }
+        self.app.player().set_season(index);
+        self.app.player().refresh();
     }
 
     /// One row of the player's options menu.
     fn player_choose_option(&self, action: String) {
-        let Ok(model) = self.runtime.model() else {
+        let Ok(model) = self.app.runtime().model() else {
             return;
         };
         let target = match action.as_str() {
@@ -1840,10 +1620,9 @@ impl Wiring {
             // The web offers whichever subtitle is showing; this shell offers the first the
             // stream or its addons listed, which is the one the menu lists first.
             "download-subtitles" => self
-                .latest
-                .lock()
-                .unwrap()
-                .player
+                .app
+                .player()
+                .view()
                 .subtitles
                 .first()
                 .map(|subtitle| subtitle.url.clone()),
@@ -1871,21 +1650,19 @@ impl Wiring {
     }
 
     fn select_input_option(&self, input: i32, option: i32) {
-        let request = {
-            let snapshot = self.latest.lock().unwrap();
-            usize::try_from(input)
-                .ok()
-                .and_then(|input| snapshot.discover.inputs.get(input))
-                .and_then(|input| {
-                    usize::try_from(option)
-                        .ok()
-                        .and_then(|option| input.values.get(option))
-                })
-                .cloned()
-        };
+        let discover = self.app.discover().view();
+        let request = usize::try_from(input)
+            .ok()
+            .and_then(|input| discover.inputs.get(input))
+            .and_then(|input| {
+                usize::try_from(option)
+                    .ok()
+                    .and_then(|o| input.values.get(o))
+            })
+            .cloned();
         if let Some(request) = request {
-            self.selected.store(0, Ordering::Relaxed);
-            self.runtime.dispatch(RuntimeAction {
+            self.app.viewport().set_discover_selected(0);
+            self.app.runtime().dispatch(RuntimeAction {
                 field: Some(AppModelField::Discover),
                 action: Action::Load(ActionLoad::CatalogWithFilters(Some(CatalogSelected {
                     request,
@@ -1895,15 +1672,13 @@ impl Wiring {
     }
 
     fn select_library_type(&self, option: i32) {
-        let request = {
-            let snapshot = self.latest.lock().unwrap();
-            usize::try_from(option)
-                .ok()
-                .and_then(|option| snapshot.library.types.values.get(option))
-                .cloned()
-        };
+        let library = self.app.library().view();
+        let request = usize::try_from(option)
+            .ok()
+            .and_then(|option| library.types.values.get(option))
+            .cloned();
         if let Some(request) = request {
-            self.runtime.dispatch(RuntimeAction {
+            self.app.runtime().dispatch(RuntimeAction {
                 field: None,
                 action: Action::Load(ActionLoad::LibraryWithFilters(LibrarySelected { request })),
             });
@@ -1911,15 +1686,13 @@ impl Wiring {
     }
 
     fn select_library_sort(&self, option: i32) {
-        let request = {
-            let snapshot = self.latest.lock().unwrap();
-            usize::try_from(option)
-                .ok()
-                .and_then(|option| snapshot.library.sorts.get(option))
-                .map(|sort| sort.request.clone())
-        };
+        let library = self.app.library().view();
+        let request = usize::try_from(option)
+            .ok()
+            .and_then(|option| library.sorts.get(option))
+            .map(|sort| sort.request.clone());
         if let Some(request) = request {
-            self.runtime.dispatch(RuntimeAction {
+            self.app.runtime().dispatch(RuntimeAction {
                 field: None,
                 action: Action::Load(ActionLoad::LibraryWithFilters(LibrarySelected { request })),
             });
@@ -1927,7 +1700,7 @@ impl Wiring {
     }
 
     fn load_more_library(&self) {
-        self.runtime.dispatch(RuntimeAction {
+        self.app.runtime().dispatch(RuntimeAction {
             field: None,
             action: Action::LibraryWithFilters(ActionLibraryWithFilters::LoadNextPage),
         });
@@ -1936,9 +1709,8 @@ impl Wiring {
     /// The card behind an id, for the action list the Library grid and the Board's Continue
     /// Watching row both open. Both are library items, so both offer the same four options.
     fn action_target(&self, id: &str) -> Option<ActionTarget> {
-        let snapshot = self.latest.lock().unwrap();
-        let library_card = snapshot.library.cards.iter().find(|card| card.id == id);
-        if let Some(card) = library_card {
+        let library = self.app.library().view();
+        if let Some(card) = library.cards.iter().find(|card| card.id == id) {
             return Some(ActionTarget {
                 id: card.id.clone(),
                 kind: card.kind.clone(),
@@ -1946,9 +1718,9 @@ impl Wiring {
                 watched: card.watched,
             });
         }
-        // The Board draws before the Library has ever been opened, so a card acted on from there
-        // is answered by its own row.
-        snapshot
+        self.app
+            .board()
+            .view()
             .rows
             .iter()
             .filter(|row| row.menu)
@@ -1970,7 +1742,7 @@ impl Wiring {
         };
         match action.as_str() {
             "play" => {
-                let message = match player::open_for(&self.runtime, &id) {
+                let message = match player::open_for(self.app.runtime(), &id) {
                     Ok(Some(url)) => {
                         crate::plumbing::links::open(&url);
                         String::new()
@@ -1983,7 +1755,7 @@ impl Wiring {
                 }
             }
             "details" => self.open_item(card.id, card.kind, card.title),
-            "watched" => self.runtime.dispatch(RuntimeAction {
+            "watched" => self.app.runtime().dispatch(RuntimeAction {
                 field: None,
                 action: Action::Ctx(ActionCtx::LibraryItemMarkAsWatched {
                     id,
@@ -1991,16 +1763,16 @@ impl Wiring {
                 }),
             }),
             "dismiss" => {
-                self.runtime.dispatch(RuntimeAction {
+                self.app.runtime().dispatch(RuntimeAction {
                     field: None,
                     action: Action::Ctx(ActionCtx::RewindLibraryItem(id.clone())),
                 });
-                self.runtime.dispatch(RuntimeAction {
+                self.app.runtime().dispatch(RuntimeAction {
                     field: None,
                     action: Action::Ctx(ActionCtx::DismissNotificationItem(id)),
                 });
             }
-            "remove" => self.runtime.dispatch(RuntimeAction {
+            "remove" => self.app.runtime().dispatch(RuntimeAction {
                 field: None,
                 action: Action::Ctx(ActionCtx::RemoveFromLibrary(id)),
             }),
@@ -2014,24 +1786,27 @@ impl Wiring {
     /// where nothing has changed would be wasted work, so the month is re-loaded only when the
     /// library is not the one the current month was built from.
     fn calendar_shown(&self) {
-        let Ok(model) = self.runtime.model() else {
+        let Ok(model) = self.app.runtime().model() else {
             return;
         };
         let signature = calendar::library_signature(&model);
-        let loaded = *self.calendar_library.lock().unwrap();
+        let loaded = self.app.calendar().last_library();
         let stale = calendar::needs_load(loaded, signature, model.calendar.meta_items.is_empty());
         let selected = model.calendar.selected.clone();
         drop(model);
         if !stale {
             return;
         }
-        *self.calendar_library.lock().unwrap() = Some(signature);
-        calendar::load(&self.runtime, selected.map(|held| (held.year, held.month)));
+        self.app.calendar().set_last_library(Some(signature));
+        calendar::load(
+            self.app.runtime(),
+            selected.map(|held| (held.year, held.month)),
+        );
     }
 
     /// One press of the selector's arrows.
     fn calendar_step(&self, forward: bool) {
-        calendar::step(&self.runtime, forward);
+        calendar::step(self.app.runtime(), forward);
         if let Some(window) = self.window.upgrade() {
             window.set_calendar_selected_day(-1);
         }
@@ -2041,74 +1816,26 @@ impl Wiring {
     /// Streams, which is where the web's calendar links lead.
     fn calendar_open(&self, meta_id: String, kind: String, video_id: String) {
         self.open_item(meta_id, kind, String::new());
-        *self.picked.lock().unwrap() = Some(video_id.clone());
-        details::pick(&self.runtime, &video_id);
+        self.app.details().set_picked(Some(video_id.clone()));
+        details::pick(self.app.runtime(), &video_id);
     }
 
     fn select_preview(&self, index: i32) {
         let index = usize::try_from(index).unwrap_or(0);
-        self.selected.store(index, Ordering::Relaxed);
-        // The panel's pictures are on screen now, and the ones it had are not.
-        self.remember_wanted();
-        let discover = self.latest.lock().unwrap().discover.clone();
-        // Paint the panel now: its title, rating, genres and the rest are already in this snapshot,
-        // and the pictures are baked into what is painted. Waiting for a picture to arrive before
-        // repainting was the whole of why a click could open a blank panel -- a card whose pictures
-        // had already been fetched on hover never repainted at all, because the request for them is
-        // deduped and nothing ever fired, and a card whose pictures had not been fetched opened
-        // blank until the last of them landed.
-        shell::show(
-            &self.window,
-            &self.latest,
-            &self.repaint_pending,
-            &self.images,
-        );
+        self.app.viewport().set_discover_selected(index);
+        self.app.viewport().sync_images();
+        let discover = self.app.discover().view();
+        self.app.mark_dirty(ScreenMask::DISCOVER);
         for url in discover::preview_images(&discover, index) {
             self.request_painting(url);
         }
     }
 
-    /// The pointer came to rest on a card. Its pictures are asked for now, so the panel is already
-    /// complete when the card is clicked: web gets that for free, because the panel's backdrop is
-    /// the same URL the card's own poster has already downloaded, and the logo is small enough to
-    /// be there by the time a click lands. Asking on hover is where we can get the same head start.
     fn hover_card(&self, index: i32) {
         let index = usize::try_from(index).unwrap_or(0);
-        // The URLs are taken out under the lock rather than by cloning the snapshot: hovering fires
-        // as cards move under a still pointer, and a clone of the snapshot is every card and every
-        // preview in it, not the two pictures this wants.
-        let urls = {
-            let snapshot = self.latest.lock().unwrap();
-            discover::preview_images(&snapshot.discover, index)
-        };
-        // With the repaint attached, so the pictures are in the painted panel by the time the click
-        // comes: asking for them here and repainting only on the click would leave the click's own
-        // request deduped, with nothing left to paint the panel when the pictures landed.
-        for url in urls {
+        let discover = self.app.discover().view();
+        for url in discover::preview_images(&discover, index) {
             self.request_painting(url);
-        }
-    }
-
-    /// Says which pictures are on screen, so the cache keeps those while it makes room for others.
-    /// Without this it is free to let go of a poster that is being looked at, and with a limit on
-    /// it that is exactly what happened: a grid of blank cards after some scrolling -- and, since
-    /// only the Discover grid ever said so, a board of them after a visit to Discover.
-    fn remember_wanted(&self) {
-        if remember_wanted(
-            &self.images,
-            &self.latest,
-            &self.active_screen,
-            &self.board_visible,
-            &self.visible,
-            &self.grid,
-            self.selected.load(Ordering::Relaxed),
-        ) {
-            shell::show(
-                &self.window,
-                &self.latest,
-                &self.repaint_pending,
-                &self.images,
-            );
         }
     }
 
@@ -2117,24 +1844,8 @@ impl Wiring {
             return;
         };
         let screen = active_screen_of(&window);
-        *self.active_screen.lock().unwrap() = screen;
-        self.remember_wanted();
-        let urls = {
-            let board_view = *self.board_visible.lock().unwrap();
-            let visible = drawn_range(&self.visible, &self.grid);
-            let selected = self.selected.load(Ordering::Relaxed);
-            let snapshot = self.latest.lock().unwrap();
-            crate::app::events::snapshot_images(&snapshot, screen, board_view, visible, selected)
-        };
-        for url in urls {
-            self.request_painting(url);
-        }
-        shell::show(
-            &self.window,
-            &self.latest,
-            &self.repaint_pending,
-            &self.images,
-        );
+        self.app.viewport().set_active_screen(screen);
+        self.app.mark_dirty(screen.mask());
     }
 
     fn board_visible(&self, scroll: f32, height: f32, content_width: f32, viewport_width: f32) {
@@ -2144,74 +1855,56 @@ impl Wiring {
             content_width,
             viewport_width,
         };
-        let prev = *self.board_visible.lock().unwrap();
-        let (prev_urls, next_urls) = {
-            let snapshot = self.latest.lock().unwrap();
-            (
-                crate::screens::board::visible_images(&snapshot.rows, prev),
-                crate::screens::board::visible_images(&snapshot.rows, next),
-            )
-        };
-        *self.board_visible.lock().unwrap() = next;
+        let prev = self.app.viewport().board_viewport();
+        let board = self.app.board().view();
+        let prev_urls = crate::screens::board::visible_images(&board.rows, prev);
+        let next_urls = crate::screens::board::visible_images(&board.rows, next);
+        self.app.viewport().set_board_viewport(next);
         if prev_urls != next_urls {
-            self.remember_wanted();
+            self.app.viewport().sync_images();
             for url in next_urls {
                 self.request_painting(url);
             }
         }
     }
 
-    /// The grid moved. Its cards' posters are asked for as they come on screen -- a page of Discover
-    /// can be a hundred cards, and fetching all of them at once is what web's `loading="lazy"` never
-    /// does. The range is kept, so a repaint for any other reason asks for the same cards.
     fn visible_range(&self, scroll: f32, height: f32, pitch: f32, columns: i32) {
         let now = std::time::Instant::now();
-        let previous = *self.grid.lock().unwrap();
-        *self.grid.lock().unwrap() = Some(GridReport {
+        let previous = self.app.viewport().set_grid_report(GridReport {
             scroll,
             height,
             pitch,
             columns,
             at: now,
         });
-        // How fast the grid is going, from the last report: while it is flying past, a row of cards
-        // is on screen for a fraction of a second and asking for its posters is work nobody sees.
         let flying = previous.is_some_and(|before| {
             let seconds = now.duration_since(before.at).as_secs_f32();
             seconds > 0.0 && seconds < 0.25 && (scroll - before.scroll).abs() / seconds > FLYING
         });
         let range = discover::visible_range(scroll, height, pitch, columns);
-        let prev_drawn = previous.map(|before| {
-            discover::settled_range(before.scroll, before.height, before.pitch, before.columns)
-        });
+        let prev_drawn =
+            previous.map(|b| discover::settled_range(b.scroll, b.height, b.pitch, b.columns));
         let next_drawn = discover::settled_range(scroll, height, pitch, columns);
         if prev_drawn != Some(next_drawn) {
-            self.remember_wanted();
+            self.app.viewport().sync_images();
         }
-        if *self.visible.lock().unwrap() != range {
-            *self.visible.lock().unwrap() = range;
+        if self.app.viewport().discover_visible() != range {
+            self.app.viewport().set_discover_visible(range);
             if crate::plumbing::images::tracing() {
                 eprintln!(
-                    "[grid] scrolled {scroll:.0}px of {height:.0}px, rows {pitch:.0}px x {columns}: \
-                     cards {}..{}{}",
+                    "[grid] scrolled {scroll:.0}px of {height:.0}px, rows {pitch:.0}px x {columns}:                      cards {}..{}{}",
                     range.0,
                     range.0 + range.1,
                     if flying { " (flying: posters wait)" } else { "" }
                 );
             }
             if !flying {
-                let urls: Vec<String> = {
-                    let snapshot = self.latest.lock().unwrap();
-                    discover::card_images(&snapshot.discover, range).collect()
-                };
-                for url in urls {
+                let discover = self.app.discover().view();
+                for url in discover::card_images(&discover, range) {
                     self.request_painting(url);
                 }
             }
         }
-        // Whether or not the posters were asked for now, the grid being still is what says the
-        // screenful is worth filling: it restarts on every report, so it only fires once the
-        // scrolling has stopped.
         let wiring = self.clone();
         self.settle.start(
             slint::TimerMode::SingleShot,
@@ -2220,66 +1913,48 @@ impl Wiring {
         );
     }
 
-    /// The grid has stopped moving: fetch what is on screen and the row either side, so a screenful
-    /// that was flown past is filled in and the next scroll finds its posters already asked for.
-    /// Cards already asked for are dropped by the image cache, so a scroll that stopped where it was
-    /// costs nothing.
     fn fill_the_slack(&self) {
-        let Some(grid) = *self.grid.lock().unwrap() else {
+        let Some(grid) = self.app.viewport().grid_report() else {
             return;
         };
         let range = discover::settled_range(grid.scroll, grid.height, grid.pitch, grid.columns);
-        self.remember_wanted();
-        let urls: Vec<String> = {
-            let snapshot = self.latest.lock().unwrap();
-            discover::card_images(&snapshot.discover, range).collect()
-        };
-        for url in urls {
+        self.app.viewport().sync_images();
+        let discover = self.app.discover().view();
+        for url in discover::card_images(&discover, range) {
             self.request_painting(url);
         }
-        // Only now that the grid is still is the next page worth asking for: asked for on every
-        // notch of a flick it pulls a page of cards, and their posters, into a scroll that is
-        // already past them.
         if let Some(window) = self.window.upgrade() {
             window.set_grid_settle_count(window.get_grid_settle_count() + 1);
         }
     }
 
-    /// A press in one of the Addons screen's two menus: the catalog menu ("Installed", "Official",
-    /// "Community", "Podcasts") or the type menu under it. Each option carries the load it asks for,
-    /// because the two lists on this screen come from two different models.
     fn select_addon_input_option(&self, input: i32, option: i32) {
-        let choice = usize::try_from(input).ok().and_then(|input| {
-            let snapshot = self.latest.lock().unwrap();
-            snapshot.addons.inputs.get(input).and_then(|menu| {
+        let addons_data = self.app.addons().view();
+        let choice = usize::try_from(input)
+            .ok()
+            .and_then(|i| addons_data.inputs.get(i))
+            .and_then(|menu| {
                 usize::try_from(option)
                     .ok()
-                    .and_then(|option| menu.values.get(option).cloned())
-            })
-        });
+                    .and_then(|o| menu.values.get(o).cloned())
+            });
         if let Some(choice) = choice {
-            addons::select(&self.runtime, &choice);
+            addons::select(self.app.runtime(), &choice);
         }
     }
 
-    /// A marketplace card's Install button: the descriptor the catalog answered with goes to the
-    /// core's own install action, the same one the pasted-URL dialog uses.
     fn install_market_addon(&self, transport_url: &str) {
-        // The card the press came from, off the same list the user is looking at: the live model
-        // may be reloading the catalog at this instant, and the web's card carries its own
-        // descriptor for exactly that reason.
         let card = self
-            .latest
-            .lock()
-            .unwrap()
-            .addons
+            .app
+            .addons()
+            .view()
             .cards
             .iter()
             .find(|card| card.transport_url == transport_url)
             .cloned();
         if let Some(card) = card {
             if let addons::InstallOutcome::OpenConfigure(url) =
-                addons::install_card(&self.runtime, &card)
+                addons::install_card(self.app.runtime(), &card)
             {
                 crate::plumbing::links::open(&url);
             }
@@ -2288,55 +1963,39 @@ impl Wiring {
 
     // ---- Mods ----------------------------------------------------------------
 
-    /// The page the Mods menu is on, and the menu with it. Changing page takes back an armed
-    /// Remove: the card it was on is no longer on screen, so the next press cannot be its second.
-    /// The folders are read again, so a file dropped in since the last core event has its card
-    /// by the time the page finishes drawing.
     fn select_mods_page(&self, id: String) {
         let page = mods::Page::from_id(&id);
-        // Leaving the Plugin settings page drops what was typed there: the back arrow is the
-        // page's revert, and nothing typed on it outlives the page.
         if page != mods::Page::Settings {
-            *self.mods_edits.lock().unwrap() = mods::settings::Edits::default();
+            self.app
+                .mods()
+                .with_edits_mut(|e| *e = mods::settings::Edits::default());
         }
         if matches!(page, mods::Page::Themes | mods::Page::About) {
-            self.reload_installed_themes();
+            self.app.mods().reload_installed_themes();
         }
         self.disarm_mods();
-        *self.mods_page.lock().unwrap() = page.id().to_owned();
-        // The page the window holds now, before the folders are read: the menu's own selection
-        // follows the press without waiting for a snapshot, and the read below cannot lose it.
+        self.app.mods().set_page(page.id().to_owned());
         if let Some(window) = self.window.upgrade() {
             window.set_mods_page(page.id().into());
         }
-        let data = self.mods_data(page);
-        let mut snapshot = self.latest.lock().unwrap().clone();
-        snapshot.mods = data.with_notice(snapshot.mods.notice.clone());
-        // The section's own properties are set here, not only posted: the press is on the
-        // window's thread already, and the page has to be the one picked by the time this returns.
-        *self.latest.lock().unwrap() = snapshot.clone();
-        self.show_mods_now();
-        self.repaint_with(snapshot);
+        let data = self.app.mods().rebuild(None);
+        if let Some(window) = self.window.upgrade() {
+            shell::view::show_mods(&window, &data);
+        }
     }
 
-    /// The kind of mod the page on screen lists, if it lists any.
     fn mods_page_kind(&self) -> Option<mods::catalogue::Kind> {
-        mods::Page::from_id(&self.mods_page.lock().unwrap()).kind()
+        mods::Page::from_id(&self.app.mods().page()).kind()
     }
 
-    /// A press on a plugin's or a theme's switch: write the choice down, save it, and for a theme
-    /// draw the window with the one it now names. `filename` is the file the card names, so the
-    /// list of the page on screen is the only one that could hold it.
     fn toggle_mod(&self, filename: String, enabled: bool) {
-        // A switch is not a Remove, so its press takes back any armed Remove.
         self.disarm_mods();
         let Some(kind) = self.mods_page_kind() else {
             return;
         };
         let notice = {
-            let mut extras = self.local_extras.lock().unwrap();
+            let mut extras = self.app.local_extras();
             let notice = match kind {
-                // A plugin switch writes the list and says nothing: the switch is the answer.
                 mods::catalogue::Kind::Plugin => {
                     mods::builtin::set_enabled(&mut extras, &filename, enabled);
                     None
@@ -2345,11 +2004,9 @@ impl Wiring {
                     mods::catalogue::set_theme_enabled(&mut extras, &filename, enabled)
                 }
             };
-            extras.save(&self.data_dir);
+            extras.save(self.app.data_dir());
             notice
         };
-        // What the switch did is a record on the Logs page: the switch itself is the UI answer,
-        // so toggling a theme or plugin does not show a status notice on the page.
         self.recorded(kind, &filename, notice.as_ref());
         if kind == mods::catalogue::Kind::Theme {
             self.apply_themes();
@@ -2357,11 +2014,9 @@ impl Wiring {
         self.after_mod_action(None);
     }
 
-    /// The AniSkip page's switch: whether the player offers the timing button. The fetch follows
-    /// the same flag, because the panel lists what the fetch answers.
     pub(crate) fn apply_skip_submit_button(&self) {
         let shown = {
-            let extras = self.local_extras.lock().unwrap();
+            let extras = self.app.local_extras();
             mods::builtin::fields("builtin:aniskip")
                 .iter()
                 .find(|field| field.key == "submit_button")
@@ -2376,153 +2031,97 @@ impl Wiring {
         }
     }
 
-    /// Seeds the Plugin settings pick and AniSkip submit button state once at boot.
     pub(crate) fn init_mods(&self) {
-        let page = self.mods_data(mods::Page::Plugins);
-        *self.mods_plugin.lock().unwrap() = page.plugin;
         self.apply_skip_submit_button();
-        let page = mods::Page::from_id(&self.mods_page.lock().unwrap());
-        let data = self.mods_data(page);
-        let mut snapshot = self.latest.lock().unwrap().clone();
-        snapshot.mods = data;
-        self.repaint_with(snapshot);
+        let data = self.app.mods().rebuild(None);
+        self.app.mods().set_plugin(data.plugin.clone());
+        if let Some(window) = self.window.upgrade() {
+            shell::view::show_mods(&window, &data);
+        }
     }
 
-    /// A press on a card's settings button: the page is read for that plugin, anything typed for
-    /// the one before is thrown away because it is no longer on screen, and the Plugin settings
-    /// page opens in place of the Plugins list.
     fn pick_plugin(&self, filename: String) {
-        let extras = self.local_extras.lock().unwrap().clone();
-        {
-            let mut edits = self.mods_edits.lock().unwrap();
+        let extras = self.app.local_extras().clone();
+        self.app.mods().with_edits_mut(|edits| {
             *edits = if filename.is_empty() {
                 mods::settings::Edits::default()
             } else {
                 mods::settings::edits(&filename, &extras)
             };
-        }
-        *self.mods_plugin.lock().unwrap() = filename;
+        });
+        self.app.mods().set_plugin(filename);
         self.select_mods_page(mods::Page::Settings.id().to_owned());
     }
 
-    /// A press in one control: the value goes into the page, not the file. Each kind of control
-    /// reports the kind of value it holds, so a toggle cannot hand the page a string. A text box
-    /// waits for a pause before the page is drawn again, so the letters after the first are typed
-    /// into the editor the frame did not replace; every other control is a single press and is
-    /// drawn straight away.
     fn edit_plugin_setting(&self, key: String, value: serde_json::Value) {
-        {
-            let mut edits = self.mods_edits.lock().unwrap();
-            mods::settings::set_value(&mut edits, &key, &value);
-        }
-        // Every press is drawn at once. The field rows are kept across redraws, so a repaint no
-        // longer takes the text box out from under the next letter, and the page's unsaved state
-        // is never waiting for the box to lose focus.
+        self.app
+            .mods()
+            .with_edits_mut(|edits| mods::settings::set_value(edits, &key, &value));
         self.after_mod_action(None);
     }
 
     // ---- The Logs page -------------------------------------------------------
 
-    /// A press on one of the Logs page's filter menus: the row picked, zero being every source or
-    /// every level. The filter belongs to the recorder, which is where a line a plugin logs from a
-    /// timer finds it too: a page redrawn by a core event draws the same filtered list. Pressing a
-    /// control takes back an armed Clear.
     fn filter_logs(&self, part: &str, value: i32) {
-        *self.mods_clearing.lock().unwrap() = false;
+        self.app.mods().set_clearing(false);
         let index = usize::try_from(value).unwrap_or(0);
-        {
-            let mut sel = self.log_selection.lock().unwrap();
-            match part {
-                "source" => mods::logs::pick_source(&mut sel, index),
-                "level" => mods::logs::pick_level(&mut sel, index),
-                other => debug_assert!(false, "no Logs filter is called {other:?}"),
-            }
-        }
-        self.repaint_mods_now();
+        self.app.mods().with_log_selection(|sel| match part {
+            "source" => mods::logs::pick_source(sel, index),
+            "level" => mods::logs::pick_level(sel, index),
+            other => debug_assert!(false, "no Logs filter is called {other:?}"),
+        });
+        self.after_mod_action(None);
     }
 
-    /// A change in the Logs page's search box.
     fn search_logs(&self, text: String) {
-        *self.mods_clearing.lock().unwrap() = false;
-        self.log_selection.lock().unwrap().set_search(&text);
-        self.repaint_mods_now();
+        self.app.mods().set_clearing(false);
+        self.app
+            .mods()
+            .with_log_selection(|sel| sel.set_search(&text));
+        self.after_mod_action(None);
     }
 
-    /// Clears source, level and search filters in one press.
     fn reset_logs_filter(&self) {
-        *self.mods_clearing.lock().unwrap() = false;
-        self.log_selection.lock().unwrap().reset_filter();
-        self.repaint_mods_now();
+        self.app.mods().set_clearing(false);
+        self.app.mods().with_log_selection(|sel| sel.reset_filter());
+        self.after_mod_action(None);
     }
 
-    /// Draws the Mods section with the page the window holds, and the last notice: the answer to a
-    /// press that changed something the screen shows and nothing on disk.
-    fn repaint_mods_now(&self) {
-        let mut snapshot = self.latest.lock().unwrap().clone();
-        snapshot.mods = self.page_data(mods::Page::from_id(&snapshot.mods.page));
-        self.repaint_with(snapshot);
-    }
-
-    /// The page on screen, as a press leaves it, built before the window is touched: the folder is
-    /// read and every lock the screen takes is let go. A press is on the window's thread, and a
-    /// lock still held here when the window draws can stop the whole window, not just this page.
-    fn page_data(&self, page: mods::Page) -> mods::Data {
-        let mut data = self.mods_data(page);
-        data.notice = self.latest.lock().unwrap().mods.notice.clone();
-        data
-    }
-
-    /// Starts a click or drag-to-select gesture on `id` (with Shift / Ctrl modifiers).
     fn press_log_record(&self, id: u32, shift: bool, ctrl: bool) {
-        *self.mods_clearing.lock().unwrap() = false;
-        let entries = self.logs.entries();
-        self.log_selection
-            .lock()
-            .unwrap()
-            .press_record(&entries, u64::from(id), shift, ctrl);
+        self.app.mods().set_clearing(false);
+        let entries = self.app.logs().entries();
+        self.app
+            .mods()
+            .with_log_selection(|sel| sel.press_record(&entries, u64::from(id), shift, ctrl));
         self.sync_log_selection_now();
     }
 
-    /// Extends selection as the pointer slides across log rows while held.
     fn drag_log_record(&self, id: u32) {
-        let entries = self.logs.entries();
-        self.log_selection
-            .lock()
-            .unwrap()
-            .drag_record(&entries, u64::from(id));
+        let entries = self.app.logs().entries();
+        self.app
+            .mods()
+            .with_log_selection(|sel| sel.drag_record(&entries, u64::from(id)));
         self.sync_log_selection_now();
     }
 
-    /// Finishes a click or drag-to-select gesture and updates the detail panel.
     fn release_log_record(&self, id: u32) {
-        let entries = self.logs.entries();
-        self.log_selection
-            .lock()
-            .unwrap()
-            .release_record(&entries, u64::from(id));
+        let entries = self.app.logs().entries();
+        self.app
+            .mods()
+            .with_log_selection(|sel| sel.release_record(&entries, u64::from(id)));
         self.sync_log_selection_now();
     }
 
     fn sync_log_selection_now(&self) {
-        let armed = *self.mods_clearing.lock().unwrap();
-        let entries = self.logs.entries();
-        let sel = self.log_selection.lock().unwrap().clone();
-        {
-            let mut snapshot = self.latest.lock().unwrap();
-            let mut next = snapshot.mods.clone().with_logs(&entries, &sel, armed);
-            next.notice = snapshot.mods.notice.clone();
-            snapshot.mods = next;
-        }
+        let data = self.app.mods().publish_logs();
         if let Some(window) = self.window.upgrade() {
-            shell::view::apply_logs(&window, &entries, &sel, armed);
+            shell::view::apply_logs_data(&window, &data.logs);
         }
     }
 
-    /// The toolbar's Copy press: copies all selected visible records (or the open detail record)
-    /// to the clipboard.
     fn copy_log_record(&self) {
-        let entries = self.logs.entries();
-        let sel = self.log_selection.lock().unwrap().clone();
+        let entries = self.app.logs().entries();
+        let sel = self.app.mods().log_selection();
         let Some((count, text)) = mods::logs::copy_text(&entries, &sel, sel.filter()) else {
             return;
         };
@@ -2534,80 +2133,52 @@ impl Wiring {
         self.after_mod_action(Some(notice));
     }
 
-    /// The detail panel's Close press (or Escape / empty-space click): clears the selection,
-    /// puts the detail panel away, and disarms an armed Clear button.
     fn close_log_record(&self) {
-        *self.mods_clearing.lock().unwrap() = false;
-        self.log_selection.lock().unwrap().clear_selection();
+        self.app.mods().set_clearing(false);
+        self.app
+            .mods()
+            .with_log_selection(|sel| sel.clear_selection());
         self.sync_log_selection_now();
     }
 
-    /// Selects every visible log record (Ctrl+A).
     fn select_all_logs(&self) {
-        *self.mods_clearing.lock().unwrap() = false;
-        let entries = self.logs.entries();
-        self.log_selection.lock().unwrap().select_all(&entries);
+        self.app.mods().set_clearing(false);
+        let entries = self.app.logs().entries();
+        self.app
+            .mods()
+            .with_log_selection(|sel| sel.select_all(&entries));
         self.sync_log_selection_now();
     }
 
-    /// Moves selection up or down by `delta` rows (Up/Down, optionally with Shift).
     fn step_log_record(&self, delta: i32, shift: bool) {
-        *self.mods_clearing.lock().unwrap() = false;
-        let entries = self.logs.entries();
-        self.log_selection
-            .lock()
-            .unwrap()
-            .step_record(&entries, delta as isize, shift);
+        self.app.mods().set_clearing(false);
+        let entries = self.app.logs().entries();
+        self.app
+            .mods()
+            .with_log_selection(|sel| sel.step_record(&entries, delta as isize, shift));
         self.sync_log_selection_now();
     }
 
-    /// The Clear button. The first press arms it and removes nothing; the second empties the
-    /// list, which deletes no file and stops nothing being recorded afterwards.
     fn clear_logs(&self) {
-        let armed = {
-            let mut armed = self.mods_clearing.lock().unwrap();
-            let was_armed = *armed;
-            if was_armed {
-                self.logs.clear();
-                self.log_selection.lock().unwrap().clear_selection();
-            }
-            *armed = !was_armed;
-            *armed
-        };
-        let mut snapshot = self.latest.lock().unwrap().clone();
-        snapshot.mods = self.page_data(mods::Page::Logs);
-        debug_assert_eq!(snapshot.mods.logs.clear_armed, armed);
-        self.finish_log_press(snapshot);
-    }
-
-    /// Draws the Mods section from `snapshot` on the window's thread, and posts it like every other
-    /// repaint: the section is drawn now, and the whole window follows from the same snapshot.
-    fn finish_log_press(&self, snapshot: Snapshot) {
-        *self.latest.lock().unwrap() = snapshot.clone();
-        if let Some(window) = self.window.upgrade() {
-            shell::view::show_mods(&window, &snapshot.mods);
+        let was_armed = self.app.mods().clearing();
+        if was_armed {
+            self.app.logs().clear();
+            self.app
+                .mods()
+                .with_log_selection(|sel| sel.clear_selection());
         }
-        self.repaint_with(snapshot);
+        self.app.mods().set_clearing(!was_armed);
+        self.after_mod_action(None);
     }
 
     // ---- The About page ------------------------------------------------------
 
-    /// The About page's Refresh press: the two folders and what the plugins are doing are read
-    /// again, which is what the counts are, and the release feed is asked whether there is a newer
-    /// version. The counts are drawn here at once; the feed's answer lands as an app record, which
-    /// is where a check that could not be made says so.
-    fn reload_installed_themes(&self) {
-        *self.installed_themes.lock().unwrap() =
-            crate::plumbing::theme::store::list(&self.data_dir);
-    }
-
     fn refresh_about(&self) {
-        self.reload_installed_themes();
-        let mut snapshot = self.latest.lock().unwrap().clone();
-        snapshot.mods = self.mods_data(mods::Page::About);
-        snapshot.mods.notice = mods::Notice::said("Read the plugin and theme folders again.");
-        self.repaint_with(snapshot);
-        let logs = self.logs.clone();
+        self.app.mods().reload_installed_themes();
+        self.after_mod_action(Some(mods::Notice::said(
+            "Read the plugin and theme folders again.",
+        )));
+        let logs = self.app.logs().clone();
         self.handle.spawn(async move {
             let (level, text) =
                 match crate::plumbing::update::check_app_update(mods::about::VERSION).await {
@@ -2630,13 +2201,12 @@ impl Wiring {
         });
     }
 
-    /// The Export diagnostics press: one text file in the app data folder's `diagnostics/`, and
-    /// the path it went to stays on the page. Nothing is uploaded.
     fn export_diagnostics(&self) {
-        self.reload_installed_themes();
-        let about = self.mods_data(mods::Page::About).about;
+        self.app.mods().reload_installed_themes();
+        let about = self.app.mods().rebuild(None).about.clone();
         let records: Vec<_> = self
-            .logs
+            .app
+            .logs()
             .entries()
             .into_iter()
             .rev()
@@ -2647,11 +2217,11 @@ impl Wiring {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|since| since.as_secs())
             .unwrap_or_default();
-        let result = crate::plumbing::diagnostics::write_report(&self.data_dir, now, &text);
+        let result = crate::plumbing::diagnostics::write_report(self.app.data_dir(), now, &text);
         let notice = match result {
             Ok(path) => {
-                *self.mods_export.lock().unwrap() = Some(path.display().to_string());
-                self.logs.record(
+                self.app.mods().set_export(Some(path.display().to_string()));
+                self.app.logs().record(
                     crate::plumbing::logs::Source::App,
                     "About",
                     crate::plumbing::logs::Level::Info,
@@ -2660,7 +2230,7 @@ impl Wiring {
                 mods::Notice::said(format!("Wrote the diagnostics file to {}.", path.display()))
             }
             Err(error) => {
-                self.logs.record(
+                self.app.logs().record(
                     crate::plumbing::logs::Source::App,
                     "About",
                     crate::plumbing::logs::Level::Error,
@@ -2672,8 +2242,6 @@ impl Wiring {
         self.after_mod_action(Some(notice));
     }
 
-    /// The About page's Copy press: the version and the build go to the clipboard, one line each,
-    /// which is what a bug report asks for.
     fn copy_version(&self) {
         let text = format!(
             "Stremio Lightning {} ({}) on {} {}",
@@ -2689,186 +2257,113 @@ impl Wiring {
         self.after_mod_action(Some(notice));
     }
 
-    /// The Save press: every changed value is written to the plugin's settings file, and the
-    /// plugin's own `onSettingsSaved` callbacks are handed the file. Nothing is written when
-    /// nothing changed, so a press on a page nobody touched leaves the file alone.
     fn save_plugin_settings(&self) {
-        let (filename, saved, extras) = {
-            let mut edits = self.mods_edits.lock().unwrap();
+        let outcome = self.app.mods().with_edits_mut(|edits| {
             if edits.filename.is_empty() {
-                return;
+                return None;
             }
             let filename = edits.filename.clone();
             if !edits.dirty() {
-                drop(edits);
-                self.after_mod_action(Some(mods::Notice::said("Nothing to save.")));
-                return;
+                return Some((filename, None));
             }
-            let mut extras = self.local_extras.lock().unwrap().clone();
-            let saved = mods::settings::save(&mut edits, &mut extras);
-            (filename, saved, extras)
+            let mut extras = self.app.local_extras().clone();
+            let saved = mods::settings::save(edits, &mut extras);
+            Some((filename, Some((saved, extras))))
+        });
+        let Some((filename, result)) = outcome else {
+            return;
+        };
+        let Some((saved, extras)) = result else {
+            self.after_mod_action(Some(mods::Notice::said("Nothing to save.")));
+            return;
         };
         if saved.written {
-            // A built-in's page writes into the shell's own settings, which are the copy every
-            // other screen reads from: the same values go back into it after the page is saved.
-            *self.local_extras.lock().unwrap() = extras.clone();
-            extras.save(&self.data_dir);
+            *self.app.local_extras() = extras.clone();
+            extras.save(self.app.data_dir());
             self.apply_skip_submit_button();
-        }
-        if !saved.written {
+            let _ = saved.values;
+            self.after_mod_action(Some(mods::Notice::said(format!("Saved {filename}."))));
+        } else {
             self.after_mod_action(Some(mods::Notice::failed(format!(
                 "{filename}: {}",
                 saved.error
             ))));
-            return;
         }
-        let _ = saved.values;
-        self.after_mod_action(Some(mods::Notice::said(format!("Saved {filename}."))));
     }
 
-    /// The Mods screen for `page`, with the picked plugin, logs, and about state folded in.
-    fn mods_data(&self, page: mods::Page) -> mods::Data {
-        let pick = self.mods_plugin.lock().unwrap().clone();
-        let extras = self.local_extras.lock().unwrap().clone();
-        let cached = self.installed_themes.lock().unwrap();
-        let screen = mods::data(
-            &crate::plumbing::theme::store::themes_dir(&self.data_dir),
-            &extras,
-            cached.as_deref().map_err(String::as_str),
-        )
-        .with_page(page);
-        drop(cached);
-        let pick = if pick.is_empty() {
-            screen.plugin.clone()
-        } else {
-            pick
-        };
-        let armed = self
-            .mods_armed
-            .lock()
-            .unwrap()
-            .as_ref()
-            .map(|a| a.id.clone());
-        screen
-            .with_edits(pick, self.mods_edits.lock().unwrap().clone())
-            .with_armed(armed)
-            .with_logs(
-                &self.logs.entries(),
-                &self.log_selection.lock().unwrap(),
-                *self.mods_clearing.lock().unwrap(),
-            )
-            .with_export(self.mods_export.lock().unwrap().as_ref())
-    }
-
-    /// The Remove button of a mod card. Its first press arms the card and deletes nothing; its
-    /// second press, on the same card, deletes the file. A press on any other card's button moves
-    /// the arm to that card rather than confirming the first.
     fn remove_mod(&self, id: String) {
         let Some(kind) = self.mods_page_kind() else {
             return;
         };
-        let page = self.mods_page.lock().unwrap().clone();
         let pressed = ArmedMod {
             id: id.clone(),
-            page,
+            page: self.app.mods().page(),
         };
-        if self.armed_mod() != Some(pressed.clone()) {
-            *self.mods_armed.lock().unwrap() = Some(pressed);
-            self.latest.lock().unwrap().mods.armed = Some(id);
+        if self.app.mods().armed() != Some(pressed.clone()) {
+            self.app.mods().set_armed(Some(pressed));
             self.restart_disarm();
             self.show_mods_now();
             return;
         }
         self.disarm_mods();
         let notice = {
-            let mut extras = self.local_extras.lock().unwrap();
+            let mut extras = self.app.local_extras();
             let notice = match kind {
                 mods::catalogue::Kind::Plugin => mods::catalogue::non_removable_plugin_notice(&id),
                 mods::catalogue::Kind::Theme => match mods::builtin::get_theme(&id) {
                     Some(b) => mods::catalogue::builtin_not_removable(b.name),
                     None => {
-                        let deleted = crate::plumbing::theme::store::delete(&self.data_dir, &id);
+                        let deleted =
+                            crate::plumbing::theme::store::delete(self.app.data_dir(), &id);
                         mods::catalogue::finish_theme_remove(&mut extras, &id, deleted)
                     }
                 },
             };
-            extras.save(&self.data_dir);
+            extras.save(self.app.data_dir());
             notice
         };
         if kind == mods::catalogue::Kind::Theme {
-            self.reload_installed_themes();
+            self.app.mods().reload_installed_themes();
             self.apply_themes();
         }
         self.recorded(kind, &id, Some(&notice));
         self.after_mod_action(Some(notice));
     }
 
-    /// A press anywhere else on a Mods card: the armed card on it is not the one pressed, so the
-    /// arm goes away.
     fn dismiss_mods_remove(&self) {
         if self.disarm_mods() {
             self.show_mods_now();
         }
     }
 
-    /// Draws the Mods section from the last snapshot on the window's thread, without waiting for
-    /// the event loop. A press on the section is on this thread already, and the card's next frame
-    /// should be the answer to it.
     fn show_mods_now(&self) {
         if let Some(window) = self.window.upgrade() {
-            let data = self.latest.lock().unwrap().mods.clone();
+            let data = self.app.mods().view();
             shell::view::show_mods(&window, &data);
         }
     }
 
-    /// Takes the arm back and returns whether there was one to take back.
     fn disarm_mods(&self) -> bool {
-        let had = self.mods_armed.lock().unwrap().take().is_some();
-        self.latest.lock().unwrap().mods.armed = None;
+        let had = self.app.mods().set_armed(None);
         if had {
             self.mods_disarm.stop();
         }
         had
     }
 
-    fn armed_mod(&self) -> Option<ArmedMod> {
-        self.mods_armed.lock().unwrap().clone()
-    }
-
-    /// Starts the five seconds an armed card waits before it is no longer armed.
     fn restart_disarm(&self) {
-        let (armed, window, latest, pending, images) = (
-            self.mods_armed.clone(),
-            self.window.clone(),
-            self.latest.clone(),
-            self.repaint_pending.clone(),
-            self.images.clone(),
-        );
+        let app = self.app.clone();
         self.mods_disarm.start(
             slint::TimerMode::SingleShot,
             std::time::Duration::from_millis(DISARM_MS),
             move || {
-                let still_armed = armed
-                    .lock()
-                    .map(|mut slot| slot.take().is_some())
-                    .unwrap_or(false);
-                if !still_armed {
-                    return;
+                if app.mods().set_armed(None) {
+                    app.mark_dirty(ScreenMask::MODS);
                 }
-                // The outline on the card is part of what the window draws, so the arm going away
-                // is a repaint, not just a change of state the next press would reveal.
-                if let Ok(mut snap) = latest.lock() {
-                    snap.mods.armed = None;
-                }
-                shell::show(&window, &latest, &pending, &images);
             },
         );
     }
 
-    /// Records what a press on a Mods card did, when the press had something to say: a switch that
-    /// changed a list, or a removal. A press that changed nothing records nothing. A plugin's
-    /// record is a plugin one, and a theme's is a theme one, so the Logs page's filter finds them
-    /// beside the lines that came from the file itself.
     fn recorded(&self, kind: mods::catalogue::Kind, filename: &str, notice: Option<&mods::Notice>) {
         let Some(notice) = notice else {
             return;
@@ -2882,30 +2377,21 @@ impl Wiring {
         } else {
             crate::plumbing::logs::Level::Info
         };
-        self.logs
+        self.app
+            .logs()
             .record(source, filename, level, notice.text.clone());
     }
 
-    /// The Mods screen after an action that changed the folders or `settings.json`: the lists are
-    /// read again, and the action's own line is what the notice says.
     fn after_mod_action(&self, notice: Option<mods::Notice>) {
-        let page = mods::Page::from_id(&self.mods_page.lock().unwrap());
-        let mut data = self.mods_data(page);
-        if let Some(notice) = notice {
-            data.notice = notice;
-        } else {
-            data.notice = self.latest.lock().unwrap().mods.notice.clone();
+        let data = self.app.mods().rebuild(notice);
+        if let Some(window) = self.window.upgrade() {
+            shell::view::show_mods(&window, &data);
         }
-        let mut snapshot = self.latest.lock().unwrap().clone();
-        snapshot.mods = data;
-        self.repaint_with(snapshot);
     }
 
-    /// Draws the window with the themes `settings.json` now names, and records what each one says
-    /// that the app cannot use, which is what puts a theme's warnings on the Logs page too.
     fn apply_themes(&self) {
-        let data_dir = self.data_dir.clone();
-        let logs = self.logs.clone();
+        let data_dir = self.app.data_dir().to_path_buf();
+        let logs = self.app.logs().clone();
         let _ = self.window.upgrade_in_event_loop(move |window| {
             super::theme_apply::apply_and_record(&window, &data_dir, &logs);
         });
@@ -2913,16 +2399,10 @@ impl Wiring {
 
     fn setting_changed(&self, updated: Option<stremio_core::types::profile::Settings>) {
         if let Some(updated) = updated {
-            settings::dispatch_settings(&self.runtime, updated);
+            settings::dispatch_settings(self.app.runtime(), updated);
         }
-        let Ok(model) = self.runtime.model() else {
-            return;
-        };
-        let data = settings::data(&model, &self.local_extras.lock().unwrap());
+        let data = self.app.settings().refresh();
         self.video.apply_settings(&data.player_config);
-        let mut snapshot = self.latest.lock().unwrap().clone();
-        snapshot.settings = data;
-        self.repaint_with(snapshot);
     }
 
     fn select_setting_option(&self, key: String, option: i32) {
@@ -2942,8 +2422,6 @@ impl Wiring {
         self.setting_changed(updated);
     }
 
-    /// Runs a settings change against the profile's current settings and this shell's extras,
-    /// saving the extras whether or not the profile understood the key.
     fn with_current_settings(
         &self,
         change: impl FnOnce(
@@ -2951,10 +2429,18 @@ impl Wiring {
             &mut settings::LocalExtras,
         ) -> Option<stremio_core::types::profile::Settings>,
     ) -> Option<stremio_core::types::profile::Settings> {
-        let current = self.runtime.model().ok()?.ctx.profile.settings.clone();
-        let mut extras = self.local_extras.lock().unwrap();
+        let current = self
+            .app
+            .runtime()
+            .model()
+            .ok()?
+            .ctx
+            .profile
+            .settings
+            .clone();
+        let mut extras = self.app.local_extras();
         let updated = change(&current, &mut extras);
-        extras.save(&self.data_dir);
+        extras.save(self.app.data_dir());
         updated
     }
 
@@ -2965,18 +2451,15 @@ impl Wiring {
         let _ = self.server.stop();
         let started = self.server.start();
         self.report_server_state(started);
-        settings::reload_server(&self.runtime);
+        settings::reload_server(self.app.runtime());
     }
 
-    /// Waits for the server to answer and shows which of the possible things happened.
     pub(crate) fn report_server_state(&self, started: Result<(), String>) {
         let (window, server) = (self.window.clone(), self.server.clone());
-        let logs = self.logs.clone();
+        let logs = self.app.logs().clone();
         self.handle.spawn(async move {
             let state = stream_server::wait_until_answering(&server, started).await;
             let text = settings::server_status(&state);
-            // What the server became is a record like any other. A server that answers is news; a
-            // server that never did, or one that could not be started, is worth a warning.
             let level = match state {
                 crate::plumbing::stream_server::State::Ready => crate::plumbing::logs::Level::Info,
                 crate::plumbing::stream_server::State::PortTaken => {
@@ -2999,16 +2482,14 @@ impl Wiring {
         crate::shell::auth::start_browser_login(
             provider,
             &self.window,
-            &self.runtime,
-            &self.auth,
+            self.app.runtime(),
+            &self.app.auth().generation(),
             &self.handle,
         );
     }
 
-    /// Leaving the sign-in screen: drop the attempt in flight, and drop its spinner with it, or
-    /// the overlay would reopen with its buttons still waiting for a sign-in that is gone.
     fn dismiss_sign_in(&self) {
-        self.auth.cancel();
+        self.app.auth().generation().cancel();
         let _ = self.window.upgrade_in_event_loop(|window| {
             crate::shell::auth::clear_progress(&window);
             window.set_auth_open(false);
@@ -3028,10 +2509,96 @@ impl Wiring {
             ));
         }
     }
+
+    /// Event-driven replacement for the old 200ms `player_sync` polling timer.
+    ///
+    /// Triggered immediately on the UI thread whenever `App` emits `AppNotice::PlayerStreamChanged`.
+    pub(crate) fn sync_player_stream(&self) {
+        let data = self.app.player().view();
+        if !data.open {
+            self.video.show(false);
+            *self.player_attempted.lock().unwrap() = None;
+            return;
+        }
+        if !should_open(
+            &data.key,
+            &self.player_loaded.lock().unwrap(),
+            self.player_attempted.lock().unwrap().as_deref(),
+        ) {
+            return;
+        }
+        let upgraded = self.window.upgrade();
+        let has_skip = upgraded
+            .as_ref()
+            .is_some_and(|w| w.get_player_menu() == "skip")
+            || !self.skip_seeded.lock().unwrap().is_empty()
+            || !self.skip_kind.lock().unwrap().is_empty()
+            || self.skip_auto_times.lock().unwrap().is_some()
+            || self.playback.lock().is_ok_and(|p| {
+                !p.skip_for.is_empty() || !p.skip.is_empty() || !p.skip_rates.is_empty()
+            });
+        if has_skip {
+            clear_skip_state(
+                &self.skip_generation,
+                &self.skip_seeded,
+                &self.skip_kind,
+                &self.skip_auto_times,
+                &self.playback,
+                upgraded.as_ref(),
+                true,
+            );
+        }
+        let Some(url) = data.url.clone() else {
+            return;
+        };
+        match self.video.play(&url, data.resume_at) {
+            Ok(()) => {
+                *self.player_loaded.lock().unwrap() = data.key.clone();
+                *self.subtitle_auto.lock().unwrap() = false;
+                *self.browsed_language.lock().unwrap() = String::new();
+                self.app.player().set_playback_error(String::new());
+                if let Ok(mut playing) = self.playback.lock() {
+                    playing.time = data.resume_at;
+                    playing.duration = 0.0;
+                    playing.sent_time = data.resume_at;
+                    playing.paused = None;
+                    playing.scale = match data.scale {
+                        "cover" => stremio_core::types::player::VideoScale::Cover,
+                        "fill" => stremio_core::types::player::VideoScale::Fill,
+                        _ => stremio_core::types::player::VideoScale::Contain,
+                    };
+                    let _ = self.video.set_scale(playing.scale);
+                }
+                if let Ok(model) = self.app.runtime().model() {
+                    let hints = model
+                        .player
+                        .selected
+                        .as_ref()
+                        .map(|selected| selected.stream.behavior_hints.clone())
+                        .unwrap_or_default();
+                    drop(model);
+                    player::video_params_changed(
+                        self.app.runtime(),
+                        hints.video_size,
+                        hints.filename.clone(),
+                    );
+                }
+                self.video.show(true);
+                let _ = self.window.upgrade_in_event_loop(|window| {
+                    window.set_player_error("".into());
+                    window.set_player_loaded(false);
+                });
+            }
+            Err(message) => {
+                *self.player_attempted.lock().unwrap() = Some(data.key.clone());
+                let _ = self.window.upgrade_in_event_loop(move |window| {
+                    window.set_player_error(format!("Can't play this stream: {message}").into())
+                });
+            }
+        }
+    }
 }
 
-/// Whose variants the Variants column lists: the language whose row was pressed, or, until one is,
-/// the language that is playing.
 fn browsed_language(pressed: &str, active: &str) -> String {
     if pressed.is_empty() {
         active.to_owned()
@@ -3040,129 +2607,7 @@ fn browsed_language(pressed: &str, active: &str) -> String {
     }
 }
 
-/// Watches for the address the core resolved and hands it to mpv once. A timer rather than a
-/// callback because the address arrives with a core event on another thread, and the player
-/// cannot leave this one; a fifth of a second is well under the time anyone notices.
-pub(crate) fn start_player_sync(wiring: &Wiring) {
-    let (window, latest, video) = (
-        wiring.window.clone(),
-        wiring.latest.clone(),
-        wiring.video.clone(),
-    );
-    let runtime = wiring.runtime.clone();
-    let loaded = wiring.player_loaded.clone();
-    let attempted = wiring.player_attempted.clone();
-    let auto = wiring.subtitle_auto.clone();
-    let browsed = wiring.browsed_language.clone();
-    let playback = wiring.playback.clone();
-    let error = wiring.playback_error.clone();
-    let skip_generation = wiring.skip_generation.clone();
-    let skip_seeded = wiring.skip_seeded.clone();
-    let skip_kind = wiring.skip_kind.clone();
-    let skip_auto_times = wiring.skip_auto_times.clone();
-    wiring.player_sync.start(
-        slint::TimerMode::Repeated,
-        std::time::Duration::from_millis(200),
-        move || {
-            let data = latest.lock().unwrap().player.clone();
-            if !data.open {
-                video.show(false);
-                // Closed: the next Play is a fresh request, even for the stream that just failed.
-                *attempted.lock().unwrap() = None;
-                return;
-            }
-            if !should_open(
-                &data.key,
-                &loaded.lock().unwrap(),
-                attempted.lock().unwrap().as_deref(),
-            ) {
-                return;
-            }
-            // As soon as the core moves to another stream/episode (even while its URL is still
-            // resolving or if `video.play` fails), drop the previous video's skip state and menu.
-            let upgraded = window.upgrade();
-            let has_skip = upgraded
-                .as_ref()
-                .is_some_and(|w| w.get_player_menu() == "skip")
-                || !skip_seeded.lock().unwrap().is_empty()
-                || !skip_kind.lock().unwrap().is_empty()
-                || skip_auto_times.lock().unwrap().is_some()
-                || playback.lock().is_ok_and(|p| {
-                    !p.skip_for.is_empty() || !p.skip.is_empty() || !p.skip_rates.is_empty()
-                });
-            if has_skip {
-                clear_skip_state(
-                    &skip_generation,
-                    &skip_seeded,
-                    &skip_kind,
-                    &skip_auto_times,
-                    &playback,
-                    upgraded.as_ref(),
-                    true,
-                );
-            }
-            let Some(url) = data.url.clone() else {
-                return;
-            };
-            match video.play(&url, data.resume_at) {
-                Ok(()) => {
-                    *loaded.lock().unwrap() = data.key.clone();
-                    // A new stream: its subtitles are chosen afresh, and the menu starts out
-                    // looking at whichever language is playing.
-                    *auto.lock().unwrap() = false;
-                    *browsed.lock().unwrap() = String::new();
-                    *error.lock().unwrap() = String::new();
-                    if let Ok(mut playing) = playback.lock() {
-                        playing.time = data.resume_at;
-                        playing.duration = 0.0;
-                        playing.sent_time = data.resume_at;
-                        playing.paused = None;
-                        playing.scale = match data.scale {
-                            "cover" => stremio_core::types::player::VideoScale::Cover,
-                            "fill" => stremio_core::types::player::VideoScale::Fill,
-                            _ => stremio_core::types::player::VideoScale::Contain,
-                        };
-                        let _ = video.set_scale(playing.scale);
-                    }
-                    // What the stream says the file is: the core looks for subtitles that match
-                    // this file by its size and name.
-                    if let Ok(model) = runtime.model() {
-                        let hints = model
-                            .player
-                            .selected
-                            .as_ref()
-                            .map(|selected| selected.stream.behavior_hints.clone())
-                            .unwrap_or_default();
-                        drop(model);
-                        player::video_params_changed(
-                            &runtime,
-                            hints.video_size,
-                            hints.filename.clone(),
-                        );
-                    }
-                    video.show(true);
-                    let _ = window.upgrade_in_event_loop(|window| {
-                        window.set_player_error("".into());
-                        window.set_player_loaded(false);
-                    });
-                }
-                Err(message) => {
-                    // One attempt per address. The stream may well have opened a moment later,
-                    // but reloading it five times a second guarantees it never does.
-                    *attempted.lock().unwrap() = Some(data.key.clone());
-                    let _ = window.upgrade_in_event_loop(move |window| {
-                        window.set_player_error(format!("Can't play this stream: {message}").into())
-                    });
-                }
-            }
-        },
-    );
-}
-
-/// Registers every callback the window has. Each one is the same shape: work out what was
-/// clicked, do it, and let the window catch up.
 pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
-    start_player_sync(&wiring);
     {
         let wiring = wiring.clone();
         window.on_player_back(move || wiring.player_back());
@@ -3376,7 +2821,7 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
     {
         let wiring = wiring.clone();
         window.on_load_next_page(move || {
-            wiring.runtime.dispatch(RuntimeAction {
+            wiring.app.runtime().dispatch(RuntimeAction {
                 field: Some(AppModelField::Discover),
                 action: Action::CatalogWithFilters(ActionCatalogWithFilters::LoadNextPage),
             });
@@ -3451,7 +2896,7 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
             // The dialog is opened to read a new URL, so whatever addon it was last shown is
             // forgotten with it. Otherwise its one button still holds the old manifest as ready
             // and pressing it would install that addon instead of reading the URL just pasted.
-            wiring.runtime.dispatch(RuntimeAction {
+            wiring.app.runtime().dispatch(RuntimeAction {
                 field: Some(AppModelField::AddonDetails),
                 action: Action::Unload,
             });
@@ -3463,7 +2908,7 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
     {
         let wiring = wiring.clone();
         window.on_addon_add_submit(move |text| {
-            let error = addons::open_details(&wiring.runtime, &text)
+            let error = addons::open_details(wiring.app.runtime(), &text)
                 .err()
                 .unwrap_or_default();
             if let Some(window) = wiring.window.upgrade() {
@@ -3473,7 +2918,7 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
     }
     {
         let wiring = wiring.clone();
-        window.on_addon_add_install(move || addons::install(&wiring.runtime));
+        window.on_addon_add_install(move || addons::install(wiring.app.runtime()));
     }
     {
         let wiring = wiring.clone();
@@ -3485,7 +2930,7 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
     }
     {
         let wiring = wiring.clone();
-        window.on_addon_uninstall(move |url| addons::uninstall(&wiring.runtime, &url));
+        window.on_addon_uninstall(move |url| addons::uninstall(wiring.app.runtime(), &url));
     }
     {
         let wiring = wiring.clone();
@@ -3502,15 +2947,14 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
             // A marketplace card has no configuration page to open yet: the web opens the manifest
             // dialog on it, which is where its Install button is.
             let installed = wiring
-                .latest
-                .lock()
-                .unwrap()
-                .addons
+                .app
+                .addons()
+                .view()
                 .cards
                 .iter()
                 .any(|card| card.transport_url == url.as_str() && card.installed);
             if !installed {
-                if addons::open_details(&wiring.runtime, &url).is_ok() {
+                if addons::open_details(wiring.app.runtime(), &url).is_ok() {
                     if let Some(window) = wiring.window.upgrade() {
                         window.set_addon_add_open(true);
                         window.set_addon_add_url(url.clone());
@@ -3564,7 +3008,7 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
     window.on_open_settings_link(move |kind| links::open(&kind));
     {
         let wiring = wiring.clone();
-        window.on_logout_user(move || settings::logout(&wiring.runtime));
+        window.on_logout_user(move || settings::logout(wiring.app.runtime()));
     }
     {
         let wiring = wiring.clone();
@@ -3691,7 +3135,7 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
                 window.set_auth_error("".into());
             });
             auth::login(
-                &wiring.runtime,
+                wiring.app.runtime(),
                 email.trim().to_string(),
                 password.to_string(),
             );
@@ -3705,7 +3149,7 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
                 window.set_auth_error("".into());
             });
             auth::register(
-                &wiring.runtime,
+                wiring.app.runtime(),
                 email.trim().to_string(),
                 password.to_string(),
                 GDPRConsent {
