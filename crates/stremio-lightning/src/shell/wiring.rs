@@ -1740,7 +1740,7 @@ impl Wiring {
         if let Some(request) = request {
             self.selected.store(0, Ordering::Relaxed);
             self.runtime.dispatch(RuntimeAction {
-                field: None,
+                field: Some(AppModelField::Discover),
                 action: Action::Load(ActionLoad::CatalogWithFilters(Some(CatalogSelected {
                     request,
                 }))),
@@ -3104,7 +3104,7 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
         let wiring = wiring.clone();
         window.on_load_next_page(move || {
             wiring.runtime.dispatch(RuntimeAction {
-                field: None,
+                field: Some(AppModelField::Discover),
                 action: Action::CatalogWithFilters(ActionCatalogWithFilters::LoadNextPage),
             });
         });

@@ -26,7 +26,7 @@ use stremio_core::types::server_urls::ServerUrlsBucket;
 use stremio_core::types::streams::StreamsBucket;
 use stremio_lightning_env::AppEnv;
 
-use super::{AppModel, AppRuntime};
+use super::{AppModel, AppModelField, AppRuntime};
 
 /// The runtime, and the events it will report. The effects the models asked for are already
 /// queued inside it, so calling this and then [`load_everything`] is all a caller has to do.
@@ -94,11 +94,13 @@ pub fn load_everything(runtime: &AppRuntime) {
         action: Action::CatalogsWithExtra(ActionCatalogsWithExtra::LoadRange(0..8)),
     });
 
-    // The marketplace is *not* loaded here. Web: `useRemoteAddons` in the Addons route dispatches
-    // `Unload` unless the URL names a marketplace catalog, so `/addons` opens on the account's own
-    // list. Loading the catalog model at startup selects its first catalog -- Cinemeta's "Official"
-    // -- which drew the marketplace in place of the account's addons, and left an addon installed a
-    // moment ago missing from the list under it.
+    // Load Discover's default type and catalog (first addon catalog, e.g. Movie / Popular).
+    // Scoped to `AppModelField::Discover` so `remote_addons` stays unloaded -- web's Addons route
+    // opens on the account's installed addons rather than Cinemeta's marketplace.
+    runtime.dispatch(RuntimeAction {
+        field: Some(AppModelField::Discover),
+        action: Action::Load(ActionLoad::CatalogWithFilters(None)),
+    });
     runtime.dispatch(RuntimeAction {
         field: None,
         action: Action::Load(ActionLoad::InstalledAddonsWithFilters(InstalledSelected {

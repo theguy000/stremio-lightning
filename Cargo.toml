@@ -18,6 +18,9 @@ debug = 1
 
 [profile.dev.package."*"]
 debug = 0
+# Slint, FemtoVG, winit and tiny-skia are unusable at opt-level 0 (frame redraws lag while
+# scrolling). Dependencies build once and stay cached; workspace crates remain at opt-level 0.
+opt-level = 2
 
 # Decoding one 300x450 poster took ~180ms unoptimised, and a catalog's worth of them kept the CPU
 # busy for seconds while the Discover grid filled in a card at a time -- longer than the download
