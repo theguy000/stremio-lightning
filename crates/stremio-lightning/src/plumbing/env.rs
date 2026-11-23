@@ -1,10 +1,12 @@
-//! `stremio-core` host environment for native desktop shells.
+//! `stremio-core` host environment for the native desktop client.
 //!
-//! The interface is [`AppEnv::init`]: call it once with a data directory and a
-//! tokio runtime handle, then use `AppEnv` as the `Env` type parameter of the core.
+//! Call [`AppEnv::init`] once with a data directory and a Tokio runtime handle, then use `AppEnv`
+//! as the `Env` type parameter of `stremio-core`.
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
+use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use futures::future::BoxFuture;
@@ -17,6 +19,9 @@ use stremio_core::runtime::{ConditionalSend, Env, EnvError, EnvFuture, TryEnvFut
 use tokio::runtime::Handle;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 
+const HTTP_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const HTTP_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+
 struct Host {
     data_dir: PathBuf,
     runtime: Handle,
@@ -25,6 +30,7 @@ struct Host {
 }
 
 static HOST: OnceLock<Host> = OnceLock::new();
+static TMP_SEQ: AtomicU64 = AtomicU64::new(0);
 
 pub struct AppEnv;
 
@@ -41,6 +47,8 @@ impl AppEnv {
             }
         });
         let http = reqwest::Client::builder()
+            .connect_timeout(HTTP_CONNECT_TIMEOUT)
+            .timeout(HTTP_REQUEST_TIMEOUT)
             .build()
             .map_err(|e| EnvError::Fetch(e.to_string()))?;
         HOST.set(Host {
@@ -69,6 +77,15 @@ fn storage_path(host: &Host, key: &str) -> PathBuf {
         })
         .collect();
     host.data_dir.join(format!("{safe}.json"))
+}
+
+fn temp_storage_path(path: &std::path::Path) -> PathBuf {
+    let seq = TMP_SEQ.fetch_add(1, Ordering::Relaxed);
+    let stem = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("storage");
+    path.with_file_name(format!("{stem}.{}.{seq}.tmp", std::process::id()))
 }
 
 impl Env for AppEnv {
@@ -131,7 +148,7 @@ impl Env for AppEnv {
             let write_err = |e: std::io::Error| EnvError::StorageWriteError(e.to_string());
             match bytes? {
                 Some(bytes) => {
-                    let tmp = path.with_extension("json.tmp");
+                    let tmp = temp_storage_path(&path);
                     tokio::fs::write(&tmp, bytes).await.map_err(write_err)?;
                     tokio::fs::rename(&tmp, &path).await.map_err(write_err)
                 }
@@ -175,5 +192,19 @@ impl Env for AppEnv {
     #[cfg(debug_assertions)]
     fn log(message: String) {
         eprintln!("{message}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn temp_storage_paths_are_unique_for_concurrent_writes() {
+        let path = PathBuf::from("/tmp/profile.json");
+        let a = temp_storage_path(&path);
+        let b = temp_storage_path(&path);
+        assert_ne!(a, b);
+        assert_eq!(a.parent(), path.parent());
     }
 }

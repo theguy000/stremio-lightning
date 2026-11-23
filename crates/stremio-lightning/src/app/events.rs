@@ -4,12 +4,12 @@
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
+use crate::plumbing::env::AppEnv;
 use futures::StreamExt;
 use slint::Weak;
 use stremio_core::runtime::msg::{Action, ActionCatalogsWithExtra, Event};
 use stremio_core::runtime::RuntimeAction;
 use stremio_core::runtime::RuntimeEvent;
-use stremio_lightning_env::AppEnv;
 
 use super::{AppModel, AppRuntime, Snapshot};
 use crate::plumbing::images::{backdrop_key, Images};

@@ -9,7 +9,8 @@ pub mod validation;
 use common::Result;
 use std::env;
 
-pub use stremio_lightning_identity::{APP_ID, APP_NAME};
+pub const APP_ID: &str = "io.github.theguy000.stremio-lightning";
+pub const APP_NAME: &str = "Stremio Lightning";
 
 pub const PACKAGE_ID: &str = "stremio-lightning";
 pub const NATIVE_BIN: &str = "stremio-lightning";

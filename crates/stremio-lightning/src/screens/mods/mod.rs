@@ -281,7 +281,7 @@ pub fn menu(page: Page) -> Vec<NavItem> {
 }
 
 /// Everything the Mods section shows, read from `data_dir`: the plugins and themes folders of
-/// `stremio_lightning_core::mods`, and this shell's own `settings.json` for which of them are on.
+/// `plumbing::theme::store`, and this shell's own `settings.json` for which of them are on.
 /// The window decides which page that is; a page switch only repaints, it does not read the disk.
 pub fn data(data_dir: &Path) -> Data {
     let extras = LocalExtras::load(data_dir);

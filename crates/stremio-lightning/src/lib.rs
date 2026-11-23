@@ -18,7 +18,8 @@ use std::sync::{Arc, Mutex};
 
 use stremio_core::runtime::Env;
 use stremio_core::types::profile::Profile;
-use stremio_lightning_env::AppEnv;
+
+pub use plumbing::env::AppEnv;
 
 slint::include_modules!();
 
@@ -98,8 +99,9 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
     let video = plumbing::player::VideoPlayer::install(&window, logs.clone());
 
     let server = Arc::new(plumbing::stream_server::Supervisor::new(
-        stremio_lightning_core::streaming_server::RealProcessSpawner,
-        plumbing::stream_server::spec(&plumbing::stream_server::bundle_dir(), &data_dir),
+        &plumbing::stream_server::bundle_dir(),
+        &data_dir,
+        logs.clone(),
     ));
 
     let profile: Profile = tokio

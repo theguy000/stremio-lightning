@@ -3,10 +3,10 @@
 
 use std::path::{Path, PathBuf};
 
-use stremio_lightning_core::mods::{self, ModType};
-
 use super::catalogue::{self, Kind};
 use crate::plumbing::logs::{Entry, Logs};
+use crate::plumbing::sanitize::sanitize_text;
+use crate::plumbing::theme::store;
 use crate::screens::settings::LocalExtras;
 
 /// The version this binary was built from.
@@ -83,9 +83,7 @@ pub fn data(sources: &Sources<'_>) -> Data {
         ],
         places: vec![line(
             "Themes folder",
-            mods::mods_dir(sources.data_dir, ModType::Theme)
-                .display()
-                .to_string(),
+            store::themes_dir(sources.data_dir).display().to_string(),
         )],
         counts: vec![
             line("Built-in plugins", plugins.len().to_string()),
@@ -151,7 +149,7 @@ pub fn report(data: &Data, records: &[Entry]) -> String {
         text.push_str("(none)\n");
     }
     for entry in records {
-        text.push_str(&entry.written());
+        text.push_str(&sanitize_text(&entry.written()));
         text.push('\n');
     }
     text

@@ -1,6 +1,7 @@
 //! The app's state: the stremio-core models the UI reads, the runtime that owns them, and the
 //! snapshot of "what the window currently shows".
 
+use crate::plumbing::env::AppEnv;
 use stremio_core::models::addon_details::AddonDetails;
 use stremio_core::models::calendar::Calendar;
 use stremio_core::models::catalog_with_filters::CatalogWithFilters;
@@ -15,7 +16,6 @@ use stremio_core::runtime::Runtime;
 use stremio_core::types::addon::Descriptor;
 use stremio_core::types::resource::MetaItemPreview;
 use stremio_core::Model;
-use stremio_lightning_env::AppEnv;
 
 use crate::screens::{addons, board, calendar, details, discover, library, player, settings};
 

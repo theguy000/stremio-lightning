@@ -1,14 +1,12 @@
 //! What is installed, as the Mods pages list it: built-in plugins and local `.theme.css`
 //! files.
 //!
-//! Theme files are read through `stremio_lightning_core::mods`. A file whose metadata comment is
+//! Theme files are read through `plumbing::theme::store`. A file whose metadata comment is
 //! missing or incomplete cannot be named, so its card shows the file name instead.
 
 use std::path::Path;
 
-use stremio_lightning_core::mods::{list_mods, read_mod_content, ModType};
-
-use crate::plumbing::theme;
+use crate::plumbing::theme::{self, store};
 use crate::screens::settings::LocalExtras;
 
 /// Which of the two Mods lists to show.
@@ -19,13 +17,6 @@ pub enum Kind {
 }
 
 impl Kind {
-    pub(crate) fn mod_type(self) -> ModType {
-        match self {
-            Self::Plugin => ModType::Plugin,
-            Self::Theme => ModType::Theme,
-        }
-    }
-
     fn label(self) -> &'static str {
         match self {
             Self::Plugin => "plugin",
@@ -92,13 +83,10 @@ pub fn cards(data_dir: &Path, kind: Kind, extras: &LocalExtras) -> Result<Vec<Mo
         return Ok(super::builtin::cards(extras));
     }
     let mut list = super::builtin::theme_cards(extras);
-    let mut installed = list_mods(data_dir, ModType::Theme)?;
-    installed.sort_by(|a, b| a.filename.cmp(&b.filename));
+    let installed = store::list(data_dir)?;
     list.extend(installed.into_iter().map(|file| {
         let is_on = extras.enabled_themes.contains(&file.filename);
-        let warnings = read_mod_content(data_dir, &file.filename, ModType::Theme)
-            .map(|css| theme::warnings(&css))
-            .unwrap_or_else(|error| vec![error]);
+        let warnings = theme::warnings(&file.css);
         let (name, author, version, description) = match file.metadata {
             Some(metadata) => (
                 non_empty_or(metadata.name, &file.filename),
@@ -189,7 +177,7 @@ fn metadata_missing(card: &ModCard) -> bool {
 
 /// Removes one mod file. The notice says either that the file is gone or why it is still there.
 pub(crate) fn remove(data_dir: &Path, kind: Kind, filename: &str) -> Notice {
-    match stremio_lightning_core::mods::delete_mod(data_dir, filename, kind.mod_type()) {
+    match store::delete(data_dir, filename) {
         Ok(()) => Notice::said(format!("Removed {filename}.")),
         Err(error) => Notice::failed(format!(
             "Could not remove {filename}: {error} Delete it from the {} folder yourself.",

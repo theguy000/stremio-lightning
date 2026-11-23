@@ -22,7 +22,7 @@ fn init_env() {
             .enable_all()
             .build()
             .expect("a tokio runtime");
-        stremio_lightning_env::AppEnv::init(dir, tokio.handle().clone()).expect("an environment");
+        stremio_lightning::AppEnv::init(dir, tokio.handle().clone()).expect("an environment");
     });
 }
 
@@ -31,7 +31,7 @@ fn init_env() {
 fn fresh_with_events() -> (
     Arc<app::AppRuntime>,
     futures::channel::mpsc::Receiver<
-        stremio_core::runtime::RuntimeEvent<stremio_lightning_env::AppEnv, app::AppModel>,
+        stremio_core::runtime::RuntimeEvent<stremio_lightning::AppEnv, app::AppModel>,
     >,
 ) {
     init_env();

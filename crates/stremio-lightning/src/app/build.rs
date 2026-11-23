@@ -1,6 +1,7 @@
 //! Building the app: the initial state, the effects core wants run first, and the loads the
 //! window needs before it can show anything.
 
+use crate::plumbing::env::AppEnv;
 use futures::channel::mpsc::Receiver;
 use stremio_core::models::catalog_with_filters::CatalogWithFilters;
 use stremio_core::models::catalogs_with_extra::Selected;
@@ -24,7 +25,6 @@ use stremio_core::types::resource::MetaItemPreview;
 use stremio_core::types::search_history::SearchHistoryBucket;
 use stremio_core::types::server_urls::ServerUrlsBucket;
 use stremio_core::types::streams::StreamsBucket;
-use stremio_lightning_env::AppEnv;
 
 use super::{AppModel, AppModelField, AppRuntime};
 

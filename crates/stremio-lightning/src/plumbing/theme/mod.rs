@@ -28,11 +28,11 @@
 use std::path::Path;
 
 use slint::{Color, ComponentHandle};
-use stremio_lightning_core::mods::{read_mod_content, ModType};
 
 use crate::{ClassStyle, ClassStyles, MainWindow, Theme as SlintTheme};
 
 pub mod parse;
+pub mod store;
 
 pub use parse::{Rgba, Rule, Style};
 
@@ -234,7 +234,7 @@ pub fn apply_enabled(window: &MainWindow, data_dir: &Path) -> Vec<(String, Strin
         if crate::screens::mods::builtin::get_theme(filename).is_some() {
             continue;
         }
-        match read_mod_content(data_dir, filename, ModType::Theme) {
+        match store::read(data_dir, filename) {
             Ok(css) => {
                 let theme = parse::parse_theme(&css);
                 for warning in &theme.warnings {

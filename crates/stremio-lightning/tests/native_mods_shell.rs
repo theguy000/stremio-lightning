@@ -105,10 +105,7 @@ fn temp_dir(name: &str) -> PathBuf {
 }
 
 fn write_mod(data_dir: &Path, folder: &str, filename: &str, body: &str) -> PathBuf {
-    let path = data_dir
-        .join("stremio-lightning")
-        .join(folder)
-        .join(filename);
+    let path = data_dir.join(folder).join(filename);
     std::fs::create_dir_all(path.parent().unwrap()).expect("the mods folder");
     std::fs::write(&path, body).expect("the mod file");
     path
@@ -235,10 +232,7 @@ fn the_screen_lists_what_is_installed_and_its_actions_reach_the_disk() {
     );
 
     // ---- remove ----------------------------------------------------------------------------
-    let red_file = data_dir
-        .join("stremio-lightning")
-        .join("themes")
-        .join("red.theme.css");
+    let red_file = data_dir.join("themes").join("red.theme.css");
     assert!(red_file.exists(), "the file is there before the press");
     data = data.with_notice(mods::Notice::default());
     mods::remove(&mut data, &data_dir, "red.theme.css");
@@ -307,13 +301,8 @@ fn a_choice_survives_a_restart() {
     );
 
     // The enabled theme file is the one `plumbing::theme` colours the window with.
-    let css = std::fs::read_to_string(
-        data_dir
-            .join("stremio-lightning")
-            .join("themes")
-            .join("blue.theme.css"),
-    )
-    .expect("the theme file");
+    let css = std::fs::read_to_string(data_dir.join("themes").join("blue.theme.css"))
+        .expect("the theme file");
     let style = themes::inspect(&css)
         .style_of("nav-tab-button-container")
         .expect("the nav tab is a component this app has");
@@ -389,10 +378,7 @@ fn the_window_opens_every_page_and_removes_a_theme_in_two_presses() {
     i_slint_backend_testing::init_integration_test_with_mock_time();
     let data_dir = temp_dir("window");
     write_mod(&data_dir, "themes", "red.theme.css", &theme("Red"));
-    let red = data_dir
-        .join("stremio-lightning")
-        .join("themes")
-        .join("red.theme.css");
+    let red = data_dir.join("themes").join("red.theme.css");
     assert!(red.exists(), "the theme is installed before the app opens");
 
     let booted = stremio_lightning::boot(data_dir.clone()).expect("the app boots");

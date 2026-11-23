@@ -2516,9 +2516,7 @@ impl Wiring {
         let logs = self.logs.clone();
         self.handle.spawn(async move {
             let (level, text) =
-                match stremio_lightning_core::app_update::check_app_update(mods::about::VERSION)
-                    .await
-                {
+                match crate::plumbing::update::check_app_update(mods::about::VERSION).await {
                     Ok(info) => match &info.new_version {
                         Some(newer) => (
                             crate::plumbing::logs::Level::Info,

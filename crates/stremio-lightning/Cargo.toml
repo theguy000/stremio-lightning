@@ -1,15 +1,15 @@
 [package]
 name = "stremio-lightning"
-version = "0.1.0"
+version.workspace = true
 edition = "2021"
-license = "GPL-3.0-only"
+license.workspace = true
 description = "Slint desktop client for Stremio, built on stremio-core"
 build = "build.rs"
 
 [dependencies]
-stremio-lightning-env = { path = "../stremio-lightning-env" }
-stremio-lightning-core = { path = "../stremio-lightning-core" }
 stremio-core = { git = "https://github.com/theguy000/stremio-core", branch = "fix/watched-bitfield-flate2", features = ["env-future-send", "derive"] }
+http = "1"
+regex = "1"
 slint = "1.18"
 # The wheel is taken from winit rather than from Slint's language, which has no wheel event: this is
 # Slint's own winit wrapper, so the hook is the same on Windows, Linux and macOS. `winit` is named
@@ -51,7 +51,6 @@ slint-build = "1.18"
 embed-resource = "3.0.9"
 
 [dev-dependencies]
-# A test in tests/adversarial_m1_tests.rs instantiates a real Slint `Window`, which needs a
-# platform backend. The default winit backend requires a display, and CI containers have none.
+# UI integration tests instantiate a real Slint `Window` without a display on CI.
 i-slint-backend-testing = "1.18"
 

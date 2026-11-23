@@ -1205,7 +1205,7 @@ mod tests {
                 .enable_all()
                 .build()
                 .expect("tokio runtime");
-            let _ = stremio_lightning_env::AppEnv::init(dir, tokio.handle().clone());
+            let _ = crate::plumbing::env::AppEnv::init(dir, tokio.handle().clone());
             tokio
         });
     }
@@ -1239,9 +1239,10 @@ mod tests {
     ) -> (
         std::sync::Arc<AppRuntime>,
         futures::channel::mpsc::Receiver<
-            stremio_core::runtime::RuntimeEvent<stremio_lightning_env::AppEnv, AppModel>,
+            stremio_core::runtime::RuntimeEvent<crate::plumbing::env::AppEnv, AppModel>,
         >,
     ) {
+        use crate::plumbing::env::AppEnv;
         use stremio_core::models::catalog_with_filters::CatalogWithFilters;
         use stremio_core::models::common::ResourceLoadable;
         use stremio_core::models::continue_watching_preview::ContinueWatchingPreview;
@@ -1257,7 +1258,6 @@ mod tests {
         use stremio_core::types::search_history::SearchHistoryBucket;
         use stremio_core::types::server_urls::ServerUrlsBucket;
         use stremio_core::types::streams::StreamsBucket;
-        use stremio_lightning_env::AppEnv;
 
         init_test_env();
         let profile = Profile::default();

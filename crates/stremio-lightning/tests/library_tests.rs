@@ -36,14 +36,14 @@ fn init_env() {
             .enable_all()
             .build()
             .expect("a tokio runtime");
-        stremio_lightning_env::AppEnv::init(dir, tokio.handle().clone()).expect("an environment");
+        stremio_lightning::AppEnv::init(dir, tokio.handle().clone()).expect("an environment");
     });
 }
 
 /// The app's runtime over a library the test hands it, and the library already selected the way
 /// `app::build::load_everything` selects it. The receiver is returned so the core can keep
 /// reporting events for as long as the test dispatches; dropping it panics the runtime.
-type Events = Receiver<RuntimeEvent<stremio_lightning_env::AppEnv, app::AppModel>>;
+type Events = Receiver<RuntimeEvent<stremio_lightning::AppEnv, app::AppModel>>;
 
 fn runtime_with(
     items: Vec<LibraryItem>,
@@ -54,7 +54,7 @@ fn runtime_with(
     let uid = profile.uid();
     let library = LibraryBucket::new(uid.clone(), items);
     let notifications =
-        NotificationsBucket::new::<stremio_lightning_env::AppEnv>(uid.clone(), notifications);
+        NotificationsBucket::new::<stremio_lightning::AppEnv>(uid.clone(), notifications);
     let (continue_watching_preview, _) = ContinueWatchingPreview::new(&library, &notifications);
     let (library_with_filters, _) =
         LibraryWithFilters::<NotRemovedFilter>::new(&library, &notifications);
@@ -65,7 +65,7 @@ fn runtime_with(
             profile,
             library,
             StreamsBucket::new(uid.clone()),
-            ServerUrlsBucket::new::<stremio_lightning_env::AppEnv>(uid.clone()),
+            ServerUrlsBucket::new::<stremio_lightning::AppEnv>(uid.clone()),
             notifications,
             SearchHistoryBucket::new(uid.clone()),
             DismissedEventsBucket::new(uid),

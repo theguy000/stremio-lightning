@@ -254,9 +254,9 @@ struct DragState {
 #[derive(Default)]
 pub struct Logs {
     entries: Mutex<VecDeque<Entry>>,
-    /// Where every record is also written, line by line, so a log can be read when the window
-    /// cannot be looked at. `None` in tests and in a build that does not want a file.
-    file: Option<std::path::PathBuf>,
+    /// Synchronized, sanitized rotating file writer for `app.log`. `None` in tests and builds
+    /// that do not write to disk.
+    file: Option<super::rotating_log::RotatingLogWriter>,
     next_id: AtomicU64,
     /// How many records have been recorded since the list was last cleared. Every view of the
     /// list comes from a snapshot, and a view only redraws when this changes.
@@ -298,7 +298,9 @@ impl Logs {
     /// list either way.
     pub fn recording_to(path: std::path::PathBuf) -> Logs {
         Logs {
-            file: Some(path),
+            file: Some(super::rotating_log::RotatingLogWriter::new(
+                path, FILE_LIMIT,
+            )),
             ..Logs::default()
         }
     }
@@ -323,25 +325,10 @@ impl Logs {
 
     /// Stores a record built elsewhere, dropping the oldest when the list is full.
     pub fn add(&self, entry: Entry) -> Entry {
-        if let Some(path) = &self.file {
-            if let Some(parent) = path.parent() {
-                let _ = std::fs::create_dir_all(parent);
-            }
-            // Past the limit the current file becomes the one previous file, and a fresh one
-            // starts: the newest run is always the whole of `app.log`.
-            if std::fs::metadata(path).is_ok_and(|file| file.len() > FILE_LIMIT) {
-                let _ = std::fs::rename(path, path.with_extension("log.1"));
-            }
-            if let Ok(mut file) = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(path)
-            {
-                use std::io::Write;
-                // The same line the diagnostics export writes: one serializer, so the two files a
-                // report can carry say the same thing about the same record.
-                let _ = writeln!(file, "{}", entry.written());
-            }
+        if let Some(writer) = &self.file {
+            // The same line the diagnostics export writes, now synchronized and redacted through
+            // `RotatingLogWriter`.
+            let _ = writer.write_line(&entry.written());
         }
         let mut entries = lock(&self.entries);
         entries.push_back(entry.clone());

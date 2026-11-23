@@ -103,10 +103,7 @@ fn temp_dir(name: &str) -> PathBuf {
 }
 
 fn write_mod(data_dir: &Path, folder: &str, filename: &str, body: &str) -> PathBuf {
-    let path = data_dir
-        .join("stremio-lightning")
-        .join(folder)
-        .join(filename);
+    let path = data_dir.join(folder).join(filename);
     std::fs::create_dir_all(path.parent().unwrap()).expect("the mods folder");
     std::fs::write(&path, body).expect("the mod file");
     path
@@ -1141,10 +1138,7 @@ fn the_window_lists_what_was_logged_and_filters_it() {
             .filter_map(|row| places.row_data(row))
             .map(|line| (line.label.to_string(), line.value.to_string()))
             .collect();
-        let themes_dir = stremio_lightning_core::mods::mods_dir(
-            &data_dir,
-            stremio_lightning_core::mods::ModType::Theme,
-        );
+        let themes_dir = stremio_lightning::themes::store::themes_dir(&data_dir);
         if listed
             .iter()
             .any(|(name, said)| name == "Themes folder" && Path::new(said) == themes_dir)
