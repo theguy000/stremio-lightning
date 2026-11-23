@@ -204,27 +204,33 @@ export component DiscoverContent inherits Rectangle {
                     // Only the rows on screen are drawn, and the viewport does not clip: a clip is a
                     // stencil pass for the whole frame, and forty-nine cards of which sixteen are
                     // visible cost more to draw than sixteen.
-                    for card[index] in root.cards: MetaItem {
-                        visible: Math.floor(index / root.columns) >= root.first-shown-row
-                            && Math.floor(index / root.columns) <= root.last-shown-row;
+                    for card[index] in root.cards: Rectangle {
                         x: 1.5 * root.rem-size + Math.mod(index, root.columns) * (root.cell-width + root.gap);
                         y: Math.floor(index / root.columns) * (root.cell-height + root.gap);
                         width: root.cell-width;
                         height: root.cell-height;
-                        card: card;
-                        selected: index == root.selected-index;
-                        rem-size: root.rem-size;
-                        poster-shape-ratio: root.poster-shape-ratio;
-                        hovered => {
-                            root.hover-card(index);
-                        }
-                        // Web: a click on a card that is not selected selects it, a second click opens it.
-                        clicked => {
-                            if (index == root.selected-index || !root.preview-visible) {
-                                root.open-item(card.item-id, card.kind, card.title);
-                            } else {
-                                root.selected-index = index;
-                                root.select-item(index);
+
+                        if Math.floor(index / root.columns) >= root.first-shown-row
+                            && Math.floor(index / root.columns) <= root.last-shown-row: MetaItem {
+                            x: 0px;
+                            y: 0px;
+                            width: parent.width;
+                            height: parent.height;
+                            card: card;
+                            selected: index == root.selected-index;
+                            rem-size: root.rem-size;
+                            poster-shape-ratio: root.poster-shape-ratio;
+                            hovered => {
+                                root.hover-card(index);
+                            }
+                            // Web: a click on a card that is not selected selects it, a second click opens it.
+                            clicked => {
+                                if (index == root.selected-index || !root.preview-visible) {
+                                    root.open-item(card.item-id, card.kind, card.title);
+                                } else {
+                                    root.selected-index = index;
+                                    root.select-item(index);
+                                }
                             }
                         }
                     }

@@ -163,6 +163,9 @@ export component MetaItem inherits Rectangle {
             visible: root.selected || root.is-hovered;
         }
 
+        // Portrait posters are pre-rounded in `plumbing/images.rs` so idle cards draw directly
+        // without a FemtoVG offscreen rounded-clip FBO; only hovered/selected zoom or non-portrait
+        // shapes mount a temporary rounded clip, which frees its FBO as soon as hover leaves.
         poster-container := Rectangle {
             x: 0px;
             y: 0px;
@@ -172,17 +175,38 @@ export component MetaItem inherits Rectangle {
             border-radius: 0.75 * root.rem-size;
             opacity: ClassStyles.opacity-or(ClassStyles.poster-container, 1.0);
             visible: !ClassStyles.poster-container.hidden;
-            clip: true;
 
-            if root.card.has-poster: poster-image := Image {
+            if root.card.has-poster && !(root.selected || root.is-hovered) && root.poster-shape-ratio == 1.464: poster-image := Image {
                 source: root.card.poster;
+                x: 0px;
+                y: 0px;
                 width: 100%;
                 height: 100%;
                 image-fit: cover;
                 opacity: ClassStyles.opacity-or(ClassStyles.poster-image, 0.9);
-                // Web: .poster-image-layer scales to 1.05 while the card is selected or hovered.
-                transform-scale: (root.selected || root.is-hovered) ? 1.05 : 1.0;
                 visible: !ClassStyles.poster-image.hidden;
+            }
+
+            if root.card.has-poster && ((root.selected || root.is-hovered) || root.poster-shape-ratio != 1.464): Rectangle {
+                x: 0px;
+                y: 0px;
+                width: parent.width;
+                height: parent.height;
+                border-radius: 0.75 * root.rem-size;
+                clip: true;
+
+                Image {
+                    source: root.card.poster;
+                    x: 0px;
+                    y: 0px;
+                    width: 100%;
+                    height: 100%;
+                    image-fit: cover;
+                    opacity: ClassStyles.opacity-or(ClassStyles.poster-image, 0.9);
+                    // Web: .poster-image-layer scales to 1.05 while the card is selected or hovered.
+                    transform-scale: (root.selected || root.is-hovered) ? 1.05 : 1.0;
+                    visible: !ClassStyles.poster-image.hidden;
+                }
             }
 
             // Web: `.progress-bar-layer` -- 1rem in from the poster's left, right and bottom,
@@ -586,6 +610,9 @@ component MetaRow inherits Rectangle {
     in property <CatalogRow> catalog;
     in property <length> rem-size;
     in property <int> visible-items;
+    /// Whether this row is within the viewport (plus slack) so off-screen rows unmount their
+    /// cards and release FemtoVG's per-card rounded-clip FBO and poster texture caches.
+    in property <bool> row-visible: true;
     /// The window's box, for a card's action list.
     in property <length> viewport-width;
     in property <length> viewport-height;
@@ -664,26 +691,32 @@ component MetaRow inherits Rectangle {
         opacity: ClassStyles.opacity-or(ClassStyles.meta-items-container, 1.0);
         visible: !ClassStyles.meta-items-container.hidden;
 
-        for card[index] in root.catalog.cards: MetaItem {
+        for card[index] in root.catalog.cards: Rectangle {
             x: index * root.item-width;
             y: 0px;
             width: root.item-width;
             height: root.item-height;
-            visible: index < root.visible-items;
-            card: card;
-            rem-size: root.rem-size;
-            poster-shape-ratio: root.poster-shape-ratio;
-            menu-enabled: root.catalog.menu;
-            // Web: `ContinueWatchingItem` is the one caller that passes `onDismissClick`, and it
-            // passes `actionMenu` with it, so a row that offers the list is a row that offers the ✕.
-            dismissable: root.catalog.menu;
-            viewport-width: root.viewport-width;
-            viewport-height: root.viewport-height;
-            clicked => {
-                root.open-item(card.item-id, card.kind, card.title);
-            }
-            item-action(action) => {
-                root.item-action(card.item-id, action);
+
+            if root.row-visible && index < root.visible-items: MetaItem {
+                x: 0px;
+                y: 0px;
+                width: parent.width;
+                height: parent.height;
+                card: card;
+                rem-size: root.rem-size;
+                poster-shape-ratio: root.poster-shape-ratio;
+                menu-enabled: root.catalog.menu;
+                // Web: `ContinueWatchingItem` is the one caller that passes `onDismissClick`, and it
+                // passes `actionMenu` with it, so a row that offers the list is a row that offers the ✕.
+                dismissable: root.catalog.menu;
+                viewport-width: root.viewport-width;
+                viewport-height: root.viewport-height;
+                clicked => {
+                    root.open-item(card.item-id, card.kind, card.title);
+                }
+                item-action(action) => {
+                    root.item-action(card.item-id, action);
+                }
             }
         }
     }
@@ -694,6 +727,7 @@ export component BoardContent inherits Rectangle {
     in property <length> viewport-width;
     in-out property <length> scroll-offset <=> board-content.content-y;
     callback scroll-bounds(length, length, length, length, length);
+    callback board-visible(length, length, length, length);
     callback open-item(string, string, string);
     callback item-action(string, string);
 
@@ -701,10 +735,12 @@ export component BoardContent inherits Rectangle {
     property <length> watched-width: board-content.width;
     property <length> watched-height: board-content.height;
     property <length> watched-content: board-content.content-height;
-    changed watched-width => { root.report-bounds(); }
-    changed watched-height => { root.report-bounds(); }
+    property <length> watched-y: board-content.content-y;
+    changed watched-width => { root.report-bounds(); root.report-visible(); }
+    changed watched-height => { root.report-bounds(); root.report-visible(); }
     changed watched-content => { root.report-bounds(); }
-    init => { root.report-bounds(); }
+    changed watched-y => { root.report-visible(); }
+    init => { root.report-bounds(); root.report-visible(); }
 
     function report-bounds() {
         root.scroll-bounds(
@@ -713,6 +749,15 @@ export component BoardContent inherits Rectangle {
             board-content.width,
             board-content.height,
             board-content.content-height,
+        );
+    }
+
+    function report-visible() {
+        root.board-visible(
+            -board-content.content-y,
+            board-content.height,
+            board-content.width,
+            root.viewport-width,
         );
     }
     /// The window's height, as the Library content derives it: this box reaches the window's bottom
@@ -747,6 +792,9 @@ export component BoardContent inherits Rectangle {
                 opacity: ClassStyles.opacity-or(ClassStyles.board-row, 1.0);
                 visible: !ClassStyles.board-row.hidden;
                 rem-size: root.rem-size;
+                row-visible: board-content.height <= 0px
+                    || (self.y + self.height >= -board-content.content-y - self.height
+                        && self.y <= -board-content.content-y + board-content.height + self.height);
                 visible-items: entry.shape == "landscape" && root.poster-items < 10
                     ? root.poster-items - 1 : root.poster-items;
                 viewport-width: root.viewport-width;

@@ -322,22 +322,28 @@ export component LibraryContent inherits Rectangle {
                 }
             }
 
-            for card[index] in root.cards: LibraryItemCard {
-                visible: Math.floor(index / root.columns) >= root.first-shown-row
-                    && Math.floor(index / root.columns) <= root.last-shown-row;
+            for card[index] in root.cards: Rectangle {
                 x: root.grid-padding + Math.mod(index, root.columns) * (root.tile-width + root.grid-gap);
                 y: root.grid-padding + Math.floor(index / root.columns) * (root.tile-height + root.grid-gap);
                 width: root.tile-width;
                 height: root.tile-height;
-                card: card;
-                rem-size: root.rem-size;
-                viewport-width: root.viewport-width;
-                viewport-height: root.absolute-position.y + root.height;
-                open => {
-                    root.open-item(card.item-id, card.kind, card.title);
-                }
-                action(action) => {
-                    root.item-action(card.item-id, action);
+
+                if Math.floor(index / root.columns) >= root.first-shown-row
+                    && Math.floor(index / root.columns) <= root.last-shown-row: LibraryItemCard {
+                    x: 0px;
+                    y: 0px;
+                    width: parent.width;
+                    height: parent.height;
+                    card: card;
+                    rem-size: root.rem-size;
+                    viewport-width: root.viewport-width;
+                    viewport-height: root.absolute-position.y + root.height;
+                    open => {
+                        root.open-item(card.item-id, card.kind, card.title);
+                    }
+                    action(action) => {
+                        root.item-action(card.item-id, action);
+                    }
                 }
             }
         }

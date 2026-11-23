@@ -24,13 +24,10 @@ pub(crate) const BACKDROP_SUFFIX: &str = "#backdrop";
 
 /// How much decoded picture the cache may hold before the least recently used ones are let go.
 ///
-/// The pictures the window is showing are never let go of at all (see [`Cached::insert`]), so this
-/// has to fit what a screen draws, with room left over for the one coming next. A poster is
-/// 300x450, 540 kB: a board of eight catalogs of ten cards is 49 MB, a settled screenful of Discover
-/// of up to forty cards is 22 MB, the player's artwork and its drawer's Episode thumbnails are
-/// about 21 MB, and twenty addon logos are 9 MB. The widest of those screens is a little under
-/// a hundred megabytes, which leaves a screen and a half of Discover to scroll back through.
-const CACHE_LIMIT: usize = 128 * 1024 * 1024;
+/// A poster is 240x351 RGBA8 (~337 kB). Because `wanted` only pins the active screen's visible
+/// viewport (+ one slack row, ~7–12 MB), 16 MB holds ~48 posters (over two screenfuls) while
+/// keeping decoded CPU RAM tight across Windows, Linux, and macOS.
+const CACHE_LIMIT: usize = 16 * 1024 * 1024;
 
 pub(crate) type Cache = Arc<Mutex<Cached>>;
 
@@ -53,6 +50,7 @@ impl Cached {
         }
     }
 
+    #[cfg(test)]
     fn get(&mut self, key: &str) -> Option<SharedPixelBuffer<Rgba8Pixel>> {
         self.tick += 1;
         let (buffer, _, used) = self.entries.get_mut(key)?;
@@ -60,8 +58,50 @@ impl Cached {
         Some(buffer.clone())
     }
 
+    /// Reads a cached buffer without advancing its LRU timestamp, so syncing off-screen `VecModel`
+    /// rows does not make scrolled-past posters look recently used.
+    fn peek(&self, key: &str) -> Option<SharedPixelBuffer<Rgba8Pixel>> {
+        self.entries.get(key).map(|(buffer, _, _)| buffer.clone())
+    }
+
+    fn touch_all(&mut self, keys: &HashSet<String>) {
+        self.tick += 1;
+        let tick = self.tick;
+        for key in keys {
+            if let Some((_, _, used)) = self.entries.get_mut(key) {
+                *used = tick;
+            }
+        }
+    }
+
     fn contains_key(&self, key: &str) -> bool {
         self.entries.contains_key(key)
+    }
+
+    fn trim(&mut self, keep: &HashSet<String>, protect: Option<&str>) -> Vec<String> {
+        let limit = if self.limit == 0 {
+            CACHE_LIMIT
+        } else {
+            self.limit
+        };
+        let mut let_go = Vec::new();
+        while self.bytes > limit {
+            // Never the picture just made, and never one that is on screen.
+            let Some(oldest) = self
+                .entries
+                .iter()
+                .filter(|(k, _)| protect != Some(k.as_str()) && !keep.contains(*k))
+                .min_by_key(|(_, (_, _, used))| *used)
+                .map(|(k, _)| k.clone())
+            else {
+                break;
+            };
+            if let Some((_, bytes, _)) = self.entries.remove(&oldest) {
+                self.bytes -= bytes;
+                let_go.push(oldest);
+            }
+        }
+        let_go
     }
 
     /// Puts a picture in, and says which keys it had to let go of to make room. Those have to be
@@ -83,29 +123,7 @@ impl Cached {
             self.bytes -= was;
         }
         self.bytes += bytes;
-        let limit = if self.limit == 0 {
-            CACHE_LIMIT
-        } else {
-            self.limit
-        };
-        let mut let_go = Vec::new();
-        while self.bytes > limit {
-            // Never the picture just made, and never one that is on screen.
-            let Some(oldest) = self
-                .entries
-                .iter()
-                .filter(|(k, _)| **k != key && !keep.contains(*k))
-                .min_by_key(|(_, (_, _, used))| *used)
-                .map(|(k, _)| k.clone())
-            else {
-                break;
-            };
-            if let Some((_, bytes, _)) = self.entries.remove(&oldest) {
-                self.bytes -= bytes;
-                let_go.push(oldest);
-            }
-        }
-        let_go
+        self.trim(keep, Some(&key))
     }
 
     fn iter(&self) -> impl Iterator<Item = (&String, &SharedPixelBuffer<Rgba8Pixel>)> {
@@ -134,6 +152,9 @@ const BULK_FETCHES: usize = 16;
 /// The pictures a click is waiting on -- the panel's backdrop and its logo -- have a lane of their
 /// own, so they are never queued behind a grid's worth of posters.
 const URGENT_FETCHES: usize = 4;
+/// Cap concurrent full-resolution decodes on the blocking pool so a burst of fast HTTP/2 downloads
+/// does not allocate dozens of transient 20+ MB uncompressed bitmaps at once.
+const DECODE_CONCURRENCY: usize = 4;
 
 #[derive(Clone)]
 pub(crate) struct Images {
@@ -149,6 +170,7 @@ pub(crate) struct Images {
     wanted: Arc<Mutex<HashSet<String>>>,
     bulk: Arc<tokio::sync::Semaphore>,
     urgent: Arc<tokio::sync::Semaphore>,
+    decode: Arc<tokio::sync::Semaphore>,
     /// The runtime the fetches run on. Carried rather than assumed: a request can be made from the
     /// window's thread (a repaint asks for its own pictures), where there is no runtime context to
     /// `tokio::spawn` into.
@@ -173,27 +195,45 @@ impl Default for Images {
             wanted: Default::default(),
             bulk: Arc::new(tokio::sync::Semaphore::new(BULK_FETCHES)),
             urgent: Arc::new(tokio::sync::Semaphore::new(URGENT_FETCHES)),
+            decode: Arc::new(tokio::sync::Semaphore::new(DECODE_CONCURRENCY)),
             runtime: tokio::runtime::Handle::current(),
         }
     }
 }
 
 impl Images {
-    /// Says which pictures the window is showing, so the cache keeps them while it makes room for
-    /// others. Called whenever that changes: on every new snapshot, and on every report the
-    /// Discover grid sends of what it has scrolled to.
-    pub(crate) fn set_wanted(&self, keys: impl IntoIterator<Item = String>) {
+    /// Says which pictures the window is showing, so the cache keeps them while trimming entries
+    /// that scrolled off screen back under `CACHE_LIMIT`. Returns whether any entries were evicted
+    /// so the caller can clear dropped images from Slint models immediately.
+    pub(crate) fn set_wanted(&self, keys: impl IntoIterator<Item = String>) -> bool {
         let keys: HashSet<String> = keys.into_iter().collect();
-        let mut wanted = self.wanted.lock().unwrap();
-        if *wanted != keys {
-            *wanted = keys;
+        let changed = {
+            let mut wanted = self.wanted.lock().unwrap();
+            if *wanted == keys {
+                false
+            } else {
+                *wanted = keys.clone();
+                true
+            }
+        };
+        if !changed {
+            return false;
         }
+        let let_go = {
+            let mut cache = self.cache.lock().unwrap();
+            cache.touch_all(&keys);
+            cache.trim(&keys, None)
+        };
+        let evicted = !let_go.is_empty();
+        forget(&self.requested, let_go);
+        evicted
     }
 
-    /// The image for a key, if it has arrived. Read while the window is being filled in.
+    /// The image for a key, if it has arrived. Does not advance LRU timestamps so syncing
+    /// off-screen `VecModel` rows does not keep scrolled-past posters pinned ahead of active ones.
     pub(crate) fn get(&self, key: &Option<String>) -> Option<Image> {
         key.as_ref()
-            .and_then(|key| self.cache.lock().unwrap().get(key))
+            .and_then(|key| self.cache.lock().unwrap().peek(key))
             .map(Image::from_rgba8)
     }
 
@@ -221,6 +261,7 @@ impl Images {
         } else {
             self.bulk.clone()
         };
+        let decode_gate = self.decode.clone();
         self.runtime.clone().spawn(async move {
             // Another size of the same picture is here often enough to matter: the Discover panel
             // wants the poster it already shows blurred, and the details column wants the artwork
@@ -262,7 +303,7 @@ impl Images {
                     trace(format_args!("made {key}"));
                     Fetched::Ready(buffer)
                 }
-                None => fetch(&client, &key, &gate).await,
+                None => fetch(&client, &key, &gate, &decode_gate).await,
             };
             match result {
                 Fetched::Ready(buffer) => {
@@ -399,25 +440,99 @@ enum Fetched {
     Retry,
 }
 
-/// How hard the web blurs a picture, in the pixels of the picture itself: a CSS `blur(10px)` over
-/// a 29rem panel is 10px across ~485px of poster, and `blur(15px)` across the ~1090px the details
-/// column's backdrop is drawn at. Both are applied at the size the picture is *stored* at, which
-/// is what makes the result look the same at any window size.
-const BLUR_SIGMA: f32 = 6.0;
-const BACKDROP_SIGMA: f32 = 7.0;
+/// How hard the web blurs a picture, in the pixels of the picture itself: scaled down to match
+/// the smaller stored blur buffers (`150x225` and `240x135`), which look the same when upscaled
+/// while using a quarter of the memory and blurring four times faster.
+const BLUR_SIGMA: f32 = 3.0;
+const BACKDROP_SIGMA: f32 = 3.5;
+
+/// Standard `MetaItem` portrait poster aspect ratio (`ui/board.slint`: `1.464`).
+const POSTER_ASPECT: f32 = 1.464;
+/// Anti-aliased corner radius as a fraction of poster width (~`0.75rem` on a ~200px card),
+/// pre-baked into portrait poster alpha so `MetaItem` needs no offscreen rounded-clip FBO.
+const POSTER_CORNER_RATIO: f32 = 0.055;
 
 /// The URL, the box a key wants its picture cut to, and the blur it is stored through.
 fn source(key: &str) -> (&str, (u32, u32), Option<f32>) {
     if let Some(url) = key.strip_suffix(LOGO_SUFFIX) {
         (url, (672, 168), None)
     } else if let Some(url) = key.strip_suffix(BLUR_SUFFIX) {
-        (url, (300, 450), Some(BLUR_SIGMA))
+        (url, (150, 225), Some(BLUR_SIGMA))
     } else if let Some(url) = key.strip_suffix(BACKDROP_SUFFIX) {
-        (url, (480, 270), Some(BACKDROP_SIGMA))
+        (url, (240, 135), Some(BACKDROP_SIGMA))
     } else if let Some(url) = key.strip_suffix(PAGE_SUFFIX) {
         (url, (1920, 1080), None)
     } else {
-        (key, (300, 450), None)
+        (key, (240, 360), None)
+    }
+}
+
+fn is_plain_poster(key: &str) -> bool {
+    !key.ends_with(LOGO_SUFFIX)
+        && !key.ends_with(BLUR_SUFFIX)
+        && !key.ends_with(BACKDROP_SUFFIX)
+        && !key.ends_with(PAGE_SUFFIX)
+}
+
+/// Cover-crops a portrait poster to `POSTER_ASPECT` and modulates only the alpha channel in the
+/// four corners (leaving RGB untouched so `#blur` derivation can restore opaque corners cleanly).
+fn prepare_portrait_poster(image: image::RgbaImage) -> image::RgbaImage {
+    let (w, h) = image.dimensions();
+    if w == 0 || h == 0 || (h as f32) <= (w as f32) * 1.2 {
+        return image;
+    }
+    let target_h = ((w as f32) * POSTER_ASPECT).round() as u32;
+    let mut cropped = if target_h > 0 && target_h < h {
+        let top = (h - target_h) / 2;
+        image::imageops::crop_imm(&image, 0, top, w, target_h).to_image()
+    } else if target_h > h {
+        let target_w = ((h as f32) / POSTER_ASPECT).round() as u32;
+        if target_w > 0 && target_w < w {
+            let left = (w - target_w) / 2;
+            image::imageops::crop_imm(&image, left, 0, target_w, h).to_image()
+        } else {
+            image
+        }
+    } else {
+        image
+    };
+    let radius = (cropped.width() as f32) * POSTER_CORNER_RATIO;
+    round_corners_alpha(&mut cropped, radius);
+    cropped
+}
+
+fn round_corners_alpha(image: &mut image::RgbaImage, radius: f32) {
+    let (w, h) = image.dimensions();
+    let r = radius.min(w as f32 * 0.5).min(h as f32 * 0.5);
+    if r <= 0.5 {
+        return;
+    }
+    let limit = r.ceil() as u32;
+    for y in 0..h {
+        let dy = if y < limit {
+            r - (y as f32 + 0.5)
+        } else if y >= h - limit {
+            (y as f32 + 0.5) - (h as f32 - r)
+        } else {
+            continue;
+        };
+        if dy <= 0.0 {
+            continue;
+        }
+        for x in 0..limit {
+            let dx = r - (x as f32 + 0.5);
+            if dx <= 0.0 {
+                continue;
+            }
+            let dist = (dx * dx + dy * dy).sqrt();
+            let cov = (r + 0.5 - dist).clamp(0.0, 1.0);
+            if cov < 1.0 {
+                for px in [x, w - 1 - x] {
+                    let pixel = image.get_pixel_mut(px, y);
+                    pixel[3] = ((pixel[3] as f32) * cov).round() as u8;
+                }
+            }
+        }
     }
 }
 
@@ -451,7 +566,13 @@ fn prepare(
     if blur.is_none() && (buffer.width(), buffer.height()) == (width, height) {
         return Some(buffer.clone());
     }
-    let image = to_image(buffer)?;
+    let mut image = to_image(buffer)?;
+    if blur.is_some() {
+        // Restore opaque corner alpha if deriving a blurred backdrop from a pre-rounded poster.
+        for pixel in image.pixels_mut() {
+            pixel[3] = 255;
+        }
+    }
     let image = if (image.width(), image.height()) == (width, height) {
         image
     } else {
@@ -492,7 +613,12 @@ fn derive(cache: &Cache, key: &str) -> Option<SharedPixelBuffer<Rgba8Pixel>> {
     prepare(&source, size, blur)
 }
 
-async fn fetch(client: &reqwest::Client, key: &str, gate: &Arc<tokio::sync::Semaphore>) -> Fetched {
+async fn fetch(
+    client: &reqwest::Client,
+    key: &str,
+    gate: &Arc<tokio::sync::Semaphore>,
+    decode_gate: &Arc<tokio::sync::Semaphore>,
+) -> Fetched {
     let (url, size, blur) = source(key);
     let permit = match gate.acquire().await {
         Ok(permit) => permit,
@@ -532,14 +658,24 @@ async fn fetch(client: &reqwest::Client, key: &str, gate: &Arc<tokio::sync::Sema
     // The wire is free again as soon as the body is in; decoding happens on the blocking pool, and
     // holding the permit through it would keep the next picture waiting on the CPU instead.
     drop(permit);
+    let _decode_permit = match decode_gate.acquire().await {
+        Ok(permit) => permit,
+        Err(_) => return Fetched::Retry,
+    };
     let net = started.elapsed().as_millis();
     let length = bytes.len();
+    let plain_poster = is_plain_poster(key);
     let decoded = tokio::task::spawn_blocking(move || {
         let image = image::load_from_memory(&bytes)
             .map_err(|error| eprintln!("[image] decode failed: {error}"))
             .ok()?
             .thumbnail(size.0, size.1)
             .to_rgba8();
+        let image = if plain_poster {
+            prepare_portrait_poster(image)
+        } else {
+            image
+        };
         let image = match blur {
             Some(sigma) => image::imageops::blur(&image, sigma),
             None => image,
@@ -631,6 +767,22 @@ mod tests {
     }
 
     #[test]
+    fn shrinking_wanted_trims_excess_entries_and_peek_preserves_lru_order() {
+        let mut cache = Cached::with_limit(64);
+        let both: HashSet<String> = ["a".to_owned(), "b".to_owned()].into_iter().collect();
+        cache.insert("a".to_owned(), picture(), &both);
+        cache.insert("b".to_owned(), picture(), &both);
+        // Peeking "a" must not refresh its LRU timestamp ahead of "b".
+        assert!(cache.peek("a").is_some());
+        let only_b: HashSet<String> = ["b".to_owned()].into_iter().collect();
+        let evicted = cache.trim(&only_b, None);
+        assert_eq!(evicted, vec!["a".to_owned()]);
+        assert!(!cache.contains_key("a"));
+        assert!(cache.contains_key("b"));
+        assert_eq!(cache.bytes(), 64);
+    }
+
+    #[test]
     fn a_page_of_scrolling_never_lets_go_of_a_picture_that_is_on_screen() {
         // What a session looks like: a board's posters are on screen, and a page of Discover is
         // scrolled past them -- sixteen downloads at a time, each one a candidate to evict. None
@@ -659,20 +811,38 @@ mod tests {
         );
         assert_eq!(
             source("https://example.com/a.jpg#blur"),
-            ("https://example.com/a.jpg", (300, 450), Some(BLUR_SIGMA))
+            ("https://example.com/a.jpg", (150, 225), Some(BLUR_SIGMA))
         );
         assert_eq!(
             source("https://example.com/a.jpg#backdrop"),
             (
                 "https://example.com/a.jpg",
-                (480, 270),
+                (240, 135),
                 Some(BACKDROP_SIGMA)
             )
         );
         assert_eq!(
             source("https://example.com/a.jpg"),
-            ("https://example.com/a.jpg", (300, 450), None)
+            ("https://example.com/a.jpg", (240, 360), None)
         );
+    }
+
+    #[test]
+    fn portrait_posters_are_pre_rounded_while_landscape_thumbs_stay_square_cornered() {
+        let portrait = image::RgbaImage::from_pixel(240, 360, image::Rgba([20, 40, 60, 255]));
+        let rounded = prepare_portrait_poster(portrait);
+        assert_eq!(rounded.width(), 240);
+        assert_eq!(rounded.height(), 351);
+        assert_eq!(rounded.get_pixel(0, 0)[3], 0);
+        assert_eq!(rounded.get_pixel(239, 350)[3], 0);
+        assert_eq!(rounded.get_pixel(120, 175)[3], 255);
+        // RGB is preserved in corners so derived blurs recover opaque pixels.
+        assert_eq!(&rounded.get_pixel(0, 0).0[..3], &[20, 40, 60]);
+
+        let thumb = image::RgbaImage::from_pixel(240, 135, image::Rgba([20, 40, 60, 255]));
+        let untouched = prepare_portrait_poster(thumb);
+        assert_eq!(untouched.dimensions(), (240, 135));
+        assert_eq!(untouched.get_pixel(0, 0)[3], 255);
     }
 
     #[test]

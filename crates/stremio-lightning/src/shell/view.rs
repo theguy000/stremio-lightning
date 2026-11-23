@@ -226,9 +226,17 @@ fn sync_board_rows(window: &MainWindow, rows: &[crate::screens::board::Row], ima
     )));
 }
 
-fn preview_same(old: &PreviewData, preview: &Preview, images: &Images) -> bool {
-    let logo = images.get(&preview.logo);
-    let background = images.get(&preview.background);
+fn preview_same(old: &PreviewData, preview: &Preview, images: &Images, with_images: bool) -> bool {
+    let logo = if with_images {
+        images.get(&preview.logo)
+    } else {
+        None
+    };
+    let background = if with_images {
+        images.get(&preview.background)
+    } else {
+        None
+    };
     old.title.as_str() == preview.title
         && old.runtime.as_str() == preview.runtime
         && old.release_info.as_str() == preview.release
@@ -267,22 +275,24 @@ fn preview_same(old: &PreviewData, preview: &Preview, images: &Images) -> bool {
 }
 
 fn sync_discover_previews(window: &MainWindow, previews: &[Preview], images: &Images) {
+    let selected = usize::try_from(window.get_discover_selected_index()).unwrap_or(0);
     let existing = window.get_discover_previews();
     if let Some(model) = existing.as_any().downcast_ref::<VecModel<PreviewData>>() {
         let old_len = model.row_count();
         let new_len = previews.len();
         let common = old_len.min(new_len);
         for (index, preview) in previews.iter().enumerate() {
+            let with_images = index == selected;
             if index < common {
                 if model
                     .row_data(index)
-                    .is_some_and(|old| preview_same(&old, preview, images))
+                    .is_some_and(|old| preview_same(&old, preview, images, with_images))
                 {
                     continue;
                 }
-                model.set_row_data(index, preview_data(preview, images));
+                model.set_row_data(index, preview_data(preview, images, with_images));
             } else {
-                model.push(preview_data(preview, images));
+                model.push(preview_data(preview, images, with_images));
             }
         }
         while model.row_count() > new_len {
@@ -293,7 +303,8 @@ fn sync_discover_previews(window: &MainWindow, previews: &[Preview], images: &Im
     window.set_discover_previews(ModelRc::new(VecModel::from(
         previews
             .iter()
-            .map(|preview| preview_data(preview, images))
+            .enumerate()
+            .map(|(index, preview)| preview_data(preview, images, index == selected))
             .collect::<Vec<_>>(),
     )));
 }
@@ -467,7 +478,7 @@ pub(crate) fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
     let details = &snapshot.details;
     window.set_details_has_preview(details.preview.is_some());
     if let Some(preview) = &details.preview {
-        let mut data = preview_data(preview, images);
+        let mut data = preview_data(preview, images, true);
         // Web: the column on the right has `backdrop-filter: blur(15px)`, so it paints the artwork
         // behind it blurred under its own 0.4 wash. Slint has no backdrop filter; the column draws
         // this copy instead, lined up with the page's layer.
@@ -479,6 +490,8 @@ pub(crate) fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
         data.has_panel_backdrop = backdrop.is_some();
         data.panel_backdrop = backdrop.unwrap_or_default();
         window.set_details_preview(data);
+    } else {
+        window.set_details_preview(PreviewData::default());
     }
     let streams: Vec<StreamData> = details
         .streams
@@ -571,10 +584,19 @@ pub(crate) fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
 }
 
 /// The preview panel's content — the same panel Discover opens on hover and the details screen
-/// shows beside its list.
-fn preview_data(preview: &Preview, images: &Images) -> PreviewData {
-    let logo = images.get(&preview.logo);
-    let background = images.get(&preview.background);
+/// shows beside its list. Non-selected Discover previews drop their `Image` handles so previously
+/// hovered cards do not retain decoded `#logo` and `#blur` buffers inside the `VecModel`.
+fn preview_data(preview: &Preview, images: &Images, with_images: bool) -> PreviewData {
+    let logo = if with_images {
+        images.get(&preview.logo)
+    } else {
+        None
+    };
+    let background = if with_images {
+        images.get(&preview.background)
+    } else {
+        None
+    };
     PreviewData {
         title: preview.title.clone().into(),
         runtime: preview.runtime.clone().into(),
@@ -1266,7 +1288,9 @@ fn player_view(window: &MainWindow, data: &PlayerData, images: &Images) {
     window.set_player_has_episodes(data.seasons.len() > 1 || !data.episodes.is_empty());
     window.set_player_has_preview(data.preview.is_some());
     if let Some(preview) = &data.preview {
-        window.set_player_preview(preview_data(preview, images));
+        window.set_player_preview(preview_data(preview, images, true));
+    } else {
+        window.set_player_preview(PreviewData::default());
     }
     window.set_player_next_label(data.next_label.clone().into());
     window.set_player_has_next(data.has_next);

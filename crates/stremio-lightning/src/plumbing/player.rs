@@ -337,41 +337,169 @@ pub(crate) fn apply_scale(player: &Mpv, scale: VideoScale) {
 type StatusListener = Rc<dyn Fn(Status)>;
 type ListenerSlot = Rc<RefCell<Option<StatusListener>>>;
 
+/// Applies a stream load to an already-live `Player`: sets `start` for instant resume, holds
+/// `pending_resume` as fallback for `FileLoaded`, calls `loadfile`, and unpauses.
+fn load_stream(player: &mut Player, url: &str, resume_at: f64) -> Result<(), String> {
+    let start = if resume_at > 0.0 {
+        format!("{resume_at:.3}")
+    } else {
+        "0".to_owned()
+    };
+    let _ = player.mpv.set_property("start", start.as_str());
+    player.pending_resume = (resume_at > 0.0).then_some(resume_at);
+    player
+        .mpv
+        .command("loadfile", &[url, "replace"])
+        .map_err(describe)?;
+    let _ = player.mpv.set_property("pause", false);
+    Ok(())
+}
+
+fn apply_config_to(mpv: &Mpv, settings: &crate::screens::settings::PlayerConfig) {
+    let hwdec = if settings.hardware_decoding {
+        "auto-safe"
+    } else {
+        "no"
+    };
+    let _ = mpv.set_property("hwdec", hwdec);
+    let size = f64::from(settings.subtitles_size).max(1.0) / 100.0;
+    let _ = mpv.set_property("sub-scale", size);
+    if !settings.subtitles_language.is_empty() && settings.subtitles_language != "none" {
+        let _ = mpv.set_property("slang", settings.subtitles_language.as_str());
+        let _ = mpv.set_property("sub-visibility", "yes");
+    } else if settings.subtitles_language == "none" {
+        let _ = mpv.set_property("sub-visibility", "no");
+    }
+    if !settings.audio_language.is_empty() {
+        let _ = mpv.set_property("alang", settings.audio_language.as_str());
+    }
+    if !settings.subtitles_text_color.is_empty() {
+        let _ = mpv.set_property("sub-color", settings.subtitles_text_color.as_str());
+    }
+    if !settings.subtitles_background_color.is_empty() {
+        let _ = mpv.set_property(
+            "sub-back-color",
+            settings.subtitles_background_color.as_str(),
+        );
+    }
+    if !settings.subtitles_outline_color.is_empty() {
+        let _ = mpv.set_property(
+            "sub-border-color",
+            settings.subtitles_outline_color.as_str(),
+        );
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct VideoPlayer {
+    weak: Weak<MainWindow>,
     player: Rc<RefCell<Option<Player>>>,
+    /// Whether the renderer reported an OpenGL context on `RenderingSetup`. `libmpv` itself is
+    /// created lazily on the first `play()` and torn down on `stop()` so browsing does not pay
+    /// mpv/GPU/CUDA memory and worker threads.
+    gl_available: Rc<Cell<bool>>,
+    config: Rc<RefCell<Option<crate::screens::settings::PlayerConfig>>>,
+    desired_scale: Rc<Cell<VideoScale>>,
+    desired_volume: Rc<Cell<Option<f64>>>,
+    desired_muted: Rc<Cell<Option<bool>>>,
+    desired_speed: Rc<Cell<Option<f64>>>,
+    pending_play: Rc<RefCell<Option<(String, f64)>>>,
+    teardown_requested: Rc<Cell<bool>>,
     status: Rc<RefCell<Status>>,
     listener: ListenerSlot,
     /// Whether the player screen is the thing on screen. Only then is a frame drawn, so the rest
     /// of the app never gets video over it.
     showing: Rc<Cell<bool>>,
-    _events: Rc<Timer>,
+    events: Rc<Timer>,
 }
 
 impl VideoPlayer {
-    /// Hooks mpv into the window's rendering. If the renderer has no OpenGL, playing says so, on
-    /// the Logs page as well as on stderr: a build without a console has only the page.
+    /// Hooks mpv into the window's rendering lazily: records OpenGL availability during setup,
+    /// creates mpv on the first `BeforeRendering` after `play()`, and frees its GPU context on
+    /// `stop()` or `RenderingTeardown`.
     pub(crate) fn install(window: &MainWindow, logs: std::sync::Arc<Logs>) -> Self {
         let player: Rc<RefCell<Option<Player>>> = Rc::default();
+        let gl_available = Rc::new(Cell::new(false));
+        let config: Rc<RefCell<Option<crate::screens::settings::PlayerConfig>>> = Rc::default();
+        let desired_scale = Rc::new(Cell::new(VideoScale::Contain));
+        let desired_volume: Rc<Cell<Option<f64>>> = Rc::default();
+        let desired_muted: Rc<Cell<Option<bool>>> = Rc::default();
+        let desired_speed: Rc<Cell<Option<f64>>> = Rc::default();
+        let pending_play: Rc<RefCell<Option<(String, f64)>>> = Rc::default();
+        let pending_error: Rc<RefCell<Option<String>>> = Rc::default();
+        let teardown_requested = Rc::new(Cell::new(false));
         let showing: Rc<Cell<bool>> = Rc::default();
+        let status: Rc<RefCell<Status>> = Rc::default();
+        let listener: ListenerSlot = Rc::default();
 
         let installed = window.window().set_rendering_notifier({
             let player = player.clone();
+            let gl_available = gl_available.clone();
+            let config = config.clone();
+            let desired_scale = desired_scale.clone();
+            let desired_volume = desired_volume.clone();
+            let desired_muted = desired_muted.clone();
+            let desired_speed = desired_speed.clone();
+            let pending_play = pending_play.clone();
+            let pending_error = pending_error.clone();
+            let teardown_requested = teardown_requested.clone();
             let showing = showing.clone();
             let logs = logs.clone();
             let weak = window.as_weak();
             move |state, api| match state {
                 RenderingState::RenderingSetup => {
-                    if let GraphicsAPI::NativeOpenGL { get_proc_address } = api {
-                        match Player::new(get_proc_address, weak.clone()) {
-                            Ok(created) => *player.borrow_mut() = Some(created),
-                            Err(error) => {
-                                player_unavailable(&logs, &error);
-                            }
-                        }
-                    }
+                    gl_available.set(matches!(api, GraphicsAPI::NativeOpenGL { .. }));
                 }
                 RenderingState::BeforeRendering => {
+                    if teardown_requested.replace(false)
+                        && pending_play.borrow().is_none()
+                        && !showing.get()
+                    {
+                        // Drop RenderContext + Mpv while the OpenGL context is current so GPU
+                        // textures, shaders, FBOs, and decoder threads are freed immediately.
+                        drop(player.borrow_mut().take());
+                        return;
+                    }
+                    if let Some((url, resume_at)) = pending_play.borrow_mut().take() {
+                        let start_error = if player.borrow().is_none() {
+                            if let GraphicsAPI::NativeOpenGL { get_proc_address } = api {
+                                match Player::new(get_proc_address, weak.clone()) {
+                                    Ok(mut created) => {
+                                        if let Some(cfg) = config.borrow().as_ref() {
+                                            apply_config_to(&created.mpv, cfg);
+                                        }
+                                        apply_scale(&created.mpv, desired_scale.get());
+                                        if let Some(v) = desired_volume.get() {
+                                            let _ = created.mpv.set_property("volume", v);
+                                        }
+                                        if let Some(m) = desired_muted.get() {
+                                            let _ = created.mpv.set_property("mute", m);
+                                        }
+                                        if let Some(s) = desired_speed.get() {
+                                            let _ = created.mpv.set_property("speed", s);
+                                        }
+                                        let err = load_stream(&mut created, &url, resume_at).err();
+                                        *player.borrow_mut() = Some(created);
+                                        err
+                                    }
+                                    Err(error) => {
+                                        player_unavailable(&logs, &error);
+                                        Some(error)
+                                    }
+                                }
+                            } else {
+                                Some("video playback is not available in this window".to_owned())
+                            }
+                        } else if let Some(existing) = player.borrow_mut().as_mut() {
+                            load_stream(existing, &url, resume_at).err()
+                        } else {
+                            None
+                        };
+                        if let Some(error) = start_error {
+                            *pending_error.borrow_mut() =
+                                Some(format!("Can't play this stream: {error}"));
+                        }
+                    }
                     if let (Some(player), Some(window)) = (player.borrow().as_ref(), weak.upgrade())
                     {
                         if showing.get() {
@@ -380,7 +508,10 @@ impl VideoPlayer {
                     }
                 }
                 // The render context frees GPU objects, so it has to go while the context is current.
-                RenderingState::RenderingTeardown => drop(player.borrow_mut().take()),
+                RenderingState::RenderingTeardown => {
+                    gl_available.set(false);
+                    drop(player.borrow_mut().take());
+                }
                 _ => {}
             }
         });
@@ -388,17 +519,27 @@ impl VideoPlayer {
             player_unavailable(&logs, &error.to_string());
         }
 
-        let status: Rc<RefCell<Status>> = Rc::default();
-        let listener: ListenerSlot = Rc::default();
         let events = Timer::default();
         events.start(TimerMode::Repeated, TICK, {
             let player = player.clone();
+            let pending_error = pending_error.clone();
             let status = status.clone();
             let listener = listener.clone();
             let showing = showing.clone();
             let logs = logs.clone();
             let weak = window.as_weak();
             move || {
+                if let Some(error) = pending_error.borrow_mut().take() {
+                    let mut next = status.borrow().clone();
+                    next.loaded = false;
+                    next.error = error;
+                    *status.borrow_mut() = next.clone();
+                    let heard = listener.borrow().clone();
+                    if let Some(listener) = heard {
+                        listener(next);
+                    }
+                    return;
+                }
                 let mut guard = player.borrow_mut();
                 let Some(current) = guard.as_mut() else {
                     return;
@@ -441,13 +582,24 @@ impl VideoPlayer {
                 }
             }
         });
+        // Stay idle until the first `play()` so browsing does not wake up every 200ms.
+        events.stop();
 
         Self {
+            weak: window.as_weak(),
             player,
+            gl_available,
+            config,
+            desired_scale,
+            desired_volume,
+            desired_muted,
+            desired_speed,
+            pending_play,
+            teardown_requested,
             status,
             listener,
             showing,
-            _events: Rc::new(events),
+            events: Rc::new(events),
         }
     }
 
@@ -480,46 +632,46 @@ impl VideoPlayer {
 
     /// Loads a stream and starts it. `resume_at` is where a half-watched Video left off.
     pub(crate) fn play(&self, url: &str, resume_at: f64) -> Result<(), String> {
+        if !self.gl_available.get() && self.player.borrow().is_none() {
+            return Err("video playback is not available in this window".to_owned());
+        }
         {
             let mut status = self.status.borrow_mut();
             *status = Status {
-                volume: status.volume,
-                muted: status.muted,
-                speed: status.speed,
+                volume: status.volume.or_else(|| self.desired_volume.get()),
+                muted: status.muted.or_else(|| self.desired_muted.get()),
+                speed: status.speed.or_else(|| self.desired_speed.get()),
                 ..Status::default()
             };
         }
-        // The resume position travels *with* the load, as mpv's own `start` option, so the file
-        // opens onto that second and the first frame is already the right one -- no seek, and no
-        // flash of the opening shot. (Web: `initialTime` on the player, the same idea.)
-        //
-        // It is set on every load, `0` included, because `start` is a per-file option: left at a
-        // previous value it would drag the *next* stream to the same second.
-        //
-        // Held as well, for the case where this mpv ignores the option: the held position is
-        // applied when mpv reports `FileLoaded`, which is the first moment it accepts a seek. What
-        // must never happen -- and did -- is a seek sent while the file is still opening: mpv
-        // refuses those with MPV_ERROR_LOADING_FAILED ("the stream could not be opened", about a
-        // stream that is fine), and the caller's retry loop then reloaded the address every 200ms,
-        // each load cancelling the one before it.
-        let start = if resume_at > 0.0 {
-            format!("{resume_at:.3}")
-        } else {
-            "0".to_owned()
-        };
-        let _ = self.with(|mpv| mpv.set_property("start", start.as_str()).map_err(describe));
-        if let Some(player) = self.player.borrow_mut().as_mut() {
-            player.pending_resume = (resume_at > 0.0).then_some(resume_at);
+        self.teardown_requested.set(false);
+        if !self.events.running() {
+            self.events.restart();
         }
-        self.command("loadfile", &[url, "replace"])?;
-        // A stream always starts playing, whatever pause a previous one was left in. Not worth
-        // failing the load over: at worst the first picture waits for a press.
-        let _ = self.set_paused(false);
+        if let Some(player) = self.player.borrow_mut().as_mut() {
+            *self.pending_play.borrow_mut() = None;
+            return load_stream(player, url, resume_at);
+        }
+        // Defer creation of mpv + RenderContext to `BeforeRendering` where the OpenGL context is
+        // current, then start the stream immediately inside that frame.
+        *self.pending_play.borrow_mut() = Some((url.to_owned(), resume_at));
+        if let Some(window) = self.weak.upgrade() {
+            window.window().request_redraw();
+        }
         Ok(())
     }
 
     pub(crate) fn stop(&self) {
-        let _ = self.command("stop", &[]);
+        *self.pending_play.borrow_mut() = None;
+        self.showing.set(false);
+        self.events.stop();
+        if self.player.borrow().is_some() {
+            let _ = self.command("stop", &[]);
+            self.teardown_requested.set(true);
+            if let Some(window) = self.weak.upgrade() {
+                window.window().request_redraw();
+            }
+        }
         *self.status.borrow_mut() = Status::default();
     }
 
@@ -534,6 +686,10 @@ impl VideoPlayer {
     }
 
     pub(crate) fn set_volume(&self, volume: f64) -> Result<(), String> {
+        self.desired_volume.set(Some(volume));
+        if self.player.borrow().is_none() && self.pending_play.borrow().is_some() {
+            return Ok(());
+        }
         self.with(|mpv| {
             mpv.set_property("volume", volume)
                 .map_err(|e| e.to_string())
@@ -541,10 +697,18 @@ impl VideoPlayer {
     }
 
     pub(crate) fn set_muted(&self, muted: bool) -> Result<(), String> {
+        self.desired_muted.set(Some(muted));
+        if self.player.borrow().is_none() && self.pending_play.borrow().is_some() {
+            return Ok(());
+        }
         self.with(|mpv| mpv.set_property("mute", muted).map_err(|e| e.to_string()))
     }
 
     pub(crate) fn set_speed(&self, speed: f64) -> Result<(), String> {
+        self.desired_speed.set(Some(speed));
+        if self.player.borrow().is_none() && self.pending_play.borrow().is_some() {
+            return Ok(());
+        }
         self.with(|mpv| mpv.set_property("speed", speed).map_err(|e| e.to_string()))
     }
 
@@ -599,6 +763,10 @@ impl VideoPlayer {
     }
 
     pub(crate) fn set_scale(&self, scale: VideoScale) -> Result<(), String> {
+        self.desired_scale.set(scale);
+        if self.player.borrow().is_none() && self.pending_play.borrow().is_some() {
+            return Ok(());
+        }
         self.with(|mpv| {
             apply_scale(mpv, scale);
             Ok(())
@@ -606,39 +774,9 @@ impl VideoPlayer {
     }
 
     pub(crate) fn apply_settings(&self, settings: &crate::screens::settings::PlayerConfig) {
+        *self.config.borrow_mut() = Some(settings.clone());
         let _: Result<(), String> = self.with(|mpv| {
-            let hwdec = if settings.hardware_decoding {
-                "auto-safe"
-            } else {
-                "no"
-            };
-            let _ = mpv.set_property("hwdec", hwdec);
-            let size = f64::from(settings.subtitles_size).max(1.0) / 100.0;
-            let _ = mpv.set_property("sub-scale", size);
-            if !settings.subtitles_language.is_empty() && settings.subtitles_language != "none" {
-                let _ = mpv.set_property("slang", settings.subtitles_language.as_str());
-                let _ = mpv.set_property("sub-visibility", "yes");
-            } else if settings.subtitles_language == "none" {
-                let _ = mpv.set_property("sub-visibility", "no");
-            }
-            if !settings.audio_language.is_empty() {
-                let _ = mpv.set_property("alang", settings.audio_language.as_str());
-            }
-            if !settings.subtitles_text_color.is_empty() {
-                let _ = mpv.set_property("sub-color", settings.subtitles_text_color.as_str());
-            }
-            if !settings.subtitles_background_color.is_empty() {
-                let _ = mpv.set_property(
-                    "sub-back-color",
-                    settings.subtitles_background_color.as_str(),
-                );
-            }
-            if !settings.subtitles_outline_color.is_empty() {
-                let _ = mpv.set_property(
-                    "sub-border-color",
-                    settings.subtitles_outline_color.as_str(),
-                );
-            }
+            apply_config_to(mpv, settings);
             Ok(())
         });
     }
