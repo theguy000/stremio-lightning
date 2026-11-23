@@ -163,6 +163,9 @@ export component MetaItem inherits Rectangle {
             visible: root.selected || root.is-hovered;
         }
 
+        // Portrait posters are pre-rounded in `plumbing/images.rs` so idle cards draw directly
+        // without a FemtoVG offscreen rounded-clip FBO; only hovered/selected zoom or non-portrait
+        // shapes mount a temporary rounded clip, which frees its FBO as soon as hover leaves.
         poster-container := Rectangle {
             x: 0px;
             y: 0px;
@@ -172,17 +175,38 @@ export component MetaItem inherits Rectangle {
             border-radius: 0.75 * root.rem-size;
             opacity: ClassStyles.opacity-or(ClassStyles.poster-container, 1.0);
             visible: !ClassStyles.poster-container.hidden;
-            clip: true;
 
-            if root.card.has-poster: poster-image := Image {
+            if root.card.has-poster && !(root.selected || root.is-hovered) && root.poster-shape-ratio == 1.464: poster-image := Image {
                 source: root.card.poster;
+                x: 0px;
+                y: 0px;
                 width: 100%;
                 height: 100%;
                 image-fit: cover;
                 opacity: ClassStyles.opacity-or(ClassStyles.poster-image, 0.9);
-                // Web: .poster-image-layer scales to 1.05 while the card is selected or hovered.
-                transform-scale: (root.selected || root.is-hovered) ? 1.05 : 1.0;
                 visible: !ClassStyles.poster-image.hidden;
+            }
+
+            if root.card.has-poster && ((root.selected || root.is-hovered) || root.poster-shape-ratio != 1.464): Rectangle {
+                x: 0px;
+                y: 0px;
+                width: parent.width;
+                height: parent.height;
+                border-radius: 0.75 * root.rem-size;
+                clip: true;
+
+                Image {
+                    source: root.card.poster;
+                    x: 0px;
+                    y: 0px;
+                    width: 100%;
+                    height: 100%;
+                    image-fit: cover;
+                    opacity: ClassStyles.opacity-or(ClassStyles.poster-image, 0.9);
+                    // Web: .poster-image-layer scales to 1.05 while the card is selected or hovered.
+                    transform-scale: (root.selected || root.is-hovered) ? 1.05 : 1.0;
+                    visible: !ClassStyles.poster-image.hidden;
+                }
             }
 
             // Web: `.progress-bar-layer` -- 1rem in from the poster's left, right and bottom,

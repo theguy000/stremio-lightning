@@ -24,10 +24,10 @@ pub(crate) const BACKDROP_SUFFIX: &str = "#backdrop";
 
 /// How much decoded picture the cache may hold before the least recently used ones are let go.
 ///
-/// A poster is 300x450 RGBA8 (~540 kB). Because `wanted` only pins the active screen's visible
-/// viewport (+ one slack row, ~11–18 MB), 32 MB holds ~60 posters (two to three screenfuls) while
-/// keeping decoded CPU RAM flat as you scroll Board or Discover.
-const CACHE_LIMIT: usize = 32 * 1024 * 1024;
+/// A poster is 240x351 RGBA8 (~337 kB). Because `wanted` only pins the active screen's visible
+/// viewport (+ one slack row, ~7–12 MB), 16 MB holds ~48 posters (over two screenfuls) while
+/// keeping decoded CPU RAM tight across Windows, Linux, and macOS.
+const CACHE_LIMIT: usize = 16 * 1024 * 1024;
 
 pub(crate) type Cache = Arc<Mutex<Cached>>;
 
@@ -440,25 +440,99 @@ enum Fetched {
     Retry,
 }
 
-/// How hard the web blurs a picture, in the pixels of the picture itself: a CSS `blur(10px)` over
-/// a 29rem panel is 10px across ~485px of poster, and `blur(15px)` across the ~1090px the details
-/// column's backdrop is drawn at. Both are applied at the size the picture is *stored* at, which
-/// is what makes the result look the same at any window size.
-const BLUR_SIGMA: f32 = 6.0;
-const BACKDROP_SIGMA: f32 = 7.0;
+/// How hard the web blurs a picture, in the pixels of the picture itself: scaled down to match
+/// the smaller stored blur buffers (`150x225` and `240x135`), which look the same when upscaled
+/// while using a quarter of the memory and blurring four times faster.
+const BLUR_SIGMA: f32 = 3.0;
+const BACKDROP_SIGMA: f32 = 3.5;
+
+/// Standard `MetaItem` portrait poster aspect ratio (`ui/board.slint`: `1.464`).
+const POSTER_ASPECT: f32 = 1.464;
+/// Anti-aliased corner radius as a fraction of poster width (~`0.75rem` on a ~200px card),
+/// pre-baked into portrait poster alpha so `MetaItem` needs no offscreen rounded-clip FBO.
+const POSTER_CORNER_RATIO: f32 = 0.055;
 
 /// The URL, the box a key wants its picture cut to, and the blur it is stored through.
 fn source(key: &str) -> (&str, (u32, u32), Option<f32>) {
     if let Some(url) = key.strip_suffix(LOGO_SUFFIX) {
         (url, (672, 168), None)
     } else if let Some(url) = key.strip_suffix(BLUR_SUFFIX) {
-        (url, (300, 450), Some(BLUR_SIGMA))
+        (url, (150, 225), Some(BLUR_SIGMA))
     } else if let Some(url) = key.strip_suffix(BACKDROP_SUFFIX) {
-        (url, (480, 270), Some(BACKDROP_SIGMA))
+        (url, (240, 135), Some(BACKDROP_SIGMA))
     } else if let Some(url) = key.strip_suffix(PAGE_SUFFIX) {
         (url, (1920, 1080), None)
     } else {
-        (key, (300, 450), None)
+        (key, (240, 360), None)
+    }
+}
+
+fn is_plain_poster(key: &str) -> bool {
+    !key.ends_with(LOGO_SUFFIX)
+        && !key.ends_with(BLUR_SUFFIX)
+        && !key.ends_with(BACKDROP_SUFFIX)
+        && !key.ends_with(PAGE_SUFFIX)
+}
+
+/// Cover-crops a portrait poster to `POSTER_ASPECT` and modulates only the alpha channel in the
+/// four corners (leaving RGB untouched so `#blur` derivation can restore opaque corners cleanly).
+fn prepare_portrait_poster(image: image::RgbaImage) -> image::RgbaImage {
+    let (w, h) = image.dimensions();
+    if w == 0 || h == 0 || (h as f32) <= (w as f32) * 1.2 {
+        return image;
+    }
+    let target_h = ((w as f32) * POSTER_ASPECT).round() as u32;
+    let mut cropped = if target_h > 0 && target_h < h {
+        let top = (h - target_h) / 2;
+        image::imageops::crop_imm(&image, 0, top, w, target_h).to_image()
+    } else if target_h > h {
+        let target_w = ((h as f32) / POSTER_ASPECT).round() as u32;
+        if target_w > 0 && target_w < w {
+            let left = (w - target_w) / 2;
+            image::imageops::crop_imm(&image, left, 0, target_w, h).to_image()
+        } else {
+            image
+        }
+    } else {
+        image
+    };
+    let radius = (cropped.width() as f32) * POSTER_CORNER_RATIO;
+    round_corners_alpha(&mut cropped, radius);
+    cropped
+}
+
+fn round_corners_alpha(image: &mut image::RgbaImage, radius: f32) {
+    let (w, h) = image.dimensions();
+    let r = radius.min(w as f32 * 0.5).min(h as f32 * 0.5);
+    if r <= 0.5 {
+        return;
+    }
+    let limit = r.ceil() as u32;
+    for y in 0..h {
+        let dy = if y < limit {
+            r - (y as f32 + 0.5)
+        } else if y >= h - limit {
+            (y as f32 + 0.5) - (h as f32 - r)
+        } else {
+            continue;
+        };
+        if dy <= 0.0 {
+            continue;
+        }
+        for x in 0..limit {
+            let dx = r - (x as f32 + 0.5);
+            if dx <= 0.0 {
+                continue;
+            }
+            let dist = (dx * dx + dy * dy).sqrt();
+            let cov = (r + 0.5 - dist).clamp(0.0, 1.0);
+            if cov < 1.0 {
+                for px in [x, w - 1 - x] {
+                    let pixel = image.get_pixel_mut(px, y);
+                    pixel[3] = ((pixel[3] as f32) * cov).round() as u8;
+                }
+            }
+        }
     }
 }
 
@@ -492,7 +566,13 @@ fn prepare(
     if blur.is_none() && (buffer.width(), buffer.height()) == (width, height) {
         return Some(buffer.clone());
     }
-    let image = to_image(buffer)?;
+    let mut image = to_image(buffer)?;
+    if blur.is_some() {
+        // Restore opaque corner alpha if deriving a blurred backdrop from a pre-rounded poster.
+        for pixel in image.pixels_mut() {
+            pixel[3] = 255;
+        }
+    }
     let image = if (image.width(), image.height()) == (width, height) {
         image
     } else {
@@ -584,12 +664,18 @@ async fn fetch(
     };
     let net = started.elapsed().as_millis();
     let length = bytes.len();
+    let plain_poster = is_plain_poster(key);
     let decoded = tokio::task::spawn_blocking(move || {
         let image = image::load_from_memory(&bytes)
             .map_err(|error| eprintln!("[image] decode failed: {error}"))
             .ok()?
             .thumbnail(size.0, size.1)
             .to_rgba8();
+        let image = if plain_poster {
+            prepare_portrait_poster(image)
+        } else {
+            image
+        };
         let image = match blur {
             Some(sigma) => image::imageops::blur(&image, sigma),
             None => image,
@@ -725,20 +811,38 @@ mod tests {
         );
         assert_eq!(
             source("https://example.com/a.jpg#blur"),
-            ("https://example.com/a.jpg", (300, 450), Some(BLUR_SIGMA))
+            ("https://example.com/a.jpg", (150, 225), Some(BLUR_SIGMA))
         );
         assert_eq!(
             source("https://example.com/a.jpg#backdrop"),
             (
                 "https://example.com/a.jpg",
-                (480, 270),
+                (240, 135),
                 Some(BACKDROP_SIGMA)
             )
         );
         assert_eq!(
             source("https://example.com/a.jpg"),
-            ("https://example.com/a.jpg", (300, 450), None)
+            ("https://example.com/a.jpg", (240, 360), None)
         );
+    }
+
+    #[test]
+    fn portrait_posters_are_pre_rounded_while_landscape_thumbs_stay_square_cornered() {
+        let portrait = image::RgbaImage::from_pixel(240, 360, image::Rgba([20, 40, 60, 255]));
+        let rounded = prepare_portrait_poster(portrait);
+        assert_eq!(rounded.width(), 240);
+        assert_eq!(rounded.height(), 351);
+        assert_eq!(rounded.get_pixel(0, 0)[3], 0);
+        assert_eq!(rounded.get_pixel(239, 350)[3], 0);
+        assert_eq!(rounded.get_pixel(120, 175)[3], 255);
+        // RGB is preserved in corners so derived blurs recover opaque pixels.
+        assert_eq!(&rounded.get_pixel(0, 0).0[..3], &[20, 40, 60]);
+
+        let thumb = image::RgbaImage::from_pixel(240, 135, image::Rgba([20, 40, 60, 255]));
+        let untouched = prepare_portrait_poster(thumb);
+        assert_eq!(untouched.dimensions(), (240, 135));
+        assert_eq!(untouched.get_pixel(0, 0)[3], 255);
     }
 
     #[test]
