@@ -117,8 +117,26 @@ fn theme(name: &str) -> String {
     )
 }
 
+fn load_mods(data_dir: &Path) -> mods::Data {
+    let extras = LocalExtras::load(data_dir);
+    let themes = stremio_lightning::plumbing::theme::store::list(data_dir);
+    mods::data(
+        &stremio_lightning::plumbing::theme::store::themes_dir(data_dir),
+        &extras,
+        themes.as_deref().map_err(String::as_str),
+    )
+}
+
 fn cards_of(data: &mods::Data, page: Page) -> Vec<mods::ModCard> {
-    data.clone().with_page(page).cards().to_vec()
+    match page {
+        Page::Plugins => data.plugins.clone(),
+        Page::Themes => data.themes.clone(),
+        _ => Vec::new(),
+    }
+}
+
+fn find_card<'a>(cards: &'a [mods::ModCard], filename: &str) -> Option<&'a mods::ModCard> {
+    cards.iter().find(|c| c.filename == filename)
 }
 
 fn names(cards: &[mods::ModCard]) -> Vec<String> {
@@ -177,148 +195,113 @@ fn the_screen_lists_what_is_installed_and_its_actions_reach_the_disk() {
     );
 
     // ---- what the two pages list -------------------------------------------------------------
-    let mut data = mods::data(&data_dir);
+    let data = load_mods(&data_dir);
     let plugins = cards_of(&data, Page::Plugins);
-    assert_eq!(
-        file_names(&plugins),
-        ["builtin:aniskip"],
-        "built-in plugins are listed on the Plugins page"
-    );
+    assert_eq!(file_names(&plugins), ["builtin:aniskip"]);
     assert_eq!(names(&plugins), ["AniSkip"]);
-    assert!(plugins[0].enabled, "AniSkip starts enabled by default");
-    assert!(plugins[0].has_settings, "AniSkip exposes settings");
-    assert!(!plugins[0].removable, "a built-in plugin cannot be removed");
+    assert!(plugins[0].enabled && plugins[0].has_settings && !plugins[0].removable);
 
     let themes = cards_of(&data, Page::Themes);
     assert_eq!(names(&themes), ["Amoled Theme", "Green", "Odd", "Red"]);
-    let odd = catalogue::card(&themes, "odd.theme.css").expect("the third theme");
-    assert!(
-        odd.warnings
-            .iter()
-            .any(|warning| warning.contains("nothing-matches-this")),
-        "a rule that reaches nothing is on the card: {:?}",
-        odd.warnings
-    );
-    let red = catalogue::card(&themes, "red.theme.css").expect("the red theme");
-    assert!(red.warnings.is_empty(), "{:?}", red.warnings);
+    let odd = find_card(&themes, "odd.theme.css").expect("the third theme");
+    assert!(odd
+        .warnings
+        .iter()
+        .any(|w| w.contains("nothing-matches-this")));
+    let red = find_card(&themes, "red.theme.css").expect("the red theme");
+    assert!(red.warnings.is_empty());
 
     // ---- a built-in plugin's switch ------------------------------------------------------
-    data = data.with_page(Page::Plugins);
-    mods::set_enabled(&mut data, &data_dir, "builtin:aniskip", false);
+    let mut extras = LocalExtras::load(&data_dir);
+    assert!(mods::builtin::set_enabled(
+        &mut extras,
+        "builtin:aniskip",
+        false
+    ));
+    extras.save(&data_dir);
     assert!(!saved(&data_dir).skip_intros);
-    assert!(!cards_of(&data, Page::Plugins)[0].enabled);
+    assert!(!cards_of(&load_mods(&data_dir), Page::Plugins)[0].enabled);
 
-    mods::set_enabled(&mut data, &data_dir, "builtin:aniskip", true);
+    assert!(mods::builtin::set_enabled(
+        &mut extras,
+        "builtin:aniskip",
+        true
+    ));
+    extras.save(&data_dir);
     assert!(saved(&data_dir).skip_intros);
-    assert!(cards_of(&data, Page::Plugins)[0].enabled);
+    assert!(cards_of(&load_mods(&data_dir), Page::Plugins)[0].enabled);
 
     // ---- a theme's switch keeps one on at a time ------------------------------------------
-    data = data.with_page(Page::Themes);
-    mods::set_enabled(&mut data, &data_dir, "green.theme.css", true);
-    mods::set_enabled(&mut data, &data_dir, "red.theme.css", true);
+    assert!(catalogue::set_theme_enabled(&mut extras, "green.theme.css", true).is_some());
+    assert!(catalogue::set_theme_enabled(&mut extras, "red.theme.css", true).is_some());
+    extras.save(&data_dir);
+    assert_eq!(saved(&data_dir).themes, ["red.theme.css"]);
     assert_eq!(
-        saved(&data_dir).themes,
-        ["red.theme.css"],
-        "turning a second theme on takes the first one off"
-    );
-    assert_eq!(
-        cards_of(&data, Page::Themes)
+        cards_of(&load_mods(&data_dir), Page::Themes)
             .iter()
-            .filter(|card| card.enabled)
-            .map(|card| card.name.as_str())
+            .filter(|c| c.enabled)
+            .map(|c| c.name.as_str())
             .collect::<Vec<_>>(),
-        ["Red"],
-        "exactly one theme card says it is on"
+        ["Red"]
     );
 
     // ---- remove ----------------------------------------------------------------------------
     let red_file = data_dir.join("themes").join("red.theme.css");
-    assert!(red_file.exists(), "the file is there before the press");
-    data = data.with_notice(mods::Notice::default());
-    mods::remove(&mut data, &data_dir, "red.theme.css");
-    assert!(!red_file.exists(), "remove deletes the file");
+    assert!(red_file.exists());
+    let deleted = stremio_lightning::plumbing::theme::store::delete(&data_dir, "red.theme.css");
+    let notice = catalogue::finish_theme_remove(&mut extras, "red.theme.css", deleted);
+    extras.save(&data_dir);
+    assert!(!red_file.exists());
+    assert_eq!(notice.text, "Removed red.theme.css.");
+    assert!(saved(&data_dir).themes.is_empty());
     assert_eq!(
-        data.notice.text, "Removed red.theme.css.",
-        "and the screen says so"
-    );
-    assert!(
-        saved(&data_dir).themes.is_empty(),
-        "the settings no longer name a file that is gone"
-    );
-    assert_eq!(
-        file_names(&cards_of(&data, Page::Themes)),
-        ["builtin:amoled", "green.theme.css", "odd.theme.css"],
-        "the card is gone from the page"
+        file_names(&cards_of(&load_mods(&data_dir), Page::Themes)),
+        ["builtin:amoled", "green.theme.css", "odd.theme.css"]
     );
 
-    // ---- pages that do not list cards say so ----------------------------------------------
     for page in [Page::Settings, Page::Logs, Page::About] {
-        let page_data = data.clone().with_page(page);
-        assert!(page_data.cards().is_empty(), "{} lists no cards", page.id());
-        assert!(
-            !mods::switchable(&page_data),
-            "{} has no switch to press",
-            page.id()
-        );
-        assert_eq!(page_data.page, page.id());
+        assert!(page.kind().is_none());
+        assert_eq!(data.clone().with_page(page).page, page.id());
     }
 
     let _ = std::fs::remove_dir_all(&data_dir);
 }
 
-/// The choices a person makes are in `settings.json`, so a second reading of the same folder sees
-/// them, and the theme it names is the one whose rules reach the window.
 #[test]
 fn a_choice_survives_a_restart() {
     let data_dir = temp_dir("restart");
     write_mod(&data_dir, "themes", "blue.theme.css", &theme("Blue"));
 
-    let mut data = mods::data(&data_dir).with_page(Page::Plugins);
-    mods::set_enabled(&mut data, &data_dir, "builtin:aniskip", false);
-    let mut data = data.with_page(Page::Themes);
-    mods::set_enabled(&mut data, &data_dir, "blue.theme.css", true);
+    let mut extras = LocalExtras::load(&data_dir);
+    mods::builtin::set_enabled(&mut extras, "builtin:aniskip", false);
+    catalogue::set_theme_enabled(&mut extras, "blue.theme.css", true);
+    extras.save(&data_dir);
 
     assert_eq!(
         saved(&data_dir),
         SavedState {
             skip_intros: false,
             themes: vec!["blue.theme.css".to_owned()],
-        },
-        "the choices are what the settings hold"
+        }
     );
 
-    // A second read of the same folder, as a restart makes.
-    let again = mods::data(&data_dir);
+    let again = load_mods(&data_dir);
+    assert!(!cards_of(&again, Page::Plugins)[0].enabled);
     assert!(
-        !cards_of(&again, Page::Plugins)[0].enabled,
-        "AniSkip stays off across restart"
-    );
-    assert!(
-        catalogue::card(&cards_of(&again, Page::Themes), "blue.theme.css")
-            .expect("the blue theme")
-            .enabled,
-        "the theme comes back on"
+        find_card(&cards_of(&again, Page::Themes), "blue.theme.css")
+            .unwrap()
+            .enabled
     );
 
-    // The enabled theme file is the one `plumbing::theme` colours the window with.
-    let css = std::fs::read_to_string(data_dir.join("themes").join("blue.theme.css"))
-        .expect("the theme file");
+    let css = std::fs::read_to_string(data_dir.join("themes").join("blue.theme.css")).unwrap();
     let style = themes::inspect(&css)
         .style_of("nav-tab-button-container")
-        .expect("the nav tab is a component this app has");
-    assert_eq!(
-        style.color,
-        Some(themes::Rgba(255, 0, 0, 255)),
-        "the rule the theme names reaches the nav tab"
-    );
+        .unwrap();
+    assert_eq!(style.color, Some(themes::Rgba(255, 0, 0, 255)));
 
-    // Turning the theme off leaves nothing on, which is the app's own colours.
-    let mut data = data.with_page(Page::Themes);
-    mods::set_enabled(&mut data, &data_dir, "blue.theme.css", false);
-    assert!(
-        saved(&data_dir).themes.is_empty(),
-        "no theme is named after it is turned off"
-    );
+    catalogue::set_theme_enabled(&mut extras, "blue.theme.css", false);
+    extras.save(&data_dir);
+    assert!(saved(&data_dir).themes.is_empty());
 
     let _ = std::fs::remove_dir_all(&data_dir);
 }
@@ -328,43 +311,44 @@ fn the_settings_page_saves_builtin_settings_only_on_save() {
     let data_dir = temp_dir("settings");
     let mut extras = LocalExtras::default();
 
-    let listed = mods::settings::plugins(&data_dir, &extras).expect("built-in plugins list");
-    let ids: Vec<&str> = listed.iter().map(|p| p.filename.as_str()).collect();
-    assert_eq!(ids, ["builtin:aniskip"]);
-    assert_eq!(listed[0].name, "AniSkip");
-    assert_eq!(listed[0].fields, 3);
+    let listed = mods::settings::plugins(&extras);
+    assert_eq!(
+        listed
+            .iter()
+            .map(|p| p.filename.as_str())
+            .collect::<Vec<_>>(),
+        ["builtin:aniskip"]
+    );
+    assert_eq!((listed[0].name.as_str(), listed[0].fields), ("AniSkip", 3));
 
-    let mut edits = mods::settings::edits(&data_dir, "builtin:aniskip", &extras);
-    let keys: Vec<&str> = edits.controls.iter().map(|c| c.field.key()).collect();
-    assert_eq!(keys, ["provider_name", "submitter_id", "submit_button"]);
-    assert!(!edits.dirty(), "nothing is typed yet");
+    let mut edits = mods::settings::edits("builtin:aniskip", &extras);
+    assert_eq!(
+        edits
+            .controls
+            .iter()
+            .map(|c| c.field.key)
+            .collect::<Vec<_>>(),
+        ["provider_name", "submitter_id", "submit_button"]
+    );
+    assert!(!edits.dirty());
 
-    // ---- typing changes the page and not the settings --------------------------------------
     mods::settings::set_value(&mut edits, "provider_name", &json!("tester"));
     mods::settings::set_value(&mut edits, "submit_button", &json!(false));
-    assert!(edits.dirty());
-    assert!(extras.builtin_settings.is_empty(), "editing writes nothing");
+    assert!(edits.dirty() && extras.builtin_settings.is_empty());
 
-    // ---- leaving drops unsaved edits -------------------------------------------------------
     edits = mods::settings::Edits::default();
     assert!(!edits.dirty());
 
-    // ---- Save writes into LocalExtras and persists to disk ---------------------------------
-    edits = mods::settings::edits(&data_dir, "builtin:aniskip", &extras);
+    edits = mods::settings::edits("builtin:aniskip", &extras);
     mods::settings::set_value(&mut edits, "provider_name", &json!("tester"));
     mods::settings::set_value(&mut edits, "submit_button", &json!(false));
-    let saved_out = mods::settings::save(&data_dir, &mut edits, &mut extras);
+    let saved_out = mods::settings::save(&mut edits, &mut extras);
     assert!(saved_out.written, "save succeeded: {}", saved_out.error);
-    assert!(!edits.dirty(), "the page and saved state agree after Save");
-    std::fs::write(
-        data_dir.join("settings.json"),
-        serde_json::to_string_pretty(&extras).expect("LocalExtras serializes"),
-    )
-    .expect("settings.json writes");
+    assert!(!edits.dirty());
+    extras.save(&data_dir);
 
-    let raw = std::fs::read_to_string(data_dir.join("settings.json")).expect("settings.json reads");
-    let reloaded: LocalExtras = serde_json::from_str(&raw).expect("LocalExtras deserializes");
-    let reloaded_edits = mods::settings::edits(&data_dir, "builtin:aniskip", &reloaded);
+    let reloaded = LocalExtras::load(&data_dir);
+    let reloaded_edits = mods::settings::edits("builtin:aniskip", &reloaded);
     assert_eq!(reloaded_edits.controls[0].stored, json!("tester"));
     assert_eq!(reloaded_edits.controls[2].stored, json!(false));
 

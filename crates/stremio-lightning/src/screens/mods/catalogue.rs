@@ -1,34 +1,19 @@
-//! What is installed, as the Mods pages list it: built-in plugins and local `.theme.css`
-//! files.
-//!
-//! Theme files are read through `plumbing::theme::store`. A file whose metadata comment is
-//! missing or incomplete cannot be named, so its card shows the file name instead.
+//! Pure Mods catalogue types and projections for built-in plugins and pre-loaded `.theme.css`
+//! files. Zero filesystem I/O.
 
-use std::path::Path;
+use crate::plumbing::local_settings::LocalExtras;
+use crate::plumbing::theme::{self, store::InstalledTheme};
 
-use crate::plumbing::theme::{self, store};
-use crate::screens::settings::LocalExtras;
+pub const NONE_ON: &str = "No theme is on, so the app draws its own colours.";
 
-/// Which of the two Mods lists to show.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
     Plugin,
     Theme,
 }
 
-impl Kind {
-    fn label(self) -> &'static str {
-        match self {
-            Self::Plugin => "plugin",
-            Self::Theme => "theme",
-        }
-    }
-}
-
-/// One built-in plugin or local theme, as one card on its page.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ModCard {
-    /// The key the card's buttons name it by: the built-in id or theme file name.
     pub id: String,
     pub filename: String,
     pub name: String,
@@ -36,20 +21,12 @@ pub struct ModCard {
     pub version: String,
     pub description: String,
     pub enabled: bool,
-    /// Whether the built-in declares a settings page. Always false for a theme.
     pub has_settings: bool,
-    /// What reading the theme file said it does not understand, one line each.
     pub warnings: Vec<String>,
-    /// Whether the card has a Remove button. A feature built into the app has none: there is no
-    /// file behind it.
     pub removable: bool,
-    /// Whether this card is a feature the app ships rather than a file in the folder. A built-in
-    /// has no author and nothing to remove: its card shows its name, its version and what it
-    /// does, and nothing else. See `mods::builtin` for the list.
     pub builtin: bool,
 }
 
-/// One line a Mods page shows about the last action. `failed` draws it in the warning colour.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Notice {
     pub text: String,
@@ -71,28 +48,23 @@ impl Notice {
         }
     }
 
-    /// A folder that could not be read: every card is missing until it can.
     pub fn unreadable(text: impl Into<String>) -> Self {
         Self::failed(text)
     }
 }
-/// Built-in plugins or built-in and local `.theme.css` themes under `data_dir`, sorted by file
-/// name, with the enabled state applied.
-pub fn cards(data_dir: &Path, kind: Kind, extras: &LocalExtras) -> Result<Vec<ModCard>, String> {
-    if kind == Kind::Plugin {
-        return Ok(super::builtin::cards(extras));
-    }
+
+/// Projects built-in themes + pre-loaded disk `.theme.css` files into `ModCard`s.
+pub fn theme_cards(installed: &[InstalledTheme], extras: &LocalExtras) -> Vec<ModCard> {
     let mut list = super::builtin::theme_cards(extras);
-    let installed = store::list(data_dir)?;
-    list.extend(installed.into_iter().map(|file| {
+    list.extend(installed.iter().map(|file| {
         let is_on = extras.enabled_themes.contains(&file.filename);
         let warnings = theme::warnings(&file.css);
-        let (name, author, version, description) = match file.metadata {
-            Some(metadata) => (
-                non_empty_or(metadata.name, &file.filename),
-                metadata.author,
-                metadata.version,
-                metadata.description,
+        let (name, author, version, description) = match &file.metadata {
+            Some(m) => (
+                non_empty_or(&m.name, &file.filename),
+                m.author.clone(),
+                m.version.clone(),
+                m.description.clone(),
             ),
             None => (
                 file.filename.clone(),
@@ -103,7 +75,7 @@ pub fn cards(data_dir: &Path, kind: Kind, extras: &LocalExtras) -> Result<Vec<Mo
         };
         ModCard {
             id: file.filename.clone(),
-            filename: file.filename,
+            filename: file.filename.clone(),
             name,
             author,
             version,
@@ -115,25 +87,82 @@ pub fn cards(data_dir: &Path, kind: Kind, extras: &LocalExtras) -> Result<Vec<Mo
             builtin: false,
         }
     }));
-    Ok(list)
+    list
 }
 
-/// A name the file left empty is no name, so the file name stands in for it.
-fn non_empty_or(value: String, fallback: &str) -> String {
+fn non_empty_or(value: &str, fallback: &str) -> String {
     if value.trim().is_empty() {
         fallback.to_owned()
     } else {
-        value
+        value.to_owned()
     }
 }
 
-/// The card for `filename` on this page, if the page lists it.
-pub fn card<'a>(cards: &'a [ModCard], filename: &str) -> Option<&'a ModCard> {
-    cards.iter().find(|card| card.filename == filename)
+pub fn themes_note(any_on: bool) -> String {
+    if any_on {
+        "This theme is on.".to_owned()
+    } else {
+        NONE_ON.to_owned()
+    }
 }
 
-/// What a card's title line says: the name the file gives, which is the file name when it gives
-/// none.
+/// Switches a theme on (exclusively) or off in `extras`. Returns `None` if already in that state.
+pub fn set_theme_enabled(
+    extras: &mut LocalExtras,
+    filename: &str,
+    enabled: bool,
+) -> Option<Notice> {
+    let list = &mut extras.enabled_themes;
+    if enabled {
+        if list.as_slice() == [filename.to_owned()] {
+            return None;
+        }
+        *list = vec![filename.to_owned()];
+        Some(Notice::said(format!(
+            "{filename} is now the theme this app draws with."
+        )))
+    } else {
+        if !list.iter().any(|name| name == filename) {
+            return None;
+        }
+        list.clear();
+        Some(Notice::said(format!(
+            "{filename} is off, so the app draws its own colours."
+        )))
+    }
+}
+
+/// Unified built-in non-removable error notice for plugins and built-in themes.
+pub fn builtin_not_removable(name: &str) -> Notice {
+    Notice::failed(format!(
+        "{name} is built into the app, so there is no file to remove."
+    ))
+}
+
+pub fn non_removable_plugin_notice(id: &str) -> Notice {
+    match super::builtin::get(id) {
+        Some(b) => builtin_not_removable(b.name),
+        None => Notice::failed(format!("{id} is not a built-in plugin.")),
+    }
+}
+
+/// Formats the result of deleting a theme file from disk (updating `extras.enabled_themes` on ok).
+pub fn finish_theme_remove(
+    extras: &mut LocalExtras,
+    filename: &str,
+    delete_result: Result<(), String>,
+) -> Notice {
+    match delete_result {
+        Ok(()) => {
+            extras.enabled_themes.retain(|name| name != filename);
+            Notice::said(format!("Removed {filename}."))
+        }
+        Err(error) => Notice::failed(format!(
+            "Could not remove {filename}: {error} Delete it from the theme folder yourself."
+        )),
+    }
+}
+
 pub fn title(card: &ModCard) -> String {
     if card.name.is_empty() {
         card.filename.clone()
@@ -142,8 +171,6 @@ pub fn title(card: &ModCard) -> String {
     }
 }
 
-/// What a card says under the title: the author and the version, each left out when the file does
-/// not name it.
 pub fn byline(card: &ModCard) -> String {
     let version = if card.version.is_empty() {
         String::new()
@@ -160,29 +187,11 @@ pub fn byline(card: &ModCard) -> String {
     }
 }
 
-/// What a card says when its file carries no metadata comment. Empty for a file that has one.
 pub fn unreadable(card: &ModCard) -> String {
-    if !metadata_missing(card) {
-        return String::new();
-    }
-    "This file carries no readable metadata comment, so its name is its file name.".to_string()
-}
-
-/// Whether the card's file named itself. `cards` gives a file without metadata its own file name
-/// as the name, so the two matching with no author or version is what says the metadata was
-/// missing.
-fn metadata_missing(card: &ModCard) -> bool {
-    card.name == card.filename && card.author.is_empty() && card.version.is_empty()
-}
-
-/// Removes one mod file. The notice says either that the file is gone or why it is still there.
-pub(crate) fn remove(data_dir: &Path, kind: Kind, filename: &str) -> Notice {
-    match store::delete(data_dir, filename) {
-        Ok(()) => Notice::said(format!("Removed {filename}.")),
-        Err(error) => Notice::failed(format!(
-            "Could not remove {filename}: {error} Delete it from the {} folder yourself.",
-            kind.label()
-        )),
+    if card.name == card.filename && card.author.is_empty() && card.version.is_empty() {
+        "This file carries no readable metadata comment, so its name is its file name.".to_owned()
+    } else {
+        String::new()
     }
 }
 
@@ -190,38 +199,29 @@ pub(crate) fn remove(data_dir: &Path, kind: Kind, filename: &str) -> Notice {
 mod tests {
     use super::*;
 
-    fn card(name: &str, author: &str, version: &str) -> ModCard {
+    fn mk(name: &str, author: &str, version: &str) -> ModCard {
         ModCard {
-            id: "example.theme.css".to_owned(),
-            filename: "example.theme.css".to_owned(),
-            name: name.to_owned(),
-            author: author.to_owned(),
-            version: version.to_owned(),
+            id: "example.theme.css".into(),
+            filename: "example.theme.css".into(),
+            name: name.into(),
+            author: author.into(),
+            version: version.into(),
             ..ModCard::default()
         }
     }
 
     #[test]
-    fn a_card_is_titled_by_its_metadata_or_by_its_file_name() {
-        assert_eq!(title(&card("Example", "Alice", "1.0.0")), "Example");
-        assert_eq!(title(&card("", "", "")), "example.theme.css");
-    }
-
-    #[test]
-    fn the_byline_leaves_out_what_the_file_does_not_say() {
-        assert_eq!(byline(&card("Example", "Alice", "1.0.0")), "Alice v1.0.0");
-        // A version the file writes with its own v is not given a second one.
-        assert_eq!(byline(&card("Example", "Alice", "v2.1")), "Alice v2.1");
-        assert_eq!(byline(&card("Example", "", "1.0.0")), "v1.0.0");
-        assert_eq!(byline(&card("Example", "Alice", "")), "Alice");
-        assert_eq!(byline(&card("Example", "", "")), "");
-    }
-
-    #[test]
-    fn a_file_with_no_metadata_says_so() {
-        let mut file = card("", "", "");
-        file.name = file.filename.clone();
-        assert!(!unreadable(&file).is_empty());
-        assert!(unreadable(&card("Example", "Alice", "1.0.0")).is_empty());
+    fn card_title_byline_and_unreadable_formatting() {
+        assert_eq!(title(&mk("Example", "Alice", "1.0.0")), "Example");
+        assert_eq!(title(&mk("", "", "")), "example.theme.css");
+        assert_eq!(byline(&mk("Example", "Alice", "1.0.0")), "Alice v1.0.0");
+        assert_eq!(byline(&mk("Example", "Alice", "v2.1")), "Alice v2.1");
+        assert_eq!(byline(&mk("Example", "", "1.0.0")), "v1.0.0");
+        assert_eq!(byline(&mk("Example", "Alice", "")), "Alice");
+        assert_eq!(byline(&mk("Example", "", "")), "");
+        let mut missing = mk("", "", "");
+        missing.name = missing.filename.clone();
+        assert!(!unreadable(&missing).is_empty());
+        assert!(unreadable(&mk("Example", "Alice", "1.0.0")).is_empty());
     }
 }

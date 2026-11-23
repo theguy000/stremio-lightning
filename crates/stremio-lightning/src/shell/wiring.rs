@@ -206,6 +206,8 @@ pub(crate) struct Wiring {
     /// holds, and anything typed since. The page is built from this rather than read again on
     /// every press, so a control cannot lose what was typed while another was pressed.
     pub(crate) mods_edits: Arc<Mutex<crate::screens::mods::settings::Edits>>,
+    pub(crate) installed_themes:
+        Arc<Mutex<Result<Vec<crate::plumbing::theme::store::InstalledTheme>, String>>>,
     /// The app's log records, which the Logs page lists.
     pub(crate) logs: Arc<crate::plumbing::logs::Logs>,
     pub(crate) log_selection: Arc<Mutex<mods::log_selection::LogSelection>>,
@@ -2297,6 +2299,9 @@ impl Wiring {
         if page != mods::Page::Settings {
             *self.mods_edits.lock().unwrap() = mods::settings::Edits::default();
         }
+        if matches!(page, mods::Page::Themes | mods::Page::About) {
+            self.reload_installed_themes();
+        }
         self.disarm_mods();
         *self.mods_page.lock().unwrap() = page.id().to_owned();
         // The page the window holds now, before the folders are read: the menu's own selection
@@ -2333,11 +2338,11 @@ impl Wiring {
             let notice = match kind {
                 // A plugin switch writes the list and says nothing: the switch is the answer.
                 mods::catalogue::Kind::Plugin => {
-                    mods::plugins::set_enabled(&mut extras, &filename, enabled);
+                    mods::builtin::set_enabled(&mut extras, &filename, enabled);
                     None
                 }
                 mods::catalogue::Kind::Theme => {
-                    mods::themes::set_enabled(&mut extras, &filename, enabled)
+                    mods::catalogue::set_theme_enabled(&mut extras, &filename, enabled)
                 }
             };
             extras.save(&self.data_dir);
@@ -2393,7 +2398,7 @@ impl Wiring {
             *edits = if filename.is_empty() {
                 mods::settings::Edits::default()
             } else {
-                mods::settings::edits(&self.data_dir, &filename, &extras)
+                mods::settings::edits(&filename, &extras)
             };
         }
         *self.mods_plugin.lock().unwrap() = filename;
@@ -2454,7 +2459,7 @@ impl Wiring {
     /// press that changed something the screen shows and nothing on disk.
     fn repaint_mods_now(&self) {
         let mut snapshot = self.latest.lock().unwrap().clone();
-        snapshot.mods = self.page_data(snapshot.mods.to_page());
+        snapshot.mods = self.page_data(mods::Page::from_id(&snapshot.mods.page));
         self.repaint_with(snapshot);
     }
 
@@ -2571,7 +2576,7 @@ impl Wiring {
         };
         let mut snapshot = self.latest.lock().unwrap().clone();
         snapshot.mods = self.page_data(mods::Page::Logs);
-        debug_assert_eq!(snapshot.mods.log_clear_armed, armed);
+        debug_assert_eq!(snapshot.mods.logs.clear_armed, armed);
         self.finish_log_press(snapshot);
     }
 
@@ -2591,7 +2596,13 @@ impl Wiring {
     /// again, which is what the counts are, and the release feed is asked whether there is a newer
     /// version. The counts are drawn here at once; the feed's answer lands as an app record, which
     /// is where a check that could not be made says so.
+    fn reload_installed_themes(&self) {
+        *self.installed_themes.lock().unwrap() =
+            crate::plumbing::theme::store::list(&self.data_dir);
+    }
+
     fn refresh_about(&self) {
+        self.reload_installed_themes();
         let mut snapshot = self.latest.lock().unwrap().clone();
         snapshot.mods = self.mods_data(mods::Page::About);
         snapshot.mods.notice = mods::Notice::said("Read the plugin and theme folders again.");
@@ -2622,19 +2633,23 @@ impl Wiring {
     /// The Export diagnostics press: one text file in the app data folder's `diagnostics/`, and
     /// the path it went to stays on the page. Nothing is uploaded.
     fn export_diagnostics(&self) {
-        let extras = self.local_extras.lock().unwrap().clone();
-        let sources = mods::about::Sources {
-            data_dir: &self.data_dir,
-            extras: &extras,
-        };
-        let about = mods::about::data(&sources);
+        self.reload_installed_themes();
+        let about = self.mods_data(mods::Page::About).about;
+        let records: Vec<_> = self
+            .logs
+            .entries()
+            .into_iter()
+            .rev()
+            .take(mods::about::RECORDS)
+            .collect();
+        let text = mods::about::report(&about, &records);
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|since| since.as_secs())
             .unwrap_or_default();
-        let result = mods::about::export(&about, &self.logs, &self.data_dir, now);
+        let result = crate::plumbing::diagnostics::write_report(&self.data_dir, now, &text);
         let notice = match result {
-            Ok((path, _)) => {
+            Ok(path) => {
                 *self.mods_export.lock().unwrap() = Some(path.display().to_string());
                 self.logs.record(
                     crate::plumbing::logs::Source::App,
@@ -2690,7 +2705,7 @@ impl Wiring {
                 return;
             }
             let mut extras = self.local_extras.lock().unwrap().clone();
-            let saved = mods::settings::save(&self.data_dir, &mut edits, &mut extras);
+            let saved = mods::settings::save(&mut edits, &mut extras);
             (filename, saved, extras)
         };
         if saved.written {
@@ -2714,7 +2729,15 @@ impl Wiring {
     /// The Mods screen for `page`, with the picked plugin, logs, and about state folded in.
     fn mods_data(&self, page: mods::Page) -> mods::Data {
         let pick = self.mods_plugin.lock().unwrap().clone();
-        let screen = mods::data(&self.data_dir).with_page(page);
+        let extras = self.local_extras.lock().unwrap().clone();
+        let cached = self.installed_themes.lock().unwrap();
+        let screen = mods::data(
+            &crate::plumbing::theme::store::themes_dir(&self.data_dir),
+            &extras,
+            cached.as_deref().map_err(String::as_str),
+        )
+        .with_page(page);
+        drop(cached);
         let pick = if pick.is_empty() {
             screen.plugin.clone()
         } else {
@@ -2727,10 +2750,7 @@ impl Wiring {
                 &self.log_selection.lock().unwrap(),
                 *self.mods_clearing.lock().unwrap(),
             )
-            .with_about(
-                &self.local_extras.lock().unwrap().clone(),
-                self.mods_export.lock().unwrap().as_ref(),
-            )
+            .with_export(self.mods_export.lock().unwrap().as_ref())
     }
 
     /// The Remove button of a mod card. Its first press arms the card and deletes nothing; its
@@ -2756,19 +2776,20 @@ impl Wiring {
         let notice = {
             let mut extras = self.local_extras.lock().unwrap();
             let notice = match kind {
-                mods::catalogue::Kind::Plugin => {
-                    mods::plugins::remove(&self.data_dir, &mut extras, &id)
-                }
-                mods::catalogue::Kind::Theme => {
-                    mods::themes::remove(&self.data_dir, &mut extras, &id)
-                }
+                mods::catalogue::Kind::Plugin => mods::catalogue::non_removable_plugin_notice(&id),
+                mods::catalogue::Kind::Theme => match mods::builtin::get_theme(&id) {
+                    Some(b) => mods::catalogue::builtin_not_removable(b.name),
+                    None => {
+                        let deleted = crate::plumbing::theme::store::delete(&self.data_dir, &id);
+                        mods::catalogue::finish_theme_remove(&mut extras, &id, deleted)
+                    }
+                },
             };
             extras.save(&self.data_dir);
             notice
         };
         if kind == mods::catalogue::Kind::Theme {
-            // The theme that was removed may have been the one drawn with, so the window goes back
-            // to its own colours the moment its file is gone.
+            self.reload_installed_themes();
             self.apply_themes();
         }
         self.recorded(kind, &id, Some(&notice));

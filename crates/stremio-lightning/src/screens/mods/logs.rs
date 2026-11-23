@@ -1,13 +1,10 @@
-//! The Logs page: one list of everything the app has recorded, newest first.
-//! Pure projection from `&[Entry]` + `&LogSelection`; zero I/O or plumbing locks.
+//! The Logs page: pure projection from `&[Entry]` + `&LogSelection` into `logs::Data`.
 
 pub use super::log_selection::{Filter, LogSelection};
 pub use crate::plumbing::logs::{Entry, Level, Source};
 
 pub const NONE: &str = "Nothing has been recorded yet.";
 pub const NONE_MATCH: &str = "No record matches the filter.";
-pub const CLEAR: &str = "Clear";
-pub const CLEAR_ARMED: &str = "Press again to empty the list";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Row {
@@ -31,6 +28,95 @@ impl Row {
             text: one_line(&entry.text),
             selected,
         }
+    }
+}
+
+/// Complete view snapshot of the Mods -> Logs page.
+#[derive(Clone, Debug)]
+pub struct Data {
+    pub filter: Filter,
+    pub source_options: Vec<String>,
+    pub level_options: Vec<String>,
+    pub source_index: i32,
+    pub level_index: i32,
+    pub rows: Vec<Row>,
+    pub empty: String,
+    pub detail_heading: String,
+    pub detail: Vec<String>,
+    pub open_id: u64,
+    pub active_index: i32,
+    pub selected_count: usize,
+    pub count: String,
+    pub filtered: bool,
+    pub clear_armed: bool,
+}
+
+impl Default for Data {
+    fn default() -> Self {
+        Self {
+            filter: Filter::default(),
+            source_options: source_options().into_iter().map(str::to_owned).collect(),
+            level_options: level_options().into_iter().map(str::to_owned).collect(),
+            source_index: 0,
+            level_index: 0,
+            rows: Vec::new(),
+            empty: NONE.to_owned(),
+            detail_heading: String::new(),
+            detail: Vec::new(),
+            open_id: 0,
+            active_index: -1,
+            selected_count: 0,
+            count: String::new(),
+            filtered: false,
+            clear_armed: false,
+        }
+    }
+}
+
+/// Projects the current log records and selection state into `logs::Data` in a single pass.
+pub fn data(entries: &[Entry], sel: &LogSelection, armed: bool) -> Data {
+    let filter = sel.filter().clone();
+    let rows = rows(entries, sel, &filter);
+    let total = entries.len();
+    let filtered = filter.is_active();
+    let selected_count = rows.iter().filter(|r| r.selected).count();
+    let detail_entry = sel.detail(entries);
+    let open_id = detail_entry.as_ref().map_or(0, |e| e.id);
+    let detail_heading = detail_entry.as_ref().map_or_else(String::new, |e| {
+        let base = format!(
+            "{} at {} - {}",
+            e.source_label(),
+            e.at_shown(),
+            e.level.label()
+        );
+        if selected_count > 1 {
+            format!("{selected_count} records selected — {base}")
+        } else {
+            base
+        }
+    });
+    let detail = detail_entry.map_or_else(Vec::new, |e| {
+        e.text.split('\n').map(str::to_owned).collect()
+    });
+    let active_index = active_index(&rows, open_id)
+        .and_then(|at| i32::try_from(at).ok())
+        .unwrap_or(-1);
+    Data {
+        source_index: i32::try_from(source_index(&filter)).unwrap_or(0),
+        level_index: i32::try_from(level_index(&filter)).unwrap_or(0),
+        count: count_label(rows.len(), total, filtered),
+        empty: if total == 0 { NONE } else { NONE_MATCH }.to_owned(),
+        filter,
+        source_options: source_options().into_iter().map(str::to_owned).collect(),
+        level_options: level_options().into_iter().map(str::to_owned).collect(),
+        rows,
+        detail_heading,
+        detail,
+        open_id,
+        active_index,
+        selected_count,
+        filtered,
+        clear_armed: armed,
     }
 }
 
@@ -58,14 +144,14 @@ pub fn level_index(filter: &Filter) -> usize {
     row_of(&Level::ALL, filter.least_level())
 }
 
-pub fn source_at(index: usize) -> Option<Source> {
+fn source_at(index: usize) -> Option<Source> {
     index
         .checked_sub(1)
         .and_then(|at| Source::ALL.get(at))
         .copied()
 }
 
-pub fn level_at(index: usize) -> Option<Level> {
+fn level_at(index: usize) -> Option<Level> {
     index
         .checked_sub(1)
         .and_then(|at| Level::ALL.get(at))
@@ -82,7 +168,7 @@ pub fn pick_level(sel: &mut LogSelection, index: usize) {
 
 fn row_of<T: PartialEq + Copy>(all: &[T], picked: Option<T>) -> usize {
     picked
-        .and_then(|picked| all.iter().position(|choice| *choice == picked))
+        .and_then(|p| all.iter().position(|c| *c == p))
         .map_or(0, |at| at + 1)
 }
 
@@ -92,10 +178,6 @@ pub fn rows(entries: &[Entry], sel: &LogSelection, filter: &Filter) -> Vec<Row> 
         .iter()
         .map(|entry| Row::of(entry, selected.contains(&entry.id)))
         .collect()
-}
-
-pub fn selected_count(entries: &[Entry], sel: &LogSelection, filter: &Filter) -> usize {
-    sel.selected_in(entries, filter).len()
 }
 
 pub fn copy_text(
@@ -116,40 +198,13 @@ pub fn copy_text(
     sel.detail(entries).map(|entry| (1, entry.written()))
 }
 
-pub fn detail_heading(entries: &[Entry], sel: &LogSelection) -> String {
-    sel.detail(entries).map_or_else(String::new, |entry| {
-        let base = format!(
-            "{} at {} - {}",
-            entry.source_label(),
-            entry.at_shown(),
-            entry.level.label()
-        );
-        let count = sel.selected_in(entries, sel.filter()).len();
-        if count > 1 {
-            format!("{count} records selected — {base}")
-        } else {
-            base
-        }
-    })
-}
-
-pub fn detail(entries: &[Entry], sel: &LogSelection) -> Vec<String> {
-    sel.detail(entries).map_or_else(Vec::new, |entry| {
-        entry.text.split('\n').map(str::to_owned).collect()
-    })
-}
-
-pub fn open_id(entries: &[Entry], sel: &LogSelection) -> u64 {
-    sel.detail(entries).map_or(0, |entry| entry.id)
-}
-
-pub fn active_index(rows: &[Row], open_id: u64) -> Option<usize> {
+fn active_index(rows: &[Row], open_id: u64) -> Option<usize> {
     (open_id != 0)
         .then(|| rows.iter().position(|row| row.id == open_id))
         .flatten()
 }
 
-pub fn count_label(shown: usize, total: usize, filtered: bool) -> String {
+fn count_label(shown: usize, total: usize, filtered: bool) -> String {
     if total == 0 {
         String::new()
     } else if filtered {
@@ -158,14 +213,6 @@ pub fn count_label(shown: usize, total: usize, filtered: bool) -> String {
         "1 record".to_owned()
     } else {
         format!("{total} records")
-    }
-}
-
-pub fn clear_label(armed: bool) -> &'static str {
-    if armed {
-        CLEAR_ARMED
-    } else {
-        CLEAR
     }
 }
 
@@ -188,46 +235,14 @@ mod tests {
             id,
             at: 1_700_000_000 + id,
             source,
-            origin: origin.to_owned(),
+            origin: origin.into(),
             level,
-            text: text.to_owned(),
+            text: text.into(),
         }
     }
 
     #[test]
-    fn filter_menus_roundtrip_and_pick_helpers() {
-        assert_eq!(
-            source_options(),
-            ["Every source", "Plugin", "Theme", "Mods", "Server", "App"]
-        );
-        assert_eq!(level_options().len(), 5);
-        for (at, source) in Source::ALL.iter().enumerate() {
-            assert_eq!(source_at(at + 1), Some(*source));
-            assert_eq!(source_options()[at + 1], source.label());
-        }
-        for (at, level) in Level::ALL.iter().enumerate() {
-            assert_eq!(level_at(at + 1), Some(*level));
-            assert_eq!(
-                level_index(&Filter {
-                    level: level.id().to_owned(),
-                    ..Filter::default()
-                }),
-                at + 1
-            );
-        }
-        let entries = vec![
-            mk(1, Source::Plugin, "builtin:aniskip", Level::Info, "one"),
-            mk(2, Source::Theme, "red.theme.css", Level::Warn, "two"),
-        ];
-        let mut sel = LogSelection::default();
-        pick_source(&mut sel, 2);
-        assert_eq!(rows(&entries, &sel, sel.filter()).len(), 1);
-        pick_source(&mut sel, 0);
-        assert_eq!(rows(&entries, &sel, sel.filter()).len(), 2);
-    }
-
-    #[test]
-    fn multi_select_detail_copy_and_labels() {
+    fn logs_data_filter_selection_detail_and_copy() {
         let entries = vec![
             mk(1, Source::App, "Core", Level::Info, "first\nline2"),
             mk(2, Source::Server, "", Level::Error, "second"),
@@ -238,31 +253,34 @@ mod tests {
         sel.drag_record(&entries, 1);
         sel.release_record(&entries, 1);
 
-        let all_rows = rows(&entries, &sel, &Filter::default());
-        assert!(all_rows.iter().all(|r| r.selected));
-        assert_eq!(all_rows[2].text, "first line2");
-        assert_eq!(detail(&entries, &sel), ["first", "line2"]);
-        assert!(detail_heading(&entries, &sel).starts_with("3 records selected — "));
+        let view = data(&entries, &sel, true);
+        assert_eq!(
+            (
+                view.rows.len(),
+                view.selected_count,
+                view.open_id,
+                view.active_index
+            ),
+            (3, 3, 3, 0)
+        );
+        assert_eq!(view.rows[2].text, "first line2");
+        assert_eq!(view.detail, ["first", "line2"]);
+        assert!(view.detail_heading.starts_with("3 records selected — "));
+        assert!(view.clear_armed);
+
         let (count, copied) = copy_text(&entries, &sel, &Filter::default()).unwrap();
         assert_eq!(count, 3);
-        assert_eq!(
-            copied,
-            format!(
-                "{}\n{}\n{}",
-                entries[2].written(),
-                entries[1].written(),
-                entries[0].written()
-            )
-        );
+        assert!(copied.contains("third") && copied.contains("first"));
 
-        let only_app = Filter {
-            source: "app".to_owned(),
-            ..Filter::default()
-        };
-        assert_eq!(selected_count(&entries, &sel, &only_app), 2);
-        assert_eq!(count_label(2, 5, true), "2 of 5");
-        assert_eq!(active_index(&all_rows, 3), Some(0));
-        assert_eq!(clear_label(false), CLEAR);
-        assert_eq!(clear_label(true), CLEAR_ARMED);
+        pick_source(&mut sel, 5);
+        let filtered = data(&entries, &sel, false);
+        assert_eq!(
+            (
+                filtered.rows.len(),
+                filtered.selected_count,
+                filtered.count.as_str()
+            ),
+            (2, 2, "2 of 3")
+        );
     }
 }

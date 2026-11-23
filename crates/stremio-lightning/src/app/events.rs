@@ -91,6 +91,8 @@ pub(crate) struct Context {
     /// Where the diagnostics file was written last, which the About page shows until the app
     /// closes. Held by the window, read back here so a core event does not take it off the page.
     pub(crate) mods_export: Arc<Mutex<Option<String>>>,
+    pub(crate) installed_themes:
+        Arc<Mutex<Result<Vec<crate::plumbing::theme::store::InstalledTheme>, String>>>,
     /// Repaint now, with whatever the cache holds. Used when an image arrives.
     pub(crate) repaint: Arc<dyn Fn() + Send + Sync>,
 }
@@ -265,15 +267,21 @@ fn snapshot(model: &AppModel, context: &Context) -> Snapshot {
             &context.video_query.lock().unwrap(),
         ),
         settings: settings::data(model, &context.extras()),
-        mods: crate::screens::mods::data(&context.data_dir)
+        mods: {
+            let extras = context.extras();
+            let cached = context.installed_themes.lock().unwrap();
+            let themes_arg = cached.as_deref().map_err(String::as_str);
+            crate::screens::mods::data(
+                &crate::plumbing::theme::store::themes_dir(&context.data_dir),
+                &extras,
+                themes_arg,
+            )
             .with_edits(
                 context.mods_plugin.lock().unwrap().clone(),
                 context.mods_edits.lock().unwrap().clone(),
             )
-            .with_about(
-                &context.local_extras.lock().unwrap().clone(),
-                context.mods_export.lock().unwrap().as_ref(),
-            ),
+            .with_export(context.mods_export.lock().unwrap().as_ref())
+        },
         player,
     }
 }

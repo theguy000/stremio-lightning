@@ -1,49 +1,26 @@
-//! The features the app ships, listed on the Plugins page beside the installed files.
-//!
-//! A built-in is not a file: nothing installs, updates or removes it, and it has no author to
-//! name. Its card shows three things and nothing else -- a name, a version and one line about
-//! what it does -- so a new built-in is a row in `ALL`, not a change to the page.
-//!
-//! A built-in may also declare settings. `fields` is that contract: a key, a label and the kind
-//! of control. The Plugin settings page draws any built-in from its own list, and the values are
-//! kept in the shell's `settings.json` under the built-in's id, because there is no file of its
-//! own to keep them in. A fourth kind of control would be a change to the page's own contract,
-//! not a field to sneak in.
-//!
-//! The version is the app's version: a built-in ships with the app.
+//! Compiled-in plugins and built-in themes (AniSkip, Amoled), their declared settings schema,
+//! and pure validation/toggle rules. Zero disk I/O and zero OS entropy calls.
 
 use serde_json::{json, Value as Json};
 
 use super::catalogue::ModCard;
-use crate::screens::settings::LocalExtras;
+use crate::plumbing::local_settings::LocalExtras;
 
-/// One feature the app ships.
 pub struct Builtin {
-    /// What the card's switch names it by. Never a file name, and never one a file could take:
-    /// the prefix keeps the two apart.
     pub id: &'static str,
-    /// What the card's title says.
     pub name: &'static str,
-    /// The app's version.
     pub version: &'static str,
-    /// One line about what the feature does.
     pub description: &'static str,
-    /// Where the feature keeps the switch the page draws.
     pub switch: Switch,
-    /// What its settings page draws, in order. Empty when it has none, which draws no gear on its
-    /// card and no page behind it.
     pub fields: &'static [Field],
 }
 
-/// Where a built-in keeps its on/off switch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Switch {
-    /// `skip_intros` in the shell's own `settings.json`: AniSkip's on/off.
     SkipIntros,
 }
 
 impl Switch {
-    /// Whether the feature is on.
     #[must_use]
     pub fn reads(self, extras: &LocalExtras) -> bool {
         match self {
@@ -51,7 +28,6 @@ impl Switch {
         }
     }
 
-    /// Turns the feature on or off, in the shell's own settings.
     pub fn writes(self, extras: &mut LocalExtras, enabled: bool) {
         match self {
             Self::SkipIntros => extras.skip_intros = enabled,
@@ -59,18 +35,23 @@ impl Switch {
     }
 }
 
-/// One control a built-in's settings page draws.
+/// Validation policy declared alongside each built-in `Field` so `mods/settings.rs` stays generic.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Field {
-    /// What the value is stored under, beside the built-in's id.
-    pub key: &'static str,
-    pub label: &'static str,
-    /// A sentence under the control: what the value means, or what leaving it empty does.
-    pub hint: &'static str,
-    pub kind: FieldKind,
+pub enum Validation {
+    None,
+    RequiredUuid,
+    NonEmptyDefault(&'static str),
 }
 
-/// The kinds of control a built-in may ask for. The settings page already draws these.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Field {
+    pub key: &'static str,
+    pub label: &'static str,
+    pub hint: &'static str,
+    pub kind: FieldKind,
+    pub validation: Validation,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FieldKind {
     Text { default: &'static str },
@@ -78,7 +59,6 @@ pub enum FieldKind {
 }
 
 impl Field {
-    /// What the control holds before the user has saved a value.
     #[must_use]
     pub fn default_value(self) -> Json {
         match self.kind {
@@ -87,18 +67,55 @@ impl Field {
         }
     }
 
-    /// Whether a stored value is something this control can hold.
     #[must_use]
     pub fn accepts(self, value: &Json) -> bool {
+        matches!(
+            (self.kind, value),
+            (FieldKind::Text { .. }, Json::String(_)) | (FieldKind::Toggle { .. }, Json::Bool(_))
+        )
+    }
+
+    /// Coerces an incoming UI value to this field's type (falling back to default if mismatched).
+    #[must_use]
+    pub fn conform(self, value: &Json) -> Json {
         match (self.kind, value) {
-            (FieldKind::Text { .. }, Json::String(_))
-            | (FieldKind::Toggle { .. }, Json::Bool(_)) => true,
-            _ => false,
+            (FieldKind::Toggle { .. }, Json::Bool(b)) => json!(b),
+            (FieldKind::Text { .. }, Json::String(s)) => json!(s),
+            _ => self.default_value(),
+        }
+    }
+
+    #[must_use]
+    pub fn default_hint(self) -> &'static str {
+        match self.kind {
+            FieldKind::Toggle { .. } => "On or off.",
+            FieldKind::Text { .. } => "Text.",
+        }
+    }
+
+    /// Validates and normalizes an edited value before saving into `LocalExtras`.
+    pub fn validate(self, value: &Json) -> Result<Json, String> {
+        match self.validation {
+            Validation::None => Ok(value.clone()),
+            Validation::RequiredUuid => {
+                let text = value.as_str().map(str::trim).unwrap_or_default();
+                if is_uuid(text) {
+                    Ok(json!(text))
+                } else {
+                    Err(
+                        "Submitter ID is required: it must be a UUID. Nothing was saved."
+                            .to_owned(),
+                    )
+                }
+            }
+            Validation::NonEmptyDefault(fallback) => {
+                let text = value.as_str().map(str::trim).unwrap_or_default();
+                Ok(json!(if text.is_empty() { fallback } else { text }))
+            }
         }
     }
 }
 
-/// Every built-in, in the order the Plugins page lists them.
 pub const ALL: &[Builtin] = &[Builtin {
     id: "builtin:aniskip",
     name: "AniSkip",
@@ -110,39 +127,48 @@ pub const ALL: &[Builtin] = &[Builtin {
             key: "provider_name",
             label: "Submitter name",
             hint: "The name your submission is shown under on AniSkip.",
-            kind: FieldKind::Text {
-                default: "Stremio Lightning",
-            },
+            kind: FieldKind::Text { default: "Stremio Lightning" },
+            validation: Validation::NonEmptyDefault("Stremio Lightning"),
         },
         Field {
             key: "submitter_id",
             label: "Submitter ID",
             hint: "A UUID. Leave it empty to make one on the first submission, or paste the one you already use to keep your votes together.",
             kind: FieldKind::Text { default: "" },
+            validation: Validation::RequiredUuid,
         },
         Field {
             key: "submit_button",
             label: "Submit button in the player",
             hint: "Draws a button beside the skip disc so a wrong or missing skip time can be sent back.",
             kind: FieldKind::Toggle { default: true },
+            validation: Validation::None,
         },
     ],
 }];
 
-/// The built-in `id` names, if there is one.
 #[must_use]
 pub fn get(id: &str) -> Option<&'static Builtin> {
-    ALL.iter().find(|builtin| builtin.id == id)
+    ALL.iter().find(|b| b.id == id)
 }
 
-/// The fields `id` declares, empty when it is not a built-in or declares none.
 #[must_use]
 pub fn fields(id: &str) -> &'static [Field] {
-    get(id).map(|builtin| builtin.fields).unwrap_or(&[])
+    get(id).map(|b| b.fields).unwrap_or(&[])
 }
 
-/// What the control `field` of `id` holds, or its default when nothing is saved or the saved
-/// value is of the wrong kind.
+/// Toggles a built-in plugin switch in `extras`; returns whether the state changed.
+pub fn set_enabled(extras: &mut LocalExtras, id: &str, enabled: bool) -> bool {
+    let Some(builtin) = get(id) else {
+        return false;
+    };
+    if builtin.switch.reads(extras) == enabled {
+        return false;
+    }
+    builtin.switch.writes(extras, enabled);
+    true
+}
+
 #[must_use]
 pub fn value(extras: &LocalExtras, id: &str, field: &Field) -> Json {
     extras
@@ -154,7 +180,6 @@ pub fn value(extras: &LocalExtras, id: &str, field: &Field) -> Json {
         .unwrap_or_else(|| field.default_value())
 }
 
-/// Writes one value, only when the field `key` names exists on `id`.
 pub fn set_value(extras: &mut LocalExtras, id: &str, key: &str, value: Json) {
     if !fields(id).iter().any(|field| field.key == key) {
         return;
@@ -166,54 +191,27 @@ pub fn set_value(extras: &mut LocalExtras, id: &str, key: &str, value: Json) {
         .insert(key.to_owned(), value);
 }
 
-/// The submitter id a submission should carry: the saved one, or a new UUID when none is saved.
-/// A malformed saved value is a new UUID too, and the caller is told to save what it got.
 #[must_use]
 pub fn submitter(extras: &LocalExtras) -> Option<String> {
-    let field = Field {
-        key: "submitter_id",
-        label: "Submitter ID",
-        hint: "",
-        kind: FieldKind::Text { default: "" },
-    };
-    let saved = value(extras, "builtin:aniskip", &field);
-    saved
+    let field = fields("builtin:aniskip")
+        .iter()
+        .find(|f| f.key == "submitter_id")?;
+    value(extras, "builtin:aniskip", field)
         .as_str()
         .map(str::trim)
         .filter(|text| is_uuid(text))
         .map(str::to_owned)
 }
 
-/// Makes sure the built-in has a submitter id, and says whether it had to make one. The API
-/// rejects a blank or malformed `submitterId`, so the id exists before the first submission and
-/// before the settings page is ever opened.
-pub fn ensure_submitter(extras: &mut LocalExtras) -> bool {
-    if submitter(extras).is_some() {
+/// Ensures AniSkip has a valid UUID submitter id, storing `fresh_id` if none is saved yet.
+pub fn ensure_submitter(extras: &mut LocalExtras, fresh_id: &str) -> bool {
+    if submitter(extras).is_some() || !is_uuid(fresh_id) {
         return false;
     }
-    let id = json!(new_submitter());
-    set_value(extras, "builtin:aniskip", "submitter_id", id);
+    set_value(extras, "builtin:aniskip", "submitter_id", json!(fresh_id));
     true
 }
 
-/// A fresh UUID v4, in the form the API wants for `submitterId`.
-#[must_use]
-pub fn new_submitter() -> String {
-    let mut bytes = [0u8; 16];
-    if getrandom::fill(&mut bytes).is_err() {
-        return String::new();
-    }
-    // Version 4, variant 1: the two nibbles the UUID format reserves.
-    bytes[6] = (bytes[6] & 0x0f) | 0x40;
-    bytes[8] = (bytes[8] & 0x3f) | 0x80;
-    format!(
-        "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
-        bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
-        bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]
-    )
-}
-
-/// Whether `text` is the canonical UUID form the API's `submitterId` field accepts.
 #[must_use]
 pub fn is_uuid(text: &str) -> bool {
     text.len() == 36
@@ -223,22 +221,18 @@ pub fn is_uuid(text: &str) -> bool {
         })
 }
 
-/// The cards the Plugins page shows for the built-ins. Every field a file-backed card fills from
-/// its file -- author, warnings, unreadable -- stays empty here.
 #[must_use]
 pub fn cards(extras: &LocalExtras) -> Vec<ModCard> {
     ALL.iter()
-        .map(|builtin| ModCard {
-            id: builtin.id.to_owned(),
-            // A built-in has no file. The id stands in wherever a file name would go, so a
-            // switch press carries one name through the page.
-            filename: builtin.id.to_owned(),
-            name: builtin.name.to_owned(),
+        .map(|b| ModCard {
+            id: b.id.to_owned(),
+            filename: b.id.to_owned(),
+            name: b.name.to_owned(),
             author: String::new(),
-            version: builtin.version.to_owned(),
-            description: builtin.description.to_owned(),
-            enabled: builtin.switch.reads(extras),
-            has_settings: !builtin.fields.is_empty(),
+            version: b.version.to_owned(),
+            description: b.description.to_owned(),
+            enabled: b.switch.reads(extras),
+            has_settings: !b.fields.is_empty(),
             warnings: Vec::new(),
             removable: false,
             builtin: true,
@@ -246,19 +240,13 @@ pub fn cards(extras: &LocalExtras) -> Vec<ModCard> {
         .collect()
 }
 
-/// One theme the app ships.
 pub struct BuiltinTheme {
-    /// What the card's switch names it by (`builtin:...`), never a file name.
     pub id: &'static str,
-    /// What the card's title says.
     pub name: &'static str,
-    /// The app's version.
     pub version: &'static str,
-    /// One line about what the theme does.
     pub description: &'static str,
 }
 
-/// Every built-in theme, in the order the Themes page lists them ahead of local files.
 pub const THEMES: &[BuiltinTheme] = &[BuiltinTheme {
     id: "builtin:amoled",
     name: "Amoled Theme",
@@ -266,148 +254,31 @@ pub const THEMES: &[BuiltinTheme] = &[BuiltinTheme {
     description: "A theme that uses amoled pitch black color.",
 }];
 
-/// The built-in theme `id` names, if there is one.
 #[must_use]
 pub fn get_theme(id: &str) -> Option<&'static BuiltinTheme> {
-    THEMES.iter().find(|theme| theme.id == id)
+    THEMES.iter().find(|t| t.id == id)
 }
 
-/// The cards the Themes page shows for the built-in themes.
 #[must_use]
 pub fn theme_cards(extras: &LocalExtras) -> Vec<ModCard> {
     THEMES
         .iter()
-        .map(|theme| {
-            let is_on = extras.enabled_themes.iter().any(|name| name == theme.id);
-            ModCard {
-                id: theme.id.to_owned(),
-                filename: theme.id.to_owned(),
-                name: theme.name.to_owned(),
-                author: String::new(),
-                version: theme.version.to_owned(),
-                description: theme.description.to_owned(),
-                enabled: is_on,
-                has_settings: false,
-                warnings: Vec::new(),
-                removable: false,
-                builtin: true,
-            }
+        .map(|t| ModCard {
+            id: t.id.to_owned(),
+            filename: t.id.to_owned(),
+            name: t.name.to_owned(),
+            author: String::new(),
+            version: t.version.to_owned(),
+            description: t.description.to_owned(),
+            enabled: extras.enabled_themes.iter().any(|name| name == t.id),
+            has_settings: false,
+            warnings: Vec::new(),
+            removable: false,
+            builtin: true,
         })
         .collect()
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::screens::mods::catalogue;
-
-    #[test]
-    fn a_built_in_card_shows_a_name_a_version_and_a_description_only() {
-        let cards = cards(&LocalExtras::default());
-        assert_eq!(cards.len(), 1);
-        let card = &cards[0];
-        assert_eq!(card.name, "AniSkip");
-        assert_eq!(card.version, env!("CARGO_PKG_VERSION"));
-        assert_eq!(
-            catalogue::byline(card),
-            format!("v{}", env!("CARGO_PKG_VERSION"))
-        );
-        assert!(card.description.starts_with("Skip anime"));
-        assert!(card.author.is_empty());
-        assert!(card.warnings.is_empty());
-        assert!(catalogue::unreadable(card).is_empty());
-        assert!(!card.removable);
-        assert!(card.builtin);
-        assert!(card.has_settings);
-    }
-
-    #[test]
-    fn the_switch_is_the_shells_skip_intros() {
-        let mut extras = LocalExtras::default();
-        assert!(extras.skip_intros);
-        Switch::SkipIntros.writes(&mut extras, false);
-        assert!(!Switch::SkipIntros.reads(&extras));
-        assert!(!cards(&extras)[0].enabled);
-        Switch::SkipIntros.writes(&mut extras, true);
-        assert!(cards(&extras)[0].enabled);
-    }
-
-    #[test]
-    fn the_fields_start_at_their_defaults() {
-        let extras = LocalExtras::default();
-        for field in fields("builtin:aniskip") {
-            assert_eq!(
-                value(&extras, "builtin:aniskip", field),
-                field.default_value()
-            );
-        }
-    }
-
-    #[test]
-    fn a_saved_value_of_the_wrong_kind_is_the_default() {
-        let mut extras = LocalExtras::default();
-        set_value(
-            &mut extras,
-            "builtin:aniskip",
-            "submit_button",
-            json!("yes"),
-        );
-        let field = fields("builtin:aniskip")
-            .iter()
-            .find(|field| field.key == "submit_button")
-            .unwrap();
-        assert_eq!(value(&extras, "builtin:aniskip", field), json!(true));
-        set_value(
-            &mut extras,
-            "builtin:aniskip",
-            "submit_button",
-            json!(false),
-        );
-        assert_eq!(value(&extras, "builtin:aniskip", field), json!(false));
-    }
-
-    #[test]
-    fn a_new_submitter_is_a_uuid_and_the_saved_one_is_kept() {
-        let fresh = new_submitter();
-        assert!(is_uuid(&fresh), "{fresh}");
-        let mut extras = LocalExtras::default();
-        assert!(submitter(&extras).is_none());
-        set_value(&mut extras, "builtin:aniskip", "submitter_id", json!(fresh));
-        assert_eq!(submitter(&extras), Some(fresh));
-        set_value(
-            &mut extras,
-            "builtin:aniskip",
-            "submitter_id",
-            json!("nope"),
-        );
-        assert!(submitter(&extras).is_none());
-    }
-
-    #[test]
-    fn the_builtin_amoled_theme_card_shows_name_version_and_description_only() {
-        let mut extras = LocalExtras::default();
-        let cards = theme_cards(&extras);
-        assert_eq!(cards.len(), 1);
-        let card = &cards[0];
-        assert_eq!(card.id, "builtin:amoled");
-        assert_eq!(card.filename, "builtin:amoled");
-        assert_eq!(card.name, "Amoled Theme");
-        assert_eq!(card.version, env!("CARGO_PKG_VERSION"));
-        assert_eq!(
-            catalogue::byline(card),
-            format!("v{}", env!("CARGO_PKG_VERSION"))
-        );
-        assert_eq!(
-            card.description,
-            "A theme that uses amoled pitch black color."
-        );
-        assert!(!card.enabled);
-        assert!(!card.removable);
-        assert!(card.builtin);
-        assert!(!card.has_settings);
-        assert!(card.warnings.is_empty());
-
-        extras.enabled_themes = vec!["builtin:amoled".to_owned()];
-        assert!(theme_cards(&extras)[0].enabled);
-    }
-}
+#[path = "builtin_tests.rs"]
+mod tests;

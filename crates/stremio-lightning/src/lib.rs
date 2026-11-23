@@ -116,14 +116,16 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
     // Inside the runtime: `Images` keeps its handle, because a repaint asks for pictures from the
     // window's thread, where `tokio::spawn` has no runtime to reach for.
     let images = tokio.block_on(async { plumbing::images::Images::default() });
-    let local_extras = Arc::new(Mutex::new(screens::settings::LocalExtras::load(&data_dir)));
+    let local_extras = Arc::new(Mutex::new(plumbing::local_settings::LocalExtras::load(
+        &data_dir,
+    )));
+    let installed_themes = Arc::new(Mutex::new(plumbing::theme::store::list(&data_dir)));
     {
-        // AniSkip's submission needs a UUID to send as its submitter, and the API rejects a blank
-        // or malformed one. The first run with the feature makes one and writes it, so the id is
-        // there before a submission and before its settings page is ever opened.
         let mut extras = local_extras.lock().unwrap();
-        if screens::mods::builtin::ensure_submitter(&mut extras) {
-            extras.save(&data_dir);
+        if let Some(id) = plumbing::local_settings::new_uuid() {
+            if screens::mods::builtin::ensure_submitter(&mut extras, &id) {
+                extras.save(&data_dir);
+            }
         }
     }
     let latest: Arc<Mutex<app::Snapshot>> = Default::default();
@@ -195,6 +197,7 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
         mods_disarm: Default::default(),
         mods_plugin: mods_plugin.clone(),
         mods_edits: mods_edits.clone(),
+        installed_themes: installed_themes.clone(),
         logs: logs.clone(),
         log_selection: log_selection.clone(),
         mods_clearing: Default::default(),
@@ -285,6 +288,7 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
             log_selection: log_selection.clone(),
             mods_clearing: wiring.mods_clearing.clone(),
             mods_export: wiring.mods_export.clone(),
+            installed_themes,
             playback_error,
             auth: wiring.auth.clone(),
             board_catalogs: wiring.board_catalogs.clone(),

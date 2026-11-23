@@ -850,30 +850,31 @@ pub(crate) fn mods_view(data: &crate::screens::mods::Data) -> ModsViewData {
         )),
         settings_empty: empty_settings(data).into(),
         settings_dirty: data.edits.dirty(),
-        log_source_options: menu_options(&data.log_source_options, data.log_source_index),
-        log_level_options: menu_options(&data.log_level_options, data.log_level_index),
-        log_source_index: data.log_source_index,
-        log_level_index: data.log_level_index,
-        log_search: data.log_filter.search.clone().into(),
+        log_source_options: menu_options(&data.logs.source_options, data.logs.source_index),
+        log_level_options: menu_options(&data.logs.level_options, data.logs.level_index),
+        log_source_index: data.logs.source_index,
+        log_level_index: data.logs.level_index,
+        log_search: data.logs.filter.search.clone().into(),
         log_rows: ModelRc::new(VecModel::from(
-            data.log_rows.iter().map(log_row).collect::<Vec<_>>(),
+            data.logs.rows.iter().map(log_row).collect::<Vec<_>>(),
         )),
-        log_empty: data.log_empty.clone().into(),
-        log_detail_heading: data.log_detail_heading.clone().into(),
-        log_open_id: i32::try_from(data.log_open_id).unwrap_or(0),
-        log_active_index: data.log_active_index,
-        log_selected_count: i32::try_from(data.log_selected_count).unwrap_or(0),
-        log_count: data.log_count.clone().into(),
-        log_filtered: data.log_filtered,
+        log_empty: data.logs.empty.clone().into(),
+        log_detail_heading: data.logs.detail_heading.clone().into(),
+        log_open_id: i32::try_from(data.logs.open_id).unwrap_or(0),
+        log_active_index: data.logs.active_index,
+        log_selected_count: i32::try_from(data.logs.selected_count).unwrap_or(0),
+        log_count: data.logs.count.clone().into(),
+        log_filtered: data.logs.filtered,
         log_prepended: 0,
         log_prepend_seq: 0,
         log_detail: ModelRc::new(VecModel::from(
-            data.log_detail
+            data.logs
+                .detail
                 .iter()
                 .map(|line| SharedString::from(line.clone()))
                 .collect::<Vec<_>>(),
         )),
-        log_clear_armed: data.log_clear_armed,
+        log_clear_armed: data.logs.clear_armed,
         about_build: about_lines(&data.about.build),
         about_places: about_lines(&data.about.places),
         about_counts: about_lines(&data.about.counts),
@@ -920,39 +921,27 @@ pub(crate) fn apply_logs(
     sel: &mods::log_selection::LogSelection,
     armed: bool,
 ) {
-    let filter = sel.filter();
-    let rows = mods::logs::rows(entries, sel, filter);
+    let logs = mods::logs::data(entries, sel, armed);
     let old = window.get_mods();
     let mut data = old.clone();
-    let total = entries.len();
-    let filtered = filter.is_active();
-    let open_id = mods::logs::open_id(entries, sel);
-    data.log_source_index = i32::try_from(mods::logs::source_index(filter)).unwrap_or(0);
-    data.log_level_index = i32::try_from(mods::logs::level_index(filter)).unwrap_or(0);
-    data.log_search = filter.search.clone().into();
-    data.log_empty = if total == 0 {
-        mods::logs::NONE
-    } else {
-        mods::logs::NONE_MATCH
-    }
-    .into();
-    data.log_count = mods::logs::count_label(rows.len(), total, filtered).into();
-    data.log_filtered = filtered;
-    data.log_detail_heading = mods::logs::detail_heading(entries, sel).into();
+    data.log_source_index = logs.source_index;
+    data.log_level_index = logs.level_index;
+    data.log_search = logs.filter.search.into();
+    data.log_empty = logs.empty.into();
+    data.log_count = logs.count.into();
+    data.log_filtered = logs.filtered;
+    data.log_detail_heading = logs.detail_heading.into();
     data.log_detail = ModelRc::new(VecModel::from(
-        mods::logs::detail(entries, sel)
+        logs.detail
             .into_iter()
             .map(SharedString::from)
             .collect::<Vec<_>>(),
     ));
-    data.log_open_id = i32::try_from(open_id).unwrap_or(0);
-    data.log_active_index = mods::logs::active_index(&rows, open_id)
-        .and_then(|at| i32::try_from(at).ok())
-        .unwrap_or(-1);
-    data.log_selected_count =
-        i32::try_from(mods::logs::selected_count(entries, sel, filter)).unwrap_or(0);
-    data.log_clear_armed = armed;
-    reconcile_log_rows(&old, &rows, &mut data);
+    data.log_open_id = i32::try_from(logs.open_id).unwrap_or(0);
+    data.log_active_index = logs.active_index;
+    data.log_selected_count = i32::try_from(logs.selected_count).unwrap_or(0);
+    data.log_clear_armed = logs.clear_armed;
+    reconcile_log_rows(&old, &logs.rows, &mut data);
     window.set_mods(data);
 }
 
@@ -1056,12 +1045,11 @@ fn settings_plugin(plugin: &mods::settings::Plugin) -> SettingsPluginData {
 /// What a control on the Plugin settings page holds: the value the user is editing, made into
 /// what its kind of control draws. The value the file holds is the screen's business.
 pub(crate) fn settings_field(control: &mods::settings::Control) -> SettingsFieldData {
-    // A kind this app cannot draw shows its label and says so, and offers no control.
     let mut field = SettingsFieldData {
-        key: control.field.key().into(),
-        label: control.field.label().into(),
-        kind: "unsupported".into(),
-        hint: "This app cannot draw this kind of setting.".into(),
+        key: control.field.key.into(),
+        label: control.field.label.into(),
+        kind: "text".into(),
+        hint: control.hint().into(),
         on: false,
         text: "".into(),
         options: ModelRc::new(VecModel::from(Vec::<SharedString>::new())),
@@ -1070,67 +1058,26 @@ pub(crate) fn settings_field(control: &mods::settings::Control) -> SettingsField
         max: 1.0,
         shown: "".into(),
     };
-    match &control.field {
-        mods::plugin_schema::Field::Toggle { .. } => {
+    match control.field.kind {
+        mods::builtin::FieldKind::Toggle { .. } => {
             field.kind = "toggle".into();
-            field.hint = mods::plugin_schema::hint(&control.field).into();
             field.on = control.edited.as_bool().unwrap_or(false);
         }
-        mods::plugin_schema::Field::Text { .. } => {
+        mods::builtin::FieldKind::Text { .. } => {
             field.kind = "text".into();
-            field.hint = mods::plugin_schema::hint(&control.field).into();
             field.text = control.edited.as_str().unwrap_or_default().into();
         }
-        mods::plugin_schema::Field::Select { options, .. } => {
-            field.kind = "select".into();
-            // The field's own hint names every option; under a select the list is already on
-            // screen, so the hint says what picking one does.
-            field.hint = "One of the options above.".into();
-            field.text = control.edited.as_str().unwrap_or_default().into();
-            field.options = ModelRc::new(VecModel::from(
-                options
-                    .iter()
-                    .map(|option| SharedString::from(option.clone()))
-                    .collect::<Vec<_>>(),
-            ));
-        }
-        mods::plugin_schema::Field::Range { min, max, .. } => {
-            field.kind = "range".into();
-            field.hint = mods::plugin_schema::hint(&control.field).into();
-            let number = control.edited.as_f64().unwrap_or(*min).clamp(*min, *max);
-            field.number = number as f32;
-            field.min = *min as f32;
-            field.max = *max as f32;
-            field.shown = match serde_json::Number::from_f64(number) {
-                Some(number) => number.to_string(),
-                None => String::new(),
-            }
-            .into();
-        }
-    }
-    // A built-in brings its own sentence for each control; a file plugin has none and keeps the
-    // kind's own words.
-    if !control.hint.is_empty() {
-        field.hint = control.hint.clone().into();
     }
     field
 }
 
-/// What the Plugin settings page says is wrong with itself: a schema that cannot be used and a
-/// file that cannot be read. Typed and unsaved values are not a fault; Save being lit is the
-/// whole of what the page says about them.
 fn trouble(data: &crate::screens::mods::Data) -> Vec<String> {
     let edits = &data.edits;
-    let mut said = Vec::new();
-    if !edits.filename.is_empty() {
-        if !edits.trouble.is_empty() {
-            said.push(edits.trouble.clone());
-        }
-        if !edits.error.is_empty() {
-            said.push(edits.error.clone());
-        }
+    if !edits.filename.is_empty() && !edits.error.is_empty() {
+        vec![edits.error.clone()]
+    } else {
+        Vec::new()
     }
-    said
 }
 
 /// What the Plugin settings page says when it holds no control: nothing picked, or a plugin that
@@ -1172,7 +1119,7 @@ pub(crate) fn show_mods(window: &MainWindow, data: &crate::screens::mods::Data) 
     let old = window.get_mods();
     let mut view = mods_view(data);
     keep_settings_fields(window, &mut view);
-    reconcile_log_rows(&old, &data.log_rows, &mut view);
+    reconcile_log_rows(&old, &data.logs.rows, &mut view);
     let rows: Vec<(String, String)> = data
         .menu
         .iter()

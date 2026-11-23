@@ -5,6 +5,7 @@
 //! properties, so a screen can use it without knowing it exists.
 
 pub mod clipboard;
+pub(crate) mod diagnostics;
 pub mod env;
 pub mod images;
 pub mod links;
