@@ -13,7 +13,7 @@
 //!
 //! The binary is `main.rs`, which does nothing but start this.
 
-use std::sync::atomic::{AtomicU64, AtomicUsize};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize};
 use std::sync::{Arc, Mutex};
 
 use stremio_core::runtime::Env;
@@ -125,6 +125,7 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
         }
     }
     let latest: Arc<Mutex<app::Snapshot>> = Default::default();
+    let repaint_pending = Arc::new(AtomicBool::new(false));
     let selected = Arc::new(AtomicUsize::new(0));
     // The Discover cards on screen, until the grid says otherwise. A screenful and a bit, so the
     // first frame of a catalog is never empty while the grid works its own range out.
@@ -148,6 +149,7 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
         video: video.clone(),
         images: images.clone(),
         latest: latest.clone(),
+        repaint_pending: repaint_pending.clone(),
         selected: selected.clone(),
         visible: visible.clone(),
         season: season.clone(),
@@ -229,9 +231,14 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
     window.set_build_version(option_env!("GITHUB_SHA").unwrap_or("dev").into());
 
     let repaint = {
-        let (window, latest, images) = (window.as_weak(), latest.clone(), images.clone());
+        let (window, latest, pending, images) = (
+            window.as_weak(),
+            latest.clone(),
+            repaint_pending.clone(),
+            images.clone(),
+        );
         Arc::new(move || {
-            shell::show(&window, &latest, &images);
+            shell::show(&window, &latest, &pending, &images);
         })
     };
     tokio.spawn(app::events::pump(
@@ -241,6 +248,7 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
             runtime: runtime.clone(),
             images,
             latest,
+            repaint_pending,
             selected,
             visible,
             season,

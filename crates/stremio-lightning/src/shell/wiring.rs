@@ -3,7 +3,7 @@
 //! Nothing here decides anything. A callback works out what was clicked, hands it to a screen's
 //! action, and puts the result where the window can see it.
 
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use slint::{ComponentHandle, ModelRc, Timer, VecModel, Weak};
@@ -90,6 +90,7 @@ pub(crate) struct Wiring {
     pub(crate) video: VideoPlayer,
     pub(crate) images: Images,
     pub(crate) latest: Arc<Mutex<Snapshot>>,
+    pub(crate) repaint_pending: Arc<AtomicBool>,
     pub(crate) selected: Arc<AtomicUsize>,
     /// The Discover cards on screen, as the first one and how many. Only these have their posters
     /// asked for; the grid reports the range again whenever it is scrolled.
@@ -267,7 +268,7 @@ struct ActionTarget {
 impl Wiring {
     /// Repaints with the snapshot the last event produced.
     fn repaint(&self) {
-        shell::show(&self.window, &self.latest, &self.images);
+        shell::show(&self.window, &self.latest, &self.repaint_pending, &self.images);
         self.remember_wanted();
     }
 
@@ -284,7 +285,7 @@ impl Wiring {
         if let Some(window) = self.window.upgrade() {
             shell::view::show_mods(&window, &snapshot.mods);
         }
-        shell::show(&self.window, &self.latest, &self.images);
+        shell::show(&self.window, &self.latest, &self.repaint_pending, &self.images);
         self.remember_wanted();
         let visible = *self.visible.lock().unwrap();
         let selected = self.selected.load(Ordering::Relaxed);
@@ -300,13 +301,14 @@ impl Wiring {
     /// It does not say what is on screen: every caller of this asked for the picture *after*
     /// saying so, which is why the key is already being kept when it lands.
     fn request_painting(&self, url: String) {
-        let (latest, window, images) = (
+        let (latest, pending, window, images) = (
             self.latest.clone(),
+            self.repaint_pending.clone(),
             self.window.clone(),
             self.images.clone(),
         );
         self.images.request(url, move || {
-            shell::show(&window, &latest, &images);
+            shell::show(&window, &latest, &pending, &images);
         });
     }
 
@@ -1678,7 +1680,7 @@ impl Wiring {
             snapshot.player = player::data(&model, Some(index));
             drop(model);
             *self.latest.lock().unwrap() = snapshot;
-            shell::show(&self.window, &self.latest, &self.images);
+            shell::show(&self.window, &self.latest, &self.repaint_pending, &self.images);
         }
     }
 
@@ -1908,7 +1910,7 @@ impl Wiring {
         // had already been fetched on hover never repainted at all, because the request for them is
         // deduped and nothing ever fired, and a card whose pictures had not been fetched opened
         // blank until the last of them landed.
-        shell::show(&self.window, &self.latest, &self.images);
+        shell::show(&self.window, &self.latest, &self.repaint_pending, &self.images);
         for url in discover::preview_images(&discover, index) {
             self.request_painting(url);
         }
@@ -1968,9 +1970,13 @@ impl Wiring {
             seconds > 0.0 && seconds < 0.25 && (scroll - before.scroll).abs() / seconds > FLYING
         });
         let range = discover::visible_range(scroll, height, pitch, columns);
-        // What the cache may keep is what the grid draws, not only what is strictly on screen: the
-        // row either side is drawn too, and a poster let go of there comes back blank.
-        self.remember_wanted();
+        let prev_drawn = previous.map(|before| {
+            discover::settled_range(before.scroll, before.height, before.pitch, before.columns)
+        });
+        let next_drawn = discover::settled_range(scroll, height, pitch, columns);
+        if prev_drawn != Some(next_drawn) {
+            self.remember_wanted();
+        }
         if *self.visible.lock().unwrap() != range {
             *self.visible.lock().unwrap() = range;
             if crate::plumbing::images::tracing() {
@@ -2567,10 +2573,11 @@ impl Wiring {
 
     /// Starts the five seconds an armed card waits before it is no longer armed.
     fn restart_disarm(&self) {
-        let (armed, window, latest, images) = (
+        let (armed, window, latest, pending, images) = (
             self.mods_armed.clone(),
             self.window.clone(),
             self.latest.clone(),
+            self.repaint_pending.clone(),
             self.images.clone(),
         );
         self.mods_disarm.start(
@@ -2587,7 +2594,7 @@ impl Wiring {
                 // The outline on the card is part of what the window draws, so the arm going away
                 // is a repaint, not just a change of state the next press would reveal.
                 shell::view::arm(None);
-                shell::show(&window, &latest, &images);
+                shell::show(&window, &latest, &pending, &images);
             },
         );
     }

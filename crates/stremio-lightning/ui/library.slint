@@ -180,9 +180,14 @@ export component LibraryContent inherits Rectangle {
     property <length> grid-gap: 0.5 * root.rem-size;
     property <length> tile-width: (root.width - 2 * root.grid-padding - (root.columns - 1) * root.grid-gap) / root.columns;
     property <length> tile-height: 2 * root.rem-size + (root.tile-width - 2 * root.rem-size) * 1.464 + 4 * root.rem-size;
-    property <float> row-count: (root.cards.length + root.columns - 1) / root.columns;
-    property <length> grid-height: root.row-count * root.tile-height + (root.row-count - 1) * root.grid-gap;
+    property <float> row-count: Math.ceil(root.cards.length / root.columns);
+    property <length> row-pitch: root.tile-height + root.grid-gap;
+    property <length> grid-height: root.row-count * root.tile-height + Math.max(root.row-count - 1, 0) * root.grid-gap;
     property <bool> empty: root.cards.length == 0;
+    property <float> first-shown-row: Math.max(0,
+        Math.floor((-meta-items-container.content-y - root.grid-padding) / Math.max(root.row-pitch, 1px)) - 1);
+    property <float> last-shown-row: Math.floor(
+        (-meta-items-container.content-y + meta-items-container.height - root.grid-padding) / Math.max(root.row-pitch, 1px)) + 1;
 
     // Web: `Library.js` returns the grid to the top when a page-1 request (a type or sort
     // change) arrives. The key changes for those requests only, not when a page is appended.
@@ -285,12 +290,14 @@ export component LibraryContent inherits Rectangle {
             // Web: `useOnScrollToBottom` loads the next page 400px before the bottom.
             changed content-y => {
                 if (root.has-more && self.content-height > self.height + 400px
-                    && self.content-y > self.content-height - self.height - 400px) {
+                    && -self.content-y > self.content-height - self.height - 400px) {
                     root.load-more();
                 }
             }
 
             for card[index] in root.cards: LibraryItemCard {
+                visible: Math.floor(index / root.columns) >= root.first-shown-row
+                    && Math.floor(index / root.columns) <= root.last-shown-row;
                 x: root.grid-padding + Math.mod(index, root.columns) * (root.tile-width + root.grid-gap);
                 y: root.grid-padding + Math.floor(index / root.columns) * (root.tile-height + root.grid-gap);
                 width: root.tile-width;

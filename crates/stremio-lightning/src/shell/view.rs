@@ -3,6 +3,7 @@
 //! This is the only place in the app that knows both a screen's data and the window it lands in.
 //! It decides nothing: every value here was decided by the screen that produced it.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use slint::{Model, ModelRc, SharedString, VecModel, Weak};
@@ -22,23 +23,87 @@ use crate::{
     StreamData, VideoRow,
 };
 
-/// Copies the latest snapshot onto the window on the UI thread so an already-queued repaint
-/// cannot roll back a newer synchronous UI update.
-pub(crate) fn show(weak: &Weak<MainWindow>, latest: &Arc<Mutex<Snapshot>>, images: &Images) {
+/// Copies the latest snapshot onto the window on the UI thread, coalescing bursts of repaints
+/// (such as posters finishing in parallel) into one pass and reading `latest` on the UI thread so
+/// an already-queued repaint cannot roll back a newer synchronous UI update.
+pub(crate) fn show(
+    weak: &Weak<MainWindow>,
+    latest: &Arc<Mutex<Snapshot>>,
+    pending: &Arc<AtomicBool>,
+    images: &Images,
+) {
+    if pending.swap(true, Ordering::AcqRel) {
+        return;
+    }
     let latest = latest.clone();
+    let pending_run = pending.clone();
     let images = images.clone();
-    let _ = weak.upgrade_in_event_loop(move |window| {
-        let snapshot = latest.lock().unwrap().clone();
-        apply(&window, &snapshot, &images);
-    });
+    if weak
+        .upgrade_in_event_loop(move |window| {
+            pending_run.store(false, Ordering::Release);
+            let snapshot = latest.lock().unwrap().clone();
+            apply(&window, &snapshot, &images);
+        })
+        .is_err()
+    {
+        pending.store(false, Ordering::Release);
+    }
 }
 
-pub(crate) fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
-    window.set_status(snapshot.status.clone().into());
+/// Updates an existing `VecModel` in place so unchanged rows keep their Slint items instead of
+/// tearing down and rebuilding every repeater on each poster load.
+fn sync_vec_model<T: Clone + PartialEq + 'static>(
+    existing: &ModelRc<T>,
+    next: Vec<T>,
+) -> Option<ModelRc<T>> {
+    if let Some(model) = existing.as_any().downcast_ref::<VecModel<T>>() {
+        let old_len = model.row_count();
+        let new_len = next.len();
+        let common = old_len.min(new_len);
+        for (index, item) in next.into_iter().enumerate() {
+            if index < common {
+                if model.row_data(index).as_ref() != Some(&item) {
+                    model.set_row_data(index, item);
+                }
+            } else {
+                model.push(item);
+            }
+        }
+        while model.row_count() > new_len {
+            model.remove(model.row_count() - 1);
+        }
+        return None;
+    }
+    Some(ModelRc::new(VecModel::from(next)))
+}
+
+fn sync_board_rows(window: &MainWindow, rows: &[crate::screens::board::Row], images: &Images) {
+    let existing = window.get_rows();
+    if let Some(model) = existing.as_any().downcast_ref::<VecModel<CatalogRow>>() {
+        if model.row_count() == rows.len()
+            && rows.iter().enumerate().all(|(index, row)| {
+                model.row_data(index).is_some_and(|old| {
+                    old.title.as_str() == row.title
+                        && old.shape.as_str() == row.shape
+                        && old.menu == row.menu
+                })
+            })
+        {
+            for (index, row) in rows.iter().enumerate() {
+                if let Some(mut existing_row) = model.row_data(index) {
+                    let cards: Vec<PosterData> =
+                        row.cards.iter().map(|card| poster_data(card, images)).collect();
+                    if let Some(replaced) = sync_vec_model(&existing_row.cards, cards) {
+                        existing_row.cards = replaced;
+                        model.set_row_data(index, existing_row);
+                    }
+                }
+            }
+            return;
+        }
+    }
     window.set_rows(ModelRc::new(VecModel::from(
-        snapshot
-            .rows
-            .iter()
+        rows.iter()
             .map(|row| CatalogRow {
                 title: row.title.clone().into(),
                 shape: row.shape.into(),
@@ -52,25 +117,125 @@ pub(crate) fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
             })
             .collect::<Vec<_>>(),
     )));
+}
 
-    window.set_discover_shape(snapshot.discover.shape.into());
-    window.set_discover_cards(ModelRc::new(VecModel::from(
-        snapshot
-            .discover
-            .cards
-            .iter()
-            .map(|card| poster_data(card, images))
-            .collect::<Vec<_>>(),
-    )));
-    window.set_discover_inputs(inputs(snapshot.discover.inputs.clone()));
+fn preview_same(old: &PreviewData, preview: &Preview, images: &Images) -> bool {
+    let logo = images.get(&preview.logo);
+    let background = images.get(&preview.background);
+    old.title.as_str() == preview.title
+        && old.runtime.as_str() == preview.runtime
+        && old.release_info.as_str() == preview.release
+        && old.rating.as_str() == preview.rating
+        && old.description.as_str() == preview.description
+        && old.has_trailer == preview.has_trailer
+        && old.has_logo == logo.is_some()
+        && old.logo == logo.unwrap_or_default()
+        && old.has_background == background.is_some()
+        && old.background == background.unwrap_or_default()
+        && !old.has_panel_backdrop
+        && old.in_library == preview.in_library
+        && old.watched == preview.watched
+        && old.groups.row_count() == preview.groups.len()
+        && preview.groups.iter().enumerate().all(|(i, (label, links))| {
+            old.groups.row_data(i).is_some_and(|group| {
+                group.label.as_str() == label
+                    && group.links.row_count() == links.len()
+                    && links
+                        .iter()
+                        .enumerate()
+                        .all(|(j, link)| group.links.row_data(j).is_some_and(|l| l.as_str() == link))
+            })
+        })
+}
+
+fn sync_discover_previews(window: &MainWindow, previews: &[Preview], images: &Images) {
+    let existing = window.get_discover_previews();
+    if let Some(model) = existing.as_any().downcast_ref::<VecModel<PreviewData>>() {
+        let old_len = model.row_count();
+        let new_len = previews.len();
+        let common = old_len.min(new_len);
+        for (index, preview) in previews.iter().enumerate() {
+            if index < common {
+                if model
+                    .row_data(index)
+                    .is_some_and(|old| preview_same(&old, preview, images))
+                {
+                    continue;
+                }
+                model.set_row_data(index, preview_data(preview, images));
+            } else {
+                model.push(preview_data(preview, images));
+            }
+        }
+        while model.row_count() > new_len {
+            model.remove(model.row_count() - 1);
+        }
+        return;
+    }
     window.set_discover_previews(ModelRc::new(VecModel::from(
-        snapshot
-            .discover
-            .previews
+        previews
             .iter()
             .map(|preview| preview_data(preview, images))
             .collect::<Vec<_>>(),
     )));
+}
+
+fn select_input_same(old: &SelectInputData, input: &Input) -> bool {
+    let selected_index = i32::try_from(input.selected).unwrap_or_default();
+    old.title.as_str() == input.title
+        && old.selected_index == selected_index
+        && old.options.row_count() == input.options.len()
+        && input.options.iter().enumerate().all(|(i, (label, selected))| {
+            old.options
+                .row_data(i)
+                .is_some_and(|opt| opt.label.as_str() == label && opt.selected == *selected)
+        })
+}
+
+fn sync_inputs(existing: &ModelRc<SelectInputData>, next: &[Input]) -> Option<ModelRc<SelectInputData>> {
+    if let Some(model) = existing.as_any().downcast_ref::<VecModel<SelectInputData>>() {
+        let old_len = model.row_count();
+        let new_len = next.len();
+        let common = old_len.min(new_len);
+        for (index, input) in next.iter().enumerate() {
+            if index < common {
+                if model
+                    .row_data(index)
+                    .is_some_and(|old| select_input_same(&old, input))
+                {
+                    continue;
+                }
+                model.set_row_data(index, crate::screens::select_input_data(input.clone()));
+            } else {
+                model.push(crate::screens::select_input_data(input.clone()));
+            }
+        }
+        while model.row_count() > new_len {
+            model.remove(model.row_count() - 1);
+        }
+        return None;
+    }
+    Some(inputs(next.to_vec()))
+}
+
+pub(crate) fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
+    window.set_status(snapshot.status.clone().into());
+    sync_board_rows(window, &snapshot.rows, images);
+
+    window.set_discover_shape(snapshot.discover.shape.into());
+    let discover_cards: Vec<PosterData> = snapshot
+        .discover
+        .cards
+        .iter()
+        .map(|card| poster_data(card, images))
+        .collect();
+    if let Some(replaced) = sync_vec_model(&window.get_discover_cards(), discover_cards) {
+        window.set_discover_cards(replaced);
+    }
+    if let Some(replaced) = sync_inputs(&window.get_discover_inputs(), &snapshot.discover.inputs) {
+        window.set_discover_inputs(replaced);
+    }
+    sync_discover_previews(window, &snapshot.discover.previews, images);
 
     let library = &snapshot.library;
     window.set_library_type_title(library.type_title.clone().into());
@@ -84,52 +249,55 @@ pub(crate) fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
         )
         .unwrap_or_default(),
     );
-    window.set_library_types(ModelRc::new(VecModel::from(
-        library
-            .type_options
-            .iter()
-            .map(|(label, selected)| SelectOption {
-                label: label.clone().into(),
-                selected: *selected,
-            })
-            .collect::<Vec<_>>(),
-    )));
-    window.set_library_sorts(ModelRc::new(VecModel::from(
-        library
-            .sorts
-            .iter()
-            .map(|sort| LibrarySort {
-                label: sort.label.clone().into(),
-                selected: sort.selected,
-            })
-            .collect::<Vec<_>>(),
-    )));
-    window.set_library_cards(ModelRc::new(VecModel::from(
-        library
-            .cards
-            .iter()
-            .map(|card| {
-                let poster = images.get(&card.poster);
-                LibraryCard {
-                    item_id: card.id.clone().into(),
-                    kind: card.kind.clone().into(),
-                    title: card.title.clone().into(),
-                    has_poster: poster.is_some(),
-                    poster: poster.unwrap_or_default(),
-                    shape: card.shape.into(),
-                    progress: card.progress as f32,
-                    watched: card.watched,
-                    playable: card.playable,
-                    new_videos: i32::try_from(card.new_videos).unwrap_or(i32::MAX),
-                }
-            })
-            .collect::<Vec<_>>(),
-    )));
+    let library_types: Vec<SelectOption> = library
+        .type_options
+        .iter()
+        .map(|(label, selected)| SelectOption {
+            label: label.clone().into(),
+            selected: *selected,
+        })
+        .collect();
+    if let Some(replaced) = sync_vec_model(&window.get_library_types(), library_types) {
+        window.set_library_types(replaced);
+    }
+    let library_sorts: Vec<LibrarySort> = library
+        .sorts
+        .iter()
+        .map(|sort| LibrarySort {
+            label: sort.label.clone().into(),
+            selected: sort.selected,
+        })
+        .collect();
+    if let Some(replaced) = sync_vec_model(&window.get_library_sorts(), library_sorts) {
+        window.set_library_sorts(replaced);
+    }
+    let library_cards: Vec<LibraryCard> = library
+        .cards
+        .iter()
+        .map(|card| {
+            let poster = images.get(&card.poster);
+            LibraryCard {
+                item_id: card.id.clone().into(),
+                kind: card.kind.clone().into(),
+                title: card.title.clone().into(),
+                has_poster: poster.is_some(),
+                poster: poster.unwrap_or_default(),
+                shape: card.shape.into(),
+                progress: card.progress as f32,
+                watched: card.watched,
+                playable: card.playable,
+                new_videos: i32::try_from(card.new_videos).unwrap_or(i32::MAX),
+            }
+        })
+        .collect();
+    if let Some(replaced) = sync_vec_model(&window.get_library_cards(), library_cards) {
+        window.set_library_cards(replaced);
+    }
     window.set_library_message(library.message.clone().into());
     window.set_library_has_more(library.has_more);
     window.set_library_grid_key(library.grid_key.clone().into());
 
-    window.set_addons(ModelRc::new(VecModel::from(
+    let addons: Vec<AddonData> =
         crate::screens::addons::visible(&snapshot.addons.cards, &window.get_addons_query())
             .into_iter()
             .map(|card| {
@@ -147,10 +315,14 @@ pub(crate) fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
                     configurable: card.configurable,
                 }
             })
-            .collect::<Vec<_>>(),
-    )));
+            .collect();
+    if let Some(replaced) = sync_vec_model(&window.get_addons(), addons) {
+        window.set_addons(replaced);
+    }
     window.set_calendar(calendar_view(&snapshot.calendar, images));
-    window.set_addon_inputs(inputs(snapshot.addons.inputs.clone()));
+    if let Some(replaced) = sync_inputs(&window.get_addon_inputs(), &snapshot.addons.inputs) {
+        window.set_addon_inputs(replaced);
+    }
     window.set_addon_pending(addon_pending(&snapshot.addons.pending, images));
     window.set_addons_message(snapshot.addons.message.clone().into());
 
@@ -174,17 +346,18 @@ pub(crate) fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
         data.panel_backdrop = backdrop.unwrap_or_default();
         window.set_details_preview(data);
     }
-    window.set_streams(ModelRc::new(VecModel::from(
-        details
-            .streams
-            .iter()
-            .map(|source| StreamData {
-                name: source.name.clone().into(),
-                description: source.description.clone().into(),
-                addon: source.addon.clone().into(),
-            })
-            .collect::<Vec<_>>(),
-    )));
+    let streams: Vec<StreamData> = details
+        .streams
+        .iter()
+        .map(|source| StreamData {
+            name: source.name.clone().into(),
+            description: source.description.clone().into(),
+            addon: source.addon.clone().into(),
+        })
+        .collect();
+    if let Some(replaced) = sync_vec_model(&window.get_streams(), streams) {
+        window.set_streams(replaced);
+    }
     window.set_streams_loading(i32::try_from(details.sources_loading).unwrap_or_default());
     window.set_details_waits_for_streams(details.waits_for_streams);
 
@@ -224,36 +397,38 @@ pub(crate) fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
             .unwrap_or_default()
             .into(),
     );
-    window.set_details_seasons(ModelRc::new(VecModel::from(
-        details
-            .seasons
-            .iter()
-            .enumerate()
-            .map(|(index, season)| SelectOption {
-                label: season.label.clone().into(),
-                selected: index == details.season,
-            })
-            .collect::<Vec<_>>(),
-    )));
-    window.set_details_episodes(ModelRc::new(VecModel::from(
-        details
-            .episodes
-            .iter()
-            .map(|episode| {
-                let thumbnail = images.get(&episode.thumbnail);
-                VideoRow {
-                    id: episode.id.clone().into(),
-                    title: episode.title.clone().into(),
-                    released: episode.released.clone().into(),
-                    has_thumbnail: thumbnail.is_some(),
-                    thumbnail: thumbnail.unwrap_or_default(),
-                    selected: details.picked.as_deref() == Some(episode.id.as_str()),
-                    watched: episode.watched,
-                    progress: episode.progress as f32,
-                }
-            })
-            .collect::<Vec<_>>(),
-    )));
+    let details_seasons: Vec<SelectOption> = details
+        .seasons
+        .iter()
+        .enumerate()
+        .map(|(index, season)| SelectOption {
+            label: season.label.clone().into(),
+            selected: index == details.season,
+        })
+        .collect();
+    if let Some(replaced) = sync_vec_model(&window.get_details_seasons(), details_seasons) {
+        window.set_details_seasons(replaced);
+    }
+    let details_episodes: Vec<VideoRow> = details
+        .episodes
+        .iter()
+        .map(|episode| {
+            let thumbnail = images.get(&episode.thumbnail);
+            VideoRow {
+                id: episode.id.clone().into(),
+                title: episode.title.clone().into(),
+                released: episode.released.clone().into(),
+                has_thumbnail: thumbnail.is_some(),
+                thumbnail: thumbnail.unwrap_or_default(),
+                selected: details.picked.as_deref() == Some(episode.id.as_str()),
+                watched: episode.watched,
+                progress: episode.progress as f32,
+            }
+        })
+        .collect();
+    if let Some(replaced) = sync_vec_model(&window.get_details_episodes(), details_episodes) {
+        window.set_details_episodes(replaced);
+    }
 }
 
 /// The preview panel's content — the same panel Discover opens on hover and the details screen
