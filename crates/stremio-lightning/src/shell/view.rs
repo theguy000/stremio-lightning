@@ -1288,7 +1288,9 @@ fn player_view(window: &MainWindow, data: &PlayerData, images: &Images) {
     window.set_player_has_episodes(data.seasons.len() > 1 || !data.episodes.is_empty());
     window.set_player_has_preview(data.preview.is_some());
     if let Some(preview) = &data.preview {
-        window.set_player_preview(preview_data(preview, images));
+        window.set_player_preview(preview_data(preview, images, true));
+    } else {
+        window.set_player_preview(PreviewData::default());
     }
     window.set_player_next_label(data.next_label.clone().into());
     window.set_player_has_next(data.has_next);
