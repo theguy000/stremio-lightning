@@ -874,37 +874,45 @@ pub(crate) fn refresh_logs(
     weak: &Weak<MainWindow>,
     latest: &Arc<Mutex<Snapshot>>,
     logs: Arc<crate::plumbing::logs::Logs>,
+    selection: Arc<Mutex<mods::log_selection::LogSelection>>,
     armed: Arc<Mutex<bool>>,
 ) {
     let latest = latest.clone();
     let _ = weak.upgrade_in_event_loop(move |window| {
         let armed = *armed.lock().unwrap();
+        let entries = logs.entries();
+        let sel = selection.lock().unwrap().clone();
         {
             let mut snapshot = latest.lock().unwrap();
             let notice = snapshot.mods.notice.clone();
             snapshot.mods = snapshot
                 .mods
                 .clone()
-                .with_logs(&logs, armed)
+                .with_logs(&entries, &sel, armed)
                 .with_notice(notice);
         }
-        apply_logs(&window, &logs, armed);
+        apply_logs(&window, &entries, &sel, armed);
     });
 }
 
 /// Applies the current log list, selection, and detail panel onto `window`, updating row selection
 /// flags in place when the filtered row ids are unchanged and reporting live prepends so a
 /// scrolled reader stays anchored on the same rows.
-pub(crate) fn apply_logs(window: &MainWindow, logs: &crate::plumbing::logs::Logs, armed: bool) {
-    let filter = logs.filter();
-    let rows = mods::logs::rows(logs, &filter);
+pub(crate) fn apply_logs(
+    window: &MainWindow,
+    entries: &[crate::plumbing::logs::Entry],
+    sel: &mods::log_selection::LogSelection,
+    armed: bool,
+) {
+    let filter = sel.filter();
+    let rows = mods::logs::rows(entries, sel, filter);
     let old = window.get_mods();
     let mut data = old.clone();
-    let total = logs.len();
+    let total = entries.len();
     let filtered = filter.is_active();
-    let open_id = mods::logs::open_id(logs);
-    data.log_source_index = i32::try_from(mods::logs::source_index(&filter)).unwrap_or(0);
-    data.log_level_index = i32::try_from(mods::logs::level_index(&filter)).unwrap_or(0);
+    let open_id = mods::logs::open_id(entries, sel);
+    data.log_source_index = i32::try_from(mods::logs::source_index(filter)).unwrap_or(0);
+    data.log_level_index = i32::try_from(mods::logs::level_index(filter)).unwrap_or(0);
     data.log_search = filter.search.clone().into();
     data.log_empty = if total == 0 {
         mods::logs::NONE
@@ -914,9 +922,9 @@ pub(crate) fn apply_logs(window: &MainWindow, logs: &crate::plumbing::logs::Logs
     .into();
     data.log_count = mods::logs::count_label(rows.len(), total, filtered).into();
     data.log_filtered = filtered;
-    data.log_detail_heading = mods::logs::detail_heading(logs).into();
+    data.log_detail_heading = mods::logs::detail_heading(entries, sel).into();
     data.log_detail = ModelRc::new(VecModel::from(
-        mods::logs::detail(logs)
+        mods::logs::detail(entries, sel)
             .into_iter()
             .map(SharedString::from)
             .collect::<Vec<_>>(),
@@ -925,7 +933,8 @@ pub(crate) fn apply_logs(window: &MainWindow, logs: &crate::plumbing::logs::Logs
     data.log_active_index = mods::logs::active_index(&rows, open_id)
         .and_then(|at| i32::try_from(at).ok())
         .unwrap_or(-1);
-    data.log_selected_count = i32::try_from(mods::logs::selected_count(logs, &filter)).unwrap_or(0);
+    data.log_selected_count =
+        i32::try_from(mods::logs::selected_count(entries, sel, filter)).unwrap_or(0);
     data.log_clear_armed = armed;
     reconcile_log_rows(&old, &rows, &mut data);
     window.set_mods(data);

@@ -9,8 +9,9 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use slint::{ComponentHandle, Model};
-use stremio_lightning::plumbing::logs::{Filter, Level, Logs, Source};
+use stremio_lightning::plumbing::logs::{Level, Logs, Source};
 use stremio_lightning::screens::mods;
+use stremio_lightning::screens::mods::log_selection::{Filter, LogSelection};
 use stremio_lightning::{MainWindow, Section};
 
 mod support;
@@ -143,14 +144,10 @@ fn the_recorder_keeps_plugin_lines_theme_warnings_and_the_cap() {
     assert_eq!(Level::from_id("chatty"), None);
     assert_eq!(Level::from_id("log"), Some(Level::Info));
 
-    // ---- a theme's warnings, one record each ----------------------------------
-    logs.theme(
-        "odd.theme.css",
-        &[
-            "unknown property 'colour'".to_owned(),
-            "unmatched".to_owned(),
-        ],
-    );
+    // ---- theme warnings and unreadable errors --------------------------------
+    for warning in ["unknown property 'colour'", "unmatched"] {
+        logs.record(Source::Theme, "odd.theme.css", Level::Warn, warning);
+    }
     let themes: Vec<_> = logs
         .entries()
         .into_iter()
@@ -159,26 +156,27 @@ fn the_recorder_keeps_plugin_lines_theme_warnings_and_the_cap() {
     assert_eq!(themes.len(), 2, "one record per warning");
     assert_eq!(themes[0].level, Level::Warn);
     assert_eq!(themes[0].source_label(), "Theme odd.theme.css");
-    // A theme that cannot be read at all is an error, not a warning.
-    logs.theme_unreadable("odd.theme.css", "the file could not be read");
+    logs.record(
+        Source::Theme,
+        "odd.theme.css",
+        Level::Error,
+        "the file could not be read",
+    );
     assert_eq!(logs.entries().last().unwrap().level, Level::Error);
 
-    // ---- the list is newest first, and the cap drops the oldest ----------------
+    // ---- newest first, and the cap drops the oldest --------------------------
     let logs = Logs::new();
     for index in 0..stremio_lightning::plumbing::logs::CAPACITY + 5 {
         logs.record(Source::App, "", Level::Info, format!("line {index}"));
     }
     assert_eq!(logs.len(), stremio_lightning::plumbing::logs::CAPACITY);
-    let matching = logs.matching(&Filter::default());
+    let matching = LogSelection::matching(&logs.entries(), &Filter::default());
     assert_eq!(matching.len(), stremio_lightning::plumbing::logs::CAPACITY);
     assert_eq!(matching[0].text, "line 2004", "the newest is first");
     assert_eq!(matching.last().unwrap().text, "line 5", "the oldest went");
-    assert!(
-        matching.iter().all(|entry| entry.text != "line 0"),
-        "a record past the cap is dropped as it is added"
-    );
+    assert!(matching.iter().all(|entry| entry.text != "line 0"));
 
-    // ---- the filter: one source, a least level, and a search -------------------
+    // ---- filter: source, least level, and search -----------------------------
     let logs = Logs::new();
     logs.record(
         Source::Plugin,
@@ -200,12 +198,13 @@ fn the_recorder_keeps_plugin_lines_theme_warnings_and_the_cap() {
         Level::Error,
         "the shelf could not be read",
     );
+    let entries = logs.entries();
 
     let plugins = Filter {
         source: "plugin".to_owned(),
         ..Filter::default()
     };
-    let kept = logs.matching(&plugins);
+    let kept = LogSelection::matching(&entries, &plugins);
     assert_eq!(kept.len(), 3);
     assert!(kept.iter().all(|entry| entry.source == Source::Plugin));
 
@@ -213,62 +212,52 @@ fn the_recorder_keeps_plugin_lines_theme_warnings_and_the_cap() {
         level: "warn".to_owned(),
         ..Filter::default()
     };
-    let kept = logs.matching(&warnings);
-    assert_eq!(kept.len(), 3, "warnings and errors: {kept:?}");
+    let kept = LogSelection::matching(&entries, &warnings);
+    assert_eq!(kept.len(), 3);
     assert!(kept.iter().all(|entry| entry.level >= Level::Warn));
 
     let errors = Filter {
         level: "error".to_owned(),
         ..Filter::default()
     };
-    assert_eq!(logs.matching(&errors).len(), 2);
+    assert_eq!(LogSelection::matching(&entries, &errors).len(), 2);
 
     let searched = Filter {
         search: "SHELF".to_owned(),
         ..Filter::default()
     };
-    assert_eq!(
-        logs.matching(&searched).len(),
-        4,
-        "the search ignores case and reads the text"
-    );
+    assert_eq!(LogSelection::matching(&entries, &searched).len(), 4);
     let by_origin = Filter {
         search: "builtin:aniskip".to_owned(),
         ..Filter::default()
     };
-    assert_eq!(logs.matching(&by_origin).len(), 3);
+    assert_eq!(LogSelection::matching(&entries, &by_origin).len(), 3);
 
-    // The filter the page is showing lives in the recorder, so a page redrawn by an
-    // unrelated event draws the same list. A part this app does not know is the "any" answer.
-    assert_eq!(logs.filter(), Filter::default());
-    logs.set_source("plugin");
-    logs.set_level("error");
-    logs.set_search("shelf");
+    let mut sel = LogSelection::default();
+    assert_eq!(*sel.filter(), Filter::default());
+    sel.set_source("plugin");
+    sel.set_level("error");
+    sel.set_search("shelf");
     assert_eq!(
-        logs.filter(),
+        *sel.filter(),
         Filter {
             source: "plugin".to_owned(),
             level: "error".to_owned(),
             search: "shelf".to_owned(),
         }
     );
-    let kept = logs.matching(&logs.filter());
+    let kept = LogSelection::matching(&entries, sel.filter());
     assert_eq!(kept.len(), 1, "{kept:?}");
     assert_eq!(kept[0].origin, "builtin:aniskip");
     assert_eq!(kept[0].level, Level::Error);
-    assert!(kept[0].text.contains("shelf"));
-    logs.set_level("");
-    assert_eq!(logs.matching(&logs.filter()).len(), 3);
-    logs.set_search("builtin:aniskip");
-    assert_eq!(logs.matching(&logs.filter()).len(), 3);
-    logs.set_source("nothing-like-this");
-    assert_eq!(
-        logs.filter().source,
-        "",
-        "an unknown source is every source"
-    );
+    sel.set_level("");
+    assert_eq!(LogSelection::matching(&entries, sel.filter()).len(), 3);
+    sel.set_search("builtin:aniskip");
+    assert_eq!(LogSelection::matching(&entries, sel.filter()).len(), 3);
+    sel.set_source("nothing-like-this");
+    assert_eq!(sel.filter().source, "");
 
-    // ---- one record's full text ------------------------------------------------
+    // ---- detail + clear ------------------------------------------------------
     let logs = Logs::new();
     let entry = logs.record(
         Source::Plugin,
@@ -276,21 +265,17 @@ fn the_recorder_keeps_plugin_lines_theme_warnings_and_the_cap() {
         Level::Error,
         "first\nsecond",
     );
-    assert!(logs.set_detail(Some(entry.id)));
-    assert_eq!(logs.detail().unwrap().text, "first\nsecond");
-    assert!(
-        !logs.set_detail(Some(entry.id + 100)),
-        "no such record opens"
-    );
-    assert!(logs.detail().is_none());
-    assert!(logs.set_detail(Some(entry.id)));
+    let mut sel = LogSelection::default();
+    let entries = logs.entries();
+    sel.press_record(&entries, entry.id, false, false);
+    sel.release_record(&entries, entry.id);
+    assert_eq!(sel.detail(&entries).unwrap().text, "first\nsecond");
 
-    // ---- Clear empties the list and deletes nothing -----------------------------
     let before = logs.count();
     assert_eq!(logs.clear(), 1);
     assert!(logs.is_empty());
     assert!(
-        logs.detail().is_none(),
+        sel.detail(&logs.entries()).is_none(),
         "the open record goes with the list"
     );
     assert!(logs.count() > before, "a clear is a change to redraw for");

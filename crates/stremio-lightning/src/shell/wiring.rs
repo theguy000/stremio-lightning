@@ -208,6 +208,7 @@ pub(crate) struct Wiring {
     pub(crate) mods_edits: Arc<Mutex<crate::screens::mods::settings::Edits>>,
     /// The app's log records, which the Logs page lists.
     pub(crate) logs: Arc<crate::plumbing::logs::Logs>,
+    pub(crate) log_selection: Arc<Mutex<mods::log_selection::LogSelection>>,
     /// own state, like an armed Remove, because the screen only describes what it shows.
     pub(crate) mods_clearing: Arc<Mutex<bool>>,
     /// Where the diagnostics file was written, shown on the About page until the app closes.
@@ -2384,26 +2385,28 @@ impl Wiring {
     fn filter_logs(&self, part: &str, value: i32) {
         *self.mods_clearing.lock().unwrap() = false;
         let index = usize::try_from(value).unwrap_or(0);
-        match part {
-            "source" => mods::logs::pick_source(&self.logs, index),
-            "level" => mods::logs::pick_level(&self.logs, index),
-            other => debug_assert!(false, "no Logs filter is called {other:?}"),
+        {
+            let mut sel = self.log_selection.lock().unwrap();
+            match part {
+                "source" => mods::logs::pick_source(&mut sel, index),
+                "level" => mods::logs::pick_level(&mut sel, index),
+                other => debug_assert!(false, "no Logs filter is called {other:?}"),
+            }
         }
         self.repaint_mods_now();
     }
 
-    /// A change in the Logs page's search box. The filter belongs to the recorder for the same
-    /// reason the menus' choice does.
+    /// A change in the Logs page's search box.
     fn search_logs(&self, text: String) {
         *self.mods_clearing.lock().unwrap() = false;
-        self.logs.set_search(&text);
+        self.log_selection.lock().unwrap().set_search(&text);
         self.repaint_mods_now();
     }
 
     /// Clears source, level and search filters in one press.
     fn reset_logs_filter(&self) {
         *self.mods_clearing.lock().unwrap() = false;
-        self.logs.reset_filter();
+        self.log_selection.lock().unwrap().reset_filter();
         self.repaint_mods_now();
     }
 
@@ -2427,39 +2430,55 @@ impl Wiring {
     /// Starts a click or drag-to-select gesture on `id` (with Shift / Ctrl modifiers).
     fn press_log_record(&self, id: u32, shift: bool, ctrl: bool) {
         *self.mods_clearing.lock().unwrap() = false;
-        self.logs.press_record(u64::from(id), shift, ctrl);
+        let entries = self.logs.entries();
+        self.log_selection
+            .lock()
+            .unwrap()
+            .press_record(&entries, u64::from(id), shift, ctrl);
         self.sync_log_selection_now();
     }
 
     /// Extends selection as the pointer slides across log rows while held.
     fn drag_log_record(&self, id: u32) {
-        self.logs.drag_record(u64::from(id));
+        let entries = self.logs.entries();
+        self.log_selection
+            .lock()
+            .unwrap()
+            .drag_record(&entries, u64::from(id));
         self.sync_log_selection_now();
     }
 
     /// Finishes a click or drag-to-select gesture and updates the detail panel.
     fn release_log_record(&self, id: u32) {
-        self.logs.release_record(u64::from(id));
+        let entries = self.logs.entries();
+        self.log_selection
+            .lock()
+            .unwrap()
+            .release_record(&entries, u64::from(id));
         self.sync_log_selection_now();
     }
 
     fn sync_log_selection_now(&self) {
         let armed = *self.mods_clearing.lock().unwrap();
+        let entries = self.logs.entries();
+        let sel = self.log_selection.lock().unwrap().clone();
         {
             let mut snapshot = self.latest.lock().unwrap();
-            let mut next = snapshot.mods.clone().with_logs(&self.logs, armed);
+            let mut next = snapshot.mods.clone().with_logs(&entries, &sel, armed);
             next.notice = snapshot.mods.notice.clone();
             snapshot.mods = next;
         }
         if let Some(window) = self.window.upgrade() {
-            shell::view::apply_logs(&window, &self.logs, armed);
+            shell::view::apply_logs(&window, &entries, &sel, armed);
         }
     }
 
     /// The toolbar's Copy press: copies all selected visible records (or the open detail record)
     /// to the clipboard.
     fn copy_log_record(&self) {
-        let Some((count, text)) = mods::logs::copy_text(&self.logs, &self.logs.filter()) else {
+        let entries = self.logs.entries();
+        let sel = self.log_selection.lock().unwrap().clone();
+        let Some((count, text)) = mods::logs::copy_text(&entries, &sel, sel.filter()) else {
             return;
         };
         let notice = match crate::plumbing::clipboard::copy(&text) {
@@ -2474,35 +2493,38 @@ impl Wiring {
     /// puts the detail panel away, and disarms an armed Clear button.
     fn close_log_record(&self) {
         *self.mods_clearing.lock().unwrap() = false;
-        self.logs.clear_selection();
+        self.log_selection.lock().unwrap().clear_selection();
         self.sync_log_selection_now();
     }
 
     /// Selects every visible log record (Ctrl+A).
     fn select_all_logs(&self) {
         *self.mods_clearing.lock().unwrap() = false;
-        self.logs.select_all();
+        let entries = self.logs.entries();
+        self.log_selection.lock().unwrap().select_all(&entries);
         self.sync_log_selection_now();
     }
 
     /// Moves selection up or down by `delta` rows (Up/Down, optionally with Shift).
     fn step_log_record(&self, delta: i32, shift: bool) {
         *self.mods_clearing.lock().unwrap() = false;
-        self.logs.step_record(delta as isize, shift);
+        let entries = self.logs.entries();
+        self.log_selection
+            .lock()
+            .unwrap()
+            .step_record(&entries, delta as isize, shift);
         self.sync_log_selection_now();
     }
 
     /// The Clear button. The first press arms it and removes nothing; the second empties the
-    /// list, which deletes no file and stops nothing being recorded afterwards. The arm is set
-    /// before the page is read, so the page and the window agree on what the button says.
+    /// list, which deletes no file and stops nothing being recorded afterwards.
     fn clear_logs(&self) {
-        // The arm is read and set in one hold: the page below reads it, and two guards on the
-        // same line would never let the second one through.
         let armed = {
             let mut armed = self.mods_clearing.lock().unwrap();
             let was_armed = *armed;
             if was_armed {
                 self.logs.clear();
+                self.log_selection.lock().unwrap().clear_selection();
             }
             *armed = !was_armed;
             *armed
@@ -2660,7 +2682,11 @@ impl Wiring {
         };
         screen
             .with_edits(pick, self.mods_edits.lock().unwrap().clone())
-            .with_logs(&self.logs, *self.mods_clearing.lock().unwrap())
+            .with_logs(
+                &self.logs.entries(),
+                &self.log_selection.lock().unwrap(),
+                *self.mods_clearing.lock().unwrap(),
+            )
             .with_about(
                 &self.local_extras.lock().unwrap().clone(),
                 self.mods_export.lock().unwrap().as_ref(),

@@ -11,6 +11,8 @@ use crate::screens::settings::LocalExtras;
 pub mod about;
 pub mod builtin;
 pub mod catalogue;
+pub mod log_filter;
+pub mod log_selection;
 pub mod logs;
 pub mod plugin_schema;
 pub mod plugins;
@@ -189,12 +191,17 @@ impl Data {
     /// says how many are held, and the record whose full text is open. Nothing is recorded here;
     /// the page only reads. `armed` is the window's own state for the Clear button.
     #[must_use]
-    pub fn with_logs(mut self, logs: &crate::plumbing::logs::Logs, armed: bool) -> Self {
-        self.log_filter = logs.filter();
+    pub fn with_logs(
+        mut self,
+        entries: &[crate::plumbing::logs::Entry],
+        sel: &log_selection::LogSelection,
+        armed: bool,
+    ) -> Self {
+        self.log_filter = sel.filter().clone();
         self.log_source_index = i32::try_from(logs::source_index(&self.log_filter)).unwrap_or(0);
         self.log_level_index = i32::try_from(logs::level_index(&self.log_filter)).unwrap_or(0);
-        self.log_rows = logs::rows(logs, &self.log_filter);
-        let total = logs.len();
+        self.log_rows = logs::rows(entries, sel, &self.log_filter);
+        let total = entries.len();
         self.log_filtered = self.log_filter.is_active();
         self.log_count = logs::count_label(self.log_rows.len(), total, self.log_filtered);
         self.log_empty = if total == 0 {
@@ -202,13 +209,13 @@ impl Data {
         } else {
             logs::NONE_MATCH.to_owned()
         };
-        self.log_detail_heading = logs::detail_heading(logs);
-        self.log_detail = logs::detail(logs);
-        self.log_open_id = logs::open_id(logs);
+        self.log_detail_heading = logs::detail_heading(entries, sel);
+        self.log_detail = logs::detail(entries, sel);
+        self.log_open_id = logs::open_id(entries, sel);
         self.log_active_index = logs::active_index(&self.log_rows, self.log_open_id)
             .and_then(|at| i32::try_from(at).ok())
             .unwrap_or(-1);
-        self.log_selected_count = logs::selected_count(logs, &self.log_filter);
+        self.log_selected_count = logs::selected_count(entries, sel, &self.log_filter);
         self.log_clear_armed = armed;
         self
     }
@@ -227,18 +234,6 @@ impl Data {
             self.about = about::exported(self.about, std::path::Path::new(path));
         }
         self
-    }
-
-    /// The same screen after a press on the Logs page's Clear button. The first press arms it and
-    /// removes nothing; the second empties the list, which deletes no file and stops no record
-    /// being recorded afterwards. Returns whether the list is now armed, which is what the window
-    /// holds until the next press.
-    pub fn press_clear(&mut self, logs: &crate::plumbing::logs::Logs, armed: bool) -> bool {
-        if !armed {
-            return true;
-        }
-        logs.clear();
-        false
     }
 
     /// The same screen after the user pressed something: the menu is not rebuilt, so the card

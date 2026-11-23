@@ -146,6 +146,7 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
     let mods_page = Arc::new(Mutex::new(screens::mods::Page::default().id().to_owned()));
     let mods_plugin: Arc<Mutex<String>> = Default::default();
     let mods_edits: Arc<Mutex<screens::mods::settings::Edits>> = Default::default();
+    let log_selection: Arc<Mutex<screens::mods::log_selection::LogSelection>> = Default::default();
 
     let wiring = shell::wiring::Wiring {
         window: window.as_weak(),
@@ -195,6 +196,7 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
         mods_plugin: mods_plugin.clone(),
         mods_edits: mods_edits.clone(),
         logs: logs.clone(),
+        log_selection: log_selection.clone(),
         mods_clearing: Default::default(),
         mods_export: Default::default(),
     };
@@ -206,13 +208,20 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
         let weak = window.as_weak();
         let latest = latest.clone();
         let page_logs = logs.clone();
+        let page_sel = log_selection.clone();
         let page = mods_page.clone();
         let armed = wiring.mods_clearing.clone();
         logs.watch_records(move || {
             if page.lock().unwrap().as_str() != screens::mods::Page::Logs.id() {
                 return;
             }
-            shell::view::refresh_logs(&weak, &latest, page_logs.clone(), armed.clone());
+            shell::view::refresh_logs(
+                &weak,
+                &latest,
+                page_logs.clone(),
+                page_sel.clone(),
+                armed.clone(),
+            );
         });
     }
     // The wheel is taken from the window itself: left to a Slint Flickable it costs a whole
@@ -273,6 +282,7 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
             mods_plugin: mods_plugin.clone(),
             mods_edits: mods_edits.clone(),
             logs: logs.clone(),
+            log_selection: log_selection.clone(),
             mods_clearing: wiring.mods_clearing.clone(),
             mods_export: wiring.mods_export.clone(),
             playback_error,

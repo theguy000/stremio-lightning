@@ -84,6 +84,7 @@ pub(crate) struct Context {
     pub(crate) mods_edits: Arc<Mutex<crate::screens::mods::settings::Edits>>,
     /// The app's log records: the Logs page's rows come from here.
     pub(crate) logs: Arc<crate::plumbing::logs::Logs>,
+    pub(crate) log_selection: Arc<Mutex<crate::screens::mods::log_selection::LogSelection>>,
     /// Whether the Logs page's Clear button is armed. The window owns it, and a snapshot that
     /// left it out would draw the button unarmed between the two presses.
     pub(crate) mods_clearing: Arc<Mutex<bool>>,
@@ -214,6 +215,8 @@ fn handle(event: RuntimeEvent<AppEnv, AppModel>, context: &Context) {
 
     {
         let armed = *context.mods_clearing.lock().unwrap();
+        let entries = context.logs.entries();
+        let sel = context.log_selection.lock().unwrap().clone();
         let mut slot = context.latest.lock().unwrap();
         // Re-read live Mods state under `latest` so a core snapshot built concurrently with a UI
         // press cannot roll back the active page, notice, or log selection.
@@ -223,7 +226,7 @@ fn handle(event: RuntimeEvent<AppEnv, AppModel>, context: &Context) {
                 &context.mods_page.lock().unwrap(),
             ))
             .with_notice(slot.mods.notice.clone())
-            .with_logs(&context.logs, armed);
+            .with_logs(&entries, &sel, armed);
         *slot = snapshot.clone();
     }
     request_images(&snapshot, context);
