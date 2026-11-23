@@ -326,6 +326,7 @@ impl Wiring {
             window.set_streams_loading(0);
             window.set_details_seasons(ModelRc::default());
             window.set_details_episodes(ModelRc::default());
+            window.set_details_season_watched(false);
             window.set_details_show_picker(false);
         }
         details::open(&self.runtime, &id, &kind);
@@ -379,6 +380,44 @@ impl Wiring {
         // The steppers start over from the Video that is now on screen.
         *self.moved.lock().unwrap() = None;
         details::pick(&self.runtime, &video_id);
+    }
+
+    /// Episode context menu -> "Watch": plays an embedded stream if the Video carries one, else
+    /// opens that Episode's Streams List (matching Web's `deepLinks.player ?? metaDetailsStreams`).
+    fn watch_episode(&self, video_id: String) {
+        match player::open_video(&self.runtime, &video_id) {
+            Ok(true) => {
+                if let Some(window) = self.window.upgrade() {
+                    window.set_play_message("".into());
+                }
+            }
+            Ok(false) => self.pick_video(video_id),
+            Err(error) => {
+                if let Some(window) = self.window.upgrade() {
+                    window.set_play_message(format!("Can't play this episode: {error}").into());
+                }
+            }
+        }
+    }
+
+    /// Episode context menu -> "Mark as watched" / "Mark as non-watched".
+    fn toggle_episode_watched(&self, video_id: String) {
+        details::mark_video_watched(&self.runtime, &video_id);
+    }
+
+    /// Episode context menu -> "Mark rest as watched" / "Mark rest as non-watched".
+    fn toggle_season_watched(&self) {
+        let season = {
+            let latest = self.latest.lock().unwrap();
+            latest
+                .details
+                .seasons
+                .get(latest.details.season)
+                .map(|season| season.number)
+        };
+        if let Some(season) = season {
+            details::mark_season_watched(&self.runtime, season);
+        }
     }
 
     /// One press of a stepper in the no-Streams message. It only moves the pair on screen;
@@ -3041,6 +3080,20 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
     {
         let wiring = wiring.clone();
         window.on_search_videos(move |query| wiring.search_videos(query.to_string()));
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_watch_episode(move |video_id| wiring.watch_episode(video_id.to_string()));
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_toggle_episode_watched(move |video_id| {
+            wiring.toggle_episode_watched(video_id.to_string());
+        });
+    }
+    {
+        let wiring = wiring.clone();
+        window.on_toggle_season_watched(move || wiring.toggle_season_watched());
     }
     {
         let wiring = wiring.clone();

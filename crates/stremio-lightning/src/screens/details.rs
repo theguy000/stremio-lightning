@@ -280,6 +280,8 @@ pub struct Data {
     pub season: usize,
     /// The Episodes of that Season.
     pub episodes: Vec<Episode>,
+    /// Whether every Episode in that Season has been watched (unfiltered by search).
+    pub season_watched: bool,
     /// The Video id the user picked, while its Streams are on screen.
     pub picked: Option<String>,
     /// How the Streams list names that Video: `S1E2 The Title`.
@@ -382,6 +384,66 @@ pub(crate) fn toggle_watched(runtime: &AppRuntime) {
     });
 }
 
+fn season_all_watched(
+    videos: &[Video],
+    season: u32,
+    watched_field: Option<&stremio_core::types::watched_bitfield::WatchedBitField>,
+) -> bool {
+    let mut any = false;
+    let all = videos
+        .iter()
+        .filter(|video| {
+            video
+                .series_info
+                .as_ref()
+                .is_some_and(|info| info.season == season)
+        })
+        .all(|video| {
+            any = true;
+            watched_field.is_some_and(|watched| watched.get_video(&video.id))
+        });
+    any && all
+}
+
+/// Web: Episode context menu -> "Mark as watched" / "Mark as non-watched".
+pub fn mark_video_watched(runtime: &AppRuntime, video_id: &str) {
+    let Ok(model) = runtime.model() else {
+        return;
+    };
+    let Some(video) = meta_item(&model.meta_details)
+        .and_then(|item| item.videos.iter().find(|video| video.id == video_id))
+        .cloned()
+    else {
+        return;
+    };
+    let watched = model
+        .meta_details
+        .watched
+        .as_ref()
+        .is_some_and(|watched| watched.get_video(video_id));
+    drop(model);
+    runtime.dispatch(RuntimeAction {
+        field: None,
+        action: Action::MetaDetails(ActionMetaDetails::MarkVideoAsWatched(video, !watched)),
+    });
+}
+
+/// Web: Episode context menu -> "Mark rest as watched" / "Mark rest as non-watched".
+pub fn mark_season_watched(runtime: &AppRuntime, season: u32) {
+    let Ok(model) = runtime.model() else {
+        return;
+    };
+    let Some(item) = meta_item(&model.meta_details) else {
+        return;
+    };
+    let watched = season_all_watched(&item.videos, season, model.meta_details.watched.as_ref());
+    drop(model);
+    runtime.dispatch(RuntimeAction {
+        field: None,
+        action: Action::MetaDetails(ActionMetaDetails::MarkSeasonAsWatched(season, !watched)),
+    });
+}
+
 /// The title the addons answered with, if they have answered: the page holding the meta itself.
 pub(crate) fn meta_item(details: &MetaDetails) -> Option<&MetaItem> {
     details
@@ -455,6 +517,8 @@ pub fn data(
     // The two marks the row draws: `watched` from the bitfield, `progress` from the one Video the
     // library entry is sitting on -- the same pair the player's drawer reads.
     let watched_field = details.watched.as_ref();
+    let season_watched =
+        shown.is_some_and(|number| season_all_watched(videos, number, watched_field));
     let library_item = details.library_item.as_ref();
     for episode in &mut season_episodes {
         episode.watched = watched_field.is_some_and(|watched| watched.get_video(&episode.id));
@@ -513,6 +577,7 @@ pub fn data(
         seasons: listed,
         season,
         episodes: season_episodes,
+        season_watched,
     }
 }
 

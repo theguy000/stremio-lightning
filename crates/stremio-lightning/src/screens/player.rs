@@ -254,6 +254,38 @@ pub(crate) fn open_for(runtime: &AppRuntime, id: &str) -> Result<(), String> {
     dispatch_or_open(runtime, selected)
 }
 
+/// Plays an Episode directly if its `Video` carries an embedded stream (Web's `deepLinks.player`),
+/// returning `Ok(false)` when the viewer still needs to pick from the Streams List.
+pub(crate) fn open_video(runtime: &AppRuntime, video_id: &str) -> Result<bool, String> {
+    let model = runtime
+        .model()
+        .map_err(|_| "the app state is not available".to_owned())?;
+    let meta = crate::screens::details::meta_item(&model.meta_details);
+    let stream = meta
+        .and_then(|item| item.videos.iter().find(|video| video.id == video_id))
+        .and_then(|video| video.stream().map(|stream| stream.into_owned()));
+    let Some(stream) = stream else {
+        return Ok(false);
+    };
+    let meta_request = model
+        .meta_details
+        .meta_items
+        .iter()
+        .find(|item| matches!(item.content, Some(Loadable::Ready(_))))
+        .map(|item| item.request.clone());
+    let selected = PlayerSelected {
+        stream,
+        stream_request: meta_request.clone(),
+        meta_request: meta_request.clone(),
+        subtitles_path: meta_request.as_ref().map(|request| {
+            ResourcePath::without_extra(SUBTITLES_RESOURCE_NAME, &request.path.r#type, video_id)
+        }),
+    };
+    drop(model);
+    dispatch_or_open(runtime, selected)?;
+    Ok(true)
+}
+
 /// Loads the Stream the details screen lists at `index`.
 pub(crate) fn open(runtime: &AppRuntime, index: usize) -> Result<(), String> {
     let model = runtime
