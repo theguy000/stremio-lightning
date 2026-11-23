@@ -451,8 +451,39 @@ export component AddonsContent inherits Rectangle {
     callback configure(string);
     callback share(string);
     callback open(string);
+    in-out property <length> scroll-offset <=> addons-list-container.content-y;
+    callback scroll-bounds(length, length, length, length, length);
 
     property <length> rem-size: Theme.rem-size(root.viewport-width);
+    property <length> watched-width: addons-list-container.width;
+    property <length> watched-height: addons-list-container.height;
+    property <length> watched-content: addons-list-container.content-height;
+    changed watched-width => { root.report-bounds(); }
+    changed watched-height => {
+        root.clamp-scroll();
+        root.report-bounds();
+    }
+    changed watched-content => {
+        root.clamp-scroll();
+        root.report-bounds();
+    }
+    init => { root.report-bounds(); }
+
+    function clamp-scroll() {
+        if (addons-list-container.content-y < Math.min(0px, addons-list-container.height - addons-list-container.content-height)) {
+            addons-list-container.content-y = Math.min(0px, addons-list-container.height - addons-list-container.content-height);
+        }
+    }
+
+    function report-bounds() {
+        root.scroll-bounds(
+            addons-list-container.absolute-position.x,
+            addons-list-container.absolute-position.y,
+            addons-list-container.width,
+            addons-list-container.height,
+            addons-list-container.content-height,
+        );
+    }
     property <length> bar-height: 6 * root.rem-size;
     // A card plus the 1.5rem under it.
     property <length> card-pitch: 179 * root.rem-size / 14;

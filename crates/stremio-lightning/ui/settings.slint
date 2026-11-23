@@ -419,8 +419,27 @@ export component SettingsContent inherits Rectangle {
     callback select-setting-option(string, int);
     callback toggle-setting-option(string, bool);
     callback reload-streaming-server();
+    in-out property <length> scroll-offset <=> sections-container.content-y;
+    callback scroll-bounds(length, length, length, length, length);
 
     property <length> rem-size: Theme.rem-size(root.viewport-width);
+    property <length> watched-width: sections-container.width;
+    property <length> watched-height: sections-container.height;
+    property <length> watched-content: sections-container.content-height;
+    changed watched-width => { root.report-bounds(); }
+    changed watched-height => { root.report-bounds(); }
+    changed watched-content => { root.report-bounds(); }
+    init => { root.report-bounds(); }
+
+    function report-bounds() {
+        root.scroll-bounds(
+            sections-container.absolute-position.x,
+            sections-container.absolute-position.y,
+            sections-container.width,
+            sections-container.height,
+            sections-container.content-height,
+        );
+    }
     property <length> menu-width: 18 * root.rem-size;
     property <length> sections-padding: 3 * root.rem-size;
     property <length> section-width: Math.min(35 * root.rem-size, root.width - root.menu-width - 2 * root.sections-padding);

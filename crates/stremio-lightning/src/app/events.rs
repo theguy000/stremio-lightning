@@ -1,7 +1,7 @@
 //! The runtime's events, turned into three things: repaint the window, ask for any new images,
 //! and keep the sign-in screen's state honest.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use futures::StreamExt;
@@ -30,6 +30,7 @@ pub(crate) struct Context {
     pub(crate) runtime: Arc<AppRuntime>,
     pub(crate) images: Images,
     pub(crate) latest: Arc<Mutex<Snapshot>>,
+    pub(crate) repaint_pending: Arc<AtomicBool>,
     /// The Discover card whose preview panel is open.
     pub(crate) selected: Arc<AtomicUsize>,
     /// The Discover cards on screen, as the first one and how many: the only cards whose posters
@@ -207,7 +208,12 @@ fn handle(event: RuntimeEvent<AppEnv, AppModel>, context: &Context) {
         *slot = snapshot.clone();
     }
     request_images(&snapshot, context);
-    shell::show(&context.weak, &context.latest, &context.images);
+    shell::show(
+        &context.weak,
+        &context.latest,
+        &context.repaint_pending,
+        &context.images,
+    );
 }
 
 /// Rebuilds everything the window shows from the model.

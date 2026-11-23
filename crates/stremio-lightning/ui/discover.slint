@@ -77,6 +77,7 @@ export component DiscoverContent inherits Rectangle {
     /// The scrolled distance into the grid and how much of it is on screen. Both are read by the
     /// `visible-range` report below.
     property <length> grid-scroll: -root.scroll-offset;
+    property <length> grid-width-box: meta-items-container.width;
     property <length> grid-height: meta-items-container.height;
     property <length> row-pitch: root.cell-height + root.gap;
     /// The rows of cards that are on screen, plus one either side. Everything else is left out of
@@ -94,6 +95,9 @@ export component DiscoverContent inherits Rectangle {
     in property <int> settle-count: 0;
     changed settle-count => {
         root.check-end();
+    }
+    changed grid-width-box => {
+        root.report-bounds();
     }
     changed grid-height => {
         root.report-visible();

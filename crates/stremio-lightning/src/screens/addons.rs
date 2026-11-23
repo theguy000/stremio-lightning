@@ -278,7 +278,7 @@ pub fn data(model: &AppModel) -> Data {
 /// Web: picking an option in either menu navigates, which loads that list. Installed addons and a
 /// marketplace catalog are two different models.
 pub(crate) fn select(runtime: &AppRuntime, choice: &Choice) {
-    let action = match choice {
+    let (field, action) = match choice {
         Choice::Installed(request) => {
             // Web: `useRemoteAddons` unloads the marketplace whenever no marketplace catalog is
             // named, which is what puts the account's own list back on the screen.
@@ -286,20 +286,21 @@ pub(crate) fn select(runtime: &AppRuntime, choice: &Choice) {
                 field: Some(AppModelField::RemoteAddons),
                 action: Action::Unload,
             });
-            Action::Load(ActionLoad::InstalledAddonsWithFilters(InstalledSelected {
-                request: request.clone(),
-            }))
+            (
+                Some(AppModelField::InstalledAddons),
+                Action::Load(ActionLoad::InstalledAddonsWithFilters(InstalledSelected {
+                    request: request.clone(),
+                })),
+            )
         }
-        Choice::Remote(request) => {
+        Choice::Remote(request) => (
+            Some(AppModelField::RemoteAddons),
             Action::Load(ActionLoad::CatalogWithFilters(Some(CatalogSelected {
                 request: request.clone(),
-            })))
-        }
+            }))),
+        ),
     };
-    runtime.dispatch(RuntimeAction {
-        field: None,
-        action,
-    });
+    runtime.dispatch(RuntimeAction { field, action });
 }
 
 /// Web: `onAddonInstall` for a marketplace card -- the descriptor the card was drawn from is

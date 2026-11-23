@@ -2,32 +2,30 @@
 //!
 //! Slint's `Flickable` animates every wheel notch over `WHEEL_SCROLL_DURATION` (180ms) and redraws
 //! the whole window for each frame of that animation: measured on the Discover grid, one notch cost
-//! about 200ms of a core and thirty-eight redraws, and holding the wheel kept a core pinned. The
-//! Discover grid is therefore not a `Flickable`: it draws `discover-scroll`, and this moves that,
-//! so a notch is one frame.
+//! about 200ms of a core and thirty-eight redraws, and holding the wheel kept a core pinned. Taking
+//! the wheel here moves each screen's scroll offset directly in one frame at a browser-like step.
 //!
 //! The wheel is caught from winit rather than from Slint because Slint 1.18 has no wheel event in
 //! its language (`'scroll' is not a member of PointerEventKind`). winit is what Slint's own winit
 //! backend speaks, so this is the same on Windows, Linux and macOS -- only the shape of the delta
 //! differs, and both shapes are handled below.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use i_slint_backend_winit::{EventResult, WinitWindowAccessor};
+use i_slint_core::window::WindowInner;
 use slint::{ComponentHandle, LogicalPosition, Weak};
 use winit::event::{MouseScrollDelta, WindowEvent};
 
 use crate::{MainWindow, Section};
 
-/// How far one line of a `LineDelta` scrolls, in logical pixels. winit reports a mouse wheel notch
-/// as one line on Windows, and a browser scrolls about 100px for one.
-const LINE_STEP: f32 = 100.0;
+/// How far one wheel notch (`LineDelta`) scrolls, in logical pixels. On Windows winit emits 1.0 per
+/// detent (ignoring the OS 3-line setting); 120px matches a standard 3-line browser scroll.
+const LINE_STEP: f32 = 120.0;
 
-/// The Discover grid as it last reported itself: where it is on the window, how tall its viewport
-/// is, and how tall everything inside it is.
 #[derive(Clone, Copy)]
-struct Grid {
+struct Bounds {
     x: f32,
     y: f32,
     width: f32,
@@ -35,19 +33,67 @@ struct Grid {
     content: f32,
 }
 
-/// Hooks the window's own events and the grid's report of where it is.
+#[derive(Clone, Copy)]
+enum Target {
+    Board,
+    Discover,
+    Library,
+    Addons,
+    Settings,
+}
+
+impl Target {
+    fn from_id(id: &str) -> Option<Self> {
+        match id {
+            "board" => Some(Self::Board),
+            "discover" => Some(Self::Discover),
+            "library" => Some(Self::Library),
+            "addons" => Some(Self::Addons),
+            "settings" => Some(Self::Settings),
+            _ => None,
+        }
+    }
+
+    fn index(self) -> usize {
+        self as usize
+    }
+
+    fn current_offset(self, window: &MainWindow) -> f32 {
+        match self {
+            Self::Board => window.get_board_scroll(),
+            Self::Discover => window.get_discover_scroll(),
+            Self::Library => window.get_library_scroll(),
+            Self::Addons => window.get_addons_scroll(),
+            Self::Settings => window.get_settings_scroll(),
+        }
+    }
+
+    fn set_offset(self, window: &MainWindow, value: f32) {
+        match self {
+            Self::Board => window.set_board_scroll(value),
+            Self::Discover => window.set_discover_scroll(value),
+            Self::Library => window.set_library_scroll(value),
+            Self::Addons => window.set_addons_scroll(value),
+            Self::Settings => window.set_settings_scroll(value),
+        }
+    }
+}
+
+/// Hooks the window's wheel events and each scrollable screen's reported viewport bounds.
 pub(crate) fn wire(window: &MainWindow) {
-    let grid: Rc<Cell<Option<Grid>>> = Rc::new(Cell::new(None));
+    let bounds: Rc<RefCell<[Option<Bounds>; 5]>> = Rc::new(RefCell::new([None; 5]));
     {
-        let grid = grid.clone();
-        window.on_grid_bounds(move |x, y, width, viewport, content| {
-            grid.set(Some(Grid {
-                x,
-                y,
-                width,
-                viewport,
-                content,
-            }));
+        let bounds = bounds.clone();
+        window.on_scroll_bounds(move |id, x, y, width, viewport, content| {
+            if let Some(target) = Target::from_id(id.as_str()) {
+                bounds.borrow_mut()[target.index()] = Some(Bounds {
+                    x,
+                    y,
+                    width,
+                    viewport,
+                    content,
+                });
+            }
         });
     }
     let weak: Weak<MainWindow> = window.as_weak();
@@ -68,24 +114,33 @@ pub(crate) fn wire(window: &MainWindow) {
                 let Some(window) = weak.upgrade() else {
                     return EventResult::Propagate;
                 };
-                // The bounds are the *last* ones the grid reported, and the grid is gone the moment
-                // another screen opens: taking the wheel there would swallow it into an offset
-                // nothing is drawing. On the board that is most of the page, which is why its wheel
-                // stopped working after a visit to Discover.
-                if window.get_section() != Section::Discover
+                if !WindowInner::from_pub(slint_window)
+                    .active_popups()
+                    .is_empty()
                     || window.get_details_open()
                     || window.get_playing()
+                    || window.get_auth_open()
+                    || window.get_addon_add_open()
+                    || window.get_share_open()
                 {
                     return EventResult::Propagate;
                 }
-                let Some(grid) = grid.get() else {
+                let target = match window.get_section() {
+                    Section::Board => Target::Board,
+                    Section::Discover => Target::Discover,
+                    Section::Library if window.get_settings().logged_in => Target::Library,
+                    Section::Addons => Target::Addons,
+                    Section::Settings => Target::Settings,
+                    _ => return EventResult::Propagate,
+                };
+                let Some(area) = bounds.borrow()[target.index()] else {
                     return EventResult::Propagate;
                 };
                 let at = cursor.get();
-                let inside = at.x >= grid.x
-                    && at.x <= grid.x + grid.width
-                    && at.y >= grid.y
-                    && at.y <= grid.y + grid.viewport;
+                let inside = at.x >= area.x
+                    && at.x <= area.x + area.width
+                    && at.y >= area.y
+                    && at.y <= area.y + area.viewport;
                 if !inside {
                     return EventResult::Propagate;
                 }
@@ -100,10 +155,9 @@ pub(crate) fn wire(window: &MainWindow) {
                 if down == 0.0 {
                     return EventResult::Propagate;
                 }
-                // Clamped here, because the shell owns the offset: the grid only draws it.
-                let furthest = (grid.content - grid.viewport).max(0.0);
-                let next = (window.get_discover_scroll() - down).clamp(-furthest, 0.0);
-                window.set_discover_scroll(next);
+                let furthest = (area.content - area.viewport).max(0.0);
+                let next = (target.current_offset(&window) - down).clamp(-furthest, 0.0);
+                target.set_offset(&window, next);
                 EventResult::PreventDefault
             }
             _ => EventResult::Propagate,
