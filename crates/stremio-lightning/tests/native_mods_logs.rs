@@ -364,14 +364,18 @@ fn the_window_lists_what_was_logged_and_filters_it() {
     );
     outcomes = step(
         outcomes,
-        "enabling red.theme.css logs a theme switch",
+        "enabling red.theme.css switches it on without showing a page notice",
         click(window, "Enable red.theme.css").and_then(|_| {
             wait(window, Duration::from_secs(10), |window| {
-                let notice = window.get_mods().notice.to_string();
-                if notice.contains("red.theme.css") || notice.contains("Red") {
-                    Ok(notice)
+                let mods = window.get_mods();
+                let enabled = (0..mods.themes.row_count())
+                    .filter_map(|row| mods.themes.row_data(row))
+                    .any(|card| card.filename.as_str() == "red.theme.css" && card.enabled);
+                let notice = mods.notice.to_string();
+                if enabled && notice.is_empty() {
+                    Ok("red.theme.css enabled with no notice".to_owned())
                 } else {
-                    Err(format!("the notice says {notice:?}"))
+                    Err(format!("enabled={enabled}, notice={notice:?}"))
                 }
             })
         }),

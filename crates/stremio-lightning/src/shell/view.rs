@@ -3,7 +3,7 @@
 //! This is the only place in the app that knows both a screen's data and the window it lands in.
 //! It decides nothing: every value here was decided by the screen that produced it.
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use slint::{Model, ModelRc, SharedString, VecModel, Weak};
 
@@ -22,10 +22,15 @@ use crate::{
     StreamData, VideoRow,
 };
 
-/// Copies everything a snapshot describes onto the window. Runs on the window's thread.
-pub(crate) fn show(weak: &Weak<MainWindow>, snapshot: Snapshot, images: &Images) {
+/// Copies the latest snapshot onto the window on the UI thread so an already-queued repaint
+/// cannot roll back a newer synchronous UI update.
+pub(crate) fn show(weak: &Weak<MainWindow>, latest: &Arc<Mutex<Snapshot>>, images: &Images) {
+    let latest = latest.clone();
     let images = images.clone();
-    let _ = weak.upgrade_in_event_loop(move |window| apply(&window, &snapshot, &images));
+    let _ = weak.upgrade_in_event_loop(move |window| {
+        let snapshot = latest.lock().unwrap().clone();
+        apply(&window, &snapshot, &images);
+    });
 }
 
 pub(crate) fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
@@ -490,11 +495,23 @@ pub(crate) fn mods_view(data: &crate::screens::mods::Data) -> ModsViewData {
 /// line arriving mid-sentence never moves what the reader is looking at.
 pub(crate) fn refresh_logs(
     weak: &Weak<MainWindow>,
-    logs: std::sync::Arc<crate::plumbing::logs::Logs>,
-    armed: std::sync::Arc<Mutex<bool>>,
+    latest: &Arc<Mutex<Snapshot>>,
+    logs: Arc<crate::plumbing::logs::Logs>,
+    armed: Arc<Mutex<bool>>,
 ) {
+    let latest = latest.clone();
     let _ = weak.upgrade_in_event_loop(move |window| {
-        apply_logs(&window, &logs, *armed.lock().unwrap());
+        let armed = *armed.lock().unwrap();
+        {
+            let mut snapshot = latest.lock().unwrap();
+            let notice = snapshot.mods.notice.clone();
+            snapshot.mods = snapshot
+                .mods
+                .clone()
+                .with_logs(&logs, armed)
+                .with_notice(notice);
+        }
+        apply_logs(&window, &logs, armed);
     });
 }
 

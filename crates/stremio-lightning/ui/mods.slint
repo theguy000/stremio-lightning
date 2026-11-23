@@ -149,29 +149,28 @@ export struct ModsViewData {
     about-export: string,
 }
 
-// Web: the Settings menu's `.button`, which the Mods menu borrows: a 4rem pill, dim until it is
-// selected or the pointer is on it.
+// Left-hand Mods navigation pill, dim until selected or hovered.
 component ModsMenuButton inherits Rectangle {
     in property <string> label-text;
     in property <bool> selected;
     in property <length> rem-size;
     callback clicked();
 
-    height: 4 * root.rem-size;
-    border-radius: 2 * root.rem-size;
+    height: 3.2 * root.rem-size;
+    border-radius: self.height / 2;
     background: (root.selected || touch.has-hover) ? ClassStyles.background-or(ClassStyles.mods-menu-button, Theme.overlay) : transparent;
     opacity: ClassStyles.opacity-or(ClassStyles.mods-menu-button, root.selected ? 1.0 : 0.4);
     visible: !ClassStyles.mods-menu-button.hidden;
 
     mods-menu-label := Text {
-        x: 2 * root.rem-size;
+        x: 1.6 * root.rem-size;
         y: 0px;
-        width: parent.width - 4 * root.rem-size;
+        width: parent.width - 3.2 * root.rem-size;
         height: parent.height;
         text: root.label-text;
         overflow: elide;
         vertical-alignment: center;
-        font-size: 1.1 * root.rem-size;
+        font-size: 1.05 * root.rem-size;
         font-weight: root.selected ? 600 : 500;
         color: ClassStyles.color-or(ClassStyles.mods-menu-button, Theme.text);
     }
@@ -947,11 +946,12 @@ export component ModsContent inherits Rectangle {
     property <length> menu-width: 18 * root.rem-size;
     property <length> page-padding: 3 * root.rem-size;
     property <length> page-width: root.width - root.menu-width - 2 * root.page-padding;
-    // Where the page's own sentence starts. The title is 2rem..5rem, so the sentence follows it at
-    // 5.4rem, and the line about the last action (when there is one) pushes it down by the same
-    // 3.4rem it is offset by.
-    property <length> page-top: 5.4 * root.rem-size + (root.data.notice == "" ? 0px : 3.4 * root.rem-size);
-    property <length> list-top: root.page-top + 6 * root.rem-size;
+    // Plugins, Themes, and Logs all start their content at 6.4rem (just under the 2rem..5rem
+    // heading); About has a one-line subtitle and starts cleanly below it at 8.0rem. Notices sit
+    // inline on the title row so they never jump the content downward.
+    property <bool> has-page-note: root.on-about;
+    property <length> page-top: 5.2 * root.rem-size;
+    property <length> list-top: root.has-page-note ? 8.0 * root.rem-size : 6.4 * root.rem-size;
     property <length> list-height: Math.max(root.height - root.list-top, 0px);
     // A card plus the 0.75rem under it. Every card is the height of the tallest one on screen,
     // because a `for` row cannot ask its neighbours how tall they are.
@@ -979,7 +979,7 @@ export component ModsContent inherits Rectangle {
 
         for item[index] in root.data.menu: ModsMenuButton {
             x: 1.5 * root.rem-size;
-            y: 3 * root.rem-size + index * 4.5 * root.rem-size;
+            y: 2 * root.rem-size + index * 3.6 * root.rem-size;
             width: 15 * root.rem-size;
             rem-size: root.rem-size;
             label-text: item.label;
@@ -1022,42 +1022,36 @@ export component ModsContent inherits Rectangle {
         }
 
         if root.data.notice != "": mod-notice := Text {
-            // On Logs, sit inline on the title row so clicking Copy never jumps the toolbar and
-            // log list downward under the pointer.
-            x: root.on-logs ? root.page-padding + 8 * root.rem-size : root.page-padding;
-            y: root.on-logs ? 2 * root.rem-size : 5.4 * root.rem-size;
-            width: root.on-logs ? Math.max(0px, root.page-width - 8 * root.rem-size) : root.page-width;
+            // Sit inline on the title row across all pages so notices never jump content downward
+            // under the pointer.
+            x: root.page-padding + 10 * root.rem-size;
+            y: 2 * root.rem-size;
+            width: Math.max(0px, root.page-width - 10 * root.rem-size);
             height: 3 * root.rem-size;
             text: root.data.notice;
-            wrap: root.on-logs ? no-wrap : word-wrap;
+            wrap: no-wrap;
             overflow: elide;
-            horizontal-alignment: root.on-logs ? right : left;
-            vertical-alignment: root.on-logs ? center : top;
-            font-size: root.on-logs ? 0.9 * root.rem-size : root.rem-size;
+            horizontal-alignment: right;
+            vertical-alignment: center;
+            font-size: 0.9 * root.rem-size;
             color: ClassStyles.color-or(ClassStyles.mod-notice, root.data.notice-failed ? Theme.accent-red : Theme.text);
             opacity: ClassStyles.opacity-or(ClassStyles.mod-notice, root.data.notice-failed ? 1.0 : 0.7);
             visible: !ClassStyles.mod-notice.hidden;
         }
 
-        // One sentence per page above its list: what the switch does on Plugins, and that the app
-        // is drawing its own colours when no theme is on.
+        // One-line subtitle on About; Plugins, Themes, and Logs go straight from heading to content.
         mods-page-note := Text {
             x: root.page-padding;
             y: root.page-top;
             width: root.page-width;
-            height: 4 * root.rem-size;
-            text: root.on-plugins ? ""
-                : root.on-themes ? root.data.themes-note
-                // The Logs page puts its filter where the others put a sentence: nothing counts
-                // records above a list that is already saying what it holds.
-                : root.on-logs ? ""
-                : "What this build is and what it keeps.";
+            height: 1.8 * root.rem-size;
+            text: root.on-about ? "What this build is and what it keeps." : "";
             wrap: word-wrap;
             vertical-alignment: top;
             font-size: root.rem-size;
             color: ClassStyles.color-or(ClassStyles.mods-page-note, Theme.text);
             opacity: ClassStyles.opacity-or(ClassStyles.mods-page-note, 0.7);
-            visible: !root.on-settings && !root.on-logs && !ClassStyles.mods-page-note.hidden;
+            visible: root.has-page-note && !ClassStyles.mods-page-note.hidden;
         }
 
         if root.on-plugins && root.data.plugins.length == 0: mods-empty-plugins := Text {

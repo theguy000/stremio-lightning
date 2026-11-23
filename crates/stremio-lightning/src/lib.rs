@@ -195,6 +195,7 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
     // the window's own, and the list is redrawn on the window's thread.
     {
         let weak = window.as_weak();
+        let latest = latest.clone();
         let page_logs = logs.clone();
         let page = mods_page.clone();
         let armed = wiring.mods_clearing.clone();
@@ -202,7 +203,7 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
             if page.lock().unwrap().as_str() != screens::mods::Page::Logs.id() {
                 return;
             }
-            shell::view::refresh_logs(&weak, page_logs.clone(), armed.clone());
+            shell::view::refresh_logs(&weak, &latest, page_logs.clone(), armed.clone());
         });
     }
     // The wheel is taken from the window itself: left to a Slint Flickable it costs a whole
@@ -230,8 +231,7 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
     let repaint = {
         let (window, latest, images) = (window.as_weak(), latest.clone(), images.clone());
         Arc::new(move || {
-            let snapshot = latest.lock().unwrap().clone();
-            shell::show(&window, snapshot, &images);
+            shell::show(&window, &latest, &images);
         })
     };
     tokio.spawn(app::events::pump(
