@@ -2129,13 +2129,13 @@ impl Wiring {
             extras.save(&self.data_dir);
             notice
         };
-        // What the switch did is a record on the Logs page as well as the notice: a plugin that
-        // starts and then stops says why, and this says where it was started from.
+        // What the switch did is a record on the Logs page: the switch itself is the UI answer,
+        // so toggling a theme or plugin does not show a status notice on the page.
         self.recorded(kind, &filename, notice.as_ref());
         if kind == mods::catalogue::Kind::Theme {
             self.apply_themes();
         }
-        self.after_mod_action(notice);
+        self.after_mod_action(None);
     }
 
     /// The AniSkip page's switch: whether the player offers the timing button. The fetch follows
