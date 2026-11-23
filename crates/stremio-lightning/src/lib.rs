@@ -184,6 +184,7 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
         subtitle_auto: Default::default(),
         browsed_language: Default::default(),
         mods_page: mods_page.clone(),
+        skip_client: Arc::new(plumbing::skip::SkipClient::new()),
         skip_kind: Default::default(),
         skip_submit: Default::default(),
         skip_seeded: Default::default(),

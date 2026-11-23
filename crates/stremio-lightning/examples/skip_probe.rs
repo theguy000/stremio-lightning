@@ -23,6 +23,14 @@ async fn main() {
         .and_then(|value| value.parse().ok())
         .unwrap_or(1440.0);
 
-    let found = stremio_lightning::plumbing::skip::segments(&meta, season, episode, duration).await;
+    let client = stremio_lightning::plumbing::skip::SkipClient::new();
+    let found = client
+        .rates(&stremio_lightning::plumbing::skip::EpisodeKey {
+            meta_id: &meta,
+            season,
+            episode,
+            duration,
+        })
+        .await;
     println!("{meta} season {season} episode {episode} ({duration}s): {found:?}");
 }
