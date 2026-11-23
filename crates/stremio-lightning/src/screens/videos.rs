@@ -166,21 +166,71 @@ pub(crate) fn season_all_watched(
 mod tests {
     use super::*;
 
+    fn video(id: &str, season: u32, episode: u32, title: &str) -> Video {
+        Video {
+            id: id.to_owned(),
+            title: title.to_owned(),
+            released: None,
+            overview: None,
+            thumbnail: None,
+            streams: vec![],
+            series_info: Some(SeriesInfo { season, episode }),
+            epg_info: None,
+            trailer_streams: vec![],
+        }
+    }
+
+    fn film(id: &str, title: &str) -> Video {
+        Video {
+            series_info: None,
+            ..video(id, 0, 0, title)
+        }
+    }
+
     #[test]
-    fn episode_code_uses_special_for_season_zero() {
+    fn seasons_order_and_default_selection() {
+        let vs = [
+            video("a", 1, 1, "Pilot"),
+            video("b", 1, 2, "Second"),
+            video("c", 2, 1, "Next year"),
+            video("s", 0, 1, "Bonus"),
+        ];
+        let listed: Vec<_> = seasons(&vs)
+            .into_iter()
+            .map(|s| (s.number, s.label))
+            .collect();
         assert_eq!(
-            episode_code(&SeriesInfo {
-                season: 0,
-                episode: 3
-            }),
-            "SPECIAL 3"
+            listed,
+            [
+                (1, "Season 1".into()),
+                (2, "Season 2".into()),
+                (0, "Special".into())
+            ]
         );
+        assert_eq!(default_season(&vs, Some("c")), Some(2));
         assert_eq!(
-            episode_code(&SeriesInfo {
-                season: 2,
-                episode: 5
-            }),
-            "S2E5"
+            default_season(&[video("s", 0, 1, "B"), video("a", 1, 1, "P")], None),
+            Some(1)
         );
+        assert_eq!(default_season(&[video("s", 0, 1, "B")], None), Some(0));
+    }
+
+    #[test]
+    fn episode_labels_and_picked_labels_use_special_for_season_zero() {
+        let vs = [
+            video("a", 1, 2, "Second"),
+            video("s", 0, 3, "Bonus"),
+            film("m", "A film"),
+        ];
+        let ep = &episodes(&vs, 1)[0];
+        assert_eq!(
+            (ep.id.as_str(), ep.label.as_str(), ep.title.as_str()),
+            ("a", "S1E2", "2. Second")
+        );
+        assert_eq!(episodes(&vs, 0)[0].label, "SPECIAL 3");
+        assert_eq!(picked_label(&vs, "a"), Some("S1E2 Second".into()));
+        assert_eq!(picked_label(&vs, "s"), Some("SPECIAL 3 Bonus".into()));
+        assert_eq!(picked_label(&vs, "m"), Some("A film".into()));
+        assert_eq!(picked_label(&vs, "gone"), None);
     }
 }

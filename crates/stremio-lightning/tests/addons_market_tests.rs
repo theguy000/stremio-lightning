@@ -119,7 +119,7 @@ fn the_catalog_menu_is_installed_and_then_every_catalog_the_addons_declare() {
     let model = model_with(vec![cinemeta()]);
     let data = screens::addons::data(&model);
 
-    let catalog = &data.inputs[0];
+    let catalog = &data.inputs[0].menu;
     let labels: Vec<&str> = catalog
         .options
         .iter()
@@ -132,12 +132,12 @@ fn the_catalog_menu_is_installed_and_then_every_catalog_the_addons_declare() {
     );
     assert_eq!(catalog.selected, 0);
     assert_eq!(
-        data.inputs[0].title, "Installed",
+        catalog.title, "Installed",
         "the closed menu names what is on screen"
     );
 
     // The type menu under "Installed" is the types the account's addons cover.
-    let kinds = &data.inputs[1];
+    let kinds = &data.inputs[1].menu;
     assert_eq!(kinds.options[0].0, "All");
     assert!(
         kinds.options.iter().any(|(label, _)| label == "Movie"),
@@ -145,7 +145,8 @@ fn the_catalog_menu_is_installed_and_then_every_catalog_the_addons_declare() {
     );
 
     // Choosing "Community" is a marketplace load, not an installed-addons one.
-    let community = data.choices[0]
+    let community = data.inputs[0]
+        .values
         .iter()
         .find(|choice| {
             matches!(

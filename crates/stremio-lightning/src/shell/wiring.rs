@@ -2213,10 +2213,10 @@ impl Wiring {
     fn select_addon_input_option(&self, input: i32, option: i32) {
         let choice = usize::try_from(input).ok().and_then(|input| {
             let snapshot = self.latest.lock().unwrap();
-            snapshot.addons.choices.get(input).and_then(|choices| {
+            snapshot.addons.inputs.get(input).and_then(|menu| {
                 usize::try_from(option)
                     .ok()
-                    .and_then(|option| choices.get(option).cloned())
+                    .and_then(|option| menu.values.get(option).cloned())
             })
         });
         if let Some(choice) = choice {
@@ -2240,7 +2240,11 @@ impl Wiring {
             .find(|card| card.transport_url == transport_url)
             .cloned();
         if let Some(card) = card {
-            addons::install_card(&self.runtime, &card);
+            if let addons::InstallOutcome::OpenConfigure(url) =
+                addons::install_card(&self.runtime, &card)
+            {
+                crate::plumbing::links::open(&url);
+            }
         }
     }
 
@@ -3464,7 +3468,7 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
                 }
                 return;
             }
-            addons::configure(&url);
+            crate::plumbing::links::open(&addons::configure_url(&url));
         });
     }
     {
@@ -3473,7 +3477,8 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
     }
     // Web: the Configure pill on a card, and the icon one beside Uninstall, both open the addon's
     // own configuration page.
-    window.on_addon_configure(move |url| addons::configure(&url));
+    window
+        .on_addon_configure(move |url| crate::plumbing::links::open(&addons::configure_url(&url)));
     {
         let wiring = wiring.clone();
         window.on_select_setting_option(move |key, option| {

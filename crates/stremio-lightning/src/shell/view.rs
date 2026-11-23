@@ -519,7 +519,10 @@ pub(crate) fn apply(window: &MainWindow, snapshot: &Snapshot, images: &Images) {
         window.set_addons(replaced);
     }
     window.set_calendar(calendar_view(&snapshot.calendar, images));
-    if let Some(replaced) = sync_inputs(&window.get_addon_inputs(), snapshot.addons.inputs.iter()) {
+    if let Some(replaced) = sync_inputs(
+        &window.get_addon_inputs(),
+        snapshot.addons.inputs.iter().map(|i| &i.menu),
+    ) {
         window.set_addon_inputs(replaced);
     }
     window.set_addon_pending(addon_pending(&snapshot.addons.pending, images));

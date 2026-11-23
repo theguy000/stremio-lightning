@@ -17,7 +17,7 @@ use stremio_core::types::resource::{MetaItem, StreamSource, Subtitles};
 use stremio_core::types::streams::StreamsItemKey;
 
 use crate::app::{AppModel, AppRuntime};
-use crate::screens::{details, Preview};
+use crate::screens::{details, videos, Preview};
 
 /// One Video in the player's side drawer.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -562,7 +562,7 @@ pub fn data(model: &AppModel, wanted_season: Option<usize>) -> Data {
     let series_info = player.series_info.as_ref();
     let playing_season = series_info.map(|info| info.season).unwrap_or_default();
     let seasons = meta
-        .map(|meta| details::seasons(&meta.videos))
+        .map(|meta| videos::seasons(&meta.videos))
         .unwrap_or_default();
     let season = season_index(&seasons, wanted_season, playing_season);
     let number = seasons
@@ -579,7 +579,7 @@ pub fn data(model: &AppModel, wanted_season: Option<usize>) -> Data {
         .unwrap_or_default();
     let episodes = meta
         .map(|meta| {
-            details::episodes(&meta.videos, number)
+            videos::episodes(&meta.videos, number)
                 .into_iter()
                 .map(|episode| Episode {
                     picked: video_id.as_deref() == Some(episode.id.as_str()),
@@ -607,7 +607,7 @@ pub fn data(model: &AppModel, wanted_season: Option<usize>) -> Data {
         .as_ref()
         .and_then(|video| {
             meta.map(|meta| {
-                details::picked_label(&meta.videos, &video.id)
+                videos::picked_label(&meta.videos, &video.id)
                     .unwrap_or_else(|| title_of(meta, Some(&video.id)))
             })
         })
