@@ -5,9 +5,9 @@ use std::path::Path;
 
 use slint::{Color, ComponentHandle};
 
+use crate::plumbing::local_settings::LocalExtras;
 use crate::plumbing::logs::{Level, Logs, Source};
 use crate::plumbing::theme::{self, Rgba, Style, ThemeWarning};
-use crate::screens::settings::LocalExtras;
 use crate::{ClassStyle, ClassStyles, MainWindow, Theme as SlintTheme};
 
 type Setter = fn(&ClassStyles<'_>, ClassStyle);

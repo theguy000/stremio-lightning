@@ -176,7 +176,7 @@ fn handle(event: RuntimeEvent<AppEnv, AppModel>, context: &Context) {
                 .then(|| auth::error_message(&error));
             let weak = context.weak.clone();
             let _ = weak.upgrade_in_event_loop(move |window| {
-                auth::clear_progress(&window);
+                crate::shell::auth::clear_progress(&window);
                 if let Some(message) = message {
                     window.set_auth_error(message.into());
                 }
@@ -438,7 +438,7 @@ fn player_images(snapshot: &Snapshot) -> impl Iterator<Item = String> + '_ {
 fn close_sign_in(context: &Context) {
     context.auth.cancel();
     let _ = context.weak.upgrade_in_event_loop(|window| {
-        auth::clear_progress(&window);
+        crate::shell::auth::clear_progress(&window);
         window.set_auth_error("".into());
         window.set_auth_open(false);
     });

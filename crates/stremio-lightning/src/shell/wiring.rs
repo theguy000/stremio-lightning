@@ -2966,7 +2966,7 @@ impl Wiring {
     }
 
     fn start_browser_login(&self, provider: auth::Provider) {
-        auth::start_browser_login(
+        crate::shell::auth::start_browser_login(
             provider,
             &self.window,
             &self.runtime,
@@ -2980,7 +2980,7 @@ impl Wiring {
     fn dismiss_sign_in(&self) {
         self.auth.cancel();
         let _ = self.window.upgrade_in_event_loop(|window| {
-            auth::clear_progress(&window);
+            crate::shell::auth::clear_progress(&window);
             window.set_auth_open(false);
             window.set_auth_error("".into());
         });

@@ -5,6 +5,7 @@
 //! open, and whether video is playing. Everything else a screen describes, and the shell copies
 //! it in.
 
+pub(crate) mod auth;
 pub(crate) mod theme_apply;
 pub(crate) mod video_host;
 pub(crate) mod view;
