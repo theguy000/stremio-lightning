@@ -190,9 +190,11 @@ export component LibraryContent inherits Rectangle {
         Math.floor((-meta-items-container.content-y - root.grid-padding) / Math.max(root.row-pitch, 1px)) - 1);
     property <float> last-shown-row: Math.floor(
         (-meta-items-container.content-y + meta-items-container.height - root.grid-padding) / Math.max(root.row-pitch, 1px)) + 1;
+    property <length> watched-y: meta-items-container.absolute-position.y;
     property <length> watched-width: meta-items-container.width;
     property <length> watched-height: meta-items-container.height;
     property <length> watched-content: meta-items-container.content-height;
+    changed watched-y => { root.report-bounds(); }
     changed watched-width => { root.report-bounds(); }
     changed watched-height => { root.report-bounds(); }
     changed watched-content => { root.report-bounds(); }

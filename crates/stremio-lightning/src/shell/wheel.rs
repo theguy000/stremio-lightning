@@ -14,6 +14,7 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use i_slint_backend_winit::{EventResult, WinitWindowAccessor};
+use i_slint_core::window::WindowInner;
 use slint::{ComponentHandle, LogicalPosition, Weak};
 use winit::event::{MouseScrollDelta, WindowEvent};
 
@@ -113,7 +114,10 @@ pub(crate) fn wire(window: &MainWindow) {
                 let Some(window) = weak.upgrade() else {
                     return EventResult::Propagate;
                 };
-                if window.get_details_open()
+                if !WindowInner::from_pub(slint_window)
+                    .active_popups()
+                    .is_empty()
+                    || window.get_details_open()
                     || window.get_playing()
                     || window.get_auth_open()
                     || window.get_addon_add_open()
