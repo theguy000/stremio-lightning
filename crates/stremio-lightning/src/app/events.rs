@@ -208,7 +208,12 @@ fn handle(event: RuntimeEvent<AppEnv, AppModel>, context: &Context) {
         *slot = snapshot.clone();
     }
     request_images(&snapshot, context);
-    shell::show(&context.weak, &context.latest, &context.repaint_pending, &context.images);
+    shell::show(
+        &context.weak,
+        &context.latest,
+        &context.repaint_pending,
+        &context.images,
+    );
 }
 
 /// Rebuilds everything the window shows from the model.

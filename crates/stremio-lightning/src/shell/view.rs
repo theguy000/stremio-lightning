@@ -91,8 +91,11 @@ fn sync_board_rows(window: &MainWindow, rows: &[crate::screens::board::Row], ima
         {
             for (index, row) in rows.iter().enumerate() {
                 if let Some(mut existing_row) = model.row_data(index) {
-                    let cards: Vec<PosterData> =
-                        row.cards.iter().map(|card| poster_data(card, images)).collect();
+                    let cards: Vec<PosterData> = row
+                        .cards
+                        .iter()
+                        .map(|card| poster_data(card, images))
+                        .collect();
                     if let Some(replaced) = sync_vec_model(&existing_row.cards, cards) {
                         existing_row.cards = replaced;
                         model.set_row_data(index, existing_row);
@@ -136,16 +139,19 @@ fn preview_same(old: &PreviewData, preview: &Preview, images: &Images) -> bool {
         && old.in_library == preview.in_library
         && old.watched == preview.watched
         && old.groups.row_count() == preview.groups.len()
-        && preview.groups.iter().enumerate().all(|(i, (label, links))| {
-            old.groups.row_data(i).is_some_and(|group| {
-                group.label.as_str() == label
-                    && group.links.row_count() == links.len()
-                    && links
-                        .iter()
-                        .enumerate()
-                        .all(|(j, link)| group.links.row_data(j).is_some_and(|l| l.as_str() == link))
+        && preview
+            .groups
+            .iter()
+            .enumerate()
+            .all(|(i, (label, links))| {
+                old.groups.row_data(i).is_some_and(|group| {
+                    group.label.as_str() == label
+                        && group.links.row_count() == links.len()
+                        && links.iter().enumerate().all(|(j, link)| {
+                            group.links.row_data(j).is_some_and(|l| l.as_str() == link)
+                        })
+                })
             })
-        })
 }
 
 fn sync_discover_previews(window: &MainWindow, previews: &[Preview], images: &Images) {
@@ -185,15 +191,25 @@ fn select_input_same(old: &SelectInputData, input: &Input) -> bool {
     old.title.as_str() == input.title
         && old.selected_index == selected_index
         && old.options.row_count() == input.options.len()
-        && input.options.iter().enumerate().all(|(i, (label, selected))| {
-            old.options
-                .row_data(i)
-                .is_some_and(|opt| opt.label.as_str() == label && opt.selected == *selected)
-        })
+        && input
+            .options
+            .iter()
+            .enumerate()
+            .all(|(i, (label, selected))| {
+                old.options
+                    .row_data(i)
+                    .is_some_and(|opt| opt.label.as_str() == label && opt.selected == *selected)
+            })
 }
 
-fn sync_inputs(existing: &ModelRc<SelectInputData>, next: &[Input]) -> Option<ModelRc<SelectInputData>> {
-    if let Some(model) = existing.as_any().downcast_ref::<VecModel<SelectInputData>>() {
+fn sync_inputs(
+    existing: &ModelRc<SelectInputData>,
+    next: &[Input],
+) -> Option<ModelRc<SelectInputData>> {
+    if let Some(model) = existing
+        .as_any()
+        .downcast_ref::<VecModel<SelectInputData>>()
+    {
         let old_len = model.row_count();
         let new_len = next.len();
         let common = old_len.min(new_len);

@@ -161,6 +161,8 @@ export component LibraryContent inherits Rectangle {
     in property <bool> has-more: false;
     in property <string> grid-key;
     in property <length> viewport-width;
+    in-out property <length> scroll-offset <=> meta-items-container.content-y;
+    callback scroll-bounds(length, length, length, length, length);
     callback select-type(int);
     callback select-sort(int);
     callback load-more();
@@ -188,6 +190,23 @@ export component LibraryContent inherits Rectangle {
         Math.floor((-meta-items-container.content-y - root.grid-padding) / Math.max(root.row-pitch, 1px)) - 1);
     property <float> last-shown-row: Math.floor(
         (-meta-items-container.content-y + meta-items-container.height - root.grid-padding) / Math.max(root.row-pitch, 1px)) + 1;
+    property <length> watched-width: meta-items-container.width;
+    property <length> watched-height: meta-items-container.height;
+    property <length> watched-content: meta-items-container.content-height;
+    changed watched-width => { root.report-bounds(); }
+    changed watched-height => { root.report-bounds(); }
+    changed watched-content => { root.report-bounds(); }
+    init => { root.report-bounds(); }
+
+    function report-bounds() {
+        root.scroll-bounds(
+            meta-items-container.absolute-position.x,
+            meta-items-container.absolute-position.y,
+            meta-items-container.width,
+            meta-items-container.height,
+            meta-items-container.content-height,
+        );
+    }
 
     // Web: `Library.js` returns the grid to the top when a page-1 request (a type or sort
     // change) arrives. The key changes for those requests only, not when a page is appended.

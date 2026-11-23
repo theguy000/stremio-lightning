@@ -268,7 +268,12 @@ struct ActionTarget {
 impl Wiring {
     /// Repaints with the snapshot the last event produced.
     fn repaint(&self) {
-        shell::show(&self.window, &self.latest, &self.repaint_pending, &self.images);
+        shell::show(
+            &self.window,
+            &self.latest,
+            &self.repaint_pending,
+            &self.images,
+        );
         self.remember_wanted();
     }
 
@@ -285,7 +290,12 @@ impl Wiring {
         if let Some(window) = self.window.upgrade() {
             shell::view::show_mods(&window, &snapshot.mods);
         }
-        shell::show(&self.window, &self.latest, &self.repaint_pending, &self.images);
+        shell::show(
+            &self.window,
+            &self.latest,
+            &self.repaint_pending,
+            &self.images,
+        );
         self.remember_wanted();
         let visible = *self.visible.lock().unwrap();
         let selected = self.selected.load(Ordering::Relaxed);
@@ -1680,7 +1690,12 @@ impl Wiring {
             snapshot.player = player::data(&model, Some(index));
             drop(model);
             *self.latest.lock().unwrap() = snapshot;
-            shell::show(&self.window, &self.latest, &self.repaint_pending, &self.images);
+            shell::show(
+                &self.window,
+                &self.latest,
+                &self.repaint_pending,
+                &self.images,
+            );
         }
     }
 
@@ -1910,7 +1925,12 @@ impl Wiring {
         // had already been fetched on hover never repainted at all, because the request for them is
         // deduped and nothing ever fired, and a card whose pictures had not been fetched opened
         // blank until the last of them landed.
-        shell::show(&self.window, &self.latest, &self.repaint_pending, &self.images);
+        shell::show(
+            &self.window,
+            &self.latest,
+            &self.repaint_pending,
+            &self.images,
+        );
         for url in discover::preview_images(&discover, index) {
             self.request_painting(url);
         }

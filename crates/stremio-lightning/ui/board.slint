@@ -688,10 +688,29 @@ component MetaRow inherits Rectangle {
 export component BoardContent inherits Rectangle {
     in property <[CatalogRow]> rows;
     in property <length> viewport-width;
+    in-out property <length> scroll-offset <=> board-content.content-y;
+    callback scroll-bounds(length, length, length, length, length);
     callback open-item(string, string, string);
     callback item-action(string, string);
 
     property <length> rem-size: Theme.rem-size(root.viewport-width);
+    property <length> watched-width: board-content.width;
+    property <length> watched-height: board-content.height;
+    property <length> watched-content: board-content.content-height;
+    changed watched-width => { root.report-bounds(); }
+    changed watched-height => { root.report-bounds(); }
+    changed watched-content => { root.report-bounds(); }
+    init => { root.report-bounds(); }
+
+    function report-bounds() {
+        root.scroll-bounds(
+            board-content.absolute-position.x,
+            board-content.absolute-position.y,
+            board-content.width,
+            board-content.height,
+            board-content.content-height,
+        );
+    }
     /// The window's height, as the Library content derives it: this box reaches the window's bottom
     /// edge, so its own corner plus its height is the window's.
     property <length> viewport-height: root.absolute-position.y + root.height;
@@ -707,8 +726,10 @@ export component BoardContent inherits Rectangle {
         y: 0px;
         width: parent.width;
         height: parent.height;
+        content-width: self.width;
+        content-height: board-rows.preferred-height;
 
-        VerticalLayout {
+        board-rows := VerticalLayout {
             alignment: start;
             padding-left: root.rem-size;
             padding-right: root.rem-size;

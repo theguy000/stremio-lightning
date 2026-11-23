@@ -251,15 +251,18 @@ export component MainWindow inherits Window {
     /// How much of the Discover grid is on screen: scrolled distance, viewport height, row height,
     /// cards in a row.
     callback visible-range(length, length, length, int);
-    /// Where the Discover grid is, how big its viewport is and how tall its contents are, so the
-    /// shell can clamp a wheel notch before it moves `discover-scroll`.
-    callback grid-bounds(length, length, length, length, length);
+    /// Where each scrollable screen's viewport is and how tall its contents are, so the shell can
+    /// clamp a wheel notch before moving its scroll offset directly in one frame.
+    callback scroll-bounds(string, length, length, length, length, length);
     /// How many times the shell has said the Discover grid stopped moving, so it only asks for the
     /// next page once the scrolling has stopped.
     in-out property <int> grid-settle-count: 0;
-    /// How far the Discover grid is scrolled, in pixels: zero at the top, negative below it. The
-    /// shell moves it for the wheel; the grid draws it.
+    /// Scroll offsets owned by `wheel.rs` for 1-frame wheel scrolling (0 at top, negative down).
+    in-out property <length> board-scroll: 0px;
     in-out property <length> discover-scroll: 0px;
+    in-out property <length> library-scroll: 0px;
+    in-out property <length> addons-scroll: 0px;
+    in-out property <length> settings-scroll: 0px;
     callback select-input-option(int, int);
     callback select-addon-input-option(int, int);
     callback search-addons(string);
@@ -326,6 +329,10 @@ callback player-skip();
         height: parent.height - root.bar-height;
         rows: root.rows;
         viewport-width: root.width;
+        scroll-offset <=> root.board-scroll;
+        scroll-bounds(x, y, width, viewport, content) => {
+            root.scroll-bounds("board", x, y, width, viewport, content);
+        }
         open-item(id, kind, title) => {
             root.details-open = true;
             root.open-item(id, kind, title);
@@ -363,7 +370,7 @@ callback player-skip();
             root.visible-range(scroll, height, pitch, columns);
         }
         grid-bounds(x, y, width, viewport, content) => {
-            root.grid-bounds(x, y, width, viewport, content);
+            root.scroll-bounds("discover", x, y, width, viewport, content);
         }
         settle-count: root.grid-settle-count;
         scroll-offset <=> root.discover-scroll;
@@ -672,6 +679,10 @@ callback player-skip();
         message: root.library-message;
         has-more: root.library-has-more;
         grid-key: root.library-grid-key;
+        scroll-offset <=> root.library-scroll;
+        scroll-bounds(x, y, width, viewport, content) => {
+            root.scroll-bounds("library", x, y, width, viewport, content);
+        }
         select-type(index) => {
             root.select-library-type(index);
         }
@@ -742,6 +753,10 @@ callback player-skip();
         inputs: root.addon-inputs;
         message: root.addons-message;
         viewport-width: root.width;
+        scroll-offset <=> root.addons-scroll;
+        scroll-bounds(x, y, width, viewport, content) => {
+            root.scroll-bounds("addons", x, y, width, viewport, content);
+        }
         query <=> root.addons-query;
         add-open <=> root.addon-add-open;
         add-url <=> root.addon-add-url;
@@ -916,6 +931,10 @@ callback player-skip();
         build-version: root.build-version;
         server-status: root.server-status;
         data: root.settings;
+        scroll-offset <=> root.settings-scroll;
+        scroll-bounds(x, y, width, viewport, content) => {
+            root.scroll-bounds("settings", x, y, width, viewport, content);
+        }
         log-in => { root.auth-open = true; }
         log-out => { root.logout-user(); }
         open-external-link(kind) => { root.open-settings-link(kind); }
