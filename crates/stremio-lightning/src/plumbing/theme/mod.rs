@@ -1,183 +1,206 @@
 //! Themes: `*.theme.css` files restyle the UI by stremio-web class name.
 //!
-//! stremio-web styles its components with CSS classes, and Stremio Lightning themes target
-//! them. Slint has no CSS, so a theme is read (`parse`) and its rules are copied into the
-//! `ClassStyles` global (`ui/class-styles.slint`), which every component that reuses a web
-//! class name reads. This file holds the element table and the copying; `parse` holds the CSS.
-//!
-//! Understood:
-//! - Selectors `.name`, `[class*="name"]`, `[class^="name"]` and `[class="name"]`, comma
-//!   separated. `.name` is an exact class. The `[class...]` forms compare against the class
-//!   name without the hash the web build appends, so `[class*="title"]` reaches every
-//!   component whose class contains `title`.
-//! - Properties `color`, `background` / `background-color` (a colour, not a gradient),
-//!   `opacity`, `visibility: hidden | visible` and `display: none`. Hiding keeps the layout
-//!   space, like `visibility: hidden` on the web.
-//! - Colours as `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`, `rgb()`, `rgba()` and `transparent`.
-//!
-//! Everything else is reported, to the theme's card and to the Logs page, and skipped. Specificity is not computed: every
-//! supported selector weighs the same, so a later declaration wins. An element that carries
-//! several web classes is reached through any of them (the menu toggle carries five), and the file
-//! order decides between them, not the class list.
-//!
-//! A theme is on only when the Mods screen turned it on: `apply_enabled` reads `enabled_themes`
-//! from the shell's own `settings.json` and applies those files, in the order the list names
-//! them. Themes live in `<data_local_dir>/stremio-lightning/themes`, the folder the app's own
-//! mod handling names.
+//! Pure data and disk I/O only — zero Slint or screen imports. `shell::theme_apply` maps the
+//! resulting `ResolvedTheme` onto the window's `ClassStyles` global.
 
 use std::path::Path;
 
-use slint::{Color, ComponentHandle};
-
-use crate::{ClassStyle, ClassStyles, MainWindow, Theme as SlintTheme};
-
+mod color;
 pub mod parse;
 pub mod store;
 
 pub use parse::{Rgba, Rule, Style};
 
-type Setter = fn(&ClassStyles<'_>, ClassStyle);
+/// The 102 live UI elements a theme can reach, in the exact order `shell::theme_apply` binds to
+/// `ui/class-styles.slint`. The first class of each entry is its id; a rule selecting any of its
+/// classes applies to it.
+pub const CLASSES: &[&[&str]] = &[
+    &["board-row"],
+    &["header-container"],
+    &["title-container"],
+    &["see-all-container"],
+    &["meta-items-container"],
+    &["meta-item-link"],
+    &["poster-container"],
+    &["poster-image"],
+    &["title-bar-container"],
+    &["title-label"],
+    &["horizontal-nav-bar-container", "horizontal-nav-bar"],
+    &["logo-container"],
+    &["logo"],
+    &["search-bar-container", "search-bar"],
+    &["search-input"],
+    &["placeholder-label"],
+    &["submit-button-container", "button-container"],
+    &["buttons-container"],
+    &["button-container"],
+    &[
+        "menu-toggle",
+        "label-container",
+        "nav-menu-popup-label",
+        "menu-button-container",
+        "button-container",
+    ],
+    &["avatar"],
+    &["vertical-nav-bar-container", "vertical-nav-bar"],
+    &["nav-tab-button-container", "nav-tab-button"],
+    &["icon"],
+    &["select-input", "multiselect-menu", "select-input-container"],
+    &["dropdown"],
+    &["option"],
+    &["placeholder"],
+    &["title"],
+    &["image-container"],
+    &["image"],
+    &["point"],
+    &["text"],
+    &["button", "button-container"],
+    &["label"],
+    &[
+        "addon",
+        "animation-fade-in",
+        "addon-container",
+        "button-container",
+    ],
+    &["selectable-inputs-container"],
+    &["add-button-container", "button-container"],
+    &["add-button-label"],
+    &["info-container"],
+    &["name-container"],
+    &["version-container"],
+    &["types-container"],
+    &["description-container"],
+    &["action-buttons-container"],
+    &["uninstall-button-container", "button-container"],
+    &["install-button-container", "button-container"],
+    &["share-button-container", "button-container"],
+    &["search", "text"],
+    &["message-container"],
+    &["menu"],
+    &["version-info-label"],
+    &["section"],
+    &["avatar-container"],
+    &["email-label"],
+    &["link", "button-container"],
+    &["videos-list-container"],
+    &["video-container"],
+    &["intro-container"],
+    &["background-container"],
+    &[
+        "close-button-container",
+        "close-button",
+        "dismiss-button",
+        "button-container",
+    ],
+    &["heading-container"],
+    &["slogan-container", "slogan"],
+    &["content-container"],
+    &["form-container"],
+    &["credentials-text-input", "text-input"],
+    &["forgot-password-link-container"],
+    &["forgot-password-link", "link", "button-container"],
+    &["error-message", "message-container"],
+    &["submit-button", "form-button", "button-container"],
+    &["checkbox-container", "checkboxes-container"],
+    &["checkbox"],
+    &["options-container"],
+    &["facebook-button", "form-button", "button-container"],
+    &["apple-button", "form-button", "button-container"],
+    &["login-form-button", "form-button", "button-container"],
+    &["signup-form-button", "form-button", "button-container"],
+    &["guest-login-button", "form-button", "button-container"],
+    &["mods-menu-container"],
+    &["mods-menu-button"],
+    &["mods-content"],
+    &["mods-page-title"],
+    &["mods-page-note"],
+    &["mod-card"],
+    &["mod-title"],
+    &["mod-byline"],
+    &["mod-description"],
+    &["mod-warning"],
+    &["mod-notice"],
+    &["mod-toggle-container"],
+    &["mod-toggle"],
+    &["mod-remove-button"],
+    &["mod-remove-button-label"],
+    &["mods-empty"],
+    &["mods-log-time"],
+    &["mods-log-source"],
+    &["mods-log-level"],
+    &["mods-log-text"],
+    &["mods-log-detail"],
+    &["mods-log-detail-text"],
+    &["mods-about-label"],
+    &["mods-about-value"],
+];
 
-/// The elements a theme can reach, each with the web classes it carries. The first class is the
-/// element's id in `ui/*.slint`, and a rule that selects any of its classes applies to it. Each
-/// element needs an `in property` in `ui/class-styles.slint` named after its id, which is the
-/// setter named here.
-macro_rules! elements {
-    ($($setter:ident => [$($class:literal),+]),+ $(,)?) => {
-        const ELEMENTS: &[(&[&str], Setter)] = &[
-            $((&[$($class),+], |globals: &ClassStyles<'_>, style| globals.$setter(style))),+
-        ];
-        const CLASSES: &[&[&str]] = &[$(&[$($class),+]),+];
-    };
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ThemeWarning {
+    pub filename: String,
+    pub message: String,
+    pub unreadable: bool,
 }
 
-elements! {
-    set_board_row => ["board-row"],
-    set_header_container => ["header-container"],
-    set_title_container => ["title-container"],
-    set_see_all_container => ["see-all-container"],
-    set_meta_items_container => ["meta-items-container"],
-    set_meta_item_link => ["meta-item-link"],
-    set_poster_container => ["poster-container"],
-    set_poster_image => ["poster-image"],
-    set_title_bar_container => ["title-bar-container"],
-    set_title_label => ["title-label"],
-    set_horizontal_nav_bar_container => ["horizontal-nav-bar-container", "horizontal-nav-bar"],
-    set_logo_container => ["logo-container"],
-    set_logo => ["logo"],
-    set_search_bar_container => ["search-bar-container", "search-bar"],
-    set_search_input => ["search-input"],
-    set_placeholder_label => ["placeholder-label"],
-    set_submit_button_container => ["submit-button-container", "button-container"],
-    set_buttons_container => ["buttons-container"],
-    set_button_container => ["button-container"],
-    set_menu_toggle => ["menu-toggle", "label-container", "nav-menu-popup-label", "menu-button-container", "button-container"],
-    set_avatar => ["avatar"],
-    set_vertical_nav_bar_container => ["vertical-nav-bar-container", "vertical-nav-bar"],
-    set_nav_tab_button_container => ["nav-tab-button-container", "nav-tab-button"],
-    set_icon => ["icon"],
-    set_select_input => ["select-input", "multiselect-menu", "select-input-container"],
-    set_dropdown => ["dropdown"],
-    set_option => ["option"],
-    set_placeholder => ["placeholder"],
-    set_title => ["title"],
-    set_image_container => ["image-container"],
-    set_image => ["image"],
-    set_overview => ["overview"],
-    set_point => ["point"],
-    set_text => ["text"],
-    set_button => ["button", "button-container"],
-    set_label => ["label"],
-    set_addon => ["addon", "animation-fade-in", "addon-container", "button-container"],
-    set_selectable_inputs_container => ["selectable-inputs-container"],
-    set_add_button_container => ["add-button-container", "button-container"],
-    set_add_button_label => ["add-button-label"],
-    set_info_container => ["info-container"],
-    set_name_container => ["name-container"],
-    set_version_container => ["version-container"],
-    set_types_container => ["types-container"],
-    set_description_container => ["description-container"],
-    set_action_buttons_container => ["action-buttons-container"],
-    set_uninstall_button_container => ["uninstall-button-container", "button-container"],
-    set_install_button_container => ["install-button-container", "button-container"],
-    set_share_button_container => ["share-button-container", "button-container"],
-    set_search => ["search", "text"],
-    set_message_container => ["message-container"],
-    set_menu => ["menu"],
-    set_version_info_label => ["version-info-label"],
-    set_sections_container => ["sections-container"],
-    set_section => ["section"],
-    set_user => ["user"],
-    set_avatar_container => ["avatar-container"],
-    set_email_label => ["email-label"],
-    set_link => ["link", "button-container"],
-    set_videos_list_container => ["videos-list-container"],
-    set_video_container => ["video-container"],
-    // Intro & authentication overlay
-    set_intro_container => ["intro-container"],
-    set_background_container => ["background-container"],
-    set_close_button_container => ["close-button-container", "close-button", "dismiss-button", "button-container"],
-    set_heading_container => ["heading-container"],
-    set_slogan_container => ["slogan-container", "slogan"],
-    set_content_container => ["content-container"],
-    set_form_container => ["form-container"],
-    set_credentials_text_input => ["credentials-text-input", "text-input"],
-    set_forgot_password_link_container => ["forgot-password-link-container"],
-    set_forgot_password_link => ["forgot-password-link", "link", "button-container"],
-    set_error_message => ["error-message", "message-container"],
-    set_submit_button => ["submit-button", "form-button", "button-container"],
-    set_checkbox_container => ["checkbox-container", "checkboxes-container"],
-    set_checkbox => ["checkbox"],
-    set_options_container => ["options-container"],
-    set_facebook_button => ["facebook-button", "form-button", "button-container"],
-    set_apple_button => ["apple-button", "form-button", "button-container"],
-    set_login_form_button => ["login-form-button", "form-button", "button-container"],
-    set_signup_form_button => ["signup-form-button", "form-button", "button-container"],
-    set_guest_login_button => ["guest-login-button", "form-button", "button-container"],
-    // Mods section: the frame and the two offline pages.
-    set_mods_menu_container => ["mods-menu-container"],
-    set_mods_menu_button => ["mods-menu-button"],
-    set_mods_content => ["mods-content"],
-    set_mods_page_title => ["mods-page-title"],
-    set_mods_page_note => ["mods-page-note"],
-    set_mod_card => ["mod-card"],
-    set_mod_title => ["mod-title"],
-    set_mod_byline => ["mod-byline"],
-    set_mod_description => ["mod-description"],
-    set_mod_warning => ["mod-warning"],
-    set_mod_notice => ["mod-notice"],
-    set_mod_toggle_container => ["mod-toggle-container"],
-    set_mod_toggle => ["mod-toggle"],
-    set_mod_remove_button => ["mod-remove-button"],
-    set_mod_remove_button_label => ["mod-remove-button-label"],
-    set_mods_empty => ["mods-empty"],
-    // The Logs page and the About page.
-    set_mods_log_filter => ["mods-log-filter"],
-    set_mods_log_time => ["mods-log-time"],
-    set_mods_log_source => ["mods-log-source"],
-    set_mods_log_level => ["mods-log-level"],
-    set_mods_log_text => ["mods-log-text"],
-    set_mods_log_detail => ["mods-log-detail"],
-    set_mods_log_detail_text => ["mods-log-detail-text"],
-    set_mods_about_label => ["mods-about-label"],
-    set_mods_about_value => ["mods-about-value"],
+#[derive(Clone, Debug, PartialEq)]
+pub struct ResolvedTheme {
+    pub amoled: bool,
+    pub styles: Vec<Style>,
+    pub warnings: Vec<ThemeWarning>,
 }
 
-/// What this app does not understand in a theme file, one line each: the declarations it skips
-/// and the selectors that reach no component. A card shows these before the theme is turned on.
+/// Unsupported declarations and unmatched selectors in one theme file.
 pub fn warnings(css: &str) -> Vec<String> {
     inspect(css).warnings
 }
 
-/// Reads a theme file's text and answers what it does to this app's components, so a theme can
-/// be checked without a window.
+/// Parses and resolves one theme's CSS text as plain data.
 pub fn inspect(css: &str) -> InspectedTheme {
     let theme = parse::parse_theme(css);
     let (styles, unmatched) = parse::resolve(&theme.rules, CLASSES);
     let mut warnings = theme.warnings;
     warnings.extend(unmatched);
-    InspectedTheme {
-        ids: ELEMENTS.iter().map(|(classes, _)| classes[0]).collect(),
+    InspectedTheme { styles, warnings }
+}
+
+/// Reads and resolves all enabled themes in order, preserving per-file warning attribution.
+pub fn resolve_files(data_dir: &Path, enabled: &[String]) -> ResolvedTheme {
+    let mut warnings = Vec::new();
+    let mut amoled = false;
+    let mut all_rules = Vec::new();
+
+    for filename in enabled {
+        if filename == "builtin:amoled" {
+            amoled = true;
+            continue;
+        }
+        if filename.starts_with("builtin:") {
+            continue;
+        }
+        match store::read(data_dir, filename) {
+            Ok(css) => {
+                let parsed = parse::parse_theme(&css);
+                let (_, unmatched) = parse::resolve(&parsed.rules, CLASSES);
+                warnings.extend(parsed.warnings.into_iter().chain(unmatched).map(|message| {
+                    ThemeWarning {
+                        filename: filename.clone(),
+                        message,
+                        unreadable: false,
+                    }
+                }));
+                all_rules.extend(parsed.rules);
+            }
+            Err(message) => warnings.push(ThemeWarning {
+                filename: filename.clone(),
+                message,
+                unreadable: true,
+            }),
+        }
+    }
+
+    let (styles, _) = parse::resolve(&all_rules, CLASSES);
+    ResolvedTheme {
+        amoled,
         styles,
         warnings,
     }
@@ -185,8 +208,7 @@ pub fn inspect(css: &str) -> InspectedTheme {
 
 /// What one theme file does, as plain data.
 pub struct InspectedTheme {
-    ids: Vec<&'static str>,
-    styles: Vec<parse::Style>,
+    styles: Vec<Style>,
     /// Everything the file said that this app does not understand, or that reaches no component.
     pub warnings: Vec<String>,
 }
@@ -194,218 +216,83 @@ pub struct InspectedTheme {
 impl InspectedTheme {
     /// The style the file gives the component with this id, or `None` if this app has no such
     /// component.
-    pub fn style_of(&self, id: &str) -> Option<parse::Style> {
-        let index = self.ids.iter().position(|known| *known == id)?;
+    pub fn style_of(&self, id: &str) -> Option<Style> {
+        let index = CLASSES.iter().position(|classes| classes[0] == id)?;
         Some(self.styles[index])
     }
-}
-
-fn to_slint(style: Style) -> ClassStyle {
-    let color = |rgba: Rgba| Color::from_argb_u8(rgba.3, rgba.0, rgba.1, rgba.2);
-    ClassStyle {
-        has_color: style.color.is_some(),
-        color: style.color.map_or_else(Color::default, color),
-        has_background: style.background.is_some(),
-        background: style.background.map_or_else(Color::default, color),
-        has_opacity: style.opacity.is_some(),
-        opacity: style.opacity.unwrap_or(1.0),
-        hidden: style.hidden.unwrap_or(false),
-    }
-}
-
-/// Reads the themes `settings.json` lists as enabled -- in the order it lists them -- and writes
-/// the result into the window's `ClassStyles`. An empty list leaves the window's own styling, and
-/// a file named there that no longer exists is skipped and reported in the list this returns.
-///
-/// The list is one line per thing the app could not use, each naming the file it came from: the
-/// caller records them, which is what puts a theme's trouble on the Logs page as well as on its
-/// card. Nothing is printed to stderr.
-pub fn apply_enabled(window: &MainWindow, data_dir: &Path) -> Vec<(String, String)> {
-    let enabled = crate::screens::settings::LocalExtras::load(data_dir).enabled_themes;
-    let mut troubles = Vec::new();
-    let mut amoled = false;
-
-    let mut rules = Vec::new();
-    for filename in &enabled {
-        if filename == "builtin:amoled" {
-            amoled = true;
-            continue;
-        }
-        if crate::screens::mods::builtin::get_theme(filename).is_some() {
-            continue;
-        }
-        match store::read(data_dir, filename) {
-            Ok(css) => {
-                let theme = parse::parse_theme(&css);
-                for warning in &theme.warnings {
-                    troubles.push((filename.clone(), warning.clone()));
-                }
-                rules.extend(theme.rules);
-            }
-            Err(error) => troubles.push((filename.clone(), error)),
-        }
-    }
-
-    window.global::<SlintTheme>().set_amoled(amoled);
-
-    let (styles, unmatched) = parse::resolve(&rules, CLASSES);
-    for warning in unmatched {
-        troubles.push((enabled.join(", "), warning));
-    }
-    let globals = window.global::<ClassStyles>();
-    for ((_, set_element), style) in ELEMENTS.iter().zip(styles) {
-        set_element(&globals, to_slint(style));
-    }
-    troubles
-}
-
-/// `apply_enabled` for the window's own thread, with the lines recorded as it goes: this is what
-/// every press that changes the theme list calls. The recorder is the app's one, so a theme's
-/// warnings land on the Logs page beside the rest of the app's records.
-pub fn apply_and_record(
-    window: &MainWindow,
-    data_dir: &Path,
-    logs: &crate::plumbing::logs::Logs,
-) -> Vec<(String, String)> {
-    let troubles = apply_enabled(window, data_dir);
-    for (filename, warning) in &troubles {
-        logs.theme(filename, std::slice::from_ref(warning));
-    }
-    troubles
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use parse::parse_theme;
-
-    fn style_of(styles: &[Style], element: &str) -> Style {
-        let index = ELEMENTS
-            .iter()
-            .position(|(classes, _)| classes[0] == element)
-            .expect("a known element");
-        styles[index]
-    }
-
-    fn resolved(css: &str) -> (Vec<Style>, Vec<String>) {
-        let theme = parse_theme(css);
-        let (styles, unmatched) = parse::resolve(&theme.rules, CLASSES);
-        (
-            styles,
-            theme.warnings.into_iter().chain(unmatched).collect(),
-        )
-    }
 
     #[test]
     fn reads_colours_opacity_and_hiding() {
-        let (styles, warnings) = resolved(
-            "/** @name Demo */\n\
-             .title-label { color: #fff; opacity: 0.5 !important }\n\
-             [class*=\"see-all\"] { visibility: hidden; background: rgba(255, 0, 0, 0.5) }",
+        let theme = inspect(
+            "/** @name Demo */\n             .title-label { color: #fff; opacity: 0.5 !important }\n             [class*=\"see-all\"] { visibility: hidden; background: rgba(255, 0, 0, 0.5) }",
         );
-        assert!(warnings.is_empty(), "{warnings:?}");
-        let title = style_of(&styles, "title-label");
+        assert!(theme.warnings.is_empty(), "{:?}", theme.warnings);
+        let title = theme.style_of("title-label").unwrap();
         assert_eq!(title.color, Some(Rgba(255, 255, 255, 255)));
         assert_eq!(title.opacity, Some(0.5));
-        let see_all = style_of(&styles, "see-all-container");
+        let see_all = theme.style_of("see-all-container").unwrap();
         assert_eq!(see_all.hidden, Some(true));
         assert_eq!(see_all.background, Some(Rgba(255, 0, 0, 128)));
-        assert_eq!(style_of(&styles, "board-row"), Style::default());
+        assert_eq!(theme.style_of("board-row"), Some(Style::default()));
     }
 
     #[test]
-    fn substring_selectors_reach_every_class_containing_the_name() {
-        let (styles, _) = resolved("[class*=\"title\"] { color: #f00 }");
+    fn substring_selectors_and_file_order_precedence() {
+        let sub = inspect("[class*=\"title\"] { color: #f00 }");
         for class in ["title-container", "title-bar-container", "title-label"] {
-            assert!(style_of(&styles, class).color.is_some(), "{class}");
+            assert!(sub.style_of(class).unwrap().color.is_some(), "{class}");
         }
-        assert!(style_of(&styles, "poster-image").color.is_none());
-    }
+        assert!(sub.style_of("poster-image").unwrap().color.is_none());
 
-    #[test]
-    fn a_later_rule_wins_whichever_class_of_an_element_it_names() {
-        // The menu toggle carries both classes, so the file decides and not the class list.
-        let (styles, warnings) = resolved(
-            ".button-container { background: #800080 } .menu-toggle { background: #00ffff }",
-        );
-        assert!(warnings.is_empty(), "{warnings:?}");
         let cyan = Some(Rgba(0, 255, 255, 255));
         let purple = Some(Rgba(128, 0, 128, 255));
-        assert_eq!(style_of(&styles, "menu-toggle").background, cyan);
-        assert_eq!(style_of(&styles, "button-container").background, purple);
+        let first = inspect(
+            ".button-container { background: #800080 } .menu-toggle { background: #00ffff }",
+        );
+        assert_eq!(first.style_of("menu-toggle").unwrap().background, cyan);
         assert_eq!(
-            style_of(&styles, "submit-button-container").background,
+            first
+                .style_of("submit-button-container")
+                .unwrap()
+                .background,
             purple
         );
 
-        let (styles, _) = resolved(
+        let second = inspect(
             ".menu-toggle { background: #00ffff } .button-container { background: #800080 }",
         );
-        assert_eq!(style_of(&styles, "menu-toggle").background, purple);
+        assert_eq!(second.style_of("menu-toggle").unwrap().background, purple);
     }
 
     #[test]
-    fn a_rule_reaches_an_element_through_any_of_its_classes() {
-        let (styles, warnings) =
-            resolved(".nav-tab-button { color: #f00 } .label-container { opacity: 0.5 }");
-        assert!(warnings.is_empty(), "{warnings:?}");
-        assert!(style_of(&styles, "nav-tab-button-container")
+    fn a_rule_reaches_an_element_through_any_of_its_classes_and_intro_styles() {
+        let theme = inspect(
+            ".nav-tab-button { color: #f00 } .label-container { opacity: 0.5 }\n             .form-button { background: #303040 } .facebook-button { background: #1877f1 }\n             .slogan { opacity: 0.8 } .checkbox { visibility: hidden }",
+        );
+        assert!(theme.warnings.is_empty(), "{:?}", theme.warnings);
+        assert!(theme
+            .style_of("nav-tab-button-container")
+            .unwrap()
             .color
             .is_some());
-        assert_eq!(style_of(&styles, "menu-toggle").opacity, Some(0.5));
+        assert_eq!(theme.style_of("menu-toggle").unwrap().opacity, Some(0.5));
         assert_eq!(
-            style_of(&styles, "vertical-nav-bar-container"),
-            Style::default()
-        );
-    }
-
-    #[test]
-    fn intro_components_theming() {
-        let (styles, warnings) = resolved(
-            ".intro-container { background: #101020 }\n\
-             .credentials-text-input { background: #202030; color: #ffffff }\n\
-             .form-button { background: #303040 }\n\
-             .facebook-button { background: #1877f1 }\n\
-             .error-message { color: #ff5555 }\n\
-             .slogan { opacity: 0.8 }\n\
-             .checkbox { visibility: hidden }",
-        );
-        assert!(warnings.is_empty(), "{warnings:?}");
-        assert_eq!(
-            style_of(&styles, "intro-container").background,
-            Some(Rgba(0x10, 0x10, 0x20, 255))
-        );
-        assert_eq!(
-            style_of(&styles, "credentials-text-input").background,
-            Some(Rgba(0x20, 0x20, 0x30, 255))
-        );
-        assert_eq!(
-            style_of(&styles, "credentials-text-input").color,
-            Some(Rgba(255, 255, 255, 255))
-        );
-        // Shared .form-button matches submit, apple, and guest buttons
-        assert_eq!(
-            style_of(&styles, "submit-button").background,
+            theme.style_of("submit-button").unwrap().background,
             Some(Rgba(0x30, 0x30, 0x40, 255))
         );
         assert_eq!(
-            style_of(&styles, "apple-button").background,
-            Some(Rgba(0x30, 0x30, 0x40, 255))
-        );
-        assert_eq!(
-            style_of(&styles, "guest-login-button").background,
-            Some(Rgba(0x30, 0x30, 0x40, 255))
-        );
-        // Later .facebook-button rule overrides .form-button for facebook-button
-        assert_eq!(
-            style_of(&styles, "facebook-button").background,
+            theme.style_of("facebook-button").unwrap().background,
             Some(Rgba(0x18, 0x77, 0xf1, 255))
         );
         assert_eq!(
-            style_of(&styles, "error-message").color,
-            Some(Rgba(0xff, 0x55, 0x55, 255))
+            theme.style_of("slogan-container").unwrap().opacity,
+            Some(0.8)
         );
-        assert_eq!(style_of(&styles, "slogan-container").opacity, Some(0.8));
-        assert_eq!(style_of(&styles, "checkbox").hidden, Some(true));
+        assert_eq!(theme.style_of("checkbox").unwrap().hidden, Some(true));
     }
 }

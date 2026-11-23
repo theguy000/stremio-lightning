@@ -24,7 +24,6 @@ use crate::plumbing::links;
 use crate::plumbing::player::VideoPlayer;
 use crate::plumbing::skip;
 use crate::plumbing::stream_server::{self, Supervisor};
-use crate::plumbing::theme;
 use crate::screens::player::{auto_subtitle, SubtitleChoice, SubtitleTrackFacts};
 use crate::screens::{addons, auth, calendar, details, discover, mods, player, settings};
 use crate::shell;
@@ -2790,7 +2789,7 @@ impl Wiring {
         let data_dir = self.data_dir.clone();
         let logs = self.logs.clone();
         let _ = self.window.upgrade_in_event_loop(move |window| {
-            theme::apply_and_record(&window, &data_dir, &logs);
+            super::theme_apply::apply_and_record(&window, &data_dir, &logs);
         });
     }
 

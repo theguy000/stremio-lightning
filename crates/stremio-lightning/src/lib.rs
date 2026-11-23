@@ -95,7 +95,7 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
     // Only the themes the Mods screen has turned on, so a freshly installed theme file changes
     // nothing until someone picks it. What a theme says that the app cannot use is recorded here,
     // which is what puts it on the Logs page as well as on its card.
-    plumbing::theme::apply_and_record(&window, &data_dir, &logs);
+    shell::theme_apply::apply_and_record(&window, &data_dir, &logs);
     let video = plumbing::player::VideoPlayer::install(&window, logs.clone());
 
     let server = Arc::new(plumbing::stream_server::Supervisor::new(
