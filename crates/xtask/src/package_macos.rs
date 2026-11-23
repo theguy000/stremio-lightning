@@ -1,5 +1,6 @@
 use crate::common::{
-    Result, chmod_executable, copy_file, required_executable_file, required_file, root, run_program,
+    Result, chmod_executable, copy_file, required_executable_file, required_file, root,
+    run_program, stage_runtime_bins,
 };
 use crate::{MACOS_APP_BUNDLE, NATIVE_BIN};
 use std::{env, fs, path::PathBuf};
@@ -56,13 +57,12 @@ pub fn package_macos() -> Result<()> {
     let bundled_mpv = frameworks_dir.join(&mpv_name);
     copy_file(&mpv_library, &bundled_mpv)?;
 
-    let bundled_resource_root = resources_dir.join("resources");
-    fs::create_dir_all(&bundled_resource_root)?;
-    for name in ["stream-server", "ffmpeg", "ffprobe"] {
-        let dest = bundled_resource_root.join(name);
-        copy_file(native_dir.join(format!("resources/{name}")), &dest)?;
-        chmod_executable(&dest)?;
-    }
+    stage_runtime_bins(
+        &native_dir.join("resources"),
+        &resources_dir.join("resources"),
+        &["stream-server", "ffmpeg", "ffprobe"],
+        true,
+    )?;
 
     chmod_executable(&executable)?;
 
@@ -110,6 +110,8 @@ fn macos_mpv_library() -> Result<PathBuf> {
         root.join("crates/stremio-lightning/mpv-dev"),
         PathBuf::from("/opt/homebrew/opt/mpv"),
         PathBuf::from("/usr/local/opt/mpv"),
+        PathBuf::from("/opt/homebrew"),
+        PathBuf::from("/usr/local"),
     ]);
 
     for candidate in roots {

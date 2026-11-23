@@ -1,6 +1,6 @@
 pub mod bump_version;
 pub mod common;
-pub mod package_linux;
+pub mod linux;
 pub mod package_macos;
 pub mod package_windows;
 pub mod setup;
@@ -56,10 +56,10 @@ fn run() -> Result<()> {
             bump_version::bump_version(&version)?;
         }
         "validate" => validation::run_validation()?,
-        "package-linux-appimage" => package_linux::build_linux_appimage()?,
-        "package-linux-deb" => package_linux::package_linux_deb()?,
-        "package-linux-flatpak" => package_linux::package_linux_flatpak()?,
-        "package-linux-flatpak-builder" => package_linux::package_linux_flatpak_builder()?,
+        "package-linux-appimage" => linux::build_linux_appimage()?,
+        "package-linux-deb" => linux::package_linux_deb()?,
+        "package-linux-flatpak" => linux::package_linux_flatpak()?,
+        "package-linux-flatpak-builder" => linux::package_linux_flatpak_builder()?,
         "package-macos" => package_macos::package_macos()?,
         "package-windows-portable" => package_windows::package_windows()?,
         "package-windows-installer" => package_windows::package_windows_installer()?,

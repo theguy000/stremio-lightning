@@ -32,32 +32,23 @@ fn resolve_package_version(
     ref_name: Option<&str>,
     pkg_version: &str,
 ) -> Result<String> {
-    let raw = override_version
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .or_else(|| {
-            if ref_type == Some("tag") {
-                ref_name.map(str::trim).filter(|value| !value.is_empty())
-            } else {
-                None
-            }
-        })
-        .unwrap_or(pkg_version);
-
+    fn non_empty(s: Option<&str>) -> Option<&str> {
+        s.map(str::trim).filter(|v| !v.is_empty())
+    }
+    let tag = (ref_type == Some("tag"))
+        .then(|| non_empty(ref_name))
+        .flatten();
+    let raw = non_empty(override_version).or(tag).unwrap_or(pkg_version);
     let version = raw.trim().trim_start_matches('v').to_string();
     if version.is_empty() {
         return Err("package version is empty".into());
     }
-    if !version.chars().all(|character| {
-        character.is_ascii_alphanumeric() || matches!(character, '.' | '+' | '~' | '-' | ':')
-    }) {
+    let valid_char =
+        |c: char| c.is_ascii_alphanumeric() || matches!(c, '.' | '+' | '~' | '-' | ':');
+    if !version.chars().all(valid_char) {
         return Err(format!("package version contains unsupported characters: {raw}").into());
     }
-    if !version
-        .chars()
-        .next()
-        .is_some_and(|character| character.is_ascii_digit())
-    {
+    if !version.as_bytes()[0].is_ascii_digit() {
         return Err(format!(
             "package version must start with a digit after optional 'v' prefix: {raw}"
         )
@@ -152,10 +143,6 @@ pub fn copy_dir_recursive(from: impl AsRef<Path>, to: impl AsRef<Path>) -> Resul
     }
 
     Ok(())
-}
-
-pub fn inno_path(path: &Path) -> String {
-    path.to_string_lossy().replace('"', "\"\"")
 }
 
 pub fn write_file(path: impl AsRef<Path>, contents: impl AsRef<[u8]>) -> Result<()> {
@@ -266,6 +253,23 @@ pub fn required_executable_file(path: impl AsRef<Path>, setup_hint: &str) -> Res
             path.display()
         )
         .into());
+    }
+    Ok(())
+}
+
+pub fn stage_runtime_bins(
+    src_dir: &Path,
+    dst_dir: &Path,
+    names: &[&str],
+    executable: bool,
+) -> Result<()> {
+    fs::create_dir_all(dst_dir)?;
+    for name in names {
+        let dest = dst_dir.join(name);
+        copy_file(src_dir.join(name), &dest)?;
+        if executable {
+            chmod_executable(&dest)?;
+        }
     }
     Ok(())
 }
