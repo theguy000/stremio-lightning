@@ -60,8 +60,11 @@ export component EpisodeProgress inherits Rectangle {
     height: 0.4 * root.rem-size;
     background: #ffffff33;
     border-radius: self.height / 2;
+    clip: true;
 
     Rectangle {
+        x: 0;
+        y: 0;
         width: parent.width * Math.min(Math.max(root.progress, 0), 100) / 100;
         height: parent.height;
         border-radius: parent.height / 2;

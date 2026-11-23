@@ -83,12 +83,41 @@ component SeasonButton inherits Rectangle {
     }
 }
 
+component EpisodeMenuOption inherits Rectangle {
+    in property <string> label;
+    in property <length> rem-size;
+    callback picked;
+
+    height: label-text.preferred-height + 2 * root.rem-size;
+    background: touch.has-hover ? #ffffff26 : transparent;
+
+    label-text := Text {
+        x: 1.5 * root.rem-size;
+        width: parent.width - 3 * root.rem-size;
+        y: 1 * root.rem-size;
+        height: parent.height - 2 * root.rem-size;
+        text: root.label;
+        vertical-alignment: center;
+        wrap: word-wrap;
+        font-size: 1 * root.rem-size;
+        font-weight: 500;
+        color: Theme.text;
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.picked();
+        }
+    }
+}
+
 // Web: `.video-container` — a 5rem thumbnail, the title over its release line, and a play
 // button, inside a 0.15rem border that carries the accent colour on the picked Episode.
 component VideoListItem inherits Rectangle {
     in property <VideoRow> episode;
     in property <length> rem-size;
     callback clicked;
+    callback open-menu(length, length);
 
     height: 6.3 * root.rem-size;
     border-width: 0.15 * root.rem-size;
@@ -164,6 +193,13 @@ component VideoListItem inherits Rectangle {
     }
     touch := TouchArea {
         mouse-cursor: pointer;
+        // Right-click opens on release for the same reason as MetaItem: opening on press would
+        // let a following right-click press dismiss the popup and immediately re-open it.
+        pointer-event(event) => {
+            if (event.button == PointerEventButton.right && event.kind == PointerEventKind.up) {
+                root.open-menu(root.absolute-position.x + self.mouse-x, root.absolute-position.y + self.mouse-y);
+            }
+        }
         clicked => {
             root.clicked();
         }
@@ -175,12 +211,24 @@ export component VideosList inherits Rectangle {
     in property <[SelectOption]> seasons;
     in property <int> season-index: 0;
     in property <string> season-title;
+    in property <bool> season-watched: false;
     in property <[VideoRow]> videos;
     in property <length> rem-size;
     in property <string> query;
+    in property <length> viewport-width: 1280px;
+    in property <length> viewport-height: 720px;
     callback select-season(int);
     callback pick-video(string);
     callback search-videos(string);
+    callback watch-episode(string);
+    callback toggle-episode-watched(string);
+    callback toggle-season-watched();
+
+    property <string> menu-video-id;
+    property <bool> menu-video-watched: false;
+    property <length> menu-pointer-x: 0px;
+    property <length> menu-pointer-y: 0px;
+    property <length> menu-width: 16 * root.rem-size;
 
     background: ClassStyles.background-or(ClassStyles.videos_list_container, transparent);
     visible: !(ClassStyles.videos_list_container).hidden;
@@ -277,6 +325,63 @@ export component VideosList inherits Rectangle {
                     rem-size: root.rem-size;
                     clicked => {
                         root.pick-video(video.id);
+                    }
+                    open-menu(abs-x, abs-y) => {
+                        root.menu-video-id = video.id;
+                        root.menu-video-watched = video.watched;
+                        root.menu-pointer-x = abs-x - root.absolute-position.x;
+                        root.menu-pointer-y = abs-y - root.absolute-position.y;
+                        episode-menu.show();
+                    }
+                }
+            }
+        }
+    }
+
+    // Web: `Video`'s Popup context menu -- Watch, Mark as [non-]watched, Mark rest as [non-]watched.
+    episode-menu := PopupWindow {
+        x: Math.max(-root.absolute-position.x, Math.min(root.menu-pointer-x,
+            root.viewport-width - root.absolute-position.x - root.menu-width));
+        y: root.menu-pointer-y + options-layout.preferred-height
+                > root.viewport-height - root.absolute-position.y
+            ? Math.max(-root.absolute-position.y, root.menu-pointer-y - options-layout.preferred-height)
+            : root.menu-pointer-y;
+        width: root.menu-width;
+        height: options-layout.preferred-height;
+        close-policy: PopupClosePolicy.close-on-click-outside;
+
+        Rectangle {
+            width: parent.width;
+            height: parent.height;
+            border-radius: 0.75 * root.rem-size;
+            background: Theme.modal-background;
+            drop-shadow-blur: 15px;
+            drop-shadow-color: #7b5bf55e;
+            clip: true;
+
+            options-layout := VerticalLayout {
+                EpisodeMenuOption {
+                    label: "Watch";
+                    rem-size: root.rem-size;
+                    picked => {
+                        episode-menu.close();
+                        root.watch-episode(root.menu-video-id);
+                    }
+                }
+                EpisodeMenuOption {
+                    label: root.menu-video-watched ? "Mark as non-watched" : "Mark as watched";
+                    rem-size: root.rem-size;
+                    picked => {
+                        episode-menu.close();
+                        root.toggle-episode-watched(root.menu-video-id);
+                    }
+                }
+                if root.seasons.length > 0: EpisodeMenuOption {
+                    label: root.season-watched ? "Mark rest as non-watched" : "Mark rest as watched";
+                    rem-size: root.rem-size;
+                    picked => {
+                        episode-menu.close();
+                        root.toggle-season-watched();
                     }
                 }
             }

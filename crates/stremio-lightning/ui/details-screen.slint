@@ -395,7 +395,10 @@ component DetailsPanel inherits Rectangle {
     in property <[SelectOption]> seasons;
     in property <int> season-index: 0;
     in property <string> season-title;
+    in property <bool> season-watched: false;
     in property <[VideoRow]> episodes;
+    in property <length> viewport-width: 1280px;
+    in property <length> viewport-height: 720px;
     in property <string> query;
     in property <bool> show-picker: false;
     in property <string> picked-label;
@@ -422,6 +425,9 @@ component DetailsPanel inherits Rectangle {
     callback select-season(int);
     callback pick-video(string);
     callback search-videos(string);
+    callback watch-episode(string);
+    callback toggle-episode-watched(string);
+    callback toggle-season-watched();
     callback back-to-episodes();
     callback play-stream(int);
     callback stepped-season(int);
@@ -439,9 +445,12 @@ component DetailsPanel inherits Rectangle {
         seasons: root.seasons;
         season-index: root.season-index;
         season-title: root.season-title;
+        season-watched: root.season-watched;
         videos: root.episodes;
         rem-size: root.rem-size;
         query: root.query;
+        viewport-width: root.viewport-width;
+        viewport-height: root.viewport-height;
         select-season(index) => {
             root.select-season(index);
         }
@@ -450,6 +459,15 @@ component DetailsPanel inherits Rectangle {
         }
         search-videos(text) => {
             root.search-videos(text);
+        }
+        watch-episode(id) => {
+            root.watch-episode(id);
+        }
+        toggle-episode-watched(id) => {
+            root.toggle-episode-watched(id);
+        }
+        toggle-season-watched => {
+            root.toggle-season-watched();
         }
     }
 
@@ -619,6 +637,7 @@ export component DetailsScreen inherits Rectangle {
     in property <[SelectOption]> seasons;
     in property <int> season-index: 0;
     in property <string> season-title;
+    in property <bool> season-watched: false;
     in property <bool> show-picker: false;
     in property <string> picked-label;
     in property <[StreamData]> streams;
@@ -644,6 +663,9 @@ export component DetailsScreen inherits Rectangle {
     callback select-season(int);
     callback pick-video(string);
     callback search-videos(string);
+    callback watch-episode(string);
+    callback toggle-episode-watched(string);
+    callback toggle-season-watched();
     callback back-to-episodes();
     callback play-stream(int);
     callback step-season(int);
@@ -740,7 +762,10 @@ export component DetailsScreen inherits Rectangle {
             seasons: root.seasons;
             season-index: root.season-index;
             season-title: root.season-title;
+            season-watched: root.season-watched;
             episodes: root.episodes;
+            viewport-width: root.width;
+            viewport-height: root.height;
             query: root.video-query;
             show-picker: root.show-picker;
             picked-label: root.picked-label;
@@ -762,6 +787,15 @@ export component DetailsScreen inherits Rectangle {
             }
             search-videos(text) => {
                 root.search-videos(text);
+            }
+            watch-episode(id) => {
+                root.watch-episode(id);
+            }
+            toggle-episode-watched(id) => {
+                root.toggle-episode-watched(id);
+            }
+            toggle-season-watched => {
+                root.toggle-season-watched();
             }
             back-to-episodes => {
                 root.back-to-episodes();

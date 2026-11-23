@@ -16,6 +16,7 @@ import { PreviewData } from "meta-preview.slint";
 import { Theme } from "theme.slint";
 import { MultiselectMenu, SelectOption } from "multiselect-menu.slint";
 import { ScrollBar } from "scroll-bar.slint";
+import { EpisodeProgress } from "watched-marks.slint";
 
 /// One row the timing panel lists: the category, its times, and the id a vote names.
 export struct SkipRow {
@@ -164,6 +165,8 @@ component PlayerSlider inherits Rectangle {
     in property <bool> tooltip: false;
     /// Stretches the bar marks, as fractions of the whole length.
     in property <[SkipMark]> marks;
+    /// Whether the played stretch and thumb use the primary accent (the SeekBar).
+    in property <bool> accent: false;
     /// Whether the thumb is the speed menu's ringed one rather than a solid dot.
     in property <bool> ring: false;
     callback slid(float);
@@ -205,7 +208,7 @@ component PlayerSlider inherits Rectangle {
         width: parent.width * root.at;
         height: root.track-size;
         border-radius: root.track-size;
-        background: root.boost ? @linear-gradient(90deg, Theme.text 0%, Theme.text 50%, Theme.accent-yellow 75%, Theme.accent-red 100%) : Theme.text;
+        background: root.boost ? @linear-gradient(90deg, Theme.text 0%, Theme.text 50%, Theme.accent-yellow 75%, Theme.accent-red 100%) : (root.accent ? Theme.accent : Theme.text);
     }
     // The stretches the shell can skip, drawn over the played part so one stays visible while it
     // is being played: the bar says a skip is coming before the button says it is here.
@@ -223,8 +226,11 @@ component PlayerSlider inherits Rectangle {
         height: self.width;
         x: parent.width * root.at - self.width / 2;
         y: (parent.height - self.height) / 2;
-        border-radius: self.width;
-        background: Theme.text;
+        border-radius: self.width / 2;
+        background: root.accent ? Theme.accent : Theme.text;
+        border-width: root.accent ? 0.25 * root.rem-size : 0px;
+        // Web: `box-shadow: 0 0 0 0.25rem var(--primary-accent-color) inset; filter: brightness(130%);`
+        border-color: root.accent ? #a076ff : transparent;
 
         // Web: the speed menu's thumb carries `box-shadow: 0 0 0 0.25rem white inset`, which
         // reads as a white ring around a violet centre at this size.
@@ -1384,6 +1390,7 @@ export component PlayerScreen inherits Rectangle {
                 maximum: Math.max(root.duration, 1);
                 buffered: root.buffered;
                 enabled: root.can-seek;
+                accent: true;
                 tooltip: true;
                 marks: root.skip-marks;
                 slid(value) => {
@@ -2283,20 +2290,12 @@ export component PlayerScreen inherits Rectangle {
                                 // foreground at 20%; the violet fill is the percentage the core
                                 // keeps for the Episode the title is sitting on. Both are drawn
                                 // only when there is a number: no bar means "not started".
-                                if episode.progress > 0: Rectangle {
+                                if episode.progress > 0: EpisodeProgress {
                                     x: 0.5 * root.rem-size;
                                     y: parent.height - self.height - 0.35 * root.rem-size;
                                     width: parent.width - 1 * root.rem-size;
-                                    height: 0.4 * root.rem-size;
-                                    background: #ffffff33;
-                                    border-radius: self.height;
-
-                                    Rectangle {
-                                        width: parent.width * Math.min(episode.progress, 100) / 100;
-                                        height: parent.height;
-                                        border-radius: parent.height / 2;
-                                        background: Theme.accent;
-                                    }
+                                    progress: episode.progress;
+                                    rem-size: root.rem-size;
                                 }
                             }
 

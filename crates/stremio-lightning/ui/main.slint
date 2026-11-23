@@ -156,6 +156,7 @@ export component MainWindow inherits Window {
     in property <[SelectOption]> details-seasons: [];
     in property <int> details-season-index: 0;
     in property <string> details-season-title;
+    in property <bool> details-season-watched: false;
     in property <[VideoRow]> details-episodes: [];
     in-out property <string> details-video-query;
     in property <string> details-picked-label;
@@ -272,6 +273,9 @@ export component MainWindow inherits Window {
     callback select-season(int);
     callback pick-video(string);
     callback search-videos(string);
+    callback watch-episode(string);
+    callback toggle-episode-watched(string);
+    callback toggle-season-watched();
     callback back-to-episodes();
     callback step-season(int);
     callback step-episode(int);
@@ -393,6 +397,7 @@ callback player-skip();
         seasons: root.details-seasons;
         season-index: root.details-season-index;
         season-title: root.details-season-title;
+        season-watched: root.details-season-watched;
         picked-label: root.details-picked-label;
         show-picker: root.details-show-picker;
         streams: root.streams;
@@ -416,6 +421,15 @@ callback player-skip();
         }
         search-videos(text) => {
             root.search-videos(text);
+        }
+        watch-episode(id) => {
+            root.watch-episode(id);
+        }
+        toggle-episode-watched(id) => {
+            root.toggle-episode-watched(id);
+        }
+        toggle-season-watched => {
+            root.toggle-season-watched();
         }
         back-to-episodes => {
             root.back-to-episodes();

@@ -198,15 +198,19 @@ export component MetaItem inherits Rectangle {
                 clip: true;
 
                 Rectangle {
-                    width: parent.width * Math.min(Math.max(root.card.progress, 0), 100) / 100;
-                    height: parent.height;
-                    background: Theme.text;
-                }
-                Rectangle {
+                    x: 0;
+                    y: 0;
                     width: parent.width;
                     height: parent.height;
                     background: Theme.text;
                     opacity: 0.3;
+                }
+                Rectangle {
+                    x: 0;
+                    y: 0;
+                    width: parent.width * Math.min(Math.max(root.card.progress, 0), 100) / 100;
+                    height: parent.height;
+                    background: Theme.text;
                 }
             }
 
