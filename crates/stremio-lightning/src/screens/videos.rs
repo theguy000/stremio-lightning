@@ -125,11 +125,6 @@ pub(crate) fn episodes_for_season(
         .collect()
 }
 
-/// Episodes of `season` without library/player enrichment (for callers without library state).
-pub(crate) fn episodes(videos: &[Video], season: u32) -> Vec<Episode> {
-    episodes_for_season(videos, season, None, None, None)
-}
-
 /// Web: names a picked Episode as `S1E2 Title` (or `SPECIAL 1 Title`) for Streams List / Next Video.
 pub(crate) fn picked_label(videos: &[Video], picked: &str) -> Option<String> {
     let video = videos.iter().find(|video| video.id == picked)?;
@@ -222,12 +217,15 @@ mod tests {
             video("s", 0, 3, "Bonus"),
             film("m", "A film"),
         ];
-        let ep = &episodes(&vs, 1)[0];
+        let ep = &episodes_for_season(&vs, 1, None, None, None)[0];
         assert_eq!(
             (ep.id.as_str(), ep.label.as_str(), ep.title.as_str()),
             ("a", "S1E2", "2. Second")
         );
-        assert_eq!(episodes(&vs, 0)[0].label, "SPECIAL 3");
+        assert_eq!(
+            episodes_for_season(&vs, 0, None, None, None)[0].label,
+            "SPECIAL 3"
+        );
         assert_eq!(picked_label(&vs, "a"), Some("S1E2 Second".into()));
         assert_eq!(picked_label(&vs, "s"), Some("SPECIAL 3 Bonus".into()));
         assert_eq!(picked_label(&vs, "m"), Some("A film".into()));

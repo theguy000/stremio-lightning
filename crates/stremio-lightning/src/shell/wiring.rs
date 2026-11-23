@@ -227,6 +227,16 @@ pub(crate) struct ArmedMod {
 /// a card left alone never deletes anything on a later, unrelated press.
 const DISARM_MS: u64 = 5000;
 
+fn track_info_of(track: &crate::plumbing::player::Track) -> player::TrackInfo {
+    player::TrackInfo {
+        id: track.id.clone(),
+        title: track.title.clone(),
+        language: track.language.clone(),
+        selected: track.selected,
+        external: track.external,
+    }
+}
+
 /// The track lists the window was last given, so the same list is not handed over again and again.
 #[derive(Clone, Default, PartialEq)]
 pub(crate) struct ShownTracks {
@@ -433,12 +443,18 @@ impl Wiring {
     /// opens that Episode's Streams List (matching Web's `deepLinks.player ?? metaDetailsStreams`).
     fn watch_episode(&self, video_id: String) {
         match player::open_video(&self.runtime, &video_id) {
-            Ok(true) => {
+            Ok(player::VideoOpen::Opened) => {
                 if let Some(window) = self.window.upgrade() {
                     window.set_play_message("".into());
                 }
             }
-            Ok(false) => self.pick_video(video_id),
+            Ok(player::VideoOpen::OpenExternal(url)) => {
+                crate::plumbing::links::open(&url);
+                if let Some(window) = self.window.upgrade() {
+                    window.set_play_message("".into());
+                }
+            }
+            Ok(player::VideoOpen::PickFromStreams) => self.pick_video(video_id),
             Err(error) => {
                 if let Some(window) = self.window.upgrade() {
                     window.set_play_message(format!("Can't play this episode: {error}").into());
@@ -637,9 +653,12 @@ impl Wiring {
     /// A Stream was clicked: the player screen opens on it, and the core loads the rest.
     fn play_stream(&self, index: i32) {
         let index = usize::try_from(index).unwrap_or(usize::MAX);
-        let opened = player::open(&self.runtime, index);
-        let message = match opened {
-            Ok(()) => String::new(),
+        let message = match player::open(&self.runtime, index) {
+            Ok(Some(url)) => {
+                crate::plumbing::links::open(&url);
+                String::new()
+            }
+            Ok(None) => String::new(),
             Err(error) => format!("Can't play this stream: {error}"),
         };
         if let Some(window) = self.window.upgrade() {
@@ -680,12 +699,14 @@ impl Wiring {
             .find(|track| track.selected)
             .map(|track| track.language.clone())
             .unwrap_or_default();
+        let track_infos: Vec<player::TrackInfo> =
+            status.subtitles.iter().map(track_info_of).collect();
         let shown = ShownTracks {
             audio: status.audio.clone(),
             subtitles: status.subtitles.clone(),
             candidates: candidates.clone(),
             languages: crate::screens::player::subtitle_languages(
-                &status.subtitles,
+                &track_infos,
                 &candidates,
                 &[
                     self.subtitles_language().as_str(),
@@ -1097,7 +1118,7 @@ impl Wiring {
             reset_skip_window(&window, true);
         }
         self.player_season
-            .store(player::NO_SEASON, Ordering::Relaxed);
+            .store(player::FOLLOW_PLAYING_SEASON, Ordering::Relaxed);
         player::unload(&self.runtime);
     }
 
@@ -1629,11 +1650,23 @@ impl Wiring {
     /// rather than in the window keeps a hidden row from leaving its gap behind: a row that is
     /// merely invisible still holds its place in a layout.
     fn variants(&self, shown: &ShownTracks) -> Vec<crate::PlayerTrack> {
+        let track_infos: Vec<player::TrackInfo> =
+            shown.subtitles.iter().map(track_info_of).collect();
         crate::screens::player::subtitle_rows(
-            &shown.subtitles,
+            &track_infos,
             &shown.candidates,
             &shown.browsed_language,
         )
+        .into_iter()
+        .map(|row| crate::PlayerTrack {
+            id: row.id.into(),
+            title: row.title.into(),
+            language: row.language.into(),
+            selected: row.selected,
+            external: row.external,
+            origin: row.origin.into(),
+        })
+        .collect()
     }
 
     /// The profile's preferred subtitle language, as the settings screen writes it.
@@ -1771,7 +1804,7 @@ impl Wiring {
     fn player_select_episode(&self, video_id: String) {
         let _ = player::load_video(&self.runtime, &video_id);
         self.player_season
-            .store(player::NO_SEASON, Ordering::Relaxed);
+            .store(player::FOLLOW_PLAYING_SEASON, Ordering::Relaxed);
     }
 
     /// A season in the drawer. Nothing is loaded: the list is rebuilt from the same title.
@@ -1936,9 +1969,12 @@ impl Wiring {
         };
         match action.as_str() {
             "play" => {
-                let opened = player::open_for(&self.runtime, &id);
-                let message = match opened {
-                    Ok(()) => String::new(),
+                let message = match player::open_for(&self.runtime, &id) {
+                    Ok(Some(url)) => {
+                        crate::plumbing::links::open(&url);
+                        String::new()
+                    }
+                    Ok(None) => String::new(),
                     Err(error) => format!("Can't play this title: {error}"),
                 };
                 if let Some(window) = self.window.upgrade() {

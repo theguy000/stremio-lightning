@@ -243,7 +243,7 @@ fn snapshot(model: &AppModel, context: &Context) -> Snapshot {
     let (status, rows) = crate::screens::board::data(model);
     let mut player = player::data(
         model,
-        player::chosen_season(context.player_season.load(Ordering::Relaxed)),
+        player::chosen_season_index(context.player_season.load(Ordering::Relaxed)),
     );
     // A title whose address could not be resolved says so first; when the model has nothing to
     // say, mpv's own verdict on the address it was given stands.

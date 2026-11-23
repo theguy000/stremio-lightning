@@ -139,7 +139,7 @@ pub fn boot(data_dir: std::path::PathBuf) -> Result<Booted, Box<dyn std::error::
     let video_query: Arc<Mutex<String>> = Default::default();
     let moved: Arc<Mutex<Option<(u32, u32)>>> = Default::default();
     let said: Arc<AtomicU64> = Default::default();
-    let player_season = Arc::new(AtomicUsize::new(screens::player::NO_SEASON));
+    let player_season = Arc::new(AtomicUsize::new(screens::player::FOLLOW_PLAYING_SEASON));
     let playback_error: Arc<Mutex<String>> = Default::default();
     // The Mods page on screen. The wiring moves it and every snapshot the core produces carries
     // it, so a core event leaves the user on the page they picked.
