@@ -1,0 +1,287 @@
+//! Details Screen, Episode Picker, Streams List, and Share Modal callbacks.
+
+use slint::ModelRc;
+
+use super::Wiring;
+use crate::app::ActiveScreen;
+use crate::plumbing::{clipboard, links};
+use crate::screens::{details, player};
+use crate::MainWindow;
+
+impl Wiring {
+    pub(super) fn open_item(&self, id: String, kind: String, _title: String) {
+        self.app.details().clear_snapshot();
+        self.app.details().reset_inputs();
+        self.app.viewport().set_active_screen(ActiveScreen::Details);
+        if let Some(window) = self.window.upgrade() {
+            window.set_details_has_preview(false);
+            window.set_play_message("".into());
+            window.set_streams(ModelRc::default());
+            window.set_streams_loading(0);
+            window.set_details_seasons(ModelRc::default());
+            window.set_details_episodes(ModelRc::default());
+            window.set_details_season_watched(false);
+            window.set_details_show_picker(false);
+        }
+        details::open(self.app.runtime(), &id, &kind);
+    }
+
+    pub(super) fn refresh_details(&self) {
+        self.app.details().refresh();
+        self.app.viewport().request_active_images();
+    }
+
+    pub(super) fn select_season(&self, index: i32) {
+        let Some(season) = usize::try_from(index)
+            .ok()
+            .and_then(|i| self.app.details().view().seasons.get(i).map(|s| s.number))
+        else {
+            return;
+        };
+        self.app.details().set_season(season as usize);
+        self.refresh_details();
+    }
+
+    pub(super) fn search_videos(&self, query: String) {
+        self.app.details().set_video_query(query);
+        self.refresh_details();
+    }
+
+    pub(super) fn pick_video(&self, video_id: String) {
+        self.app.details().set_picked(Some(video_id.clone()));
+        self.app.details().set_moved(None);
+        details::pick(self.app.runtime(), &video_id);
+    }
+
+    pub(super) fn watch_episode(&self, video_id: String) {
+        match player::open_video(self.app.runtime(), &video_id) {
+            Ok(player::VideoOpen::Opened) => {
+                if let Some(window) = self.window.upgrade() {
+                    window.set_play_message("".into());
+                }
+            }
+            Ok(player::VideoOpen::OpenExternal(url)) => {
+                links::open(&url);
+                if let Some(window) = self.window.upgrade() {
+                    window.set_play_message("".into());
+                }
+            }
+            Ok(player::VideoOpen::PickFromStreams) => self.pick_video(video_id),
+            Err(error) => {
+                if let Some(window) = self.window.upgrade() {
+                    window.set_play_message(format!("Can't play this episode: {error}").into());
+                }
+            }
+        }
+    }
+
+    pub(super) fn toggle_episode_watched(&self, video_id: String) {
+        details::mark_video_watched(self.app.runtime(), &video_id);
+    }
+
+    pub(super) fn toggle_season_watched(&self) {
+        let details = self.app.details().view();
+        if let Some(season) = details.seasons.get(details.season).map(|s| s.number) {
+            details::mark_season_watched(self.app.runtime(), season);
+        }
+    }
+
+    pub(super) fn step(&self, seasons: i32, episodes: i32) {
+        let next = {
+            let Ok(model) = self.app.runtime().model() else {
+                return;
+            };
+            let Some(item) = details::meta_item(&model.meta_details) else {
+                return;
+            };
+            let Some(picked) = self.app.details().picked() else {
+                return;
+            };
+            let moved = self.app.details().moved();
+            let Some(at) = details::shown_pair(&item.videos, &picked, moved) else {
+                return;
+            };
+            details::step(&item.videos, at, seasons, episodes)
+        };
+        self.app.details().set_moved(Some(next));
+        self.refresh_details();
+    }
+
+    pub(super) fn show_streams(&self) {
+        let video = {
+            let Ok(model) = self.app.runtime().model() else {
+                return;
+            };
+            let Some(item) = details::meta_item(&model.meta_details) else {
+                return;
+            };
+            let Some(picked) = self.app.details().picked() else {
+                return;
+            };
+            let moved = self.app.details().moved();
+            let Some(at) = details::shown_pair(&item.videos, &picked, moved) else {
+                return;
+            };
+            details::stepped_video(&item.videos, at).map(str::to_owned)
+        };
+        if let Some(video) = video {
+            self.pick_video(video);
+        }
+    }
+
+    pub(super) fn next_episode(&self) {
+        if let Some(next) = self.app.details().view().next_episode.clone() {
+            self.pick_video(next);
+        }
+    }
+
+    pub(super) fn rate(&self, like: bool) {
+        let current = self.app.details().view().rating.clone();
+        details::rate(
+            self.app.runtime(),
+            details::next_rating(current.as_ref(), like),
+        );
+    }
+
+    pub(super) fn toggle_library(&self) {
+        details::toggle_library(self.app.runtime());
+    }
+
+    pub(super) fn toggle_watched(&self) {
+        details::toggle_watched(self.app.runtime());
+    }
+
+    pub(super) fn share(&self) {
+        let Ok(model) = self.app.runtime().model() else {
+            return;
+        };
+        let Some(selected) = model.meta_details.selected.as_ref() else {
+            return;
+        };
+        let Some(item) = details::meta_item(&model.meta_details) else {
+            return;
+        };
+        let link = details::share_link(
+            &item.preview.name,
+            &selected.meta_path.r#type,
+            &selected.meta_path.id,
+        );
+        drop(model);
+        if let Some(window) = self.window.upgrade() {
+            window.set_share_link(link.into());
+            window.set_share_open(true);
+        }
+    }
+
+    pub(super) fn close_share(&self) {
+        if let Some(window) = self.window.upgrade() {
+            window.set_share_open(false);
+        }
+    }
+
+    pub(super) fn copy_share(&self) {
+        let Some(window) = self.window.upgrade() else {
+            return;
+        };
+        let link = window.get_share_link().to_string();
+        let said = match clipboard::copy(&link) {
+            Ok(()) => "Link copied".to_owned(),
+            Err(error) => error,
+        };
+        self.say(&said);
+    }
+
+    pub(super) fn open_share_target(&self, network: &str) {
+        let Some(window) = self.window.upgrade() else {
+            return;
+        };
+        let link = window.get_share_link().to_string();
+        let target = match network {
+            "facebook" => format!("https://www.facebook.com/sharer/sharer.php?u={link}"),
+            "x" => format!("https://twitter.com/intent/tweet?text={link}"),
+            "reddit" => format!("https://www.reddit.com/submit?url={link}"),
+            _ => return,
+        };
+        links::open(&target);
+    }
+
+    pub(super) fn back_to_episodes(&self) {
+        self.app.details().set_picked(None);
+        self.app.details().set_moved(None);
+        details::back_to_episodes(self.app.runtime());
+    }
+
+    pub(super) fn toggle_stream_wrap(&self) {
+        {
+            let mut extras = self.app.local_extras();
+            extras.wrap_streams = !extras.wrap_streams;
+            extras.save(self.app.data_dir());
+        }
+        self.app.settings().refresh();
+    }
+
+    pub(super) fn play_stream(&self, index: i32) {
+        let index = usize::try_from(index).unwrap_or(usize::MAX);
+        let message = match player::open(self.app.runtime(), index) {
+            Ok(Some(url)) => {
+                links::open(&url);
+                String::new()
+            }
+            Ok(None) => String::new(),
+            Err(error) => format!("Can't play this stream: {error}"),
+        };
+        if let Some(window) = self.window.upgrade() {
+            window.set_play_message(message.into());
+        }
+    }
+}
+
+pub(super) fn wire(window: &MainWindow, wiring: &Wiring) {
+    let w = wiring.clone();
+    window.on_open_item(move |id, kind, title| {
+        w.open_item(id.to_string(), kind.to_string(), title.to_string())
+    });
+    let w = wiring.clone();
+    window.on_play_stream(move |index| w.play_stream(index));
+    let w = wiring.clone();
+    window.on_select_season(move |index| w.select_season(index));
+    let w = wiring.clone();
+    window.on_pick_video(move |video_id| w.pick_video(video_id.to_string()));
+    let w = wiring.clone();
+    window.on_search_videos(move |query| w.search_videos(query.to_string()));
+    let w = wiring.clone();
+    window.on_watch_episode(move |video_id| w.watch_episode(video_id.to_string()));
+    let w = wiring.clone();
+    window
+        .on_toggle_episode_watched(move |video_id| w.toggle_episode_watched(video_id.to_string()));
+    let w = wiring.clone();
+    window.on_toggle_season_watched(move || w.toggle_season_watched());
+    let w = wiring.clone();
+    window.on_back_to_episodes(move || w.back_to_episodes());
+    let w = wiring.clone();
+    window.on_toggle_stream_wrap(move || w.toggle_stream_wrap());
+    let w = wiring.clone();
+    window.on_step_season(move |step| w.step(step, 0));
+    let w = wiring.clone();
+    window.on_step_episode(move |step| w.step(0, step));
+    let w = wiring.clone();
+    window.on_show_streams(move || w.show_streams());
+    let w = wiring.clone();
+    window.on_share(move || w.share());
+    let w = wiring.clone();
+    window.on_rate_like(move || w.rate(true));
+    let w = wiring.clone();
+    window.on_rate_love(move || w.rate(false));
+    let w = wiring.clone();
+    window.on_details_toggle_library(move || w.toggle_library());
+    let w = wiring.clone();
+    window.on_details_toggle_watched(move || w.toggle_watched());
+    let w = wiring.clone();
+    window.on_share_close(move || w.close_share());
+    let w = wiring.clone();
+    window.on_share_copy(move || w.copy_share());
+    let w = wiring.clone();
+    window.on_share_to(move |network| w.open_share_target(network.as_str()));
+    let w = wiring.clone();
+    window.on_next_episode(move || w.next_episode());
+}

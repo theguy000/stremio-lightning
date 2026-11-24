@@ -3,6 +3,7 @@
 
 mod actions;
 mod open;
+pub(crate) mod skip;
 mod subtitles;
 
 pub use crate::screens::videos::Episode;
@@ -10,10 +11,10 @@ pub(crate) use actions::{
     ended, load_video, next, paused_changed, scale_changed, seek, time_changed, unload,
     video_params_changed,
 };
-pub(crate) use open::{open, open_for, open_video, VideoOpen};
+pub(crate) use open::{open, open_for, open_video, should_open, VideoOpen};
 pub use subtitles::{auto_subtitle, Subtitle, SubtitleChoice, SubtitleTrackFacts};
 pub(crate) use subtitles::{
-    same_language, subtitle_languages, subtitle_rows, variant_label, TrackInfo,
+    browsed_language, same_language, subtitle_languages, subtitle_rows, variant_label, TrackInfo,
 };
 
 use stremio_core::models::common::Loadable;

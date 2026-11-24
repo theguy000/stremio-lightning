@@ -176,6 +176,11 @@ pub(crate) fn open(runtime: &AppRuntime, index: usize) -> Result<Option<String>,
     dispatch_or_external(runtime, selected)
 }
 
+/// Whether a stream still needs handing to mpv (skips already-open or already-refused keys).
+pub(crate) fn should_open(key: &str, loaded: &str, attempted: Option<&str>) -> bool {
+    key != loaded && Some(key) != attempted
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

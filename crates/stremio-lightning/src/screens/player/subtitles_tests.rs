@@ -96,3 +96,10 @@ fn auto_subtitle_respects_choice_profile_and_embedded_priority() {
         Some("1")
     );
 }
+
+#[test]
+fn browsed_language_follows_pressed_or_active_track() {
+    assert_eq!(browsed_language("", "eng"), "eng");
+    assert_eq!(browsed_language("spa", "eng"), "spa");
+    assert_eq!(browsed_language("", ""), "");
+}

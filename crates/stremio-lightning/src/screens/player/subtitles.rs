@@ -253,6 +253,16 @@ pub(crate) fn same_language(left: &str, right: &str) -> bool {
         || (right.len() == 2 && left.starts_with(&right))
 }
 
+/// The language the variants column shows: the one the user pressed, or the language currently
+/// playing when nothing has been pressed yet.
+pub(crate) fn browsed_language(pressed: &str, active: &str) -> String {
+    if pressed.is_empty() {
+        active.to_owned()
+    } else {
+        pressed.to_owned()
+    }
+}
+
 #[cfg(test)]
 #[path = "subtitles_tests.rs"]
 mod tests;
