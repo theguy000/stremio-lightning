@@ -1,0 +1,272 @@
+// Log table row, header, and detail drawer for the Mods Logs page.
+import { ClassStyles } from "../class-styles.slint";
+import { ScrollBar } from "../scroll-bar.slint";
+import { Theme } from "../theme.slint";
+import { ModsLogRow } from "types.slint";
+
+export component ModsLogRowView inherits Rectangle {
+    in property <ModsLogRow> record;
+    in property <length> rem-size;
+    in property <bool> selected;
+    in property <bool> active;
+    in property <bool> hovered;
+    in property <length> source-width: Math.min(15 * root.rem-size, Math.max(9 * root.rem-size, root.width * 0.27));
+
+    height: 2.2 * rem-size;
+    background: (root.selected && root.active)
+        ? (root.hovered ? #22b36530 : #22b36524)
+        : root.selected
+        ? (root.hovered ? #22b36520 : #22b36514)
+        : root.hovered ? Theme.overlay : transparent;
+    accessible-role: button;
+    accessible-label: (root.selected ? "Open " : "Show ")
+        + root.record.time + " " + root.record.source + ": " + root.record.text;
+
+    if root.selected: Rectangle {
+        x: 0px;
+        y: 0.2 * root.rem-size;
+        width: 3px;
+        height: root.height - 0.4 * root.rem-size;
+        border-radius: 1.5px;
+        background: Theme.accent-green;
+        opacity: root.active ? 1.0 : 0.55;
+    }
+
+    log-row-time := Text {
+        x: 0.75 * rem-size;
+        width: 4.8 * rem-size;
+        height: parent.height;
+        text: root.record.time;
+        vertical-alignment: center;
+        font-size: 0.82 * rem-size;
+        color: ClassStyles.color-or(ClassStyles.mods-log-time, Theme.placeholder);
+        opacity: ClassStyles.opacity-or(ClassStyles.mods-log-time, 1.0);
+        visible: !ClassStyles.mods-log-time.hidden;
+    }
+    log-row-source := Text {
+        x: log-row-time.x + log-row-time.width + 0.6 * rem-size;
+        width: root.source-width;
+        height: parent.height;
+        text: root.record.source;
+        overflow: elide;
+        vertical-alignment: center;
+        font-size: 0.85 * rem-size;
+        color: ClassStyles.color-or(ClassStyles.mods-log-source, Theme.text);
+        opacity: ClassStyles.opacity-or(ClassStyles.mods-log-source, root.record.level-id == "debug" ? 0.75 : 1.0);
+        visible: !ClassStyles.mods-log-source.hidden;
+    }
+    log-row-level-pill := Rectangle {
+        x: log-row-source.x + log-row-source.width + 0.6 * rem-size;
+        y: (parent.height - self.height) / 2;
+        width: 5.4 * rem-size;
+        height: 1.4 * rem-size;
+        border-radius: 0.35 * rem-size;
+        background: root.record.level-id == "error" ? #ff707022
+            : root.record.level-id == "warn" ? #ffba191f
+            : root.record.level-id == "info" ? #7b5bf520 : Theme.surface-subtle;
+        visible: !ClassStyles.mods-log-level.hidden;
+
+        log-row-level := Text {
+            x: 0.35 * rem-size;
+            width: parent.width - 0.7 * rem-size;
+            height: parent.height;
+            text: root.record.level;
+            overflow: elide;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            font-size: 0.78 * rem-size;
+            font-weight: 600;
+            color: ClassStyles.color-or(ClassStyles.mods-log-level,
+                root.record.level-id == "error" ? Theme.accent-red
+                : root.record.level-id == "warn" ? Theme.accent-yellow
+                : root.record.level-id == "info" ? Theme.accent-soft : Theme.placeholder);
+            opacity: ClassStyles.opacity-or(ClassStyles.mods-log-level, 1.0);
+        }
+    }
+    log-row-text := Text {
+        x: log-row-level-pill.x + log-row-level-pill.width + 0.8 * rem-size;
+        width: Math.max(0px, parent.width - self.x - 0.75 * rem-size);
+        height: parent.height;
+        text: root.record.text;
+        overflow: elide;
+        vertical-alignment: center;
+        font-size: 0.85 * rem-size;
+        color: ClassStyles.color-or(ClassStyles.mods-log-text,
+            root.record.level-id == "debug" ? Theme.placeholder : Theme.text);
+        opacity: ClassStyles.opacity-or(ClassStyles.mods-log-text, 1.0);
+        visible: !ClassStyles.mods-log-text.hidden;
+    }
+    Rectangle {
+        y: parent.height - 1px;
+        width: parent.width;
+        height: 1px;
+        background: #ffffff08;
+    }
+}
+
+export component ModsLogHeader inherits Rectangle {
+    in property <length> rem-size;
+    in property <length> source-width;
+    in property <length> rows-width;
+
+    height: 2.1 * root.rem-size;
+    background: #ffffff08;
+
+    Text {
+        x: 0.75 * root.rem-size;
+        width: 4.8 * root.rem-size;
+        height: parent.height;
+        text: "Time";
+        vertical-alignment: center;
+        font-size: 0.78 * root.rem-size;
+        font-weight: 600;
+        color: Theme.placeholder;
+    }
+    Text {
+        x: 6.15 * root.rem-size;
+        width: root.source-width;
+        height: parent.height;
+        text: "Source";
+        overflow: elide;
+        vertical-alignment: center;
+        font-size: 0.78 * root.rem-size;
+        font-weight: 600;
+        color: Theme.placeholder;
+    }
+    Text {
+        x: 6.15 * root.rem-size + root.source-width + 0.6 * root.rem-size;
+        width: 5.4 * root.rem-size;
+        height: parent.height;
+        text: "Level";
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        font-size: 0.78 * root.rem-size;
+        font-weight: 600;
+        color: Theme.placeholder;
+    }
+    Text {
+        x: 6.15 * root.rem-size + root.source-width + 6.8 * root.rem-size;
+        width: Math.max(0px, root.rows-width - self.x - 0.75 * root.rem-size);
+        height: parent.height;
+        text: "Message";
+        overflow: elide;
+        vertical-alignment: center;
+        font-size: 0.78 * root.rem-size;
+        font-weight: 600;
+        color: Theme.placeholder;
+    }
+    Rectangle {
+        y: parent.height - 1px;
+        width: parent.width;
+        height: 1px;
+        background: Theme.overlay-hover;
+    }
+}
+
+export component ModsLogDetailDrawer inherits Rectangle {
+    in property <length> rem-size;
+    in property <length> max-drawer-height;
+    in property <int> open-id;
+    in property <string> heading;
+    in property <[string]> lines;
+    callback close-log();
+
+    property <length> pad: 0.9 * root.rem-size;
+    property <length> header-height: 2.0 * root.rem-size;
+    property <length> body-top: self.pad + self.header-height + 0.7 * root.rem-size;
+
+    height: Math.min(
+        Math.max(0px, root.max-drawer-height),
+        Math.min(
+            34 * root.rem-size,
+            Math.max(7.5 * root.rem-size, self.body-top + detail-body.preferred-height + self.pad + 0.5 * root.rem-size)
+        )
+    );
+    border-radius: 0.75 * root.rem-size;
+    border-width: 1px;
+    border-color: Theme.surface-medium;
+    background: ClassStyles.background-or(ClassStyles.mods-log-detail, Theme.overlay);
+    opacity: ClassStyles.opacity-or(ClassStyles.mods-log-detail, 1.0);
+    visible: !ClassStyles.mods-log-detail.hidden;
+
+    changed open-id => { detail-scroll.content-y = 0px; }
+
+    detail-heading := Text {
+        x: root.pad;
+        y: root.pad;
+        width: Math.max(0px, parent.width - 2 * root.pad - 2.6 * root.rem-size);
+        height: root.header-height;
+        text: root.heading;
+        overflow: elide;
+        vertical-alignment: center;
+        font-size: 0.85 * root.rem-size;
+        font-weight: 600;
+        color: ClassStyles.color-or(ClassStyles.mods-log-detail-text, Theme.text);
+        opacity: ClassStyles.opacity-or(ClassStyles.mods-log-detail-text, 1.0);
+        visible: !ClassStyles.mods-log-detail-text.hidden;
+    }
+    detail-close := Rectangle {
+        x: parent.width - root.pad - self.width;
+        y: root.pad;
+        width: root.header-height;
+        height: root.header-height;
+        border-radius: self.width / 2;
+        background: detail-close-touch.has-hover ? Theme.border-medium : #ffffff10;
+
+        Image {
+            source: @image-url("../icons/close.svg");
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: 1.0 * root.rem-size;
+            height: self.width;
+            colorize: Theme.text;
+            opacity: detail-close-touch.has-hover ? 1.0 : 0.75;
+        }
+        detail-close-touch := TouchArea {
+            width: 100%;
+            height: 100%;
+            mouse-cursor: pointer;
+            accessible-role: button;
+            accessible-label: "Close the record";
+            clicked => { root.close-log(); }
+        }
+    }
+    Rectangle {
+        x: root.pad;
+        y: root.pad + root.header-height + 0.35 * root.rem-size;
+        width: Math.max(0px, parent.width - 2 * root.pad);
+        height: 1px;
+        background: Theme.overlay-hover;
+    }
+
+    detail-scroll := Flickable {
+        y: root.body-top;
+        width: parent.width - 8px;
+        height: Math.max(0px, parent.height - root.body-top - root.pad);
+        content-width: self.width;
+        content-height: detail-body.preferred-height + 0.4 * root.rem-size;
+
+        detail-body := VerticalLayout {
+            x: root.pad;
+            width: Math.max(0px, detail-scroll.width - 2 * root.pad);
+            spacing: 0.25 * root.rem-size;
+
+            for line[index] in root.lines: Text {
+                text: line;
+                wrap: word-wrap;
+                font-size: 0.85 * root.rem-size;
+                color: ClassStyles.color-or(ClassStyles.mods-log-detail-text, Theme.text);
+                opacity: ClassStyles.opacity-or(ClassStyles.mods-log-detail-text, 1.0);
+                visible: !ClassStyles.mods-log-detail-text.hidden;
+            }
+        }
+    }
+    ScrollBar {
+        x: parent.width - 8px;
+        y: root.body-top;
+        height: Math.max(0px, parent.height - root.body-top - root.pad);
+        view-height: self.height;
+        content-height: detail-scroll.content-height;
+        offset <=> detail-scroll.content-y;
+    }
+}

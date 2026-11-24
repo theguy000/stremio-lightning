@@ -828,44 +828,9 @@ callback player-skip();
         width: parent.width - root.nav-width;
         height: parent.height - root.bar-height;
         viewport-width: root.width;
-        data: {
-            page: root.mods-page,
-            menu: root.mods-nav,
-            notice: root.mods.notice,
-            notice-failed: root.mods.notice-failed,
-            plugins: root.mods.plugins,
-            themes: root.mods.themes,
-            themes-note: root.mods.themes-note,
-            settings-plugins: root.mods.settings-plugins,
-            settings-plugin: root.mods.settings-plugin,
-            settings-fields: root.mods.settings-fields,
-            settings-trouble: root.mods.settings-trouble,
-            settings-empty: root.mods.settings-empty,
-            settings-dirty: root.mods.settings-dirty,
-            log-source-options: root.mods.log-source-options,
-            log-level-options: root.mods.log-level-options,
-            log-source-index: root.mods.log-source-index,
-            log-level-index: root.mods.log-level-index,
-            log-search: root.mods.log-search,
-            log-rows: root.mods.log-rows,
-            log-empty: root.mods.log-empty,
-            log-detail-heading: root.mods.log-detail-heading,
-            log-detail: root.mods.log-detail,
-            log-open-id: root.mods.log-open-id,
-            log-active-index: root.mods.log-active-index,
-            log-selected-count: root.mods.log-selected-count,
-            log-count: root.mods.log-count,
-            log-filtered: root.mods.log-filtered,
-            log-prepended: root.mods.log-prepended,
-            log-prepend-seq: root.mods.log-prepend-seq,
-            log-clear-armed: root.mods.log-clear-armed,
-            about-build: root.mods.about-build,
-            about-places: root.mods.about-places,
-            about-counts: root.mods.about-counts,
-            about-enabled: root.mods.about-enabled,
-            about-license: root.mods.about-license,
-            about-export: root.mods.about-export,
-        };
+        data: root.mods;
+        page: root.mods-page;
+        menu: root.mods-nav;
         select-page(page) => {
             root.select-mods-page(page);
         }

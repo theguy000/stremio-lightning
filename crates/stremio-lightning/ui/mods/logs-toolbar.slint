@@ -1,0 +1,224 @@
+// Filter row and search/action toolbar for the Mods Logs page.
+import { ClassStyles } from "../class-styles.slint";
+import { MultiselectMenu, SelectOption } from "../multiselect-menu.slint";
+import { Theme } from "../theme.slint";
+import { SettingsButton } from "types.slint";
+
+export component ModsLogsHeaderBar inherits Rectangle {
+    in property <length> rem-size;
+    in property <[SelectOption]> log-source-options;
+    in property <[SelectOption]> log-level-options;
+    in property <int> log-source-index;
+    in property <int> log-level-index;
+    in property <string> log-search;
+    in property <string> log-count;
+    in property <bool> log-filtered;
+    in property <int> log-selected-count;
+    in property <int> log-rows-count;
+    in property <bool> log-clear-armed;
+
+    callback filter-logs(string, int);
+    callback search-logs(string);
+    callback reset-logs-filter();
+    callback copy-log();
+    callback clear-logs();
+    callback focus-list();
+
+    height: 7.9 * root.rem-size;
+
+    changed log-search => {
+        if (log-search-input.text != root.log-search) {
+            log-search-input.text = root.log-search;
+        }
+    }
+
+    log-filter-row := HorizontalLayout {
+        width: parent.width;
+        height: 3 * root.rem-size;
+        spacing: 0.8 * root.rem-size;
+
+        log-source-filter := MultiselectMenu {
+            horizontal-stretch: 0;
+            preferred-width: 14 * root.rem-size;
+            min-width: 9 * root.rem-size;
+            max-width: 16 * root.rem-size;
+            rem-size: root.rem-size;
+            title: root.log-source-options[root.log-source-index].label;
+            options: root.log-source-options;
+            selected-index: root.log-source-index;
+            select(index) => { root.filter-logs("source", index); }
+        }
+        log-level-filter := MultiselectMenu {
+            horizontal-stretch: 0;
+            preferred-width: 17 * root.rem-size;
+            min-width: 10 * root.rem-size;
+            max-width: 20 * root.rem-size;
+            rem-size: root.rem-size;
+            title: root.log-level-options[root.log-level-index].label;
+            options: root.log-level-options;
+            selected-index: root.log-level-index;
+            select(index) => { root.filter-logs("level", index); }
+        }
+        Rectangle { horizontal-stretch: 1; }
+        if root.log-count != "": log-count-text := Text {
+            horizontal-stretch: 0;
+            text: root.log-count;
+            vertical-alignment: center;
+            font-size: 0.85 * root.rem-size;
+            color: Theme.placeholder;
+        }
+        if root.log-filtered: log-reset-slot := Rectangle {
+            horizontal-stretch: 0;
+            width: log-reset-pill.width;
+            height: 3 * root.rem-size;
+
+            log-reset-pill := Rectangle {
+                y: (parent.height - self.height) / 2;
+                width: log-reset-label.width + 1.4 * root.rem-size;
+                height: 2.1 * root.rem-size;
+                border-radius: self.height / 2;
+                border-width: 1px;
+                border-color: log-reset-touch.has-hover ? Theme.text : Theme.border-medium;
+                background: log-reset-touch.has-hover ? Theme.surface-medium : transparent;
+
+                log-reset-label := Text {
+                    x: 0.7 * root.rem-size;
+                    y: (parent.height - self.height) / 2;
+                    width: self.preferred-width;
+                    text: "Reset filters";
+                    font-size: 0.82 * root.rem-size;
+                    font-weight: 600;
+                    color: Theme.text;
+                }
+                log-reset-touch := TouchArea {
+                    width: 100%;
+                    height: 100%;
+                    mouse-cursor: pointer;
+                    accessible-role: button;
+                    accessible-label: "Reset filters";
+                    clicked => {
+                        root.reset-logs-filter();
+                        root.focus-list();
+                    }
+                }
+            }
+        }
+    }
+
+    log-toolbar := HorizontalLayout {
+        y: 3.9 * root.rem-size;
+        width: parent.width;
+        height: 3 * root.rem-size;
+        spacing: 0.8 * root.rem-size;
+
+        log-search-scope := FocusScope {
+            horizontal-stretch: 1;
+            min-width: 8 * root.rem-size;
+            height: 3 * root.rem-size;
+            key-pressed(event) => {
+                if (event.text == Key.Escape) {
+                    root.focus-list();
+                    return accept;
+                }
+                return reject;
+            }
+
+            log-search-bar := Rectangle {
+                width: parent.width;
+                height: parent.height;
+                border-radius: self.height / 2;
+                border-width: 1px;
+                border-color: log-search-input.has-focus ? Theme.accent : Theme.overlay-hover;
+                background: ClassStyles.background-or(ClassStyles.search-bar-container, Theme.overlay);
+                opacity: ClassStyles.opacity-or(ClassStyles.search-bar-container, 1.0);
+                visible: !ClassStyles.search-bar-container.hidden;
+
+                search-bar-touch := TouchArea {
+                    width: 100%;
+                    height: 100%;
+                    mouse-cursor: text;
+                    clicked => { log-search-input.focus(); }
+                }
+                search-icon := Image {
+                    source: @image-url("../icons/search.svg");
+                    x: 1.0 * root.rem-size;
+                    y: (parent.height - self.height) / 2;
+                    width: 1.15 * root.rem-size;
+                    height: self.width;
+                    colorize: ClassStyles.color-or(ClassStyles.icon, Theme.search-icon);
+                    opacity: ClassStyles.icon.has-color ? 0.6 : 0.85;
+                    visible: !ClassStyles.icon.hidden;
+                }
+                log-search-input := TextInput {
+                    x: 2.8 * root.rem-size;
+                    width: Math.max(0px, parent.width - (self.text != "" ? 5.6 * root.rem-size : 3.8 * root.rem-size));
+                    height: parent.height;
+                    single-line: true;
+                    vertical-alignment: center;
+                    font-size: 0.95 * root.rem-size;
+                    color: ClassStyles.color-or(ClassStyles.search, Theme.text);
+                    accessible-label: "Search the logs";
+                    init => { self.text = root.log-search; }
+                    edited => { root.search-logs(self.text); }
+                }
+                if log-search-input.text == "": search-placeholder := Text {
+                    x: log-search-input.x;
+                    width: log-search-input.width;
+                    height: parent.height;
+                    text: "Search logs";
+                    vertical-alignment: center;
+                    overflow: elide;
+                    font-size: 0.95 * root.rem-size;
+                    color: Theme.placeholder;
+                }
+                if log-search-input.text != "": search-clear := Rectangle {
+                    x: parent.width - 2.3 * root.rem-size;
+                    y: (parent.height - self.height) / 2;
+                    width: 1.6 * root.rem-size;
+                    height: self.width;
+                    border-radius: self.width / 2;
+                    background: search-clear-touch.has-hover ? Theme.border-medium : transparent;
+
+                    Image {
+                        source: @image-url("../icons/close.svg");
+                        x: 0.3 * root.rem-size;
+                        y: self.x;
+                        width: parent.width - 0.6 * root.rem-size;
+                        height: self.width;
+                        colorize: Theme.search-icon;
+                    }
+                    search-clear-touch := TouchArea {
+                        width: 100%;
+                        height: 100%;
+                        mouse-cursor: pointer;
+                        accessible-role: button;
+                        accessible-label: "Clear the search";
+                        clicked => {
+                            log-search-input.text = "";
+                            root.search-logs("");
+                        }
+                    }
+                }
+            }
+        }
+        log-copy := SettingsButton {
+            horizontal-stretch: 0;
+            rem-size: root.rem-size;
+            label-text: root.log-selected-count > 1 ? "Copy (" + root.log-selected-count + ")" : "Copy";
+            name: root.log-selected-count > 1 ? "Copy " + root.log-selected-count + " selected records" : "Copy the record";
+            primary: false;
+            enabled: root.log-selected-count > 0;
+            clicked => { root.copy-log(); }
+        }
+        log-clear := SettingsButton {
+            horizontal-stretch: 0;
+            rem-size: root.rem-size;
+            label-text: root.log-clear-armed ? "Confirm clear" : "Clear";
+            name: root.log-clear-armed ? "Confirm clearing the log records" : "Clear the log records";
+            primary: false;
+            danger: root.log-clear-armed;
+            enabled: root.log-rows-count > 0 || root.log-clear-armed;
+            clicked => { root.clear-logs(); }
+        }
+    }
+}
