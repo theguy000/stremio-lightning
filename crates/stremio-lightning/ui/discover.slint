@@ -5,16 +5,11 @@
 // Licence basis: ../THIRD_PARTY_NOTICES.md. Element ids reuse the web class names where one exists.
 import { MetaItem, PosterData } from "board.slint";
 import { MetaPreview, PreviewData } from "meta-preview.slint";
-import { MultiselectMenu, SelectOption } from "multiselect-menu.slint";
+import { MultiselectMenu, SelectInputData, SelectOption } from "multiselect-menu.slint";
 import { ScrollBar } from "scroll-bar.slint";
 import { Theme } from "theme.slint";
 
-// One filter in the bar: the closed label, its options and which one is selected.
-export struct SelectInputData {
-    title: string,
-    selected-index: int,
-    options: [SelectOption],
-}
+export { SelectInputData }
 
 export component DiscoverContent inherits Rectangle {
     in property <[PosterData]> cards;

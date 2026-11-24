@@ -70,12 +70,12 @@ export component ShareModal inherits Rectangle {
         height: 18.4 * root.rem-size;
         x: (parent.width - self.width) / 2;
         y: (parent.height - self.height) / 2;
-        background: #0f0d20;
+        background: Theme.modal-background;
         border-radius: 0.75 * root.rem-size;
         // Web: `.modal-dialog-container`'s `box-shadow: var(--outer-glow)` -- `0 0 15px
         // rgba(123, 91, 245, 0.37)`. Without it the panel is a dark navy rectangle on a dark navy
         // page and reads as a hole in the screen rather than as a dialog over it.
-        drop-shadow-color: #7b5bf55e;
+        drop-shadow-color: Theme.outer-glow;
         drop-shadow-blur: 15px;
 
         // Web: `.title-container` — 4.5rem tall, 1.2rem, medium.
