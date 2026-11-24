@@ -5,7 +5,7 @@ use stremio_core::constants::IMDB_LINK_CATEGORY;
 use stremio_core::types::resource::MetaItemPreview;
 
 /// What a preview panel shows for one card. `logo` and `background` are image-cache keys.
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Preview {
     /// The title's id: what the library actions are keyed by.
     pub id: String,
