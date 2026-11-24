@@ -153,7 +153,6 @@ pub(crate) fn settings_view(data: &SettingsData) -> SettingsViewData {
         next_video_duration: select_input_data(&data.next_video_duration),
         external_player: select_input_data(&data.external_player),
         hardware_decoding: data.hardware_decoding,
-        pause_on_minimize: data.pause_on_minimize,
         caching: select_input_data(&data.caching),
         torrent_profile: select_input_data(&data.torrent_profile),
         transcoding_profile: select_input_data(&data.transcoding_profile),

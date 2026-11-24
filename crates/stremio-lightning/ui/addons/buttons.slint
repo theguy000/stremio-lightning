@@ -1,0 +1,100 @@
+// Based on stremio-web (https://github.com/Stremio/stremio-web),
+// Copyright (C) 2017-2024 Smart code 203358507.
+// Numbers translated by hand from src/routes/Addons/Addon/styles.less.
+// Licence basis: ../../THIRD_PARTY_NOTICES.md.
+import { ClassStyles } from "../class-styles.slint";
+import { Theme } from "../theme.slint";
+
+export component InstallButton inherits Rectangle {
+    in property <length> rem-size;
+    in property <bool> hovered: false;
+    in property <string> text: "Install";
+
+    height: 3.5 * root.rem-size;
+    border-radius: self.height / 2;
+    border-width: 2px;
+    border-color: Theme.accent-green;
+    background: ClassStyles.background-or(
+        ClassStyles.install-button-container,
+        root.hovered ? transparent : Theme.accent-green
+    );
+    opacity: ClassStyles.opacity-or(ClassStyles.install-button-container, 1.0);
+    visible: !ClassStyles.install-button-container.hidden;
+
+    label := Text {
+        width: parent.width;
+        height: parent.height;
+        text: root.text;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        font-size: 1.1 * root.rem-size;
+        font-weight: 700;
+        color: ClassStyles.color-or(ClassStyles.label, root.hovered ? Theme.accent-green : Theme.on-accent);
+        visible: !ClassStyles.label.hidden;
+    }
+}
+
+export component UninstallButton inherits Rectangle {
+    in property <length> rem-size;
+    in property <bool> hovered: false;
+
+    height: 3.5 * root.rem-size;
+    border-radius: self.height / 2;
+    border-width: 2px;
+    border-color: Theme.text;
+    background: ClassStyles.background-or(ClassStyles.uninstall-button-container, transparent);
+    opacity: ClassStyles.opacity-or(ClassStyles.uninstall-button-container, root.hovered ? 1.0 : 0.3);
+    visible: !ClassStyles.uninstall-button-container.hidden;
+
+    label := Text {
+        width: parent.width;
+        height: parent.height;
+        text: "Uninstall";
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        font-size: 1.1 * root.rem-size;
+        font-weight: 700;
+        color: ClassStyles.color-or(ClassStyles.label, Theme.text);
+        visible: !ClassStyles.label.hidden;
+    }
+}
+
+export component ShareButton inherits Rectangle {
+    in property <length> rem-size;
+    in property <bool> hovered: false;
+
+    property <length> content-width: 2.5 * root.rem-size + label.width;
+
+    height: 3.5 * root.rem-size;
+    background: ClassStyles.background-or(ClassStyles.share-button-container, transparent);
+    opacity: ClassStyles.opacity-or(ClassStyles.share-button-container, 0.9);
+    visible: !ClassStyles.share-button-container.hidden;
+
+    icon := Image {
+        source: @image-url("../icons/share.svg");
+        x: (parent.width - root.content-width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: 1.5 * root.rem-size;
+        height: 1.5 * root.rem-size;
+        colorize: ClassStyles.color-or(ClassStyles.icon, Theme.text);
+        visible: !ClassStyles.icon.hidden;
+    }
+    label := Text {
+        x: icon.x + icon.width + root.rem-size;
+        y: (parent.height - self.height) / 2;
+        width: self.preferred-width;
+        text: "Share addon";
+        font-size: 1.1 * root.rem-size;
+        font-weight: 700;
+        color: ClassStyles.color-or(ClassStyles.label, Theme.text);
+        visible: !ClassStyles.label.hidden;
+    }
+    Rectangle {
+        x: label.x;
+        y: label.y + label.height - 0.2 * root.rem-size;
+        width: label.width;
+        height: 1px;
+        background: label.color;
+        visible: root.hovered && !ClassStyles.label.hidden;
+    }
+}

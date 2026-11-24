@@ -1,0 +1,292 @@
+// Based on stremio-web (https://github.com/Stremio/stremio-web), Copyright (C) 2017-2024 Smart code 203358507.
+// Numbers translated by hand from src/routes/MetaDetails/StreamsList/styles.less and Stream/styles.less.
+// Licence basis: ../../THIRD_PARTY_NOTICES.md.
+import { Theme } from "../theme.slint";
+
+export struct StreamData {
+    name: string,
+    description: string,
+    addon: string,
+}
+
+export component StreamRow inherits Rectangle {
+    in property <StreamData> source;
+    in property <length> rem-size;
+    in property <bool> wrap: false;
+    callback clicked;
+
+    property <length> description-cap: root.wrap ? 1000px : 3.5 * root.rem-size;
+    property <length> description-shown: Math.min(description-text.preferred-height, root.description-cap);
+
+    height: Math.max(
+        6 * root.rem-size,
+        Math.max(name-text.preferred-height, root.description-shown) + 1 * root.rem-size,
+    );
+    border-radius: 0.75 * root.rem-size;
+    background: touch.has-hover ? Theme.overlay : transparent;
+
+    HorizontalLayout {
+        padding: 0.5 * root.rem-size;
+        padding-left: 1 * root.rem-size;
+        padding-right: 1 * root.rem-size;
+        spacing: 1 * root.rem-size;
+
+        name-text := Text {
+            width: 7 * root.rem-size;
+            horizontal-stretch: 0;
+            text: root.source.name;
+            font-size: 1.1 * root.rem-size;
+            font-weight: 600;
+            color: Theme.text;
+            wrap: word-wrap;
+            overflow: clip;
+            vertical-alignment: center;
+        }
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: center;
+            description-text := Text {
+                horizontal-stretch: 1;
+                text: root.source.description;
+                font-size: 0.9 * root.rem-size;
+                color: Theme.text;
+                opacity: 0.9;
+                wrap: word-wrap;
+                overflow: clip;
+                max-height: root.description-cap;
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 3 * root.rem-size;
+                height: 3 * root.rem-size;
+                border-radius: 1.5 * root.rem-size;
+                background: Theme.accent-green;
+                opacity: touch.has-hover ? 1 : 0;
+                Image {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    width: 1.2 * root.rem-size;
+                    height: 1.2 * root.rem-size;
+                    source: @image-url("../icons/play.svg");
+                    colorize: Theme.text;
+                }
+            }
+        }
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        accessible-role: button;
+        accessible-label: root.source.name;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component StreamPlaceholder inherits Rectangle {
+    in property <length> rem-size;
+    height: 6 * root.rem-size;
+
+    HorizontalLayout {
+        padding: 0.5 * root.rem-size;
+        padding-left: 1 * root.rem-size;
+        padding-right: 1 * root.rem-size;
+        spacing: 1 * root.rem-size;
+
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 5 * root.rem-size;
+                height: 2 * root.rem-size;
+                border-radius: 0.75 * root.rem-size;
+                background: Theme.placeholder-background;
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            spacing: 0.5 * root.rem-size;
+            Rectangle {
+                height: 1.2 * root.rem-size;
+                width: 80%;
+                border-radius: 0.75 * root.rem-size;
+                background: Theme.placeholder-background;
+            }
+            Rectangle {
+                height: 1.2 * root.rem-size;
+                width: 40%;
+                border-radius: 0.75 * root.rem-size;
+                background: Theme.placeholder-background;
+            }
+        }
+        Rectangle {
+            width: 3.5 * root.rem-size;
+            height: 5 * root.rem-size;
+            Image {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                width: 2.4 * root.rem-size;
+                height: 2.4 * root.rem-size;
+                source: @image-url("../icons/play.svg");
+                colorize: Theme.placeholder-background;
+            }
+        }
+    }
+}
+
+component NumberStepper inherits Rectangle {
+    in property <string> label;
+    in property <int> value;
+    in property <length> rem-size;
+    callback stepped(int);
+
+    width: 14 * root.rem-size;
+    height: 3.5 * root.rem-size;
+    border-radius: 3.5 * root.rem-size;
+    background: Theme.overlay;
+
+    for side in [{ plus: false, left: true }, { plus: true, left: false }] : Rectangle {
+        x: side.left ? 0px : root.width - 3.5 * root.rem-size;
+        width: 3.5 * root.rem-size;
+        height: 3.5 * root.rem-size;
+        border-radius: 1.75 * root.rem-size;
+        background: Theme.overlay;
+        Image {
+            x: 1 * root.rem-size;
+            y: 1 * root.rem-size;
+            width: 1.5 * root.rem-size;
+            height: 1.5 * root.rem-size;
+            source: side.plus ? @image-url("../icons/add.svg") : @image-url("../icons/remove.svg");
+            colorize: Theme.text;
+        }
+        TouchArea {
+            mouse-cursor: pointer;
+            clicked => { root.stepped(side.plus ? 1 : -1); }
+        }
+    }
+
+    VerticalLayout {
+        x: 3.5 * root.rem-size;
+        width: parent.width - 7 * root.rem-size;
+        alignment: center;
+        spacing: 0;
+        Text {
+            text: root.label;
+            font-size: 0.8 * root.rem-size;
+            color: Theme.text;
+            opacity: 0.7;
+            horizontal-alignment: center;
+        }
+        Text {
+            text: "\{root.value}";
+            font-size: 1.2 * root.rem-size;
+            color: Theme.text;
+            horizontal-alignment: center;
+        }
+    }
+}
+
+export component StreamsMessage inherits Rectangle {
+    in property <length> rem-size;
+    in property <bool> show-steps: false;
+    in property <int> season: 0;
+    in property <int> episode: 0;
+    in property <bool> can-show-streams: false;
+    callback step-season(int);
+    callback step-episode(int);
+    callback show-streams;
+
+    VerticalLayout {
+        alignment: start;
+        padding: 1 * root.rem-size;
+
+        if root.show-steps: VerticalLayout {
+            alignment: start;
+            spacing: 1 * root.rem-size;
+            padding-bottom: 1 * root.rem-size;
+
+            HorizontalLayout {
+                alignment: center;
+                NumberStepper { label: "Season"; value: root.season; rem-size: root.rem-size; stepped(delta) => { root.step-season(delta); } }
+            }
+            HorizontalLayout {
+                alignment: center;
+                NumberStepper { label: "Episode"; value: root.episode; rem-size: root.rem-size; stepped(delta) => { root.step-episode(delta); } }
+            }
+            HorizontalLayout {
+                alignment: center;
+                Rectangle {
+                    width: 14 * root.rem-size;
+                    height: 4 * root.rem-size;
+                    border-radius: 2 * root.rem-size;
+                    background: Theme.accent;
+                    opacity: root.can-show-streams ? 1 : 0.5;
+                    Text {
+                        text: "Show Streams";
+                        font-size: 1 * root.rem-size;
+                        font-weight: 700;
+                        color: Theme.text;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    touch := TouchArea {
+                        enabled: root.can-show-streams;
+                        mouse-cursor: pointer;
+                        clicked => { root.show-streams(); }
+                    }
+                }
+            }
+        }
+
+        HorizontalLayout {
+            alignment: center;
+            Image {
+                width: 10 * root.rem-size;
+                height: 10 * root.rem-size;
+                source: @image-url("../images/empty.png");
+                opacity: 0.9;
+            }
+        }
+        VerticalLayout {
+            padding-top: 1 * root.rem-size;
+            padding-bottom: 2 * root.rem-size;
+            Text {
+                text: "No streams were found";
+                font-size: 1.4 * root.rem-size;
+                color: Theme.text;
+                horizontal-alignment: center;
+            }
+        }
+        HorizontalLayout {
+            alignment: center;
+            padding-top: 1 * root.rem-size;
+            Rectangle {
+                height: 4 * root.rem-size;
+                border-radius: 2 * root.rem-size;
+                background: Theme.accent-green;
+                HorizontalLayout {
+                    alignment: center;
+                    padding-left: 2 * root.rem-size;
+                    padding-right: 2 * root.rem-size;
+                    spacing: 1 * root.rem-size;
+                    VerticalLayout {
+                        alignment: center;
+                        Image {
+                            width: 2 * root.rem-size;
+                            height: 2 * root.rem-size;
+                            source: @image-url("../icons/install-addons.svg");
+                            colorize: Theme.text;
+                        }
+                    }
+                    Text {
+                        text: "Install addons";
+                        font-size: 1 * root.rem-size;
+                        font-weight: 700;
+                        color: Theme.text;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+    }
+}

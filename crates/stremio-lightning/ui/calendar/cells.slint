@@ -1,0 +1,252 @@
+// Based on stremio-web (https://github.com/Stremio/stremio-web),
+// Copyright (C) 2017-2026 Smart code 203358507.
+// Layout numbers translated by hand from src/routes/Calendar (Table/Cell, List/Item, Episode).
+// Licence basis: ../../THIRD_PARTY_NOTICES.md.
+import { Theme } from "../theme.slint";
+
+export struct CalendarSlot {
+    video-id: string,
+    meta-id: string,
+    kind: string,
+    title: string,
+    name: string,
+    label: string,
+    poster: image,
+    has-poster: bool,
+    thumbnail: image,
+    has-thumbnail: bool,
+}
+
+export struct CalendarDay {
+    day: int,
+    today: bool,
+    heading: string,
+    slots: [CalendarSlot],
+}
+
+export struct CalendarData {
+    signed-in: bool,
+    loading: bool,
+    year: int,
+    month: string,
+    prev: string,
+    next: string,
+    first-weekday: int,
+    days: [CalendarDay],
+    list: [CalendarDay],
+}
+
+export component CalendarCell inherits Rectangle {
+    in property <CalendarDay> day;
+    in property <bool> active;
+    in property <length> rem-size;
+    in property <length> cell-width;
+    in property <length> cell-height;
+    callback selected();
+    callback open-slot(string, string, string);
+
+    width: root.cell-width;
+    height: root.cell-height;
+    background: Theme.overlay;
+
+    cell-touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.selected(); }
+    }
+
+    border-width: 0.15 * root.rem-size;
+    border-color: root.active ? Theme.text : (cell-touch.has-hover ? Theme.overlay : transparent);
+
+    Rectangle {
+        x: root.day.today ? 0.3 * root.rem-size : 0px;
+        y: root.day.today ? 0.3 * root.rem-size : 0px;
+        width: root.day.today ? 1.5 * root.rem-size : 2 * root.rem-size;
+        height: self.width;
+        border-radius: self.width / 2;
+        background: root.day.today ? Theme.accent : transparent;
+
+        Text {
+            width: parent.width;
+            height: parent.height;
+            text: "\{root.day.day}";
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            font-size: root.day.today ? 0.875 * root.rem-size : 1 * root.rem-size;
+            font-weight: 500;
+            color: Theme.text;
+        }
+    }
+
+    Rectangle {
+        x: 0.1 * root.rem-size;
+        y: parent.height - self.height - 0.1 * root.rem-size;
+        width: parent.width - 0.2 * root.rem-size;
+        height: Math.max(1 * root.rem-size, parent.height * 0.6 - 0.2 * root.rem-size);
+        clip: true;
+
+        for slot[index] in root.day.slots: Rectangle {
+            x: index * (self.height * 2 / 3 + 0.2 * root.rem-size);
+            width: self.height * 2 / 3;
+            height: parent.height;
+            border-radius: 0.35 * root.rem-size;
+            background: Theme.overlay;
+            clip: true;
+
+            if slot.has-poster: Image {
+                width: 100%;
+                height: 100%;
+                source: slot.poster;
+                image-fit: cover;
+                opacity: slot-touch.has-hover ? 0.5 : 1.0;
+            }
+
+            if slot-touch.has-hover: Rectangle {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                width: 2 * root.rem-size;
+                height: self.width;
+                border-radius: self.width / 2;
+                background: Theme.accent-green;
+
+                Image {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    width: 1 * root.rem-size;
+                    height: self.width;
+                    source: @image-url("../icons/play.svg");
+                    colorize: Theme.text;
+                }
+            }
+
+            slot-touch := TouchArea {
+                mouse-cursor: pointer;
+                clicked => { root.open-slot(slot.meta-id, slot.kind, slot.video-id); }
+            }
+        }
+    }
+}
+
+export component CalendarEpisode inherits Rectangle {
+    in property <CalendarSlot> slot;
+    in property <length> rem-size;
+    callback opened();
+
+    property <length> art-width: Math.min(
+        40 * (root.width - 1.25 * root.rem-size) / 100,
+        8 * root.rem-size
+    );
+
+    height: body.preferred-height;
+    border-radius: 0.75 * root.rem-size;
+    background: episode-touch.has-hover ? Theme.surface-medium : Theme.overlay;
+
+    body := HorizontalLayout {
+        padding: 0.625 * root.rem-size;
+        spacing: 0.875 * root.rem-size;
+        alignment: start;
+
+        Rectangle {
+            width: root.art-width;
+            height: root.art-width * 9 / 16;
+            border-radius: 0.5 * root.rem-size;
+            clip: true;
+            background: Theme.overlay;
+
+            if root.slot.has-thumbnail: Image {
+                width: 100%;
+                height: 100%;
+                source: root.slot.thumbnail;
+                image-fit: cover;
+            }
+        }
+
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: center;
+            spacing: 0.2 * root.rem-size;
+
+            Text {
+                text: root.slot.label;
+                font-size: 0.8 * root.rem-size;
+                font-weight: 600;
+                color: Theme.accent;
+                visible: root.slot.label != "";
+            }
+            Text {
+                text: root.slot.title;
+                wrap: word-wrap;
+                overflow: elide;
+                height: Math.min(self.preferred-height, 2.4 * root.rem-size);
+                font-size: 1 * root.rem-size;
+                font-weight: 600;
+                color: Theme.text;
+            }
+            Text {
+                text: root.slot.name;
+                wrap: word-wrap;
+                overflow: elide;
+                height: Math.min(self.preferred-height, 2.2 * root.rem-size);
+                font-size: 0.875 * root.rem-size;
+                color: Theme.text;
+                opacity: 0.65;
+                visible: root.slot.name != "";
+            }
+        }
+    }
+
+    episode-touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.opened(); }
+    }
+}
+
+export component CalendarListDay inherits Rectangle {
+    in property <CalendarDay> day;
+    in property <length> rem-size;
+    in property <bool> active;
+    callback selected();
+    callback open-slot(string, string, string);
+
+    height: list-layout.preferred-height;
+    border-radius: 0.75 * root.rem-size;
+    background: Theme.overlay;
+    border-width: 0.15 * root.rem-size;
+    border-color: root.active ? Theme.text : transparent;
+
+    day-touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.selected(); }
+    }
+
+    list-layout := VerticalLayout {
+        Rectangle {
+            height: 3.5 * root.rem-size;
+            background: root.day.today ? Theme.accent : transparent;
+
+            Text {
+                x: 1 * root.rem-size;
+                width: parent.width - 2 * root.rem-size;
+                height: parent.height;
+                text: root.day.heading;
+                vertical-alignment: center;
+                overflow: elide;
+                font-size: 1 * root.rem-size;
+                font-weight: 500;
+                color: Theme.text;
+            }
+        }
+
+        VerticalLayout {
+            padding-left: 0.5 * root.rem-size;
+            padding-right: 0.5 * root.rem-size;
+            padding-bottom: 0.5 * root.rem-size;
+            spacing: 0.5 * root.rem-size;
+
+            for slot[index] in root.day.slots: CalendarEpisode {
+                slot: slot;
+                rem-size: root.rem-size;
+                opened => { root.open-slot(slot.meta-id, slot.kind, slot.video-id); }
+            }
+        }
+    }
+}

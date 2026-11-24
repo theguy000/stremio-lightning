@@ -38,7 +38,6 @@ fn create_default_settings(logged_in: bool, user_email: &str) -> SettingsViewDat
         next_video_duration: empty_select(),
         external_player: empty_select(),
         hardware_decoding: true,
-        pause_on_minimize: false,
         caching: empty_select(),
         torrent_profile: empty_select(),
         transcoding_profile: empty_select(),

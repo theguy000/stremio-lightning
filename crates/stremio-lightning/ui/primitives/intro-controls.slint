@@ -1,0 +1,300 @@
+// Based on stremio-web (https://github.com/Stremio/stremio-web),
+// Copyright (C) 2017-2025 Smart code 203358507.
+// Numbers translated by hand from web.stremio.com .intro-container and measured at 1100x720 (1rem = 14px).
+import { ClassStyles } from "../class-styles.slint";
+import { Theme } from "../theme.slint";
+
+export component IntroTextInput inherits Rectangle {
+    in property <length> rem-size: 14px;
+    in property <string> placeholder: "";
+    in-out property <string> text <=> input.text;
+    in property <bool> is-password: false;
+    in-out property <bool> password-masked: true;
+    callback edited(string);
+    callback enter-pressed();
+
+    height: 3.5 * root.rem-size;
+    border-radius: 0.75 * root.rem-size;
+    background: ClassStyles.background-or(ClassStyles.credentials-text-input, Theme.overlay);
+    opacity: ClassStyles.opacity-or(ClassStyles.credentials-text-input, 1.0);
+    visible: !ClassStyles.credentials-text-input.hidden;
+    border-width: (input.has-focus || hover-area.has-hover) ? 1.5px : 1px;
+    border-color: input.has-focus ? Theme.accent : (hover-area.has-hover ? Theme.text : transparent);
+
+    hover-area := TouchArea {
+        width: parent.width;
+        height: parent.height;
+        clicked => { input.focus(); }
+    }
+
+    input := TextInput {
+        x: 1.25 * root.rem-size;
+        y: 0px;
+        width: parent.width - (root.is-password ? 4.5 * root.rem-size : 2.5 * root.rem-size);
+        height: parent.height;
+        single-line: true;
+        vertical-alignment: center;
+        font-size: 1.1 * root.rem-size;
+        font-weight: 500;
+        color: ClassStyles.color-or(ClassStyles.credentials-text-input, Theme.text);
+        input-type: (root.is-password && root.password-masked) ? InputType.password : InputType.text;
+        edited => { root.edited(self.text); }
+        accepted => { root.enter-pressed(); }
+    }
+
+    if input.text == "": Text {
+        x: 1.25 * root.rem-size;
+        y: 0px;
+        width: parent.width - 2.5 * root.rem-size;
+        height: parent.height;
+        text: root.placeholder;
+        vertical-alignment: center;
+        font-size: 1.1 * root.rem-size;
+        font-weight: 500;
+        color: Theme.placeholder;
+    }
+
+    if root.is-password: TouchArea {
+        x: parent.width - 3.5 * root.rem-size;
+        y: 0px;
+        width: 3.5 * root.rem-size;
+        height: parent.height;
+        mouse-cursor: pointer;
+        clicked => { root.password-masked = !root.password-masked; }
+
+        Image {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: 1.5 * root.rem-size;
+            height: 1.5 * root.rem-size;
+            source: root.password-masked ? @image-url("../icons/eye.svg") : @image-url("../icons/eye-off.svg");
+            colorize: parent.has-hover ? Theme.text : Theme.placeholder;
+            opacity: parent.has-hover ? 1.0 : 0.7;
+        }
+    }
+}
+
+export component IntroCheckbox inherits Rectangle {
+    in property <length> rem-size: 14px;
+    in property <string> label: "";
+    in-out property <bool> checked: false;
+    callback toggled(bool);
+
+    height: Math.max(1.5 * root.rem-size, text-label.preferred-height);
+    opacity: ClassStyles.opacity-or(ClassStyles.checkbox, 1.0);
+    visible: !ClassStyles.checkbox.hidden;
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.checked = !root.checked;
+            root.toggled(root.checked);
+        }
+    }
+
+    box := Rectangle {
+        x: 0px;
+        y: (parent.height - self.height) / 2;
+        width: 1.5 * root.rem-size;
+        height: 1.5 * root.rem-size;
+        border-radius: 0.3 * root.rem-size;
+        background: root.checked ? Theme.accent : (touch.has-hover ? Theme.overlay-hover : Theme.overlay);
+
+        if root.checked: Path {
+            x: 0.2 * root.rem-size;
+            y: 0.2 * root.rem-size;
+            width: parent.width - 0.4 * root.rem-size;
+            height: parent.height - 0.4 * root.rem-size;
+            viewbox-width: 512;
+            viewbox-height: 512;
+            commands: "M421 128 L197 384 L101 288";
+            fill: transparent;
+            stroke: Theme.text;
+            stroke-width: 0.14 * root.rem-size;
+        }
+    }
+
+    text-label := Text {
+        x: 2.5 * root.rem-size;
+        y: (parent.height - self.height) / 2;
+        width: parent.width - 2.5 * root.rem-size;
+        text: root.label;
+        font-size: 0.9 * root.rem-size;
+        font-weight: 400;
+        color: touch.has-hover ? Theme.text : ClassStyles.color-or(ClassStyles.checkbox, Theme.text);
+        opacity: root.checked ? 1.0 : 0.75;
+        wrap: word-wrap;
+    }
+}
+
+export component IntroPillButton inherits Rectangle {
+    in property <length> rem-size: 14px;
+    in property <string> text: "";
+    in property <bool> has-icon: false;
+    in property <image> icon-source;
+    in property <color> icon-color: Theme.text;
+    in property <color> normal-bg: transparent;
+    in property <color> hover-bg: Theme.overlay;
+    in property <color> normal-color: Theme.text;
+    in property <color> hover-color: Theme.text;
+    in property <bool> has-border: true;
+    in property <color> border-col: Theme.text;
+    in property <bool> is-loading: false;
+    callback clicked();
+
+    height: 4 * root.rem-size;
+    border-radius: self.height / 2;
+    border-width: root.has-border ? 2px : 0px;
+    border-color: touch.has-hover ? Theme.text : root.border-col;
+    background: touch.has-hover ? root.hover-bg : root.normal-bg;
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            if (!root.is-loading) {
+                root.clicked();
+            }
+        }
+    }
+
+    HorizontalLayout {
+        alignment: center;
+        spacing: 1 * root.rem-size;
+        padding-left: 1.5 * root.rem-size;
+        padding-right: 1.5 * root.rem-size;
+
+        if root.has-icon: Image {
+            width: 1.8 * root.rem-size;
+            height: 1.8 * root.rem-size;
+            y: (parent.height - self.height) / 2;
+            source: root.icon-source;
+            colorize: touch.has-hover ? root.hover-color : root.icon-color;
+        }
+
+        Text {
+            y: (parent.height - self.height) / 2;
+            text: root.is-loading ? "Please wait..." : root.text;
+            font-size: 1.1 * root.rem-size;
+            font-weight: 700;
+            color: touch.has-hover ? root.hover-color : root.normal-color;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+}
+
+export component IntroHeading inherits VerticalLayout {
+    in property <length> rem-size: 14px;
+    alignment: center;
+    spacing: 3 * root.rem-size;
+    opacity: ClassStyles.opacity-or(ClassStyles.heading-container, 1.0);
+    visible: !ClassStyles.heading-container.hidden;
+
+    HorizontalLayout {
+        alignment: center;
+        spacing: 1.5 * root.rem-size;
+
+        Rectangle {
+            height: 5 * root.rem-size;
+            width: 5 * root.rem-size;
+            background: ClassStyles.background-or(ClassStyles.logo-container, transparent);
+            visible: !ClassStyles.logo-container.hidden;
+
+            Image {
+                width: 100%;
+                height: 100%;
+                source: @image-url("../images/logo.png");
+                image-fit: contain;
+                opacity: ClassStyles.opacity-or(ClassStyles.logo, 0.9);
+                visible: !ClassStyles.logo.hidden;
+            }
+        }
+
+        Text {
+            text: "Stremio Lightning";
+            font-size: 2.75 * root.rem-size;
+            font-weight: 300;
+            color: Theme.text;
+            opacity: 0.9;
+            vertical-alignment: center;
+        }
+    }
+
+    VerticalLayout {
+        spacing: 0.5 * root.rem-size;
+
+        Text {
+            text: "Freedom to Stream Faster";
+            font-size: 3 * root.rem-size;
+            font-weight: 600;
+            color: ClassStyles.color-or(ClassStyles.title-container, Theme.text);
+            opacity: ClassStyles.opacity-or(ClassStyles.title-container, 1.0);
+            visible: !ClassStyles.title-container.hidden;
+            horizontal-alignment: center;
+        }
+
+        Text {
+            text: "All the video content you enjoy in one place";
+            font-size: 1.5 * root.rem-size;
+            font-weight: 400;
+            color: ClassStyles.color-or(ClassStyles.slogan-container, Theme.text);
+            opacity: ClassStyles.opacity-or(ClassStyles.slogan-container, 0.6);
+            visible: !ClassStyles.slogan-container.hidden;
+            horizontal-alignment: center;
+        }
+    }
+}
+
+export component IntroBackdrop inherits Rectangle {
+    in property <length> rem-size: 14px;
+    callback dismiss();
+
+    background-container := Rectangle {
+        width: 100%;
+        height: 100%;
+        background: ClassStyles.background-or(ClassStyles.background-container, transparent);
+        opacity: ClassStyles.opacity-or(ClassStyles.background-container, 1.0);
+        visible: !ClassStyles.background-container.hidden;
+        clip: true;
+
+        Rectangle {
+            x: (root.width * 0.12) - (root.width * 0.75);
+            y: root.height - (root.width * 0.75);
+            width: root.width * 1.5;
+            height: root.width * 1.5;
+            background: @radial-gradient(circle, #5126ed66 0%, #5126ed00 65%);
+        }
+        Rectangle {
+            x: (root.width * 0.95) - (root.width * 0.75);
+            y: 0px - (root.width * 0.75);
+            width: root.width * 1.5;
+            height: root.width * 1.5;
+            background: @radial-gradient(circle, #7b5bf559 0%, #7b5bf500 65%);
+        }
+    }
+
+    close-button-container := Rectangle {
+        x: 2 * root.rem-size;
+        y: 2 * root.rem-size;
+        width: 3.5 * root.rem-size;
+        height: 3.5 * root.rem-size;
+        border-radius: 0.75 * root.rem-size;
+        background: back-touch.has-hover ? Theme.overlay : ClassStyles.background-or(ClassStyles.close-button-container, transparent);
+        opacity: back-touch.has-hover ? 1.0 : ClassStyles.opacity-or(ClassStyles.close-button-container, 0.6);
+        visible: !ClassStyles.close-button-container.hidden;
+        z: 10;
+
+        back-touch := TouchArea {
+            mouse-cursor: pointer;
+            clicked => { root.dismiss(); }
+        }
+        Image {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: 1.5 * root.rem-size;
+            height: 1.5 * root.rem-size;
+            source: @image-url("../icons/chevron-back.svg");
+            colorize: ClassStyles.color-or(ClassStyles.close-button-container, Theme.text);
+        }
+    }
+}

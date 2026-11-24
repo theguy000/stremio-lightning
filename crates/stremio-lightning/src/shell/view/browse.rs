@@ -227,7 +227,6 @@ fn addon_pending(pending: &Option<addons::Pending>, images: &Images) -> AddonPen
     };
     let logo = slint_image(images, &pending.logo);
     AddonPendingData {
-        open: true,
         transport_url: pending.transport_url.clone().into(),
         name: pending.name.clone().into(),
         version: pending.version.clone().into(),

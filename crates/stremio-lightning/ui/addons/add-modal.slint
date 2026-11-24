@@ -1,0 +1,246 @@
+// Based on stremio-web (https://github.com/Stremio/stremio-web),
+// Copyright (C) 2017-2024 Smart code 203358507.
+// Numbers translated by hand from src/routes/Addons/styles.less.
+// Licence basis: ../../THIRD_PARTY_NOTICES.md.
+import { Theme } from "../theme.slint";
+import { AddonPendingData } from "card.slint";
+
+export component AddAddonModal inherits Rectangle {
+    in property <length> rem-size;
+    in-out property <bool> add-open;
+    in-out property <string> add-url;
+    in-out property <bool> add-submitted;
+    in property <AddonPendingData> pending;
+    in property <string> add-error;
+    callback add-submit(string);
+    callback add-install();
+    callback add-configure(string);
+    callback add-close();
+
+    background: #00000066;
+
+    dialog := Rectangle {
+        width: 34 * root.rem-size;
+        height: 22 * root.rem-size;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        border-radius: 0.75 * root.rem-size;
+        background: Theme.modal-background;
+
+        Text {
+            x: 2 * root.rem-size;
+            y: 1.5 * root.rem-size;
+            width: parent.width - 4 * root.rem-size;
+            height: 2 * root.rem-size;
+            text: "Add addon";
+            vertical-alignment: center;
+            font-size: 1.5 * root.rem-size;
+            font-weight: 600;
+            color: Theme.text;
+        }
+
+        Text {
+            x: 2 * root.rem-size;
+            y: 4 * root.rem-size;
+            width: parent.width - 4 * root.rem-size;
+            height: 2.4 * root.rem-size;
+            text: "Paste the addon's manifest URL, the one that ends in /manifest.json.";
+            wrap: word-wrap;
+            font-size: root.rem-size;
+            color: Theme.text;
+            opacity: 0.7;
+        }
+
+        url-input := Rectangle {
+            x: 2 * root.rem-size;
+            y: 7 * root.rem-size;
+            width: parent.width - 4 * root.rem-size;
+            height: 3.5 * root.rem-size;
+            border-radius: 0.75 * root.rem-size;
+            background: Theme.overlay;
+            border-width: input.has-focus ? 1px : 0px;
+            border-color: Theme.accent;
+
+            input := TextInput {
+                x: 1 * root.rem-size;
+                width: parent.width - 2 * root.rem-size;
+                height: parent.height;
+                accessible-label: "Addon URL";
+                single-line: true;
+                vertical-alignment: center;
+                font-size: 1.1 * root.rem-size;
+                color: Theme.text;
+                text <=> root.add-url;
+                accepted => {
+                    root.add-submitted = true;
+                    root.add-submit(self.text);
+                }
+            }
+        }
+
+        if root.add-error != "": Text {
+            x: 2 * root.rem-size;
+            y: 11 * root.rem-size;
+            width: parent.width - 4 * root.rem-size;
+            height: 2.6 * root.rem-size;
+            text: root.add-error;
+            wrap: word-wrap;
+            font-size: root.rem-size;
+            color: Theme.accent-red;
+        }
+
+        if root.add-submitted && root.pending.error != "": Text {
+            x: 2 * root.rem-size;
+            y: 11 * root.rem-size;
+            width: parent.width - 4 * root.rem-size;
+            height: 2.6 * root.rem-size;
+            text: root.pending.error;
+            wrap: word-wrap;
+            font-size: root.rem-size;
+            color: Theme.accent-red;
+        }
+
+        if root.add-submitted && root.pending.ready: Rectangle {
+            x: 2 * root.rem-size;
+            y: 11 * root.rem-size;
+            width: parent.width - 4 * root.rem-size;
+            height: 6 * root.rem-size;
+            border-radius: 0.75 * root.rem-size;
+            background: Theme.overlay;
+
+            if root.pending.has-logo: Image {
+                x: 1 * root.rem-size;
+                y: 1 * root.rem-size;
+                width: 4 * root.rem-size;
+                height: 4 * root.rem-size;
+                source: root.pending.logo;
+                image-fit: contain;
+            }
+
+            Text {
+                x: 6 * root.rem-size;
+                y: 1 * root.rem-size;
+                width: parent.width - 7 * root.rem-size;
+                height: 1.6 * root.rem-size;
+                text: root.pending.name;
+                overflow: elide;
+                font-size: 1.2 * root.rem-size;
+                font-weight: 600;
+                color: Theme.text;
+            }
+            Text {
+                x: 6 * root.rem-size;
+                y: 2.6 * root.rem-size;
+                width: parent.width - 7 * root.rem-size;
+                height: 1.4 * root.rem-size;
+                text: root.pending.version + "   " + root.pending.types + (root.pending.installed ? "   already installed" : "");
+                overflow: elide;
+                font-size: 0.9 * root.rem-size;
+                color: Theme.text;
+                opacity: 0.6;
+            }
+            Text {
+                x: 6 * root.rem-size;
+                y: 4 * root.rem-size;
+                width: parent.width - 7 * root.rem-size;
+                height: 1.6 * root.rem-size;
+                text: root.pending.description;
+                overflow: elide;
+                font-size: 0.9 * root.rem-size;
+                color: Theme.text;
+                opacity: 0.8;
+            }
+        }
+
+        if root.add-submitted && !root.pending.ready && root.pending.error == "" && root.add-error == "": Text {
+            x: 2 * root.rem-size;
+            y: 11 * root.rem-size;
+            width: parent.width - 4 * root.rem-size;
+            height: 2 * root.rem-size;
+            text: root.add-url == "" ? "" : "Reading the manifest...";
+            font-size: root.rem-size;
+            color: Theme.text;
+            opacity: 0.6;
+        }
+
+        cancel-button := Rectangle {
+            x: parent.width - 2 * root.rem-size - self.width;
+            y: parent.height - 1.5 * root.rem-size - self.height;
+            width: 6 * root.rem-size;
+            height: 3 * root.rem-size;
+            border-radius: self.height / 2;
+            background: cancel-touch.has-hover ? Theme.overlay : transparent;
+
+            Text {
+                width: parent.width;
+                height: parent.height;
+                text: "Cancel";
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                font-size: root.rem-size;
+                font-weight: 600;
+                color: Theme.text;
+                opacity: 0.8;
+            }
+            cancel-touch := TouchArea {
+                width: 100%;
+                height: 100%;
+                mouse-cursor: pointer;
+                accessible-role: button;
+                accessible-label: "Cancel adding an addon";
+                clicked => {
+                    root.add-open = false;
+                    root.add-close();
+                }
+            }
+        }
+
+        add-button := Rectangle {
+            x: cancel-button.x - 1 * root.rem-size - self.width;
+            y: cancel-button.y;
+            width: 6.5 * root.rem-size;
+            height: 3 * root.rem-size;
+            border-radius: self.height / 2;
+            background: add-install-touch.has-hover ? Theme.accent-soft : Theme.accent;
+            opacity: root.pending.ready ? 1.0 : 0.5;
+
+            Text {
+                width: parent.width;
+                height: parent.height;
+                text: !root.pending.ready ? "Add"
+                    : root.pending.configuration-required ? "Configure"
+                    : root.pending.installed ? "Reinstall" : "Install";
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                font-size: root.rem-size;
+                font-weight: 700;
+                color: Theme.text;
+            }
+            add-install-touch := TouchArea {
+                width: 100%;
+                height: 100%;
+                mouse-cursor: pointer;
+                accessible-role: button;
+                accessible-label: !root.pending.ready ? "Read the addon's url"
+                    : root.pending.configuration-required
+                        ? "Configure the addon: " + root.pending.name
+                    : root.pending.installed
+                        ? "Reinstall the addon: " + root.pending.name
+                        : "Install the addon: " + root.pending.name;
+                clicked => {
+                    if (root.add-submitted && root.pending.ready) {
+                        if (root.pending.configuration-required) {
+                            root.add-configure(root.pending.transport-url);
+                        } else {
+                            root.add-install();
+                        }
+                        root.add-open = false;
+                    } else {
+                        root.add-submitted = true;
+                        root.add-submit(root.add-url);
+                    }
+                }
+            }
+        }
+    }
+}

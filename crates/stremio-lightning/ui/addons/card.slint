@@ -1,0 +1,274 @@
+// Based on stremio-web (https://github.com/Stremio/stremio-web),
+// Copyright (C) 2017-2024 Smart code 203358507.
+// Numbers translated by hand from src/routes/Addons/Addon/styles.less.
+// Licence basis: ../../THIRD_PARTY_NOTICES.md.
+import { ClassStyles } from "../class-styles.slint";
+import { Theme } from "../theme.slint";
+import { InstallButton, ShareButton, UninstallButton } from "buttons.slint";
+
+export struct AddonData {
+    transport-url: string,
+    name: string,
+    version: string,
+    types: string,
+    description: string,
+    logo: image,
+    has-logo: bool,
+    installed: bool,
+    configuration-required: bool,
+    configurable: bool,
+}
+
+export struct AddonPendingData {
+    transport-url: string,
+    name: string,
+    version: string,
+    types: string,
+    description: string,
+    logo: image,
+    has-logo: bool,
+    ready: bool,
+    configuration-required: bool,
+    installed: bool,
+    error: string,
+}
+
+export component AddonCard inherits Rectangle {
+    in property <AddonData> data;
+    in property <length> rem-size;
+    callback open();
+    callback uninstall();
+    callback install();
+    callback configure();
+    callback share();
+
+    property <length> px: root.rem-size / 14;
+    property <length> pad: 23 * root.px;
+    property <length> buttons-width: 17 * root.rem-size;
+    property <length> info-x: root.pad + 8 * root.rem-size;
+    property <bool> hot: card-touch.has-hover || uninstall-touch.has-hover || configure-touch.has-hover || share-touch.has-hover;
+
+    height: 158 * root.px;
+
+    addon := Rectangle {
+        width: parent.width;
+        height: parent.height;
+        border-radius: 0.75 * root.rem-size;
+        border-width: 2 * root.px;
+        border-color: root.hot ? Theme.overlay : transparent;
+        background: ClassStyles.background-or(ClassStyles.addon, Theme.overlay);
+        opacity: ClassStyles.opacity-or(ClassStyles.addon, 1.0);
+        visible: !ClassStyles.addon.hidden;
+
+        card-touch := TouchArea {
+            width: 100%;
+            height: 100%;
+            mouse-cursor: pointer;
+            accessible-role: button;
+            accessible-label: root.data.name;
+            clicked => { root.open(); }
+        }
+
+        logo-container := Rectangle {
+            x: root.pad;
+            y: root.pad;
+            width: 8 * root.rem-size;
+            height: 8 * root.rem-size;
+            background: ClassStyles.background-or(ClassStyles.logo-container, transparent);
+            opacity: ClassStyles.opacity-or(ClassStyles.logo-container, 1.0);
+            visible: !ClassStyles.logo-container.hidden;
+
+            if root.data.has-logo: logo := Image {
+                source: root.data.logo;
+                x: 0.5 * root.rem-size;
+                y: 0.5 * root.rem-size;
+                width: parent.width - root.rem-size;
+                height: parent.height - root.rem-size;
+                image-fit: contain;
+                opacity: ClassStyles.opacity-or(ClassStyles.logo, 1.0);
+                visible: !ClassStyles.logo.hidden;
+            }
+            if !root.data.has-logo: icon := Image {
+                source: @image-url("../icons/addons.svg");
+                x: root.rem-size;
+                y: root.rem-size;
+                width: parent.width - 2 * root.rem-size;
+                height: parent.height - 2 * root.rem-size;
+                colorize: ClassStyles.color-or(ClassStyles.icon, Theme.text);
+                visible: !ClassStyles.icon.hidden;
+            }
+        }
+
+        info-container := Rectangle {
+            x: root.info-x;
+            y: root.pad;
+            width: parent.width - root.info-x - root.buttons-width - root.pad;
+            height: 8 * root.rem-size;
+            background: ClassStyles.background-or(ClassStyles.info-container, transparent);
+            opacity: ClassStyles.opacity-or(ClassStyles.info-container, 1.0);
+            visible: !ClassStyles.info-container.hidden;
+
+            name-container := Text {
+                x: root.rem-size;
+                y: 0px;
+                width: Math.min(self.preferred-width, parent.width - 2 * root.rem-size);
+                height: 2 * root.rem-size;
+                text: root.data.name;
+                overflow: elide;
+                vertical-alignment: center;
+                font-size: 1.6 * root.rem-size;
+                color: ClassStyles.color-or(ClassStyles.name-container, Theme.text);
+                opacity: ClassStyles.opacity-or(ClassStyles.name-container, 1.0);
+                visible: !ClassStyles.name-container.hidden;
+            }
+            version-container := Text {
+                x: name-container.x + name-container.width + root.rem-size;
+                y: 8 * root.px;
+                width: Math.max(parent.width - self.x - root.rem-size, 0px);
+                height: 18 * root.px;
+                text: root.data.version;
+                overflow: elide;
+                vertical-alignment: center;
+                font-size: root.rem-size;
+                color: ClassStyles.color-or(ClassStyles.version-container, Theme.text);
+                opacity: ClassStyles.opacity-or(ClassStyles.version-container, 0.6);
+                visible: !ClassStyles.version-container.hidden;
+            }
+            types-container := Text {
+                x: root.rem-size;
+                y: 35 * root.px;
+                width: parent.width - 2 * root.rem-size;
+                height: 18 * root.px;
+                text: root.data.types;
+                overflow: elide;
+                vertical-alignment: center;
+                font-size: root.rem-size;
+                color: ClassStyles.color-or(ClassStyles.types-container, Theme.text);
+                opacity: ClassStyles.opacity-or(ClassStyles.types-container, 0.4);
+                visible: !ClassStyles.types-container.hidden;
+            }
+            description-container := Text {
+                x: root.rem-size;
+                y: 60 * root.px;
+                width: parent.width - 2 * root.rem-size;
+                height: 36 * root.px;
+                text: root.data.description;
+                wrap: word-wrap;
+                overflow: elide;
+                vertical-alignment: top;
+                font-size: root.rem-size;
+                color: ClassStyles.color-or(ClassStyles.description-container, Theme.text);
+                opacity: ClassStyles.opacity-or(ClassStyles.description-container, 1.0);
+                visible: !ClassStyles.description-container.hidden;
+            }
+        }
+
+        buttons-container := Rectangle {
+            x: parent.width - root.pad - root.buttons-width;
+            y: root.pad;
+            width: root.buttons-width;
+            height: 8 * root.rem-size;
+            opacity: ClassStyles.opacity-or(ClassStyles.buttons-container, 1.0);
+            visible: !ClassStyles.buttons-container.hidden;
+
+            action-buttons-container := Rectangle {
+                y: 0px;
+                width: parent.width;
+                height: 3.5 * root.rem-size;
+                opacity: ClassStyles.opacity-or(ClassStyles.action-buttons-container, 1.0);
+                visible: !ClassStyles.action-buttons-container.hidden;
+
+                property <length> half: (parent.width - root.rem-size) / 2;
+                property <bool> two: !root.data.configuration-required && root.data.configurable;
+
+                if root.data.configurable && !root.data.configuration-required: Rectangle {
+                    x: 0px;
+                    width: action-buttons-container.half;
+                    height: 100%;
+                    border-radius: self.height / 2;
+                    border-width: 2px;
+                    border-color: Theme.text;
+                    background: configure-touch.has-hover ? Theme.overlay : transparent;
+                    opacity: configure-touch.has-hover ? 1.0 : 0.3;
+
+                    Image {
+                        x: (parent.width - self.width) / 2;
+                        y: (parent.height - self.height) / 2;
+                        width: 2 * root.rem-size;
+                        height: 2 * root.rem-size;
+                        source: @image-url("../icons/settings.svg");
+                        colorize: Theme.text;
+                    }
+                }
+
+                if root.data.installed: uninstall-button-container := UninstallButton {
+                    x: action-buttons-container.two ? action-buttons-container.half + root.rem-size : 0px;
+                    width: action-buttons-container.two ? action-buttons-container.half : parent.width;
+                    height: 100%;
+                    rem-size: root.rem-size;
+                    hovered: uninstall-touch.has-hover;
+                }
+                if !root.data.installed: install-button-container := InstallButton {
+                    x: action-buttons-container.two ? action-buttons-container.half + root.rem-size : 0px;
+                    width: action-buttons-container.two ? action-buttons-container.half : parent.width;
+                    height: 100%;
+                    rem-size: root.rem-size;
+                    text: root.data.configuration-required ? "Configure" : "Install";
+                    hovered: uninstall-touch.has-hover;
+                }
+            }
+            share-button-container := ShareButton {
+                y: 4.5 * root.rem-size;
+                width: 100%;
+                height: 3.5 * root.rem-size;
+                rem-size: root.rem-size;
+                hovered: share-touch.has-hover;
+            }
+        }
+
+        publish-button := Rectangle {
+            x: parent.width - root.pad - root.buttons-width + ((!root.data.configuration-required && root.data.configurable) ? (root.buttons-width - root.rem-size) / 2 + root.rem-size : 0px);
+            y: root.pad;
+            width: (!root.data.configuration-required && root.data.configurable) ? (root.buttons-width - root.rem-size) / 2 : root.buttons-width;
+            height: 3.5 * root.rem-size;
+
+            uninstall-touch := TouchArea {
+                width: 100%;
+                height: 100%;
+                mouse-cursor: pointer;
+                accessible-role: button;
+                accessible-label: (root.data.installed ? "Uninstall "
+                    : root.data.configuration-required ? "Configure " : "Install ") + root.data.name;
+                clicked => {
+                    if root.data.installed {
+                        root.uninstall();
+                    } else if root.data.configuration-required {
+                        root.configure();
+                    } else {
+                        root.install();
+                    }
+                }
+            }
+        }
+        configure-touch := TouchArea {
+            x: parent.width - root.pad - root.buttons-width;
+            y: root.pad;
+            width: (!root.data.configuration-required && root.data.configurable) ? (root.buttons-width - root.rem-size) / 2 : 0px;
+            height: 3.5 * root.rem-size;
+            mouse-cursor: pointer;
+            accessible-role: button;
+            accessible-label: "Configure " + root.data.name;
+            clicked => { root.configure(); }
+        }
+        share-touch := TouchArea {
+            x: parent.width - root.pad - root.buttons-width;
+            y: root.pad + 4.5 * root.rem-size;
+            width: root.buttons-width;
+            height: 3.5 * root.rem-size;
+            mouse-cursor: pointer;
+            accessible-role: button;
+            accessible-label: "Share " + root.data.name;
+            clicked => { root.share(); }
+        }
+    }
+}

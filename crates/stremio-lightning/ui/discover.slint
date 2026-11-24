@@ -53,8 +53,7 @@ export component DiscoverContent inherits Rectangle {
         : root.viewport-width > 1000px ? 4 : 5;
     property <length> gap: 0.5 * root.rem-size;
     property <length> cell-width: (root.grid-width - (root.columns - 1) * root.gap) / root.columns;
-    property <float> poster-shape-ratio: root.shape == "square" ? 1.0
-        : root.shape == "landscape" ? 0.5625 : 1.464;
+    property <float> poster-shape-ratio: Theme.poster-ratio(root.shape);
     property <length> cell-height: 2 * root.rem-size
         + (root.cell-width - 2 * root.rem-size) * root.poster-shape-ratio
         + 4 * root.rem-size;
