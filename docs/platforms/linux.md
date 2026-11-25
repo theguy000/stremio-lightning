@@ -1,6 +1,6 @@
 # Linux Development
 
-This guide covers Linux-specific setup and local shell development. See the
+This guide covers Linux-specific setup and local development. See the
 [packaging guide](../packaging.md#linux) for AppImage, Debian, and Flatpak
 artifacts.
 
@@ -9,10 +9,9 @@ artifacts.
 Install the common prerequisites from the
 [developer guide](../developer-guide.md#prerequisites), plus:
 
-- WebKitGTK development and runtime packages
-- GTK4 development packages
+- `libmpv` development/runtime libraries and OpenGL / X11 / Wayland libraries required by Slint
 - `clang` and [`mold`](https://github.com/rui314/mold)
-- `bash`, GitHub CLI (`gh`), `dpkg-deb`, `curl`, and `tar` for dependency setup
+- `bash`, `dpkg-deb`, `curl`, and `tar` for dependency setup and packaging
 
 Cargo uses `clang` and `mold` for `x86_64-unknown-linux-gnu` builds through
 `.cargo/config.toml`:
@@ -46,39 +45,26 @@ sudo pacman -S clang mold
 sudo zypper install clang mold
 ```
 
-If `mold` is unavailable, linking fails with an error mentioning
-`-fuse-ld=mold` or a missing `mold` executable.
+If `mold` is unavailable, linking fails with an error mentioning `-fuse-ld=mold` or a missing
+`mold` executable.
 
 ## Setup
 
-Download the Linux shell runtime dependencies:
+Download the Linux runtime dependencies:
 
 ```bash
 cargo xtask setup-linux
 ```
 
-The command populates `crates/stremio-lightning-linux/resources/` with the
-`stream-server` binary and static `ffmpeg` and `ffprobe`. `stream-server` is the
-headless build of the open-source Rust streaming server, mirrored at
-`theguy000/stream-server` and pinned by SHA-256 in the setup script.
+The command populates `crates/stremio-lightning/resources/` with the headless `stream-server`
+binary and static `ffmpeg` and `ffprobe`, pinned by SHA-256 in
+`scripts/download-linux-shell-deps.sh`.
 
 ## Run Locally
 
 ```bash
-cargo linux
+cargo run -p stremio-lightning
 ```
 
-This runs the shell from Cargo's target directory without producing a
-distributable artifact.
-
-## Runtime Notes
-
-Linux loads Stremio Web through the local streaming-server proxy by default:
-
-```text
-http://127.0.0.1:11470/proxy/d=https%3A%2F%2Fweb.stremio.com/
-```
-
-The Flatpak currently exports an X11-only sandbox because Picture-in-Picture
-always-on-top uses X11 `_NET_WM_STATE_ABOVE`. KDE Wayland users can run it
-through Xwayland or create a KDE Window Rule for forced always-on-top behavior.
+This runs the native client from Cargo's target directory without producing a distributable
+artifact.

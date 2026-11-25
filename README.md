@@ -5,30 +5,29 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Built_with-Rust-000000?logo=rust&logoColor=white" alt="Built with Rust">
-  <img src="https://img.shields.io/badge/Frontend-Svelte-FF3E00?logo=svelte&logoColor=white" alt="Frontend Svelte">
+  <img src="https://img.shields.io/badge/UI-Slint-2379F4" alt="UI Slint">
 </p>
 
 <p align="center">
-  Stremio Lightning is a fast, lightweight, and modern desktop wrapper for <a href="https://www.stremio.com/">Stremio</a> built with Rust-native shell crates and Svelte.
+  Stremio Lightning is a fast, low-memory native desktop client for <a href="https://www.stremio.com/">Stremio</a> built with Rust, Slint, <code>stremio-core</code>, and <code>libmpv</code>.
 </p>
 
 
 ## Key Features
 
-- **Plugin System** – Install and manage community plugins.
-- **Theme Support** – Customize the appearance with downloadable themes.
-- **Discord Rich Presence** – Show what you are watching directly on Discord.
-- **Native Player** – Enjoy native MPV-powered media playback.
-- **Server Control** – Start, stop, and restart the local streaming server.
-- **Auto-Updates** – Built-in notifications for app updates.
+- **Native Slint UI** – Fast, virtualized catalog browsing with low idle and scrolling memory usage.
+- **Native Player** – Direct OpenGL <code>libmpv</code> playback with lazy initialization, subtitles, audio tracks, Next Video popup, and AniSkip support.
+- **Mods & Themes** – Built-in plugins (such as AniSkip), <code>.theme.css</code> theming, plugin settings, live application logs, and diagnostics export.
+- **Streaming Server Control** – Manages the local headless <code>stream-server</code> automatically.
+- **Cross-Platform Packaging** – Portable and installer builds on Windows; AppImage, Debian <code>.deb</code>, and Flatpak on Linux; macOS bundle support.
 
 
 ## Tech Stack
 
-- **Frontend:** Svelte 5, TypeScript, Vite
-- **Backend:** Rust native shell crates
-- **Media Player:** libmpv2 (Windows/Linux)
-- **Native WebViews:** WebView2 (Windows), GTK4 & WebKitGTK 6 (Linux)
+- **UI:** Slint (native desktop renderer)
+- **Core State:** <code>stremio-core</code> with a Rust <code>AppEnv</code>
+- **Media Player:** <code>libmpv</code> (loaded lazily on playback)
+- **Streaming Engine:** Headless <code>stream-server</code> + bundled <code>ffmpeg</code> / <code>ffprobe</code>
 
 
 ## Getting Started
@@ -36,7 +35,7 @@
 ### Installation
 
 - **Windows (Installer/Portable)**
-  Download and run the installer or portable version from the [latest release](https://github.com/theguy000/stremio-lightning/releases/latest).
+  Download and run the installer or portable archive from the [latest release](https://github.com/theguy000/stremio-lightning/releases/latest).
 
 - **Linux**
   One-click install with Flatpak:
@@ -51,17 +50,14 @@
 ### Quick Start
 
 ```bash
-# 1. Install frontend dependencies & native runtimes
-npm install
+# 1. Download native runtime dependencies (libmpv, stream-server, ffmpeg)
 cargo xtask setup
 
-# 2. Run the shell for your platform
-cargo windows   # Windows
-cargo linux     # Linux
-cargo macos     # macOS
+# 2. Run the native client
+cargo run -p stremio-lightning
 ```
 
-For advanced workflows, testing, and packaging, see the [developer guide](docs/developer-guide.md). Detailed documentation is also available for [packaging](docs/packaging.md), the [plugin API](docs/plugin-api.md), and [runtime architecture](docs/runtime-architecture.md).
+For build workflows, validation, and packaging, see the [developer guide](docs/developer-guide.md). Detailed documentation is also available for [packaging](docs/packaging.md), [mods and plugins](docs/plugin-api.md), and [runtime architecture](docs/runtime-architecture.md).
 
 
 ## Platform Support
