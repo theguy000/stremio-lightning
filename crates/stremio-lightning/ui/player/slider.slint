@@ -1,0 +1,132 @@
+// Seek, volume, and playback-speed slider for the Player screen.
+import { Theme } from "../theme.slint";
+import { PlayerText, SkipMark } from "types.slint";
+
+export component PlayerSlider inherits Rectangle {
+    in property <length> rem-size;
+    in property <float> value: 0;
+    in property <float> minimum: 0;
+    in property <float> maximum: 100;
+    in property <float> buffered: 0;
+    in property <bool> enabled: true;
+    in property <length> track-size: 0.4 * root.rem-size;
+    in property <length> thumb-size: 1.2 * root.rem-size;
+    in property <bool> boost: false;
+    in property <bool> tooltip: false;
+    in property <[SkipMark]> marks;
+    in property <bool> accent: false;
+    in property <bool> ring: false;
+    callback slid(float);
+    callback done(float);
+
+    property <bool> dragging: false;
+    property <float> span: Math.max(0.001, root.maximum - root.minimum);
+    property <float> at: Math.max(0, Math.min(1, (root.value - root.minimum) / root.span));
+    property <float> buffered-at: Math.max(0, Math.min(1, (root.buffered - root.minimum) / root.span));
+    property <bool> pointer-on: false;
+    property <length> pointer-at: 0px;
+    property <float> pointer-value: root.minimum;
+    opacity: root.enabled ? 1 : 0.5;
+
+    Rectangle {
+        y: (parent.height - root.track-size) / 2;
+        width: parent.width;
+        height: root.track-size;
+        border-radius: root.track-size;
+        background: root.boost ? @linear-gradient(90deg, Theme.text 0%, Theme.text 50%, Theme.accent-yellow 75%, Theme.accent-red 100%) : Theme.accent;
+        opacity: root.boost ? 0.3 : 0.2;
+    }
+    Rectangle {
+        y: (parent.height - root.track-size) / 2;
+        width: parent.width * root.buffered-at;
+        height: root.track-size;
+        border-radius: root.track-size;
+        background: Theme.overlay;
+    }
+    Rectangle {
+        y: (parent.height - root.track-size) / 2;
+        width: parent.width * root.at;
+        height: root.track-size;
+        border-radius: root.track-size;
+        background: root.boost ? @linear-gradient(90deg, Theme.text 0%, Theme.text 50%, Theme.accent-yellow 75%, Theme.accent-red 100%) : (root.accent ? Theme.accent : Theme.text);
+    }
+    for mark in root.marks: Rectangle {
+        x: parent.width * mark.start;
+        y: (parent.height - root.track-size) / 2;
+        width: Math.max(0.15 * root.rem-size, parent.width * (mark.end - mark.start));
+        height: root.track-size;
+        border-radius: root.track-size;
+        background: Theme.accent-yellow;
+    }
+    Rectangle {
+        width: (touch.has-hover || root.dragging) ? root.thumb-size * 1.2 : root.thumb-size;
+        height: self.width;
+        x: parent.width * root.at - self.width / 2;
+        y: (parent.height - self.height) / 2;
+        border-radius: self.width / 2;
+        background: root.accent ? Theme.accent : Theme.text;
+        border-width: root.accent ? 0.25 * root.rem-size : 0px;
+        border-color: root.accent ? Theme.accent-soft : transparent;
+
+        if root.ring: Rectangle {
+            width: parent.width * 0.45;
+            height: self.width;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            border-radius: self.width;
+            background: Theme.accent;
+        }
+        animate width { duration: 150ms; }
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down) {
+                root.dragging = true;
+                root.slid(root.value-at(self.mouse-x));
+            }
+            if (event.kind == PointerEventKind.move) {
+                root.pointer-on = true;
+                root.pointer-at = self.mouse-x;
+                root.pointer-value = root.value-at(self.mouse-x);
+                if (root.dragging) {
+                    root.slid(root.pointer-value);
+                }
+            }
+            if (event.kind == PointerEventKind.up && root.dragging) {
+                root.dragging = false;
+                root.done(root.value-at(self.mouse-x));
+            }
+            if (event.kind == PointerEventKind.cancel) {
+                root.dragging = false;
+            }
+        }
+        changed has-hover => {
+            root.pointer-on = self.has-hover;
+        }
+    }
+
+    pure function value-at(x: length) -> float {
+        return root.minimum + Math.max(0, Math.min(1, x / Math.max(1px, root.width))) * root.span;
+    }
+
+    if root.tooltip && root.pointer-on && !root.dragging: Rectangle {
+        width: tooltip-label.width + 1.6 * root.rem-size;
+        height: 2.4 * root.rem-size;
+        x: Math.max(0, Math.min(root.width - self.width, root.pointer-at - self.width / 2));
+        y: -2.4 * root.rem-size;
+        border-radius: 0.75 * root.rem-size;
+        background: Theme.modal-background;
+
+        tooltip-label := Text {
+            x: 0.8 * root.rem-size;
+            height: parent.height;
+            text: PlayerText.clock(root.pointer-value);
+            font-size: 1.1 * root.rem-size;
+            color: Theme.text;
+            vertical-alignment: center;
+        }
+    }
+}

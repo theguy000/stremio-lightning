@@ -25,7 +25,7 @@ use crate::plumbing::stream_server::Supervisor;
 use crate::screens::player::skip::SkipSession;
 use crate::screens::player::SubtitleChoice;
 use crate::shell::video_host::VideoPlayer;
-use crate::MainWindow;
+use crate::{MainWindow, PlayerUi};
 
 pub(crate) use player::Playback;
 pub(crate) use player_tracks::ShownTracks;
@@ -146,64 +146,65 @@ impl Wiring {
 }
 
 fn wire_player(window: &MainWindow, wiring: &Wiring) {
+    let ui = window.global::<PlayerUi>();
     let w = wiring.clone();
-    window.on_player_back(move || w.player_back());
+    ui.on_back(move || w.player_back());
     let w = wiring.clone();
-    window.on_player_play_pause(move || w.player_play_pause());
+    ui.on_play_pause(move || w.player_play_pause());
     let w = wiring.clone();
-    window.on_player_play_next(move || w.player_play_next());
+    ui.on_play_next(move || w.player_play_next());
     let w = wiring.clone();
-    window.on_player_skip(move || w.player_skip());
+    ui.on_skip(move || w.player_skip());
     let w = wiring.clone();
-    window.on_player_open_skip(move || w.open_skip());
+    ui.on_open_skip(move || w.open_skip());
     let w = wiring.clone();
-    window.on_player_pick_skip_kind(move |kind| w.pick_skip_kind(kind.to_string()));
+    ui.on_pick_skip_kind(move |kind| w.pick_skip_kind(kind.to_string()));
     let w = wiring.clone();
-    window.on_player_submit_skip(move |k, s, e| {
-        w.submit_skip(k.to_string(), s.to_string(), e.to_string())
-    });
+    ui.on_submit_skip(move |k, s, e| w.submit_skip(k.to_string(), s.to_string(), e.to_string()));
     let w = wiring.clone();
-    window.on_player_vote_skip(move |id, up| w.vote_skip(id.to_string(), up));
+    ui.on_vote_skip(move |id, up| w.vote_skip(id.to_string(), up));
     let w = wiring.clone();
-    window.on_player_seek(move |time| w.player_seek(time));
+    ui.on_seek(move |time| w.player_seek(time));
     let w = wiring.clone();
-    window.on_player_seek_by(move |offset| w.player_seek_by(offset));
+    ui.on_seek_by(move |offset| w.player_seek_by(offset));
     let w = wiring.clone();
-    window.on_player_set_volume(move |volume| w.player_set_volume(volume));
+    ui.on_set_volume(move |volume| w.player_set_volume(volume));
     let w = wiring.clone();
-    window.on_player_toggle_muted(move || w.player_toggle_muted());
+    ui.on_toggle_muted(move || w.player_toggle_muted());
     let w = wiring.clone();
-    window.on_player_set_speed(move |speed| w.player_set_speed(speed));
+    ui.on_set_speed(move |speed| w.player_set_speed(speed));
     let w = wiring.clone();
-    window.on_player_cycle_scale(move || w.player_cycle_scale());
+    ui.on_cycle_scale(move || w.player_cycle_scale());
     let w = wiring.clone();
-    window.on_player_select_audio(move |id| w.player_select_audio(id.to_string()));
+    ui.on_select_audio(move |id| w.player_select_audio(id.to_string()));
     let w = wiring.clone();
-    window.on_player_choose_subtitles(move |id| w.player_choose_subtitles(id.to_string()));
+    ui.on_choose_subtitles(move |id| w.player_choose_subtitles(id.to_string()));
     let w = wiring.clone();
-    window.on_player_toggle_subtitles(move || w.player_toggle_subtitles());
+    ui.on_toggle_subtitles(move || w.player_toggle_subtitles());
     let w = wiring.clone();
-    window.on_player_step_subtitles_size(move |step| w.player_step_subtitles_size(step));
+    ui.on_step_subtitles_size(move |step| w.player_step_subtitles_size(step));
     let w = wiring.clone();
-    window.on_player_step_subtitles_offset(move |step| w.player_step_subtitles_offset(step));
+    ui.on_step_subtitles_offset(move |step| w.player_step_subtitles_offset(step));
     let w = wiring.clone();
-    window.on_player_choose_language(move |lang| w.player_choose_language(lang.to_string()));
+    ui.on_choose_language(move |lang| w.player_choose_language(lang.to_string()));
     let w = wiring.clone();
-    window.on_player_step_subtitles_position(move |step| w.player_step_subtitles_position(step));
+    ui.on_step_subtitles_position(move |step| w.player_step_subtitles_position(step));
     let w = wiring.clone();
-    window.on_player_select_episode(move |id| w.player_select_episode(id.to_string()));
+    ui.on_select_episode(move |id| w.player_select_episode(id.to_string()));
     let w = wiring.clone();
-    window.on_player_select_season(move |index| w.player_select_season(index));
+    ui.on_select_season(move |index| w.player_select_season(index));
     let w = wiring.clone();
-    window.on_player_choose_option(move |action| w.player_choose_option(action.to_string()));
+    ui.on_choose_option(move |action| w.player_choose_option(action.to_string()));
     let w = wiring.clone();
-    window.on_player_toggle_fullscreen(move || {
+    ui.on_toggle_fullscreen(move || {
         let Some(window) = w.window.upgrade() else {
             return;
         };
         let wanted = !window.window().is_fullscreen();
         window.window().set_fullscreen(wanted);
-        window.set_player_fullscreen(window.window().is_fullscreen());
+        window
+            .global::<PlayerUi>()
+            .set_fullscreen(window.window().is_fullscreen());
     });
 }
 

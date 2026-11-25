@@ -1,0 +1,133 @@
+// Three-column Subtitles popup (Languages, Variants, Settings) for the Player screen.
+import { Theme } from "../theme.slint";
+import { LanguageRow, MenuHeader, SettingsStepper, TrackRow } from "menu-rows.slint";
+import { LanguageOption, PlayerTrack } from "types.slint";
+
+export component PlayerSubtitlesMenu inherits HorizontalLayout {
+    in property <length> rem-size;
+    in property <length> list-height;
+    in property <[LanguageOption]> subtitle-languages;
+    in property <string> subtitle-language;
+    in property <[PlayerTrack]> subtitle-variants;
+    in property <bool> subtitles-enabled;
+    in property <float> subtitles-offset;
+    in property <float> subtitles-size;
+    in property <float> subtitles-position;
+
+    callback choose-language(string);
+    callback choose-subtitles(string);
+    callback step-subtitles-offset(int);
+    callback step-subtitles-size(int);
+    callback step-subtitles-position(int);
+
+    alignment: start;
+
+    VerticalLayout {
+        width: 16 * root.rem-size;
+        spacing: 0;
+        alignment: start;
+        MenuHeader {
+            rem-size: root.rem-size;
+            title: "Subtitles Languages";
+        }
+        Flickable {
+            width: parent.width;
+            height: root.list-height;
+            VerticalLayout {
+                spacing: 0.5 * root.rem-size;
+                padding-left: 1 * root.rem-size;
+                padding-right: 1 * root.rem-size;
+                padding-bottom: 1 * root.rem-size;
+                alignment: start;
+                LanguageRow {
+                    rem-size: root.rem-size;
+                    label: "OFF";
+                    selected: root.subtitle-language == "";
+                    clicked => { root.choose-language(""); }
+                }
+                for language in root.subtitle-languages: LanguageRow {
+                    rem-size: root.rem-size;
+                    label: language.label;
+                    selected: language.selected;
+                    clicked => { root.choose-language(language.code); }
+                }
+            }
+        }
+    }
+
+    VerticalLayout {
+        width: 16 * root.rem-size;
+        spacing: 0;
+        alignment: start;
+        MenuHeader {
+            rem-size: root.rem-size;
+            title: "Subtitles Variants";
+        }
+        if root.subtitle-variants.length > 0: Flickable {
+            width: parent.width;
+            height: root.list-height;
+            VerticalLayout {
+                spacing: 0.5 * root.rem-size;
+                padding-left: 1 * root.rem-size;
+                padding-right: 1 * root.rem-size;
+                padding-bottom: 1 * root.rem-size;
+                alignment: start;
+                for track in root.subtitle-variants: TrackRow {
+                    rem-size: root.rem-size;
+                    primary: track.title;
+                    secondary: track.origin != "" ? track.origin : (track.external ? "External" : "Embedded");
+                    selected: track.selected;
+                    clicked => { root.choose-subtitles(track.id); }
+                }
+            }
+        }
+        if root.subtitle-variants.length == 0: VerticalLayout {
+            height: root.list-height;
+            padding: 1 * root.rem-size;
+            alignment: start;
+            Text {
+                text: "Subtitles are disabled";
+                width: parent.width - 2 * root.rem-size;
+                font-size: 1 * root.rem-size;
+                font-weight: 500;
+                color: Theme.text;
+                wrap: word-wrap;
+                max-height: 4.8 * root.rem-size;
+            }
+        }
+    }
+
+    VerticalLayout {
+        width: 17 * root.rem-size;
+        spacing: 0.5 * root.rem-size;
+        padding-left: 1.5 * root.rem-size;
+        padding-right: 1.5 * root.rem-size;
+        padding-bottom: 1 * root.rem-size;
+        alignment: start;
+        MenuHeader {
+            rem-size: root.rem-size;
+            title: "Subtitles Settings";
+        }
+        SettingsStepper {
+            rem-size: root.rem-size;
+            heading: "Delay";
+            value: (Math.round(root.subtitles-offset) / 1000).to-fixed(2) + " s";
+            enabled: root.subtitles-enabled;
+            stepped(delta) => { root.step-subtitles-offset(delta); }
+        }
+        SettingsStepper {
+            rem-size: root.rem-size;
+            heading: "Size";
+            value: Math.round(root.subtitles-size) + " %";
+            enabled: root.subtitles-enabled;
+            stepped(delta) => { root.step-subtitles-size(delta); }
+        }
+        SettingsStepper {
+            rem-size: root.rem-size;
+            heading: "Vertical Position";
+            value: Math.round(root.subtitles-position) + " %";
+            enabled: root.subtitles-enabled;
+            stepped(delta) => { root.step-subtitles-position(delta); }
+        }
+    }
+}

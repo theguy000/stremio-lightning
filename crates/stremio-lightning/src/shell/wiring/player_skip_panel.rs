@@ -2,7 +2,7 @@
 
 use std::sync::Mutex;
 
-use slint::{ModelRc, VecModel};
+use slint::{ComponentHandle, ModelRc, VecModel};
 
 use super::player_skip::sync_skip_overlay;
 use super::Wiring;
@@ -11,7 +11,7 @@ use crate::screens::mods;
 use crate::screens::player::skip::{
     error_text, provider_name, validate_submission, SkipPanelData, SkipRowData, SkipSession,
 };
-use crate::MainWindow;
+use crate::{MainWindow, PlayerUi};
 
 impl Wiring {
     fn current_playhead_for(&self, target_video: Option<&str>) -> f64 {
@@ -109,16 +109,17 @@ impl Wiring {
             return;
         };
         let duration = self.playback.lock().unwrap().duration;
+        let ui = window.global::<PlayerUi>();
         let validated = match validate_submission(&kind, &start, &end, duration) {
             Ok(v) => v,
             Err(notice) => {
-                window.set_player_skip_notice(notice.into());
+                ui.set_skip_notice(notice.into());
                 return;
             }
         };
         let length_key = duration.round() as u64;
         let Some((video, meta_id, season, episode)) = self.skip_target() else {
-            window.set_player_skip_notice("AniSkip has no show for this video.".into());
+            ui.set_skip_notice("AniSkip has no show for this video.".into());
             return;
         };
         let (provider, submitter, skip_wanted) = {
@@ -130,10 +131,10 @@ impl Wiring {
             )
         };
         let Some(submitter) = submitter else {
-            window.set_player_skip_notice("Set a submitter ID in AniSkip's settings first.".into());
+            ui.set_skip_notice("Set a submitter ID in AniSkip's settings first.".into());
             return;
         };
-        window.set_player_skip_notice("Sending…".into());
+        ui.set_skip_notice("Sending…".into());
         let (logs_h, playback, skip, weak, client) = (
             self.app.logs().clone(),
             self.playback.clone(),
@@ -177,8 +178,9 @@ impl Wiring {
                     let dur_now = playback.lock().map(|p| p.duration).unwrap_or_default();
                     let _ = weak.upgrade_in_event_loop(move |window| {
                         sync_skip_overlay(&window, &skip, &playback, new_gen, dur_now, skip_wanted);
-                        window.set_player_skip_rows(to_slint_rows(&rows));
-                        window.set_player_skip_notice("Sent. Thank you.".into());
+                        let ui = window.global::<PlayerUi>();
+                        ui.set_skip_rows(to_slint_rows(&rows));
+                        ui.set_skip_notice("Sent. Thank you.".into());
                     });
                 }
                 Err(err) => report_skip_error(
@@ -200,7 +202,7 @@ impl Wiring {
         let Some(window) = self.window.upgrade() else {
             return;
         };
-        window.set_player_skip_notice("Sending…".into());
+        window.global::<PlayerUi>().set_skip_notice("Sending…".into());
         let (logs_h, weak, skip, skip_client) = (
             self.app.logs().clone(),
             self.window.clone(),
@@ -219,7 +221,9 @@ impl Wiring {
                     );
                     let _ = weak.upgrade_in_event_loop(move |window| {
                         if skip.lock().unwrap().generation == generation {
-                            window.set_player_skip_notice("Thanks for the vote.".into());
+                            window
+                                .global::<PlayerUi>()
+                                .set_skip_notice("Thanks for the vote.".into());
                         }
                     });
                 }
@@ -249,7 +253,7 @@ fn report_skip_error(
     let skip = std::sync::Arc::clone(skip);
     let _ = weak.upgrade_in_event_loop(move |window| {
         if skip.lock().unwrap().generation == generation {
-            window.set_player_skip_notice(why.into());
+            window.global::<PlayerUi>().set_skip_notice(why.into());
         }
     });
 }
@@ -258,7 +262,6 @@ fn to_slint_rows(rows: &[SkipRowData]) -> ModelRc<crate::SkipRow> {
     ModelRc::new(VecModel::from(
         rows.iter()
             .map(|r| crate::SkipRow {
-                key: r.key.into(),
                 label: r.label.into(),
                 text: r.text.clone().into(),
                 id: r.id.clone().into(),
@@ -268,14 +271,15 @@ fn to_slint_rows(rows: &[SkipRowData]) -> ModelRc<crate::SkipRow> {
 }
 
 fn apply_skip_panel(window: &MainWindow, panel: &SkipPanelData) {
-    window.set_player_skip_kind(panel.kind.clone().into());
-    window.set_player_skip_rows(to_slint_rows(&panel.rows));
+    let ui = window.global::<PlayerUi>();
+    ui.set_skip_kind(panel.kind.clone().into());
+    ui.set_skip_rows(to_slint_rows(&panel.rows));
     if let Some((start, end)) = &panel.seed {
-        window.set_player_skip_start(start.clone().into());
-        window.set_player_skip_end(end.clone().into());
+        ui.set_skip_start(start.clone().into());
+        ui.set_skip_end(end.clone().into());
     }
     if panel.clear_notice {
-        window.set_player_skip_notice("".into());
+        ui.set_skip_notice("".into());
     }
 }
 
@@ -285,8 +289,9 @@ pub(super) fn apply_fetched_skip(
     rates: &[skip::Rate],
     playhead: f64,
 ) {
-    let start = window.get_player_skip_start().to_string();
-    let end = window.get_player_skip_end().to_string();
+    let ui = window.global::<PlayerUi>();
+    let start = ui.get_skip_start().to_string();
+    let end = ui.get_skip_end().to_string();
     let panel = skip
         .lock()
         .unwrap()

@@ -1,13 +1,13 @@
 //! Player audio and subtitle track synchronization, language browsing, and style steppers.
 
-use slint::{ModelRc, VecModel};
+use slint::{ComponentHandle, ModelRc, VecModel};
 
 use super::Wiring;
 use crate::screens::player::{
     self, auto_subtitle, browsed_language, Subtitle, SubtitleChoice, SubtitleTrackFacts,
 };
 use crate::shell;
-use crate::MainWindow;
+use crate::{MainWindow, PlayerUi};
 
 fn track_info_of(track: &crate::plumbing::player::Track) -> player::TrackInfo {
     player::TrackInfo {
@@ -75,10 +75,11 @@ impl Wiring {
         if let Some(shown) = changed {
             self.emit_tracks(&shown);
         }
-        window.set_player_subtitles_enabled(status.subtitles.iter().any(|track| track.selected));
-        window.set_player_subtitles_size((status.subtitles_scale * 100.0) as f32);
-        window.set_player_subtitles_offset((status.subtitles_delay * 1000.0) as f32);
-        window.set_player_subtitles_position(status.subtitles_position as f32);
+        let ui = window.global::<PlayerUi>();
+        ui.set_subtitles_enabled(status.subtitles.iter().any(|track| track.selected));
+        ui.set_subtitles_size((status.subtitles_scale * 100.0) as f32);
+        ui.set_subtitles_offset((status.subtitles_delay * 1000.0) as f32);
+        ui.set_subtitles_position(status.subtitles_position as f32);
 
         if status.loaded && !status.subtitles.is_empty() {
             let applied = {
@@ -116,9 +117,9 @@ impl Wiring {
         let Some(window) = self.window.upgrade() else {
             return;
         };
-        window.set_player_audio_tracks(shell::view::tracks(&shown.audio));
-        window.set_player_subtitle_tracks(shell::view::tracks(&shown.subtitles));
-        window.set_player_subtitle_languages(ModelRc::new(VecModel::from(
+        let ui = window.global::<PlayerUi>();
+        ui.set_audio_tracks(shell::view::tracks(&shown.audio));
+        ui.set_subtitle_languages(ModelRc::new(VecModel::from(
             shown
                 .languages
                 .iter()
@@ -129,8 +130,8 @@ impl Wiring {
                 })
                 .collect::<Vec<_>>(),
         )));
-        window.set_player_subtitle_language(shown.active_language.as_str().into());
-        window.set_player_subtitle_variants(ModelRc::new(VecModel::from(self.variants(shown))));
+        ui.set_subtitle_language(shown.active_language.as_str().into());
+        ui.set_subtitle_variants(ModelRc::new(VecModel::from(self.variants(shown))));
     }
 
     fn browse_language(&self, language: String) {
@@ -147,7 +148,9 @@ impl Wiring {
         let Some(window) = self.window.upgrade() else {
             return;
         };
-        window.set_player_subtitle_variants(ModelRc::new(VecModel::from(self.variants(&shown))));
+        window
+            .global::<PlayerUi>()
+            .set_subtitle_variants(ModelRc::new(VecModel::from(self.variants(&shown))));
     }
 
     fn variants(&self, shown: &ShownTracks) -> Vec<crate::PlayerTrack> {

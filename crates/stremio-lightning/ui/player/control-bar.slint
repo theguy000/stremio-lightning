@@ -1,0 +1,242 @@
+// Bottom seek bar, transport, volume, and menu-cluster control strip for the Player screen.
+import { Theme } from "../theme.slint";
+import { PlayerSlider } from "slider.slint";
+import { PlayerButton, PlayerText, SkipMark } from "types.slint";
+
+export component PlayerControlBar inherits Rectangle {
+    in property <length> rem-size;
+    in property <bool> loaded;
+    in property <bool> paused;
+    in property <bool> can-seek;
+    in property <float> shown-time;
+    in property <float> duration;
+    in property <float> remaining;
+    in property <float> buffered;
+    in property <float> speed;
+    in property <float> volume;
+    in property <bool> muted;
+    in property <image> volume-glyph;
+    in property <image> scale-glyph;
+    in property <string> scale-words;
+    in property <bool> has-next;
+    in property <bool> has-episodes;
+    in property <bool> has-subtitles;
+    in property <bool> has-audio;
+    in property <bool> has-options;
+    in property <bool> skip-submit;
+    in property <[SkipMark]> skip-marks;
+    in-out property <bool> remaining-mode;
+    in-out property <string> menu;
+    in-out property <bool> drawer-open;
+
+    callback seek-preview(float);
+    callback seek-commit(float);
+    callback play-pause();
+    callback play-next();
+    callback toggle-muted();
+    callback set-volume(float);
+    callback open-skip();
+    callback cycle-scale();
+
+    height: 7 * root.rem-size;
+
+    TouchArea {
+        pointer-event(event) => { EventResult.accept }
+    }
+
+    Rectangle {
+        x: 0;
+        y: parent.height - 10 * root.rem-size;
+        width: parent.width;
+        height: 10 * root.rem-size;
+        background: @linear-gradient(0deg, #00000059 0%, transparent 100%);
+    }
+
+    Rectangle {
+        x: 2 * root.rem-size;
+        y: 0;
+        width: parent.width - 4 * root.rem-size;
+        height: 2.5 * root.rem-size;
+
+        Text {
+            x: 0;
+            y: 0;
+            width: 5.5 * root.rem-size;
+            height: parent.height;
+            text: PlayerText.clock(root.shown-time);
+            font-size: 1.1 * root.rem-size;
+            color: Theme.text;
+            opacity: 0.9;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+
+        PlayerSlider {
+            x: 6.7 * root.rem-size;
+            y: 0;
+            width: parent.width - 13.4 * root.rem-size;
+            height: parent.height;
+            rem-size: root.rem-size;
+            value: root.shown-time;
+            minimum: 0;
+            maximum: Math.max(root.duration, 1);
+            buffered: root.buffered;
+            enabled: root.can-seek;
+            accent: true;
+            tooltip: true;
+            marks: root.skip-marks;
+            slid(value) => { root.seek-preview(value); }
+            done(value) => { root.seek-commit(value); }
+        }
+
+        Text {
+            x: parent.width - 5.5 * root.rem-size;
+            y: 0;
+            width: 5.5 * root.rem-size;
+            height: parent.height;
+            text: root.remaining-mode
+                ? PlayerText.clock(root.remaining / Math.max(0.1, root.speed))
+                : PlayerText.clock(root.duration);
+            font-size: 1.1 * root.rem-size;
+            color: Theme.text;
+            opacity: 0.9;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+        TouchArea {
+            x: parent.width - 5.5 * root.rem-size;
+            y: 0;
+            width: 5.5 * root.rem-size;
+            height: parent.height;
+            mouse-cursor: pointer;
+            clicked => { root.remaining-mode = !root.remaining-mode; }
+        }
+    }
+
+    bar := Rectangle {
+        x: 2 * root.rem-size;
+        y: 2.5 * root.rem-size;
+        width: parent.width - 4 * root.rem-size;
+        height: 4 * root.rem-size;
+
+        property <length> gap: 0.25 * root.rem-size;
+        property <length> square: 4 * root.rem-size;
+        property <length> step: self.square + self.gap;
+        property <length> last: self.width - self.square;
+        property <int> base-cluster: root.has-episodes ? 5 : 4;
+        property <int> cluster-count: self.base-cluster + 1 + (root.skip-submit ? 1 : 0);
+        property <length> cluster: self.cluster-count * bar.step - self.gap;
+        property <int> left-count: root.has-next ? 3 : 2;
+        property <length> volume-room: self.width - self.left-count * bar.step - self.cluster - 1 * root.rem-size;
+        property <length> volume-width: Math.max(3 * root.rem-size, Math.min(10 * root.rem-size, self.volume-room));
+
+        PlayerButton {
+            x: 0;
+            rem-size: root.rem-size;
+            glyph: root.paused || !root.loaded ? @image-url("../icons/play.svg") : @image-url("../icons/pause.svg");
+            clicked => { root.play-pause(); }
+        }
+        if root.has-next: PlayerButton {
+            x: bar.step;
+            rem-size: root.rem-size;
+            glyph: @image-url("../icons/next.svg");
+            clicked => { root.play-next(); }
+        }
+        PlayerButton {
+            x: root.has-next ? 2 * bar.step : bar.step;
+            rem-size: root.rem-size;
+            glyph: root.volume-glyph;
+            clicked => { root.toggle-muted(); }
+        }
+        PlayerSlider {
+            x: bar.left-count * bar.step;
+            width: bar.volume-width;
+            height: 4 * root.rem-size;
+            rem-size: root.rem-size;
+            value: root.muted ? 0 : root.volume;
+            minimum: 0;
+            maximum: 200;
+            boost: true;
+            track-size: 0.35 * root.rem-size;
+            thumb-size: 1 * root.rem-size;
+            slid(value) => { root.set-volume(value); }
+            done(value) => { root.set-volume(value); }
+        }
+
+        if root.skip-submit: PlayerButton {
+            x: bar.last - bar.base-cluster * bar.step;
+            rem-size: root.rem-size;
+            glyph: @image-url("../icons/skip-forward.svg");
+            lit: root.menu == "skip";
+            clicked => {
+                if (root.menu == "skip") {
+                    root.menu = "";
+                } else {
+                    root.open-skip();
+                    root.menu = "skip";
+                    root.drawer-open = false;
+                }
+            }
+        }
+        PlayerButton {
+            x: bar.last - (bar.base-cluster + (root.skip-submit ? 1 : 0)) * bar.step;
+            rem-size: root.rem-size;
+            glyph: @image-url("../icons/speed.svg");
+            lit: root.menu == "speed";
+            clicked => {
+                root.menu = root.menu == "speed" ? "" : "speed";
+                root.drawer-open = false;
+            }
+        }
+        PlayerButton {
+            x: bar.last - (bar.base-cluster - 1) * bar.step;
+            rem-size: root.rem-size;
+            glyph: @image-url("../icons/subtitles.svg");
+            enabled: root.has-subtitles;
+            lit: root.menu == "subtitles";
+            clicked => {
+                root.menu = root.menu == "subtitles" ? "" : "subtitles";
+                root.drawer-open = false;
+            }
+        }
+        PlayerButton {
+            x: bar.last - (bar.base-cluster - 2) * bar.step;
+            rem-size: root.rem-size;
+            glyph: @image-url("../icons/audio-tracks.svg");
+            enabled: root.has-audio;
+            lit: root.menu == "audio";
+            clicked => {
+                root.menu = root.menu == "audio" ? "" : "audio";
+                root.drawer-open = false;
+            }
+        }
+        if root.has-episodes: PlayerButton {
+            x: bar.last - 2 * bar.step;
+            rem-size: root.rem-size;
+            glyph: @image-url("../icons/episodes.svg");
+            lit: root.drawer-open;
+            clicked => {
+                root.drawer-open = !root.drawer-open;
+                root.menu = "";
+            }
+        }
+        PlayerButton {
+            x: bar.last - bar.step;
+            rem-size: root.rem-size;
+            glyph: root.scale-glyph;
+            says: root.scale-words;
+            clicked => { root.cycle-scale(); }
+        }
+        PlayerButton {
+            x: bar.last;
+            rem-size: root.rem-size;
+            glyph: @image-url("../icons/more-horizontal.svg");
+            enabled: root.has-options;
+            lit: root.menu == "options";
+            clicked => {
+                root.menu = root.menu == "options" ? "" : "options";
+                root.drawer-open = false;
+            }
+        }
+    }
+}

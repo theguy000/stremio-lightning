@@ -2,14 +2,14 @@
 
 use std::sync::{Arc, Mutex};
 
-use slint::{ModelRc, VecModel};
+use slint::{ComponentHandle, ModelRc, VecModel};
 use stremio_core::models::common::Loadable;
 
 use super::player_skip_panel::apply_fetched_skip;
 use super::{Playback, Wiring};
 use crate::plumbing::{logs, skip};
 use crate::screens::player::skip::{format_rates_listing, kind_label, FetchPlan, SkipSession};
-use crate::MainWindow;
+use crate::{MainWindow, PlayerUi};
 
 impl Wiring {
     pub(super) fn clear_skip(&self, window: Option<&MainWindow>, close_menu: bool) {
@@ -20,7 +20,7 @@ impl Wiring {
     }
 
     pub(super) fn clear_skip_if_needed(&self, window: Option<&MainWindow>) {
-        let has_skip = window.is_some_and(|w| w.get_player_menu() == "skip") || {
+        let has_skip = window.is_some_and(|w| w.global::<PlayerUi>().get_menu() == "skip") || {
             let s = self.skip.lock().unwrap();
             s.has_state().0 || !s.seeded.is_empty() || !s.kind.is_empty() || s.auto_times.is_some()
         };
@@ -113,7 +113,7 @@ impl Wiring {
                 ),
             };
         }
-        window.set_player_skip_visible(diff.active.is_some());
+        window.global::<PlayerUi>().set_skip_visible(diff.active.is_some());
         if let Some(marks) = diff.marks_changed {
             set_window_skip_marks(window, &marks);
         }
@@ -224,27 +224,30 @@ impl Wiring {
 }
 
 pub(super) fn set_window_skip_marks(window: &MainWindow, marks: &[(f32, f32)]) {
-    window.set_player_skip_marks(ModelRc::new(VecModel::from(
-        marks
-            .iter()
-            .map(|(start, end)| crate::SkipMark {
-                start: *start,
-                end: *end,
-            })
-            .collect::<Vec<_>>(),
-    )));
+    window
+        .global::<PlayerUi>()
+        .set_skip_marks(ModelRc::new(VecModel::from(
+            marks
+                .iter()
+                .map(|(start, end)| crate::SkipMark {
+                    start: *start,
+                    end: *end,
+                })
+                .collect::<Vec<_>>(),
+        )));
 }
 
 pub(super) fn reset_skip_window(window: &MainWindow, close_menu: bool) {
-    if close_menu && window.get_player_menu() == "skip" {
-        window.set_player_menu("".into());
+    let ui = window.global::<PlayerUi>();
+    if close_menu && ui.get_menu() == "skip" {
+        ui.set_menu("".into());
     }
-    window.set_player_skip_visible(false);
-    window.set_player_skip_marks(ModelRc::default());
-    window.set_player_skip_rows(ModelRc::default());
-    window.set_player_skip_start("".into());
-    window.set_player_skip_end("".into());
-    window.set_player_skip_notice("".into());
+    ui.set_skip_visible(false);
+    ui.set_skip_marks(ModelRc::default());
+    ui.set_skip_rows(ModelRc::default());
+    ui.set_skip_start("".into());
+    ui.set_skip_end("".into());
+    ui.set_skip_notice("".into());
 }
 
 pub(super) fn sync_skip_overlay(
@@ -263,7 +266,7 @@ pub(super) fn sync_skip_overlay(
     else {
         return;
     };
-    window.set_player_skip_visible(visible);
+    window.global::<PlayerUi>().set_skip_visible(visible);
     if let Some(marks) = marks_changed {
         set_window_skip_marks(window, &marks);
     }

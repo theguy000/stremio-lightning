@@ -1,0 +1,255 @@
+// AniSkip timing and voting panel inside the Player menu popup.
+import { Theme } from "../theme.slint";
+import { PlayerText, SkipRow } from "types.slint";
+
+component SkipField inherits Rectangle {
+    in property <length> rem-size;
+    in-out property <string> text <=> input.text;
+
+    height: 2.6 * root.rem-size;
+    border-radius: self.height / 2;
+    background: input.has-focus ? #ffffff1f : Theme.overlay-hover;
+    border-width: 1px;
+    border-color: input.has-focus ? Theme.accent-green : transparent;
+
+    input := TextInput {
+        x: 0.9 * root.rem-size;
+        width: parent.width - 1.8 * root.rem-size;
+        height: parent.height;
+        vertical-alignment: center;
+        font-size: 0.95 * root.rem-size;
+        color: Theme.text;
+        selection-background-color: Theme.accent;
+        selection-foreground-color: Theme.on-accent;
+        single-line: true;
+    }
+}
+
+component VotePill inherits Rectangle {
+    in property <length> rem-size;
+    in property <bool> up: true;
+    callback clicked;
+
+    width: 2.6 * root.rem-size;
+    height: 2 * root.rem-size;
+    border-radius: self.height / 2;
+    background: vote-touch.has-hover ? Theme.overlay : Theme.overlay-hover;
+    border-width: 1px;
+    border-color: Theme.border-medium;
+
+    Image {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: 1.1 * root.rem-size;
+        height: 1.1 * root.rem-size;
+        source: @image-url("../icons/thumbs-up.svg");
+        colorize: Theme.text;
+        transform-rotation: root.up ? 0deg : 180deg;
+    }
+    vote-touch := TouchArea {
+        mouse-cursor: pointer;
+        accessible-role: button;
+        accessible-label: root.up ? "Correct" : "Wrong";
+        clicked => { root.clicked(); }
+    }
+}
+
+component SkipPill inherits Rectangle {
+    in property <length> rem-size;
+    in property <string> label-text;
+    in property <bool> selected: false;
+    in property <bool> small: false;
+    in property <bool> primary: false;
+    callback clicked;
+
+    height: root.small ? 2 * root.rem-size : 2.2 * root.rem-size;
+    width: skip-pill-label.width + (root.small ? 1.6 : 2) * root.rem-size;
+    border-radius: self.height / 2;
+    border-width: 1px;
+    border-color: root.primary || root.selected ? Theme.accent-green : Theme.border-medium;
+    background: root.primary ? Theme.accent-green
+        : (root.selected || skip-pill-touch.has-hover) ? Theme.overlay : transparent;
+    animate background { duration: 150ms; }
+
+    skip-pill-label := Text {
+        width: self.preferred-width;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        text: root.label-text;
+        font-size: (root.small ? 0.8 : 0.9) * root.rem-size;
+        font-weight: root.primary ? 700 : 600;
+        color: root.primary ? Theme.on-accent : root.selected ? Theme.accent-soft : Theme.text;
+    }
+    skip-pill-touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component PlayerSkipPanel inherits VerticalLayout {
+    in property <length> rem-size;
+    in property <float> time;
+    in property <string> skip-kind;
+    in property <[SkipRow]> skip-rows;
+    in-out property <string> skip-start;
+    in-out property <string> skip-end;
+    in property <string> skip-notice;
+
+    callback pick-skip-kind(string);
+    callback submit-skip(string, string, string);
+    callback vote-skip(string, bool);
+
+    padding: 1 * root.rem-size;
+    padding-bottom: 0.6 * root.rem-size;
+    spacing: 0.5 * root.rem-size;
+    alignment: start;
+
+    for row in root.skip-rows: HorizontalLayout {
+        height: 2.6 * root.rem-size;
+        spacing: 0.5 * root.rem-size;
+        alignment: start;
+        VerticalLayout {
+            alignment: center;
+            HorizontalLayout {
+                spacing: 0.35 * root.rem-size;
+                VotePill {
+                    rem-size: root.rem-size;
+                    up: true;
+                    clicked => { root.vote-skip(row.id, true); }
+                }
+                VotePill {
+                    rem-size: root.rem-size;
+                    up: false;
+                    clicked => { root.vote-skip(row.id, false); }
+                }
+            }
+        }
+        Text {
+            width: 4.8 * root.rem-size;
+            text: row.label;
+            font-size: 0.95 * root.rem-size;
+            font-weight: 700;
+            color: Theme.text;
+            vertical-alignment: center;
+        }
+        Text {
+            horizontal-stretch: 1;
+            text: row.text;
+            font-size: 0.95 * root.rem-size;
+            color: Theme.text;
+            vertical-alignment: center;
+        }
+    }
+    if root.skip-rows.length == 0: Text {
+        height: 2.4 * root.rem-size;
+        text: "AniSkip has no timing for this one yet. Add yours below.";
+        wrap: word-wrap;
+        font-size: 0.9 * root.rem-size;
+        color: Theme.text;
+        opacity: 0.7;
+    }
+
+    Text {
+        height: 1.4 * root.rem-size;
+        text: "Add your own";
+        font-size: 0.95 * root.rem-size;
+        font-weight: 700;
+        color: Theme.text;
+        vertical-alignment: center;
+    }
+    HorizontalLayout {
+        height: 2.2 * root.rem-size;
+        spacing: 0.4 * root.rem-size;
+        alignment: start;
+        SkipPill {
+            rem-size: root.rem-size;
+            label-text: "Opening";
+            selected: root.skip-kind == "op";
+            clicked => { root.pick-skip-kind("op"); }
+        }
+        SkipPill {
+            rem-size: root.rem-size;
+            label-text: "Ending";
+            selected: root.skip-kind == "ed";
+            clicked => { root.pick-skip-kind("ed"); }
+        }
+        SkipPill {
+            rem-size: root.rem-size;
+            label-text: "Recap";
+            selected: root.skip-kind == "recap";
+            clicked => { root.pick-skip-kind("recap"); }
+        }
+    }
+    GridLayout {
+        spacing: 0.4 * root.rem-size;
+        padding: 0px;
+        Text {
+            row: 0;
+            col: 0;
+            width: 2.4 * root.rem-size;
+            text: "Start";
+            font-size: 0.85 * root.rem-size;
+            color: Theme.text;
+            vertical-alignment: center;
+        }
+        SkipField {
+            row: 0;
+            col: 1;
+            horizontal-stretch: 1;
+            rem-size: root.rem-size;
+            text <=> root.skip-start;
+        }
+        SkipPill {
+            row: 0;
+            col: 2;
+            rem-size: root.rem-size;
+            label-text: "Now";
+            small: true;
+            clicked => { root.skip-start = PlayerText.clock(root.time); }
+        }
+        Text {
+            row: 1;
+            col: 0;
+            width: 2.4 * root.rem-size;
+            text: "End";
+            font-size: 0.85 * root.rem-size;
+            color: Theme.text;
+            vertical-alignment: center;
+        }
+        SkipField {
+            row: 1;
+            col: 1;
+            horizontal-stretch: 1;
+            rem-size: root.rem-size;
+            text <=> root.skip-end;
+        }
+        SkipPill {
+            row: 1;
+            col: 2;
+            rem-size: root.rem-size;
+            label-text: "Now";
+            small: true;
+            clicked => { root.skip-end = PlayerText.clock(root.time); }
+        }
+    }
+
+    HorizontalLayout {
+        height: 2.6 * root.rem-size;
+        spacing: 0.6 * root.rem-size;
+        alignment: end;
+        if root.skip-notice != "": Text {
+            text: root.skip-notice;
+            font-size: 0.85 * root.rem-size;
+            color: Theme.text;
+            opacity: 0.8;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        SkipPill {
+            rem-size: root.rem-size;
+            label-text: "Submit";
+            primary: true;
+            clicked => { root.submit-skip(root.skip-kind, root.skip-start, root.skip-end); }
+        }
+    }
+}

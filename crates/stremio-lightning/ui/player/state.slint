@@ -1,0 +1,87 @@
+// Global UI state and callback bridge for the Player screen.
+import { PreviewData } from "../meta-preview.slint";
+import { SelectOption } from "../multiselect-menu.slint";
+import {
+    LanguageOption,
+    PlayerEpisode,
+    PlayerOption,
+    PlayerTrack,
+    SkipMark,
+    SkipRow,
+} from "types.slint";
+
+export global PlayerUi {
+    in-out property <string> title;
+    in-out property <image> backdrop;
+    in-out property <bool> has-backdrop;
+    in-out property <image> logo;
+    in-out property <bool> has-logo;
+    in-out property <bool> loaded;
+    in-out property <bool> buffering;
+    in-out property <float> time;
+    in-out property <float> duration;
+    in-out property <float> buffered;
+    in-out property <bool> paused;
+    in-out property <bool> seekable;
+    in-out property <float> volume: 100;
+    in-out property <bool> muted;
+    in-out property <float> speed: 1;
+    in-out property <string> scale: "contain";
+    in-out property <[PlayerTrack]> audio-tracks;
+    in-out property <bool> subtitles-enabled;
+    in-out property <string> error;
+    in-out property <float> subtitles-size: 100;
+    in-out property <float> subtitles-offset: 0;
+    in-out property <float> subtitles-position: 100;
+    in-out property <[LanguageOption]> subtitle-languages;
+    in-out property <string> subtitle-language;
+    in-out property <[PlayerTrack]> subtitle-variants;
+    in-out property <bool> fullscreen;
+    in-out property <[PlayerOption]> options;
+    in-out property <[PlayerEpisode]> episodes;
+    in-out property <[SelectOption]> seasons;
+    in-out property <int> season-index;
+    in-out property <string> season-title;
+    in-out property <PreviewData> preview;
+    in-out property <bool> has-episodes;
+    in-out property <string> next-label;
+    in-out property <bool> has-next;
+    in-out property <float> next-notice: 35;
+    in-out property <float> seek-step: 10;
+    in-out property <float> seek-short-step: 3;
+    in-out property <string> menu;
+    in-out property <bool> skip-visible: false;
+    in-out property <[SkipMark]> skip-marks;
+    in-out property <bool> skip-submit: true;
+    in-out property <string> skip-kind: "op";
+    in-out property <[SkipRow]> skip-rows;
+    in-out property <string> skip-start: "";
+    in-out property <string> skip-end: "";
+    in-out property <string> skip-notice: "";
+
+    callback back();
+    callback toggle-fullscreen();
+    callback play-pause();
+    callback play-next();
+    callback skip();
+    callback open-skip();
+    callback pick-skip-kind(string);
+    callback submit-skip(string, string, string);
+    callback vote-skip(string, bool);
+    callback seek(float);
+    callback seek-by(float);
+    callback set-volume(float);
+    callback toggle-muted();
+    callback set-speed(float);
+    callback cycle-scale();
+    callback select-audio(string);
+    callback choose-language(string);
+    callback choose-subtitles(string);
+    callback toggle-subtitles();
+    callback step-subtitles-offset(int);
+    callback step-subtitles-size(int);
+    callback step-subtitles-position(int);
+    callback select-episode(string);
+    callback select-season(int);
+    callback choose-option(string);
+}

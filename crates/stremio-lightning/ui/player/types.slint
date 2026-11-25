@@ -1,0 +1,116 @@
+// Shared data types, clock formatter, button, and modal card for the Player screen.
+import { Theme } from "../theme.slint";
+
+export struct SkipRow {
+    label: string,
+    text: string,
+    id: string,
+}
+
+export struct PlayerTrack {
+    id: string,
+    title: string,
+    language: string,
+    selected: bool,
+    origin: string,
+    external: bool,
+}
+
+export struct LanguageOption {
+    code: string,
+    label: string,
+    selected: bool,
+}
+
+export struct PlayerEpisode {
+    id: string,
+    title: string,
+    selected: bool,
+    watched: bool,
+    progress: float,
+    released: string,
+    thumbnail: image,
+}
+
+export struct PlayerOption {
+    label: string,
+    action: string,
+}
+
+export struct SkipMark {
+    start: float,
+    end: float,
+}
+
+export global PlayerText {
+    pure public function two(value: int) -> string {
+        return value < 10 ? "0" + value : "" + value;
+    }
+
+    pure public function clock(seconds: float) -> string {
+        return seconds > 0
+            ? self.two(Math.floor(seconds / 3600)) + ":"
+                + self.two(Math.floor(Math.mod(seconds, 3600) / 60)) + ":"
+                + self.two(Math.floor(Math.mod(seconds, 60)))
+            : "00:00:00";
+    }
+}
+
+export component PlayerButton inherits Rectangle {
+    in property <length> rem-size;
+    in property <image> glyph;
+    in property <bool> enabled: true;
+    in property <bool> lit: false;
+    in property <string> says: "";
+    callback clicked;
+
+    width: 4 * root.rem-size;
+    height: 4 * root.rem-size;
+    border-radius: 0.75 * root.rem-size;
+    background: touch.has-hover && root.enabled ? Theme.overlay : transparent;
+    animate background { duration: 150ms; }
+
+    if root.says != "" && touch.has-hover && root.enabled: Rectangle {
+        width: says-label.width + 1.6 * root.rem-size;
+        height: 2.4 * root.rem-size;
+        x: (root.width - self.width) / 2;
+        y: -2.9 * root.rem-size;
+        border-radius: 0.5 * root.rem-size;
+        background: Theme.modal-background;
+
+        says-label := Text {
+            x: 0.8 * root.rem-size;
+            height: parent.height;
+            text: root.says;
+            font-size: 1 * root.rem-size;
+            color: Theme.text;
+            vertical-alignment: center;
+        }
+    }
+
+    Image {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: 2.2 * root.rem-size;
+        height: 2.2 * root.rem-size;
+        source: root.glyph;
+        colorize: root.lit ? Theme.accent : Theme.text;
+        opacity: root.enabled ? 1 : 0.4;
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component PlayerMenu inherits Rectangle {
+    in property <length> rem-size;
+
+    border-radius: 0.75 * root.rem-size;
+    background: Theme.modal-background;
+    drop-shadow-blur: 2.7 * root.rem-size;
+    drop-shadow-offset-y: 1.35 * root.rem-size;
+    drop-shadow-color: Theme.scrim;
+}

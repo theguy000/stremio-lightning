@@ -1,6 +1,6 @@
 //! Details, Player, and Settings screen projections.
 
-use slint::{ModelRc, VecModel};
+use slint::{ComponentHandle, ModelRc, VecModel};
 
 use super::sync::{image_rev, preview_data, select_input_data, slint_image, with_mirrors};
 use crate::plumbing::images::{self, Images};
@@ -8,7 +8,7 @@ use crate::screens::details::Data as DetailsData;
 use crate::screens::player::Data as PlayerData;
 use crate::screens::settings::Data as SettingsData;
 use crate::{
-    MainWindow, PlayerEpisode, PlayerOption, PlayerTrack, PreviewData, SelectOption,
+    MainWindow, PlayerEpisode, PlayerOption, PlayerTrack, PlayerUi, PreviewData, SelectOption,
     SettingsViewData, StreamData, VideoRow,
 };
 
@@ -161,15 +161,16 @@ pub(crate) fn settings_view(data: &SettingsData) -> SettingsViewData {
 
 pub(super) fn player_view(window: &MainWindow, data: &PlayerData, images: &Images) {
     window.set_playing(data.open);
-    window.set_player_title(data.title.clone().into());
-    window.set_player_error(data.error.clone().into());
+    let ui = window.global::<PlayerUi>();
+    ui.set_title(data.title.clone().into());
+    ui.set_error(data.error.clone().into());
     let logo = slint_image(images, &data.logo);
-    window.set_player_has_logo(logo.is_some());
-    window.set_player_logo(logo.unwrap_or_default());
+    ui.set_has_logo(logo.is_some());
+    ui.set_logo(logo.unwrap_or_default());
     let backdrop = slint_image(images, &data.background);
-    window.set_player_has_backdrop(backdrop.is_some());
-    window.set_player_backdrop(backdrop.unwrap_or_default());
-    window.set_player_options(ModelRc::new(VecModel::from(
+    ui.set_has_backdrop(backdrop.is_some());
+    ui.set_backdrop(backdrop.unwrap_or_default());
+    ui.set_options(ModelRc::new(VecModel::from(
         data.options
             .iter()
             .map(|option| PlayerOption {
@@ -178,12 +179,11 @@ pub(super) fn player_view(window: &MainWindow, data: &PlayerData, images: &Image
             })
             .collect::<Vec<_>>(),
     )));
-    window.set_player_episodes(ModelRc::new(VecModel::from(
+    ui.set_episodes(ModelRc::new(VecModel::from(
         data.episodes
             .iter()
             .map(|episode| PlayerEpisode {
                 id: episode.id.clone().into(),
-                label: episode.label.clone().into(),
                 title: episode.title.clone().into(),
                 selected: episode.picked,
                 watched: episode.watched,
@@ -193,7 +193,7 @@ pub(super) fn player_view(window: &MainWindow, data: &PlayerData, images: &Image
             })
             .collect::<Vec<_>>(),
     )));
-    window.set_player_seasons(ModelRc::new(VecModel::from(
+    ui.set_seasons(ModelRc::new(VecModel::from(
         data.seasons
             .iter()
             .enumerate()
@@ -203,27 +203,25 @@ pub(super) fn player_view(window: &MainWindow, data: &PlayerData, images: &Image
             })
             .collect::<Vec<_>>(),
     )));
-    window.set_player_season_index(i32::try_from(data.season).unwrap_or_default());
-    window.set_player_season_title(
+    ui.set_season_index(i32::try_from(data.season).unwrap_or_default());
+    ui.set_season_title(
         data.seasons
             .get(data.season)
             .map(|(label, _)| label.clone())
             .unwrap_or_default()
             .into(),
     );
-    window.set_player_has_episodes(data.seasons.len() > 1 || !data.episodes.is_empty());
-    window.set_player_has_preview(data.preview.is_some());
+    ui.set_has_episodes(data.seasons.len() > 1 || !data.episodes.is_empty());
     if let Some(preview) = &data.preview {
-        window.set_player_preview(preview_data(preview, images, true));
+        ui.set_preview(preview_data(preview, images, true));
     } else {
-        window.set_player_preview(PreviewData::default());
+        ui.set_preview(PreviewData::default());
     }
-    window.set_player_next_label(data.next_label.clone().into());
-    window.set_player_has_next(data.has_next);
-    window.set_player_next_notice(data.next_notice as f32);
-    window.set_player_scale(data.scale.into());
+    ui.set_next_label(data.next_label.clone().into());
+    ui.set_has_next(data.has_next);
+    ui.set_next_notice(data.next_notice as f32);
+    ui.set_scale(data.scale.into());
 }
-
 pub(crate) fn tracks(tracks: &[crate::plumbing::player::Track]) -> ModelRc<PlayerTrack> {
     ModelRc::new(VecModel::from(
         tracks

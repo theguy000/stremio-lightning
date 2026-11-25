@@ -1,10 +1,12 @@
 //! Player Screen playback lifecycle, stream opening, seek/volume/scale, and drawer callbacks.
 
+use slint::ComponentHandle;
 use stremio_core::types::player::VideoScale;
 
 use super::Wiring;
 use crate::plumbing::{clipboard, links, logs};
 use crate::screens::player::{self, should_open};
+use crate::PlayerUi;
 
 /// Where the picture is, as mpv last reported it.
 #[derive(Clone)]
@@ -33,31 +35,32 @@ impl Wiring {
         let Some(window) = self.window.upgrade() else {
             return;
         };
-        window.set_player_loaded(status.loaded);
-        window.set_player_buffering(status.buffering);
-        window.set_player_time(status.time.unwrap_or_default() as f32);
-        window.set_player_duration(status.duration.unwrap_or_default() as f32);
-        window.set_player_buffered(status.buffered.unwrap_or_default() as f32);
-        window.set_player_paused(status.paused.unwrap_or(true));
-        window.set_player_seekable(
+        let ui = window.global::<PlayerUi>();
+        ui.set_loaded(status.loaded);
+        ui.set_buffering(status.buffering);
+        ui.set_time(status.time.unwrap_or_default() as f32);
+        ui.set_duration(status.duration.unwrap_or_default() as f32);
+        ui.set_buffered(status.buffered.unwrap_or_default() as f32);
+        ui.set_paused(status.paused.unwrap_or(true));
+        ui.set_seekable(
             status.duration.is_some_and(|duration| duration > 0.0)
                 && status.time.is_some()
                 && status.paused.is_some(),
         );
-        window.set_player_volume(status.volume.unwrap_or_default() as f32);
-        window.set_player_muted(status.muted.unwrap_or(false));
-        window.set_player_speed(status.speed.unwrap_or(1.0) as f32);
+        ui.set_volume(status.volume.unwrap_or_default() as f32);
+        ui.set_muted(status.muted.unwrap_or(false));
+        ui.set_speed(status.speed.unwrap_or(1.0) as f32);
 
         self.sync_tracks_on_tick(&window, &status);
 
         if status.error.is_empty() {
             if !self.app.player().playback_error().is_empty() {
                 self.app.player().set_playback_error(String::new());
-                window.set_player_error("".into());
+                ui.set_error("".into());
             }
         } else if self.app.player().playback_error() != status.error {
             self.app.player().set_playback_error(status.error.clone());
-            window.set_player_error(status.error.clone().into());
+            ui.set_error(status.error.clone().into());
             let logs_h = self.app.logs();
             logs_h.record(
                 logs::Source::App,
@@ -121,7 +124,7 @@ impl Wiring {
         let upgraded = self.window.upgrade();
         self.clear_skip(upgraded.as_ref(), true);
         if let Some(window) = upgraded {
-            window.set_player_error("".into());
+            window.global::<PlayerUi>().set_error("".into());
             window.set_playing(false);
         }
         self.app.player().set_season(player::FOLLOW_PLAYING_SEASON);
@@ -181,7 +184,7 @@ impl Wiring {
             VideoScale::Fill => "fill",
         };
         if let Some(window) = self.window.upgrade() {
-            window.set_player_scale(label.into());
+            window.global::<PlayerUi>().set_scale(label.into());
         }
     }
 
@@ -273,14 +276,17 @@ impl Wiring {
                 }
                 self.video.show(true);
                 let _ = self.window.upgrade_in_event_loop(|window| {
-                    window.set_player_error("".into());
-                    window.set_player_loaded(false);
+                    let ui = window.global::<PlayerUi>();
+                    ui.set_error("".into());
+                    ui.set_loaded(false);
                 });
             }
             Err(message) => {
                 *self.player_attempted.lock().unwrap() = Some(data.key.clone());
                 let _ = self.window.upgrade_in_event_loop(move |window| {
-                    window.set_player_error(format!("Can't play this stream: {message}").into())
+                    window
+                        .global::<PlayerUi>()
+                        .set_error(format!("Can't play this stream: {message}").into())
                 });
             }
         }

@@ -4,7 +4,9 @@ use super::Wiring;
 use crate::app::{ArmedMod, ScreenMask};
 use crate::screens::mods;
 use crate::shell;
-use crate::MainWindow;
+use slint::ComponentHandle;
+
+use crate::{MainWindow, PlayerUi};
 
 const DISARM_MS: u64 = 5000;
 
@@ -73,7 +75,7 @@ impl Wiring {
         };
         *self.skip_submit.lock().unwrap() = shown;
         if let Some(window) = self.window.upgrade() {
-            window.set_player_skip_submit(shown);
+            window.global::<PlayerUi>().set_skip_submit(shown);
         }
     }
 

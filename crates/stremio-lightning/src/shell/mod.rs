@@ -132,6 +132,9 @@ pub(crate) fn attach(window: &MainWindow, app: Arc<App>, tokio: tokio::runtime::
     video.apply_settings(&initial_settings.player_config);
     window.set_settings(view::settings_view(&initial_settings));
     window.set_details_wrap_streams(initial_settings.wrap_streams);
+    let player_ui = window.global::<crate::PlayerUi>();
+    player_ui.set_seek_step(initial_settings.seek_time_secs);
+    player_ui.set_seek_short_step(initial_settings.seek_short_time_secs);
     window.set_app_version(env!("CARGO_PKG_VERSION").into());
     window.set_build_version(option_env!("GITHUB_SHA").unwrap_or("dev").into());
 

@@ -35,6 +35,8 @@ pub struct Data {
     pub surround_sound: bool,
     pub seek_time: SelectMenu,
     pub seek_short_time: SelectMenu,
+    pub seek_time_secs: f32,
+    pub seek_short_time_secs: f32,
     pub play_in_background: bool,
     pub binge_watching: bool,
     pub next_video_duration: SelectMenu,
@@ -107,6 +109,9 @@ fn data_from_profile(profile: &Profile, extras: &LocalExtras) -> Data {
         surround_sound: bool_field(&settings_val, "surroundSound", false),
         seek_time: input("seekTimeDuration"),
         seek_short_time: input("seekShortTimeDuration"),
+        seek_time_secs: options::number_at("seekTimeDuration", &settings_val) as f32 / 1000.0,
+        seek_short_time_secs: options::number_at("seekShortTimeDuration", &settings_val) as f32
+            / 1000.0,
         play_in_background: bool_field(&settings_val, "playInBackground", false),
         binge_watching: bool_field(&settings_val, "bingeWatching", true),
         next_video_duration: input("nextVideoNotificationDuration"),
