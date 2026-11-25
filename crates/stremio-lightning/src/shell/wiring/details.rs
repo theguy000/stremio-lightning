@@ -228,7 +228,9 @@ impl Wiring {
             Err(error) => format!("Can't play this stream: {error}"),
         };
         if let Some(window) = self.window.upgrade() {
-            window.global::<DetailsUi>().set_play_message(message.into());
+            window
+                .global::<DetailsUi>()
+                .set_play_message(message.into());
         }
     }
 }

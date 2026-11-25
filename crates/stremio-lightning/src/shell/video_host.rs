@@ -117,7 +117,7 @@ impl VideoPlayer {
                     RenderingState::RenderingSetup => {
                         host.gl_available = matches!(api, GraphicsAPI::NativeOpenGL { .. });
                     }
-                    RenderingState::BeforeRendering => host.on_before_rendering(&api, &weak, &logs),
+                    RenderingState::BeforeRendering => host.on_before_rendering(api, &weak, &logs),
                     RenderingState::RenderingTeardown => {
                         host.gl_available = false;
                         drop(host.session.take());

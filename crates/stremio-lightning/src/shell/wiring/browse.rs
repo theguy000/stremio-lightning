@@ -9,13 +9,10 @@ use stremio_core::runtime::msg::{
 use stremio_core::runtime::RuntimeAction;
 
 use super::{active_screen_of, Wiring};
-use crate::app::{AppModelField, GridReport, ScreenMask};
+use crate::app::{AppModelField, ScreenMask};
 use crate::plumbing::links;
-use crate::screens::{board, discover, player};
+use crate::screens::{discover, player};
 use crate::MainWindow;
-
-const SETTLE_MS: u64 = 150;
-const FLYING: f32 = 1800.0;
 
 struct ActionTarget {
     id: String,
@@ -118,7 +115,9 @@ impl Wiring {
                     Err(error) => format!("Can't play this title: {error}"),
                 };
                 if let Some(window) = self.window.upgrade() {
-                    window.global::<crate::DetailsUi>().set_play_message(message.into());
+                    window
+                        .global::<crate::DetailsUi>()
+                        .set_play_message(message.into());
                 }
             }
             "details" => self.open_item(card.id, card.kind, card.title),
@@ -174,97 +173,6 @@ impl Wiring {
         self.app.viewport().set_active_screen(screen);
         self.app.mark_dirty(screen.mask());
     }
-
-    pub(super) fn board_visible(
-        &self,
-        scroll: f32,
-        height: f32,
-        content_width: f32,
-        viewport_width: f32,
-    ) {
-        let next = board::Viewport {
-            scroll,
-            height,
-            content_width,
-            viewport_width,
-        };
-        let prev = self.app.viewport().board_viewport();
-        let board = self.app.board().view();
-        let prev_urls = board::visible_images(&board.rows, prev);
-        let next_urls = board::visible_images(&board.rows, next);
-        self.app.viewport().set_board_viewport(next);
-        if prev_urls != next_urls {
-            self.app.viewport().sync_images();
-            for url in next_urls {
-                self.request_painting(url);
-            }
-        }
-    }
-
-    pub(super) fn visible_range(&self, scroll: f32, height: f32, pitch: f32, columns: i32) {
-        let now = std::time::Instant::now();
-        let previous = self.app.viewport().set_grid_report(GridReport {
-            scroll,
-            height,
-            pitch,
-            columns,
-            at: now,
-        });
-        let flying = previous.is_some_and(|before| {
-            let seconds = now.duration_since(before.at).as_secs_f32();
-            seconds > 0.0 && seconds < 0.25 && (scroll - before.scroll).abs() / seconds > FLYING
-        });
-        let range = discover::visible_range(scroll, height, pitch, columns);
-        let prev_drawn =
-            previous.map(|b| discover::settled_range(b.scroll, b.height, b.pitch, b.columns));
-        let next_drawn = discover::settled_range(scroll, height, pitch, columns);
-        if prev_drawn != Some(next_drawn) {
-            self.app.viewport().sync_images();
-        }
-        if self.app.viewport().discover_visible() != range {
-            self.app.viewport().set_discover_visible(range);
-            if crate::plumbing::images::tracing() {
-                let note = if flying {
-                    " (flying: posters wait)"
-                } else {
-                    ""
-                };
-                eprintln!(
-                    "[grid] scrolled {scroll:.0}px of {height:.0}px: cards {}..{}{note}",
-                    range.0,
-                    range.0 + range.1
-                );
-            }
-            if !flying {
-                let discover = self.app.discover().view();
-                for url in discover::card_images(&discover, range) {
-                    self.request_painting(url);
-                }
-            }
-        }
-        let wiring = self.clone();
-        self.settle.start(
-            slint::TimerMode::SingleShot,
-            std::time::Duration::from_millis(SETTLE_MS),
-            move || wiring.fill_the_slack(),
-        );
-    }
-
-    fn fill_the_slack(&self) {
-        let Some(grid) = self.app.viewport().grid_report() else {
-            return;
-        };
-        let range = discover::settled_range(grid.scroll, grid.height, grid.pitch, grid.columns);
-        self.app.viewport().sync_images();
-        let discover = self.app.discover().view();
-        for url in discover::card_images(&discover, range) {
-            self.request_painting(url);
-        }
-        if let Some(window) = self.window.upgrade() {
-            let ui = window.global::<crate::DiscoverUi>();
-            ui.set_settle_count(ui.get_settle_count() + 1);
-        }
-    }
 }
 
 pub(super) fn wire(window: &MainWindow, wiring: &Wiring) {
@@ -276,18 +184,28 @@ pub(super) fn wire(window: &MainWindow, wiring: &Wiring) {
             action: Action::CatalogWithFilters(ActionCatalogWithFilters::LoadNextPage),
         });
     });
-    let w = | | wiring.clone();
-    { let w = w(); disc.on_select_option(move |i, o| w.select_input_option(i, o)); }
-    { let w = w(); disc.on_select_item(move |i| w.select_preview(i)); }
-    { let w = w(); disc.on_hover_card(move |i| w.hover_card(i)); }
-    { let w = w(); disc.on_visible_range(move |s, h, p, c| w.visible_range(s, h, p, c)); }
+    let w = wiring.clone();
+    disc.on_select_option(move |input, option| w.select_input_option(input, option));
+    let w = wiring.clone();
+    disc.on_select_item(move |index| w.select_preview(index));
+    let w = wiring.clone();
+    disc.on_hover_card(move |index| w.hover_card(index));
+    let w = wiring.clone();
+    disc.on_visible_range(move |s, h, p, c| w.visible_range(s, h, p, c));
     let lib = window.global::<crate::LibraryUi>();
-    { let w = w(); lib.on_select_type(move |o| w.select_library_type(o)); }
-    { let w = w(); lib.on_select_sort(move |o| w.select_library_sort(o)); }
-    { let w = w(); lib.on_load_more(move || w.load_more_library()); }
-    { let w = w(); lib.on_item_action(move |id, a| w.item_action(id.to_string(), a.to_string())); }
+    let w = wiring.clone();
+    lib.on_select_type(move |option| w.select_library_type(option));
+    let w = wiring.clone();
+    lib.on_select_sort(move |option| w.select_library_sort(option));
+    let w = wiring.clone();
+    lib.on_load_more(move || w.load_more_library());
+    let w = wiring.clone();
+    lib.on_item_action(move |id, act| w.item_action(id.to_string(), act.to_string()));
     let board = window.global::<crate::BoardUi>();
-    { let w = w(); board.on_item_action(move |id, a| w.item_action(id.to_string(), a.to_string())); }
-    { let w = w(); board.on_board_visible(move |s, h, cw, vw| w.board_visible(s, h, cw, vw)); }
-    { let w = w(); window.on_section_changed(move || w.section_changed()); }
+    let w = wiring.clone();
+    board.on_item_action(move |id, act| w.item_action(id.to_string(), act.to_string()));
+    let w = wiring.clone();
+    board.on_board_visible(move |s, h, cw, vw| w.board_visible(s, h, cw, vw));
+    let w = wiring.clone();
+    window.on_section_changed(move || w.section_changed());
 }

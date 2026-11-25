@@ -13,6 +13,7 @@ mod player_skip;
 mod player_skip_panel;
 mod player_tracks;
 mod settings_auth;
+mod viewport;
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};

@@ -80,7 +80,7 @@ pub(crate) fn validate_submission(
     if duration <= 0.0 {
         return Err("The picture has not loaded yet.".to_owned());
     }
-    if !(end > start) || end > duration + 1.5 {
+    if !start.is_finite() || !end.is_finite() || end <= start || end > duration + 1.5 {
         return Err(format!(
             "The end has to be after the start and inside the file ({}).",
             clock(duration)

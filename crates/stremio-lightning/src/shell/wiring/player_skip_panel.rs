@@ -202,7 +202,8 @@ impl Wiring {
         let Some(window) = self.window.upgrade() else {
             return;
         };
-        window.global::<PlayerUi>().set_skip_notice("Sending…".into());
+        let ui = window.global::<PlayerUi>();
+        ui.set_skip_notice("Sending…".into());
         let (logs_h, weak, skip, skip_client) = (
             self.app.logs().clone(),
             self.window.clone(),
@@ -221,9 +222,8 @@ impl Wiring {
                     );
                     let _ = weak.upgrade_in_event_loop(move |window| {
                         if skip.lock().unwrap().generation == generation {
-                            window
-                                .global::<PlayerUi>()
-                                .set_skip_notice("Thanks for the vote.".into());
+                            let ui = window.global::<PlayerUi>();
+                            ui.set_skip_notice("Thanks for the vote.".into());
                         }
                     });
                 }

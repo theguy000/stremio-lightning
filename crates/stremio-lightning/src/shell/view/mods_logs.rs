@@ -87,7 +87,6 @@ pub(super) fn log_row(row: &mods::logs::Row) -> ModsLogRow {
     }
 }
 
-
 /// content itself. The menu is written only when its rows differ from the ones the window holds,
 /// because a new model tears down every row -- including the one a press may be standing on. Which
 /// row is marked is not in the model: the menu marks the page `data.page` names.

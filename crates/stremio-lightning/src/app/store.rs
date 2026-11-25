@@ -66,11 +66,13 @@ pub(crate) struct AppStore {
     pub(crate) auth: auth::Generation,
 }
 
+pub(crate) type CoreEventReceiver = Receiver<RuntimeEvent<AppEnv, AppModel>>;
+
 impl AppStore {
     pub(crate) fn new(
         data_dir: PathBuf,
         tokio: &tokio::runtime::Handle,
-    ) -> Result<(Arc<Self>, Receiver<RuntimeEvent<AppEnv, AppModel>>), String> {
+    ) -> Result<(Arc<Self>, CoreEventReceiver), String> {
         AppEnv::init(data_dir.clone(), tokio.clone()).map_err(|e| e.message())?;
         let logs = Arc::new(Logs::recording_to(data_dir.join("logs").join("app.log")));
         let profile: Profile = tokio

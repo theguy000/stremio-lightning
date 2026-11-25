@@ -439,8 +439,14 @@ fn the_window_lists_what_was_logged_and_filters_it() {
                 .map(|option| option.label.to_string())
                 .unwrap_or_default()
         };
-        let source = title(&sources, window.global::<ModsUi>().get_data().log_source_index);
-        let level = title(&levels, window.global::<ModsUi>().get_data().log_level_index);
+        let source = title(
+            &sources,
+            window.global::<ModsUi>().get_data().log_source_index,
+        );
+        let level = title(
+            &levels,
+            window.global::<ModsUi>().get_data().log_level_index,
+        );
         let names = ui_driver::labels(window);
         // The closed menu is a button named for the choice it is showing.
         if source == "Every source"
@@ -469,7 +475,9 @@ fn the_window_lists_what_was_logged_and_filters_it() {
         filtering,
         "Warnings and errors is picked, and only warnings and errors are left",
         {
-            window.global::<ModsUi>().invoke_filter_logs("level".into(), 3);
+            window
+                .global::<ModsUi>()
+                .invoke_filter_logs("level".into(), 3);
             wait(window, Duration::from_secs(10), |window| {
                 // The app keeps recording while the page is open (a failed picture fetch on boot
                 // is itself a record), so the count either side of the press is not the thing to
@@ -503,7 +511,10 @@ fn the_window_lists_what_was_logged_and_filters_it() {
         wait(window, Duration::from_secs(5), |window| {
             let levels = window.global::<ModsUi>().get_data().log_level_options;
             let shown = levels
-                .row_data(usize::try_from(window.global::<ModsUi>().get_data().log_level_index).unwrap_or(0))
+                .row_data(
+                    usize::try_from(window.global::<ModsUi>().get_data().log_level_index)
+                        .unwrap_or(0),
+                )
                 .map(|option| option.label.to_string())
                 .unwrap_or_default();
             let drawn = ui_driver::texts(window).contains(&shown);
@@ -536,7 +547,9 @@ fn the_window_lists_what_was_logged_and_filters_it() {
         filtering,
         "a source picked keeps only that source, and Every level brings the rest back",
         {
-            window.global::<ModsUi>().invoke_filter_logs("source".into(), 2);
+            window
+                .global::<ModsUi>()
+                .invoke_filter_logs("source".into(), 2);
             wait(window, Duration::from_secs(5), |window| {
                 let rows = rows_on(window);
                 if rows.is_empty() {
@@ -551,8 +564,12 @@ fn the_window_lists_what_was_logged_and_filters_it() {
                 Ok(format!("{} theme rows", rows.len()))
             })
             .and_then(|detail| {
-                window.global::<ModsUi>().invoke_filter_logs("source".into(), 0);
-                window.global::<ModsUi>().invoke_filter_logs("level".into(), 0);
+                window
+                    .global::<ModsUi>()
+                    .invoke_filter_logs("source".into(), 0);
+                window
+                    .global::<ModsUi>()
+                    .invoke_filter_logs("level".into(), 0);
                 wait(window, Duration::from_secs(5), |window| {
                     let rows = rows_on(window).len();
                     if rows >= rows_before {
@@ -680,7 +697,11 @@ fn the_window_lists_what_was_logged_and_filters_it() {
                 Some(row) => {
                     let label = format!("Show {} {}: {}", row.time, row.source, row.text);
                     click(window, &label).and_then(|pressed| {
-                        let heading = window.global::<ModsUi>().get_data().log_detail_heading.to_string();
+                        let heading = window
+                            .global::<ModsUi>()
+                            .get_data()
+                            .log_detail_heading
+                            .to_string();
                         let open = window.global::<ModsUi>().get_data().log_open_id;
                         let lines = window.global::<ModsUi>().get_data().log_detail.row_count();
                         if open == row.id && !heading.is_empty() && lines > 0 {
@@ -699,11 +720,22 @@ fn the_window_lists_what_was_logged_and_filters_it() {
         detail,
         "the panel is drawn with the record's name, and the row it belongs to is marked",
         wait(window, Duration::from_secs(5), |window| {
-            let heading = window.global::<ModsUi>().get_data().log_detail_heading.to_string();
-            let lines: Vec<String> = (0..window.global::<ModsUi>().get_data().log_detail.row_count())
-                .filter_map(|row| window.global::<ModsUi>().get_data().log_detail.row_data(row))
-                .map(|line| line.to_string())
-                .collect();
+            let heading = window
+                .global::<ModsUi>()
+                .get_data()
+                .log_detail_heading
+                .to_string();
+            let lines: Vec<String> =
+                (0..window.global::<ModsUi>().get_data().log_detail.row_count())
+                    .filter_map(|row| {
+                        window
+                            .global::<ModsUi>()
+                            .get_data()
+                            .log_detail
+                            .row_data(row)
+                    })
+                    .map(|line| line.to_string())
+                    .collect();
             if heading.is_empty() || lines.is_empty() {
                 return Err(format!("the panel holds {heading:?} / {lines:?}"));
             }
@@ -754,7 +786,11 @@ fn the_window_lists_what_was_logged_and_filters_it() {
         "Close takes the panel away and unmarks the row",
         click(window, "Close the record").and_then(|_| {
             wait(window, Duration::from_secs(5), |window| {
-                let heading = window.global::<ModsUi>().get_data().log_detail_heading.to_string();
+                let heading = window
+                    .global::<ModsUi>()
+                    .get_data()
+                    .log_detail_heading
+                    .to_string();
                 let open = window.global::<ModsUi>().get_data().log_open_id;
                 if heading.is_empty() && open == 0 {
                     Ok("the panel is gone".to_owned())
@@ -852,7 +888,11 @@ fn the_window_lists_what_was_logged_and_filters_it() {
         click(window, "Close the record").and_then(|_| {
             wait(window, Duration::from_secs(5), |window| {
                 let count = window.global::<ModsUi>().get_data().log_selected_count;
-                let heading = window.global::<ModsUi>().get_data().log_detail_heading.to_string();
+                let heading = window
+                    .global::<ModsUi>()
+                    .get_data()
+                    .log_detail_heading
+                    .to_string();
                 if count == 0 && heading.is_empty() {
                     Ok("selection cleared".to_owned())
                 } else {
@@ -869,7 +909,9 @@ fn the_window_lists_what_was_logged_and_filters_it() {
         ux,
         "Reset filters restores source, level, and search in one press",
         {
-            window.global::<ModsUi>().invoke_filter_logs("source".into(), 2);
+            window
+                .global::<ModsUi>()
+                .invoke_filter_logs("source".into(), 2);
             window.global::<ModsUi>().invoke_search_logs("odd".into());
             wait(window, Duration::from_secs(5), |window| {
                 let mods = window.global::<ModsUi>().get_data();
@@ -1134,7 +1176,11 @@ fn the_window_lists_what_was_logged_and_filters_it() {
         }
     });
     about = step(about, "it ends with the licence line", {
-        let license = window.global::<ModsUi>().get_data().about_license.to_string();
+        let license = window
+            .global::<ModsUi>()
+            .get_data()
+            .about_license
+            .to_string();
         if license == mods::about::LICENSE && !license.is_empty() {
             Ok(license)
         } else {
@@ -1147,7 +1193,11 @@ fn the_window_lists_what_was_logged_and_filters_it() {
         "Export diagnostics writes a file and shows where",
         pressed.and_then(|_| {
             wait(window, Duration::from_secs(10), |window| {
-                let written = window.global::<ModsUi>().get_data().about_export.to_string();
+                let written = window
+                    .global::<ModsUi>()
+                    .get_data()
+                    .about_export
+                    .to_string();
                 if written.is_empty() {
                     return Err("the page shows no path yet".to_owned());
                 }
@@ -1160,7 +1210,13 @@ fn the_window_lists_what_was_logged_and_filters_it() {
         }),
     );
     about = step(about, "and the file is under the app's data folder", {
-        let written = PathBuf::from(window.global::<ModsUi>().get_data().about_export.to_string());
+        let written = PathBuf::from(
+            window
+                .global::<ModsUi>()
+                .get_data()
+                .about_export
+                .to_string(),
+        );
         let folder = written.parent().map(Path::to_path_buf);
         let wanted = data_dir.join(mods::about::FOLDER);
         if folder.as_deref() == Some(wanted.as_path()) && written.exists() {

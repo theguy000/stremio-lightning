@@ -68,7 +68,7 @@ impl Wiring {
             mods::builtin::fields("builtin:aniskip")
                 .iter()
                 .find(|field| field.key == "submit_button")
-                .map_or(true, |field| {
+                .is_none_or(|field| {
                     mods::builtin::value(&extras, "builtin:aniskip", field)
                         == serde_json::Value::Bool(true)
                 })

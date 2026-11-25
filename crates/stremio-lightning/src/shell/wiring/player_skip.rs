@@ -113,7 +113,9 @@ impl Wiring {
                 ),
             };
         }
-        window.global::<PlayerUi>().set_skip_visible(diff.active.is_some());
+        window
+            .global::<PlayerUi>()
+            .set_skip_visible(diff.active.is_some());
         if let Some(marks) = diff.marks_changed {
             set_window_skip_marks(window, &marks);
         }

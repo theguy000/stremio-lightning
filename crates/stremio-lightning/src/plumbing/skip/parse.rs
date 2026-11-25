@@ -184,7 +184,7 @@ pub(super) fn rates_of(value: &Value, duration: f64) -> Vec<Rate> {
         let Some(end) = result.pointer("/interval/endTime").and_then(Value::as_f64) else {
             continue;
         };
-        if !(end > start) {
+        if !start.is_finite() || !end.is_finite() || end <= start {
             continue;
         }
         let length = result

@@ -208,9 +208,7 @@ pub(super) fn wire(window: &MainWindow, wiring: &Wiring) {
     let w = wiring.clone();
     ui.on_reset_logs_filter(move || w.reset_logs_filter());
     let w = wiring.clone();
-    ui.on_press_log(move |id, shift, ctrl| {
-        w.press_log_record(id.max(0) as u32, shift, ctrl)
-    });
+    ui.on_press_log(move |id, shift, ctrl| w.press_log_record(id.max(0) as u32, shift, ctrl));
     let w = wiring.clone();
     ui.on_drag_log(move |id| w.drag_log_record(id.max(0) as u32));
     let w = wiring.clone();

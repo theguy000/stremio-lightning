@@ -109,16 +109,15 @@ pub(crate) fn install(window: &MainWindow, on_focus_gain: impl Fn() + 'static) {
     window
         .window()
         .on_winit_window_event(move |slint_window, event| {
-            if !icon_installed.get() {
-                if slint_window
+            if !icon_installed.get()
+                && slint_window
                     .with_winit_window(|winit_window: &Window| match icon() {
                         Ok(icon) => winit_window.set_window_icon(Some(icon)),
                         Err(error) => eprintln!("[window] {error}"),
                     })
                     .is_some()
-                {
-                    icon_installed.set(true);
-                }
+            {
+                icon_installed.set(true);
             }
 
             match event {

@@ -15,6 +15,8 @@ use format::{current_kind, kind_with_data};
 use crate::plumbing::skip;
 
 /// Pure AniSkip session state for the currently playing Video.
+pub(crate) type OverlaySync = (bool, Option<Vec<(f32, f32)>>);
+
 #[derive(Default)]
 pub(crate) struct SkipSession {
     pub generation: u64,
@@ -170,7 +172,7 @@ impl SkipSession {
         time: f64,
         duration: f64,
         skip_wanted: bool,
-    ) -> Option<(bool, Option<Vec<(f32, f32)>>)> {
+    ) -> Option<OverlaySync> {
         if self.generation != generation {
             return None;
         }

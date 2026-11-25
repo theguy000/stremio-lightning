@@ -134,7 +134,6 @@ pub(crate) fn mods_view(data: &crate::screens::mods::Data) -> ModsViewData {
     }
 }
 
-
 /// One section of the About page, as the rows it draws.
 fn about_lines(lines: &[mods::about::Line]) -> ModelRc<ModsAboutLine> {
     ModelRc::new(VecModel::from(
@@ -212,4 +211,3 @@ fn empty_settings(data: &crate::screens::mods::Data) -> String {
         String::new()
     }
 }
-
