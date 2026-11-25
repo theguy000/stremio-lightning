@@ -7,6 +7,15 @@ import { Theme } from "theme.slint";
 
 export { CalendarData, CalendarDay, CalendarSlot }
 
+export global CalendarUi {
+    in-out property <CalendarData> data;
+    in-out property <int> selected-day: -1;
+    callback prev-month();
+    callback next-month();
+    callback open-slot(string, string, string);
+    callback shown();
+}
+
 component CalendarSelector inherits Rectangle {
     in property <string> month;
     in property <string> prev;
@@ -122,11 +131,7 @@ component CalendarSelector inherits Rectangle {
 }
 
 export component CalendarContent inherits Rectangle {
-    in property <CalendarData> data;
     in property <length> rem-size;
-    in-out property <int> selected-day: -1;
-    callback prev-month();
-    callback next-month();
     callback open-slot(string, string, string);
 
     property <[string]> week-days: [
@@ -136,7 +141,7 @@ export component CalendarContent inherits Rectangle {
     property <length> list-width: 24 * root.rem-size;
     property <length> content-width: root.width - root.gutter;
     property <length> main-width: root.content-width - root.list-width - 0.5 * root.rem-size;
-    property <int> rows: Math.max(1, Math.ceil((root.data.first-weekday + root.data.days.length) / 7));
+    property <int> rows: Math.max(1, Math.ceil((CalendarUi.data.first-weekday + CalendarUi.data.days.length) / 7));
     property <length> cell-width: (root.main-width - 6 * 1px) / 7;
     property <length> table-height: root.height - 5.5 * root.rem-size;
     property <length> grid-height: root.table-height - 3 * root.rem-size;
@@ -146,13 +151,13 @@ export component CalendarContent inherits Rectangle {
         x: root.gutter;
         width: root.main-width;
         y: 0px;
-        month: root.data.month;
-        prev: root.data.prev;
-        next: root.data.next;
-        year: root.data.year;
+        month: CalendarUi.data.month;
+        prev: CalendarUi.data.prev;
+        next: CalendarUi.data.next;
+        year: CalendarUi.data.year;
         rem-size: root.rem-size;
-        prev-month => { root.prev-month(); }
-        next-month => { root.next-month(); }
+        prev-month => { CalendarUi.prev-month(); }
+        next-month => { CalendarUi.next-month(); }
     }
 
     Rectangle {
@@ -175,18 +180,18 @@ export component CalendarContent inherits Rectangle {
             color: Theme.text;
         }
 
-        for day[index] in root.data.days: CalendarCell {
-            x: Math.mod(index + root.data.first-weekday, 7) * (root.cell-width + 1px);
+        for day[index] in CalendarUi.data.days: CalendarCell {
+            x: Math.mod(index + CalendarUi.data.first-weekday, 7) * (root.cell-width + 1px);
             y: 3 * root.rem-size
-                + Math.floor((index + root.data.first-weekday) / 7) * (root.cell-height + 1px);
+                + Math.floor((index + CalendarUi.data.first-weekday) / 7) * (root.cell-height + 1px);
             width: root.cell-width;
             height: root.cell-height;
             day: day;
-            active: root.selected-day == day.day;
+            active: CalendarUi.selected-day == day.day;
             rem-size: root.rem-size;
             cell-width: root.cell-width;
             cell-height: root.cell-height;
-            selected => { root.selected-day = day.day; }
+            selected => { CalendarUi.selected-day = day.day; }
             open-slot(meta-id, kind, video-id) => { root.open-slot(meta-id, kind, video-id); }
         }
     }
@@ -208,11 +213,11 @@ export component CalendarContent inherits Rectangle {
             list-layout := VerticalLayout {
                 spacing: 1 * root.rem-size;
 
-                for day[index] in root.data.list: CalendarListDay {
+                for day[index] in CalendarUi.data.list: CalendarListDay {
                     day: day;
                     rem-size: root.rem-size;
-                    active: root.selected-day == day.day;
-                    selected => { root.selected-day = day.day; }
+                    active: CalendarUi.selected-day == day.day;
+                    selected => { CalendarUi.selected-day = day.day; }
                     open-slot(meta-id, kind, video-id) => { root.open-slot(meta-id, kind, video-id); }
                 }
             }

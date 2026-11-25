@@ -6,21 +6,24 @@ import { IntroBackdrop, IntroCheckbox, IntroHeading, IntroPillButton, IntroTextI
 import { ScrollBar } from "scroll-bar.slint";
 import { Theme } from "theme.slint";
 
-export component IntroContent inherits Rectangle {
+export global AuthUi {
+    in-out property <bool> open: false;
     in-out property <bool> is-signup: false;
-    in property <string> error-message: "";
-    in property <bool> is-loading: false;
-    in property <bool> facebook-loading: false;
-    in property <bool> apple-loading: false;
-    in property <length> rem-size: 14px;
-
+    in-out property <string> error: "";
+    in-out property <bool> loading: false;
+    in-out property <bool> facebook-loading: false;
+    in-out property <bool> apple-loading: false;
     callback submit-login(string, string);
     callback submit-register(string, string, bool, bool, bool);
-    callback login-guest();
-    callback login-facebook();
-    callback login-apple();
+    callback guest-login();
+    callback facebook-login();
+    callback apple-login();
     callback forgot-password(string);
-    callback dismiss();
+    callback dismissed();
+}
+
+export component IntroContent inherits Rectangle {
+    in property <length> rem-size: 14px;
 
     property <string> email-value: "";
     property <string> password-value: "";
@@ -31,7 +34,7 @@ export component IntroContent inherits Rectangle {
     property <bool> gdpr-privacy: false;
     property <bool> gdpr-marketing: false;
     property <string> local-error: "";
-    property <string> active-error: root.error-message != "" ? root.error-message : root.local-error;
+    property <string> active-error: AuthUi.error != "" ? AuthUi.error : root.local-error;
     property <bool> form-shown: true;
     property <bool> pending-signup: false;
     property <bool> switching-form: false;
@@ -41,11 +44,11 @@ export component IntroContent inherits Rectangle {
     Timer {
         interval: 120ms;
         running: root.switching-form;
-        triggered => { root.is-signup = root.pending-signup; root.switching-form = false; root.form-shown = true; }
+        triggered => { AuthUi.is-signup = root.pending-signup; root.switching-form = false; root.form-shown = true; }
     }
 
     function switch-form(to-signup: bool) {
-        if (root.is-signup != to-signup) {
+        if (AuthUi.is-signup != to-signup) {
             root.pending-signup = to-signup;
             root.form-shown = false;
             root.switching-form = true;
@@ -53,12 +56,12 @@ export component IntroContent inherits Rectangle {
     }
 
     function handle-submit() {
-        if (!root.is-signup) {
+        if (!AuthUi.is-signup) {
             if (root.email-value == "" || root.password-value == "") {
                 root.local-error = "Please enter both email and password.";
             } else {
                 root.local-error = "";
-                root.submit-login(root.email-value, root.password-value);
+                AuthUi.submit-login(root.email-value, root.password-value);
             }
         } else if (root.email-value == "" || root.password-value == "" || root.confirm-password-value == "") {
             root.local-error = "Please fill in all registration fields.";
@@ -68,7 +71,7 @@ export component IntroContent inherits Rectangle {
             root.local-error = "You must accept the Terms of Service and Privacy Policy.";
         } else {
             root.local-error = "";
-            root.submit-register(root.email-value, root.password-value, root.gdpr-tos, root.gdpr-privacy, root.gdpr-marketing);
+            AuthUi.submit-register(root.email-value, root.password-value, root.gdpr-tos, root.gdpr-privacy, root.gdpr-marketing);
         }
     }
 
@@ -82,7 +85,7 @@ export component IntroContent inherits Rectangle {
         visible: !ClassStyles.intro-container.hidden;
         animate opacity { duration: 350ms; easing: ease-in-out; }
 
-        IntroBackdrop { width: 100%; height: 100%; rem-size: root.rem-size; dismiss => { root.dismiss(); } }
+        IntroBackdrop { width: 100%; height: 100%; rem-size: root.rem-size; dismiss => { AuthUi.dismissed(); } }
         flickable := Flickable {
             width: parent.width;
             height: parent.height;
@@ -127,7 +130,7 @@ export component IntroContent inherits Rectangle {
                             edited => { root.local-error = ""; }
                             enter-pressed => { root.handle-submit(); }
                         }
-                        if root.is-signup: IntroTextInput {
+                        if AuthUi.is-signup: IntroTextInput {
                             rem-size: root.rem-size;
                             placeholder: "Confirm password";
                             text <=> root.confirm-password-value;
@@ -136,7 +139,7 @@ export component IntroContent inherits Rectangle {
                             edited => { root.local-error = ""; }
                             enter-pressed => { root.handle-submit(); }
                         }
-                        if root.is-signup: checkboxes-container := VerticalLayout {
+                        if AuthUi.is-signup: checkboxes-container := VerticalLayout {
                             spacing: 0.75 * root.rem-size;
                             opacity: ClassStyles.opacity-or(ClassStyles.checkbox-container, 1.0);
                             visible: !ClassStyles.checkbox-container.hidden;
@@ -158,7 +161,7 @@ export component IntroContent inherits Rectangle {
                                 checked <=> root.gdpr-marketing;
                             }
                         }
-                        if !root.is-signup: forgot-password-link-container := HorizontalLayout {
+                        if !AuthUi.is-signup: forgot-password-link-container := HorizontalLayout {
                             alignment: end;
                             height: 1.5 * root.rem-size;
                             opacity: ClassStyles.opacity-or(ClassStyles.forgot-password-link-container, 1.0);
@@ -166,7 +169,7 @@ export component IntroContent inherits Rectangle {
 
                             forgot-touch := TouchArea {
                                 mouse-cursor: pointer;
-                                clicked => { root.forgot-password(root.email-value); }
+                                clicked => { AuthUi.forgot-password(root.email-value); }
 
                                 Text {
                                     width: self.preferred-width;
@@ -203,7 +206,7 @@ export component IntroContent inherits Rectangle {
                         }
                         submit-button := IntroPillButton {
                             rem-size: root.rem-size;
-                            text: root.is-signup ? "Sign up" : "Log in";
+                            text: AuthUi.is-signup ? "Sign up" : "Log in";
                             normal-bg: ClassStyles.background-or(ClassStyles.submit-button, Theme.overlay);
                             hover-bg: Theme.text;
                             normal-color: ClassStyles.color-or(ClassStyles.submit-button, Theme.text);
@@ -212,7 +215,7 @@ export component IntroContent inherits Rectangle {
                             border-col: Theme.text;
                             opacity: ClassStyles.opacity-or(ClassStyles.submit-button, 1.0);
                             visible: !ClassStyles.submit-button.hidden;
-                            is-loading: root.is-loading;
+                            is-loading: AuthUi.loading;
                             clicked => { root.handle-submit(); }
                         }
                     }
@@ -232,10 +235,10 @@ export component IntroContent inherits Rectangle {
                             normal-color: ClassStyles.color-or(ClassStyles.facebook-button, Theme.text);
                             hover-color: Theme.text;
                             has-border: false;
-                            is-loading: root.facebook-loading;
+                            is-loading: AuthUi.facebook-loading;
                             opacity: ClassStyles.opacity-or(ClassStyles.facebook-button, 1.0);
                             visible: !ClassStyles.facebook-button.hidden;
-                            clicked => { root.login-facebook(); }
+                            clicked => { AuthUi.facebook-login(); }
                         }
                         apple-button := IntroPillButton {
                             rem-size: root.rem-size;
@@ -248,23 +251,23 @@ export component IntroContent inherits Rectangle {
                             normal-color: ClassStyles.color-or(ClassStyles.apple-button, Theme.on-accent);
                             hover-color: Theme.on-accent;
                             has-border: false;
-                            is-loading: root.apple-loading;
+                            is-loading: AuthUi.apple-loading;
                             opacity: ClassStyles.opacity-or(ClassStyles.apple-button, 1.0);
                             visible: !ClassStyles.apple-button.hidden;
-                            clicked => { root.login-apple(); }
+                            clicked => { AuthUi.apple-login(); }
                         }
                         mode-switch-button := IntroPillButton {
                             rem-size: root.rem-size;
-                            text: root.is-signup ? "Log in" : "Sign up with email";
-                            normal-bg: root.is-signup ? ClassStyles.background-or(ClassStyles.login-form-button, transparent) : ClassStyles.background-or(ClassStyles.signup-form-button, transparent);
+                            text: AuthUi.is-signup ? "Log in" : "Sign up with email";
+                            normal-bg: AuthUi.is-signup ? ClassStyles.background-or(ClassStyles.login-form-button, transparent) : ClassStyles.background-or(ClassStyles.signup-form-button, transparent);
                             hover-bg: Theme.overlay;
-                            normal-color: root.is-signup ? ClassStyles.color-or(ClassStyles.login-form-button, Theme.text) : ClassStyles.color-or(ClassStyles.signup-form-button, Theme.text);
+                            normal-color: AuthUi.is-signup ? ClassStyles.color-or(ClassStyles.login-form-button, Theme.text) : ClassStyles.color-or(ClassStyles.signup-form-button, Theme.text);
                             hover-color: Theme.text;
                             has-border: true;
                             border-col: Theme.text;
-                            opacity: root.is-signup ? ClassStyles.opacity-or(ClassStyles.login-form-button, 1.0) : ClassStyles.opacity-or(ClassStyles.signup-form-button, 1.0);
-                            visible: root.is-signup ? !ClassStyles.login-form-button.hidden : !ClassStyles.signup-form-button.hidden;
-                            clicked => { root.switch-form(!root.is-signup); root.local-error = ""; }
+                            opacity: AuthUi.is-signup ? ClassStyles.opacity-or(ClassStyles.login-form-button, 1.0) : ClassStyles.opacity-or(ClassStyles.signup-form-button, 1.0);
+                            visible: AuthUi.is-signup ? !ClassStyles.login-form-button.hidden : !ClassStyles.signup-form-button.hidden;
+                            clicked => { root.switch-form(!AuthUi.is-signup); root.local-error = ""; }
                         }
                         guest-login-button := IntroPillButton {
                             rem-size: root.rem-size;
@@ -277,7 +280,7 @@ export component IntroContent inherits Rectangle {
                             border-col: Theme.text;
                             opacity: ClassStyles.opacity-or(ClassStyles.guest-login-button, 1.0);
                             visible: !ClassStyles.guest-login-button.hidden;
-                            clicked => { root.login-guest(); }
+                            clicked => { AuthUi.guest-login(); }
                         }
                     }
                 }

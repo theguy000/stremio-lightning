@@ -160,7 +160,7 @@ fn handle_wheel(
         .is_empty()
         || window.get_details_open()
         || window.get_playing()
-        || window.get_auth_open()
+        || window.global::<crate::AuthUi>().get_open()
         || window.global::<crate::AddonsUi>().get_add_open()
         || window.get_share_open()
     {
@@ -169,7 +169,9 @@ fn handle_wheel(
     let target = match window.get_section() {
         Section::Board => Target::Board,
         Section::Discover => Target::Discover,
-        Section::Library if window.get_settings().logged_in => Target::Library,
+        Section::Library if window.global::<crate::SettingsUi>().get_data().logged_in => {
+            Target::Library
+        }
         Section::Addons => Target::Addons,
         Section::Settings => Target::Settings,
         _ => return EventResult::Propagate,

@@ -8,7 +8,7 @@ use super::Wiring;
 use crate::app::AppModelField;
 use crate::plumbing::links;
 use crate::screens::{addons, calendar, details};
-use crate::{AddonsUi, MainWindow};
+use crate::{AddonsUi, CalendarUi, MainWindow};
 
 impl Wiring {
     pub(super) fn select_addon_input_option(&self, input: i32, option: i32) {
@@ -48,7 +48,7 @@ impl Wiring {
     pub(super) fn calendar_step(&self, forward: bool) {
         calendar::step(self.app.runtime(), forward);
         if let Some(window) = self.window.upgrade() {
-            window.set_calendar_selected_day(-1);
+            window.global::<CalendarUi>().set_selected_day(-1);
         }
     }
 
@@ -145,14 +145,15 @@ pub(super) fn wire(window: &MainWindow, wiring: &Wiring) {
     let w = wiring.clone();
     ui.on_install(move |url| w.install_market_addon(&url));
     ui.on_configure(move |url| links::open(&addons::configure_url(&url)));
+    let cal = window.global::<CalendarUi>();
     let w = wiring.clone();
-    window.on_calendar_shown(move || w.calendar_shown());
+    cal.on_shown(move || w.calendar_shown());
     let w = wiring.clone();
-    window.on_calendar_prev_month(move || w.calendar_step(false));
+    cal.on_prev_month(move || w.calendar_step(false));
     let w = wiring.clone();
-    window.on_calendar_next_month(move || w.calendar_step(true));
+    cal.on_next_month(move || w.calendar_step(true));
     let w = wiring.clone();
-    window.on_calendar_open_slot(move |meta_id, kind, video_id| {
+    cal.on_open_slot(move |meta_id, kind, video_id| {
         w.calendar_open(meta_id.to_string(), kind.to_string(), video_id.to_string())
     });
 }

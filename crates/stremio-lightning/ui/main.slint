@@ -1,167 +1,108 @@
-import { Button } from "std-widgets.slint";
 import { Theme } from "theme.slint";
-export { Theme }
-import { CalendarContent, CalendarData } from "calendar.slint";
+import { CalendarContent, CalendarData, CalendarUi } from "calendar.slint";
 import { HorizontalNavBar, ModsNavItem, Section, VerticalNavBar } from "shell.slint";
-import { BoardContent, CatalogRow, PosterData } from "board.slint";
+import { BoardContent, BoardUi, CatalogRow, PosterData } from "board.slint";
 import { AddonData, AddonPendingData, AddonsContent, AddonsUi } from "addons.slint";
-import { DiscoverContent, SelectInputData } from "discover.slint";
+import { DiscoverContent, DiscoverUi, SelectInputData } from "discover.slint";
 import { LoggedOutPlaceholder } from "logged-out-placeholder.slint";
-import { LibraryCard, LibraryContent, LibrarySort } from "library.slint";
+import { LibraryCard, LibraryContent, LibrarySort, LibraryUi } from "library.slint";
 import { ModCardData, ModsContent, ModsUi, ModsViewData } from "mods.slint";
-import { SettingsContent, SettingsViewData } from "settings.slint";
+import { SettingsContent, SettingsUi, SettingsViewData } from "settings.slint";
 import { SelectOption } from "multiselect-menu.slint";
 import { LinkGroup, PreviewData } from "meta-preview.slint";
 import { DetailsScreen, DetailsUi, StreamData } from "details-screen.slint";
 import { LanguageOption, PlayerScreen, PlayerUi, PlayerEpisode, PlayerOption, PlayerTrack, SkipMark, SkipRow } from "player.slint";
-export { AddonsUi, DetailsUi, ModsUi, PlayerUi, PlayerEpisode, PlayerOption, PlayerTrack, SkipMark, SkipRow }
 import { VideoRow } from "videos-list.slint";
-export { AddonData, LanguageOption, LibraryCard, LibrarySort, LinkGroup, ModCardData, ModsNavItem, ModsViewData, PreviewData, SelectInputData, SelectOption, SettingsViewData, StreamData, VideoRow }
 import { ClassStyle, ClassStyles } from "class-styles.slint";
-import { IntroContent } from "intro.slint";
+import { AuthUi, IntroContent } from "intro.slint";
 import { ShareModal } from "share-modal.slint";
 
-export { CatalogRow, ClassStyle, ClassStyles, PosterData }
+export {
+    AddonData,
+    AddonPendingData,
+    AddonsUi,
+    AuthUi,
+    BoardUi,
+    CalendarData,
+    CalendarUi,
+    CatalogRow,
+    ClassStyle,
+    ClassStyles,
+    DetailsUi,
+    DiscoverUi,
+    LanguageOption,
+    LibraryCard,
+    LibrarySort,
+    LibraryUi,
+    LinkGroup,
+    ModCardData,
+    ModsNavItem,
+    ModsUi,
+    ModsViewData,
+    PlayerEpisode,
+    PlayerOption,
+    PlayerTrack,
+    PlayerUi,
+    PosterData,
+    PreviewData,
+    Section,
+    SelectInputData,
+    SelectOption,
+    SettingsUi,
+    SettingsViewData,
+    SkipMark,
+    SkipRow,
+    StreamData,
+    Theme,
+    VideoRow,
+}
 
 export component MainWindow inherits Window {
     title: "Stremio Lightning";
     default-font-family: Theme.font-family;
     preferred-width: 1100px;
     preferred-height: 720px;
-    // The player draws mpv's frames *under* this window's items, so while it is open the
-    // background must not paint over them: the screen's own layers paint the black around the
-    // picture, and mpv clears the rest.
+    // The player draws mpv's frames under this window's items, so while playing the
+    // window background must stay transparent.
     background: root.playing ? transparent : Theme.page-background;
 
-    in property <string> status: "Loading...";
-    in property <string> server-status: "Stream server: starting...";
-    in property <[CatalogRow]> rows: [];
-    in property <[PosterData]> discover-cards: [];
-    in property <string> discover-shape: "poster";
-    in property <[SelectInputData]> discover-inputs: [];
-    in property <[PreviewData]> discover-previews: [];
-    in property <[LibraryCard]> library-cards: [];
-    in property <string> library-type-title: "All";
-    in property <[SelectOption]> library-types: [];
-    in property <int> library-type-index: 0;
-    in property <[LibrarySort]> library-sorts: [];
-    in property <bool> library-has-more: false;
-    in property <string> library-grid-key;
-    in property <string> library-message;
-    callback select-library-type(int);
-    callback select-library-sort(int);
-    callback load-more-library();
-    callback library-item-action(string, string);
-    callback board-item-action(string, string);
-    /// The Calendar's month, its days and the days with something on them, as the core holds them.
-    in-out property <CalendarData> calendar;
-    /// The day the user clicked in the grid: a highlight, and nothing the core is told about.
-    in-out property <int> calendar-selected-day: -1;
-    callback calendar-prev-month();
-    callback calendar-next-month();
-    callback calendar-open-slot(string, string, string);
-    /// Fired when the Calendar is selected, so the month can be loaded the way the web loads it
-    /// on mount rather than at startup, when the library it reads may still be empty.
-    callback calendar-shown();
-    in property <string> app-version;
-    in property <string> build-version;
-    in property <SettingsViewData> settings;
+    in-out property <Section> section: Section.board;
     in-out property <bool> details-open: false;
     in-out property <bool> playing: false;
-    in-out property <Section> section: Section.board;
-    in-out property <bool> auth-open: false;
-    in-out property <string> auth-error: "";
-    in-out property <bool> auth-loading: false;
-    in-out property <bool> auth-facebook-loading: false;
-    in-out property <bool> auth-apple-loading: false;
-    in-out property <bool> auth-is-signup: false;
-    property <length> rem-size: Theme.rem-size(root.width);
-    // Web: the details route has no nav rail, so neither the rail nor its gutter exists there.
-    property <length> nav-width: root.playing || root.details-open ? 0px : 6 * root.rem-size;
-    property <length> bar-height: root.playing ? 0px : 5.5 * root.rem-size;
-    property <string> section-title: root.section == Section.discover ? "Discover"
-        : root.section == Section.library ? "Library"
-        : root.section == Section.calendar ? "Calendar"
-        : root.section == Section.addons ? "Addons"
-        : root.section == Section.mods ? "Mods" : "Settings";
-    // One line at the bottom of the window, then gone: what the app says after a copy.
     in property <string> toast;
-    // The share dialog, over everything else while it is open.
     in-out property <bool> share-open: false;
     in property <string> share-link;
 
-    /// Asks the shell whether this window has just come back to the front -- Web: the library,
-    /// profile, addons and notifications are re-read on every window focus, which is how a mark
-    /// made in another client shows up here. The shell owns the focus flag, since the window
-    /// element has none.
-    callback open-item(string, string, string);
-    callback load-next-page();
-    callback select-preview(int);
-    callback hover-card(int);
-    /// How much of the Discover grid is on screen: scrolled distance, viewport height, row height,
-    /// cards in a row.
-    callback visible-range(length, length, length, int);
-    /// How much of the Board is on screen: scrolled distance, viewport height, row container width,
-    /// window width.
-    callback board-visible(length, length, length, length);
-    /// Fired when the active top-level section or details overlay changes so off-screen images can
-    /// be evicted and newly visible ones requested.
-    callback section-changed();
-    /// Where each scrollable screen's viewport is and how tall its contents are, so the shell can
-    /// clamp a wheel notch before moving its scroll offset directly in one frame.
-    callback scroll-bounds(string, length, length, length, length, length);
-    /// How many times the shell has said the Discover grid stopped moving, so it only asks for the
-    /// next page once the scrolling has stopped.
-    in-out property <int> grid-settle-count: 0;
-    in-out property <int> discover-selected-index: 0;
-    /// Scroll offsets owned by `wheel.rs` for 1-frame wheel scrolling (0 at top, negative down).
+    /// Scroll offsets owned by `winit_host.rs` for 1-frame wheel scrolling (0 at top, negative down).
     in-out property <length> board-scroll: 0px;
     in-out property <length> discover-scroll: 0px;
     in-out property <length> library-scroll: 0px;
     in-out property <length> addons-scroll: 0px;
     in-out property <length> settings-scroll: 0px;
-    callback select-input-option(int, int);
-    callback select-setting-option(string, int);
-    callback toggle-setting-option(string, bool);
-    callback open-settings-link(string);
-    callback reload-streaming-server();
-    callback logout-user();
+
+    callback open-item(string, string, string);
+    callback section-changed();
+    callback scroll-bounds(string, length, length, length, length, length);
     callback share-close();
     callback share-copy();
     callback share-to(string);
-    callback submit-auth-login(string, string);
-    callback submit-auth-register(string, string, bool, bool, bool);
-    callback auth-guest-login();
-    callback auth-facebook-login();
-    callback auth-apple-login();
-    callback auth-forgot-password(string);
-    callback auth-dismissed();
+
+    property <length> rem-size: Theme.rem-size(root.width);
+    property <length> nav-width: root.playing || root.details-open ? 0px : 6 * root.rem-size;
+    property <length> bar-height: root.playing ? 0px : 5.5 * root.rem-size;
 
     if root.section == Section.board && !root.details-open && !root.playing: BoardContent {
         x: root.nav-width;
         y: root.bar-height;
         width: parent.width - root.nav-width;
         height: parent.height - root.bar-height;
-        rows: root.rows;
         viewport-width: root.width;
         scroll-offset <=> root.board-scroll;
-        scroll-bounds(x, y, width, viewport, content) => {
-            root.scroll-bounds("board", x, y, width, viewport, content);
-        }
-        board-visible(scroll, height, content-width, viewport-width) => {
-            root.board-visible(scroll, height, content-width, viewport-width);
-        }
-        open-item(id, kind, title) => {
-            root.details-open = true;
-            root.open-item(id, kind, title);
-        }
+        scroll-bounds(x, y, width, viewport, content) => { root.scroll-bounds("board", x, y, width, viewport, content); }
+        open-item(id, kind, title) => { root.details-open = true; root.open-item(id, kind, title); }
         item-action(id, action) => {
-            // The list's Details is the route a click on the tile takes, so it has to put the
-            // details screen up the way a click does. The other options change the row in place.
-            if (action == "details") {
-                root.details-open = true;
-            }
-            root.board-item-action(id, action);
+            if (action == "details") { root.details-open = true; }
+            BoardUi.item-action(id, action);
         }
     }
 
@@ -170,41 +111,12 @@ export component MainWindow inherits Window {
         y: root.bar-height;
         width: parent.width - root.nav-width;
         height: parent.height - root.bar-height;
-        cards: root.discover-cards;
-        shape: root.discover-shape;
-        inputs: root.discover-inputs;
-        select-option(input, option) => {
-            root.select-input-option(input, option);
-        }
-        previews: root.discover-previews;
         viewport-width: root.width;
-        select-item(index) => {
-            root.select-preview(index);
-        }
-        hover-card(index) => {
-            root.hover-card(index);
-        }
-        visible-range(scroll, height, pitch, columns) => {
-            root.visible-range(scroll, height, pitch, columns);
-        }
-        grid-bounds(x, y, width, viewport, content) => {
-            root.scroll-bounds("discover", x, y, width, viewport, content);
-        }
-        settle-count: root.grid-settle-count;
-        selected-index <=> root.discover-selected-index;
         scroll-offset <=> root.discover-scroll;
-        open-item(id, kind, title) => {
-            root.details-open = true;
-            root.open-item(id, kind, title);
-        }
-        load-next-page => {
-            root.load-next-page();
-        }
+        grid-bounds(x, y, width, viewport, content) => { root.scroll-bounds("discover", x, y, width, viewport, content); }
+        open-item(id, kind, title) => { root.details-open = true; root.open-item(id, kind, title); }
     }
 
-    // Web: the details route — MetaPreview beside a 30rem column of Episodes or Streams.
-    // Web: the details route starts at the very top — its artwork sits behind the nav bar — and
-    // pads its own content down past the bar.
     if root.details-open && !root.playing: DetailsScreen {
         x: 0px;
         y: 0px;
@@ -224,14 +136,10 @@ export component MainWindow inherits Window {
             root.details-open = false;
             root.section = target;
             root.section-changed();
-            if (target == Section.calendar) {
-                root.calendar-shown();
-            }
+            if (target == Section.calendar) { CalendarUi.shown(); }
         }
     }
 
-    // The player sits over every screen, under the share dialog and the toast, so a copy made
-    // from its options menu still says so.
     if root.playing: PlayerScreen {
         x: 0;
         y: 0;
@@ -241,42 +149,25 @@ export component MainWindow inherits Window {
         init => { self.focus-player(); }
     }
 
-
     if !root.playing: HorizontalNavBar {
         rem-size: root.rem-size;
         x: 0px;
         y: 0px;
         width: parent.width;
-        // Web: the details route has no search box in the bar either.
         show-search: root.section != Section.addons && !root.details-open;
-        // Web: the details route turns the bar's first slot into the way back.
         show-back: root.details-open;
-        // ...and the Streams wrap toggle rides beside the fullscreen button there.
         show-wrap: root.details-open;
         wrap-active: DetailsUi.wrap-streams;
-        toggle-wrap => {
-            DetailsUi.toggle-stream-wrap();
-        }
+        toggle-wrap => { DetailsUi.toggle-stream-wrap(); }
         bare: root.details-open;
-        back-clicked => {
-            root.details-open = false;
-            root.section-changed();
-        }
-        toggle-fullscreen => {
-            root.full-screen = !root.full-screen;
-        }
+        back-clicked => { root.details-open = false; root.section-changed(); }
+        toggle-fullscreen => { root.full-screen = !root.full-screen; }
         user-avatar-clicked => {
-            // There is no logged-in header state yet, so the avatar only opens the
-            // login overlay and never navigates.
-            if (!root.settings.logged-in) {
-                root.auth-open = true;
-            }
+            if (!SettingsUi.data.logged-in) { AuthUi.open = true; }
         }
     }
 
-    // Web: the Library route shows the Placeholder only while `profile.auth` is null; a signed-in
-    // account gets the grid of its own titles.
-    if root.section == Section.library && !root.settings.logged-in && !root.details-open && !root.playing: LoggedOutPlaceholder {
+    if root.section == Section.library && !SettingsUi.data.logged-in && !root.details-open && !root.playing: LoggedOutPlaceholder {
         x: root.nav-width;
         y: root.bar-height;
         width: parent.width - root.nav-width;
@@ -288,74 +179,37 @@ export component MainWindow inherits Window {
         first-label: "Access your favorite movies and TV shows anytime, anywhere";
         second-glyph: @image-url("icons/actors.svg");
         second-label: "Recommendations tailored to your viewing history";
-        log-in => { root.auth-open = true; }
+        log-in => { AuthUi.open = true; }
     }
 
-    if root.section == Section.library && root.settings.logged-in && !root.details-open && !root.playing: LibraryContent {
+    if root.section == Section.library && SettingsUi.data.logged-in && !root.details-open && !root.playing: LibraryContent {
         x: root.nav-width;
         y: root.bar-height;
         width: parent.width - root.nav-width;
         height: parent.height - root.bar-height;
         viewport-width: root.width;
-        cards: root.library-cards;
-        type-title: root.library-type-title;
-        type-options: root.library-types;
-        type-index: root.library-type-index;
-        sorts: root.library-sorts;
-        message: root.library-message;
-        has-more: root.library-has-more;
-        grid-key: root.library-grid-key;
         scroll-offset <=> root.library-scroll;
-        scroll-bounds(x, y, width, viewport, content) => {
-            root.scroll-bounds("library", x, y, width, viewport, content);
-        }
-        select-type(index) => {
-            root.select-library-type(index);
-        }
-        select-sort(index) => {
-            root.select-library-sort(index);
-        }
-        load-more => {
-            root.load-more-library();
-        }
-        open-item(id, kind, title) => {
-            root.details-open = true;
-            root.open-item(id, kind, title);
-        }
+        scroll-bounds(x, y, width, viewport, content) => { root.scroll-bounds("library", x, y, width, viewport, content); }
+        open-item(id, kind, title) => { root.details-open = true; root.open-item(id, kind, title); }
         item-action(id, action) => {
-            // The list's Details is the route a click on the tile takes, so it has to put the
-            // details screen up the way a click does. The other options change the grid in place.
-            if (action == "details") {
-                root.details-open = true;
-            }
-            root.library-item-action(id, action);
+            if (action == "details") { root.details-open = true; }
+            LibraryUi.item-action(id, action);
         }
     }
 
-    // Web: `Calendar.js` shows the Calendar to a signed-in account and the placeholder to one
-    // that is not, so the screen needs no session check of its own.
-    if root.section == Section.calendar && !root.details-open && !root.playing: CalendarContent {
+    if root.section == Section.calendar && CalendarUi.data.signed-in && !root.details-open && !root.playing: CalendarContent {
         x: root.nav-width;
         y: root.bar-height;
         width: parent.width - root.nav-width;
         height: parent.height - root.bar-height;
         rem-size: root.rem-size;
-        data: root.calendar;
-        selected-day: root.calendar-selected-day;
-        prev-month => {
-            root.calendar-prev-month();
-        }
-        next-month => {
-            root.calendar-next-month();
-        }
         open-slot(meta-id, kind, video-id) => {
-            // Web: the calendar's entries are details links, so the details screen is what opens.
             root.details-open = true;
-            root.calendar-open-slot(meta-id, kind, video-id);
+            CalendarUi.open-slot(meta-id, kind, video-id);
         }
     }
 
-    if root.section == Section.calendar && !root.details-open && !root.playing && !root.calendar.signed-in: LoggedOutPlaceholder {
+    if root.section == Section.calendar && !CalendarUi.data.signed-in && !root.details-open && !root.playing: LoggedOutPlaceholder {
         x: root.nav-width;
         y: root.bar-height;
         width: parent.width - root.nav-width;
@@ -367,7 +221,7 @@ export component MainWindow inherits Window {
         first-label: "Never miss an episode again";
         second-glyph: @image-url("icons/calendar-thin.svg");
         second-label: "Schedule your personal watching calendar";
-        log-in => { root.auth-open = true; }
+        log-in => { AuthUi.open = true; }
     }
 
     if root.section == Section.addons && !root.details-open && !root.playing: AddonsContent {
@@ -377,9 +231,7 @@ export component MainWindow inherits Window {
         height: parent.height - root.bar-height;
         viewport-width: root.width;
         scroll-offset <=> root.addons-scroll;
-        scroll-bounds(x, y, width, viewport, content) => {
-            root.scroll-bounds("addons", x, y, width, viewport, content);
-        }
+        scroll-bounds(x, y, width, viewport, content) => { root.scroll-bounds("addons", x, y, width, viewport, content); }
     }
 
     if root.section == Section.mods && !root.details-open && !root.playing: ModsContent {
@@ -396,85 +248,20 @@ export component MainWindow inherits Window {
         width: parent.width - root.nav-width;
         height: parent.height - root.bar-height;
         viewport-width: root.width;
-        app-version: root.app-version;
-        build-version: root.build-version;
-        server-status: root.server-status;
-        data: root.settings;
         scroll-offset <=> root.settings-scroll;
-        scroll-bounds(x, y, width, viewport, content) => {
-            root.scroll-bounds("settings", x, y, width, viewport, content);
-        }
-        log-in => { root.auth-open = true; }
-        log-out => { root.logout-user(); }
-        open-external-link(kind) => { root.open-settings-link(kind); }
-        select-setting-option(key, option) => { root.select-setting-option(key, option); }
-        toggle-setting-option(key, enabled) => { root.toggle-setting-option(key, enabled); }
-        reload-streaming-server => { root.reload-streaming-server(); }
+        scroll-bounds(x, y, width, viewport, content) => { root.scroll-bounds("settings", x, y, width, viewport, content); }
+        log-in => { AuthUi.open = true; }
     }
 
-    if root.section != Section.board && root.section != Section.discover && root.section != Section.library && root.section != Section.calendar && !root.details-open && root.section != Section.addons && root.section != Section.mods && root.section != Section.settings && !root.playing: VerticalLayout {
-        x: root.nav-width;
-        y: root.bar-height;
-        width: parent.width - root.nav-width;
-        height: parent.height - root.bar-height;
-        padding: 24px;
-        spacing: 12px;
-        alignment: start;
-
-        Text {
-            text: root.section-title;
-            color: white;
-            font-size: 28px;
-            font-weight: 700;
-        }
-        Text {
-            text: "This screen is not built yet.";
-            color: #9d9bb0;
-            font-size: 14px;
-        }
-    }
-
-    if root.auth-open: IntroContent {
+    if AuthUi.open: IntroContent {
         x: 0px;
         y: 0px;
         width: parent.width;
         height: parent.height;
         rem-size: root.rem-size;
-        is-signup <=> root.auth-is-signup;
-        error-message: root.auth-error;
-        is-loading: root.auth-loading;
-        facebook-loading: root.auth-facebook-loading;
-        apple-loading: root.auth-apple-loading;
-        submit-login(email, password) => {
-            root.submit-auth-login(email, password);
-        }
-        submit-register(email, password, gdpr-tos, gdpr-privacy, gdpr-marketing) => {
-            root.submit-auth-register(email, password, gdpr-tos, gdpr-privacy, gdpr-marketing);
-        }
-        login-guest => {
-            root.auth-guest-login();
-        }
-        login-facebook => {
-            root.auth-facebook-login();
-        }
-        login-apple => {
-            root.auth-apple-login();
-        }
-        forgot-password(email) => {
-            root.auth-forgot-password(email);
-        }
-        // The controller owns the overlay state (src/main.rs on_auth_dismissed), as it
-        // does for guest login and auth success; the view only reports the intent.
-        dismiss => {
-            root.auth-dismissed();
-        }
     }
-    // Both of these cover the whole window, so they are declared last: a later sibling is painted
-    // on top and takes the press first. Declared before the screens, they were *under* them -- the
-    // toast hidden, and the share dialog see-through and untappable, with presses falling through
-    // to the addon card behind it (which is what opened the add dialog and its 404).
-    // Web keeps its confirmations in a toast container over the bottom of the viewport. This app
-    // has one line to say, so it has one pill.
+
+    // Overlays declared last so they paint above every screen and take presses first.
     if root.toast != "": HorizontalLayout {
         y: parent.height - 4 * root.rem-size;
         height: 3 * root.rem-size;
@@ -497,20 +284,13 @@ export component MainWindow inherits Window {
         }
     }
 
-    // The share dialog sits over everything, including the bar and the toast.
     if root.share-open: ShareModal {
         width: 100%;
         height: 100%;
         link: root.share-link;
         rem-size: root.rem-size;
-        closed => {
-            root.share-close();
-        }
-        copied => {
-            root.share-copy();
-        }
-        opened(network) => {
-            root.share-to(network);
-        }
+        closed => { root.share-close(); }
+        copied => { root.share-copy(); }
+        opened(network) => { root.share-to(network); }
     }
 }

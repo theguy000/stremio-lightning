@@ -102,15 +102,16 @@ pub(crate) fn attach(window: &MainWindow, app: Arc<App>, tokio: tokio::runtime::
             AppNotice::AuthSucceeded => {
                 let _ = weak.upgrade_in_event_loop(|window| {
                     auth::clear_progress(&window);
-                    window.set_auth_error("".into());
-                    window.set_auth_open(false);
+                    let ui = window.global::<crate::AuthUi>();
+                    ui.set_error("".into());
+                    ui.set_open(false);
                 });
             }
             AppNotice::AuthFailed(message) => {
                 let _ = weak.upgrade_in_event_loop(move |window| {
                     auth::clear_progress(&window);
                     if let Some(message) = message {
-                        window.set_auth_error(message.into());
+                        window.global::<crate::AuthUi>().set_error(message.into());
                     }
                 });
             }
@@ -130,15 +131,16 @@ pub(crate) fn attach(window: &MainWindow, app: Arc<App>, tokio: tokio::runtime::
 
     let initial_settings = app.settings().view();
     video.apply_settings(&initial_settings.player_config);
-    window.set_settings(view::settings_view(&initial_settings));
+    let settings_ui = window.global::<crate::SettingsUi>();
+    settings_ui.set_data(view::settings_view(&initial_settings));
+    settings_ui.set_app_version(env!("CARGO_PKG_VERSION").into());
+    settings_ui.set_build_version(option_env!("GITHUB_SHA").unwrap_or("dev").into());
     window
         .global::<crate::DetailsUi>()
         .set_wrap_streams(initial_settings.wrap_streams);
     let player_ui = window.global::<crate::PlayerUi>();
     player_ui.set_seek_step(initial_settings.seek_time_secs);
     player_ui.set_seek_short_step(initial_settings.seek_short_time_secs);
-    window.set_app_version(env!("CARGO_PKG_VERSION").into());
-    window.set_build_version(option_env!("GITHUB_SHA").unwrap_or("dev").into());
 
     wiring.report_server_state(server.start());
     wiring.init_mods();

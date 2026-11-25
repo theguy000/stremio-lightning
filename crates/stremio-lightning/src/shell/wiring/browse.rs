@@ -261,39 +261,33 @@ impl Wiring {
             self.request_painting(url);
         }
         if let Some(window) = self.window.upgrade() {
-            window.set_grid_settle_count(window.get_grid_settle_count() + 1);
+            let ui = window.global::<crate::DiscoverUi>();
+            ui.set_settle_count(ui.get_settle_count() + 1);
         }
     }
 }
 
 pub(super) fn wire(window: &MainWindow, wiring: &Wiring) {
+    let disc = window.global::<crate::DiscoverUi>();
     let w = wiring.clone();
-    window.on_load_next_page(move || {
+    disc.on_load_next_page(move || {
         w.app.runtime().dispatch(RuntimeAction {
             field: Some(AppModelField::Discover),
             action: Action::CatalogWithFilters(ActionCatalogWithFilters::LoadNextPage),
         });
     });
-    let w = wiring.clone();
-    window.on_select_input_option(move |input, option| w.select_input_option(input, option));
-    let w = wiring.clone();
-    window.on_select_preview(move |index| w.select_preview(index));
-    let w = wiring.clone();
-    window.on_hover_card(move |index| w.hover_card(index));
-    let w = wiring.clone();
-    window.on_select_library_type(move |option| w.select_library_type(option));
-    let w = wiring.clone();
-    window.on_select_library_sort(move |option| w.select_library_sort(option));
-    let w = wiring.clone();
-    window.on_load_more_library(move || w.load_more_library());
-    let w = wiring.clone();
-    window.on_library_item_action(move |id, act| w.item_action(id.to_string(), act.to_string()));
-    let w = wiring.clone();
-    window.on_board_item_action(move |id, act| w.item_action(id.to_string(), act.to_string()));
-    let w = wiring.clone();
-    window.on_visible_range(move |s, h, p, c| w.visible_range(s, h, p, c));
-    let w = wiring.clone();
-    window.on_board_visible(move |s, h, cw, vw| w.board_visible(s, h, cw, vw));
-    let w = wiring.clone();
-    window.on_section_changed(move || w.section_changed());
+    let w = | | wiring.clone();
+    { let w = w(); disc.on_select_option(move |i, o| w.select_input_option(i, o)); }
+    { let w = w(); disc.on_select_item(move |i| w.select_preview(i)); }
+    { let w = w(); disc.on_hover_card(move |i| w.hover_card(i)); }
+    { let w = w(); disc.on_visible_range(move |s, h, p, c| w.visible_range(s, h, p, c)); }
+    let lib = window.global::<crate::LibraryUi>();
+    { let w = w(); lib.on_select_type(move |o| w.select_library_type(o)); }
+    { let w = w(); lib.on_select_sort(move |o| w.select_library_sort(o)); }
+    { let w = w(); lib.on_load_more(move || w.load_more_library()); }
+    { let w = w(); lib.on_item_action(move |id, a| w.item_action(id.to_string(), a.to_string())); }
+    let board = window.global::<crate::BoardUi>();
+    { let w = w(); board.on_item_action(move |id, a| w.item_action(id.to_string(), a.to_string())); }
+    { let w = w(); board.on_board_visible(move |s, h, cw, vw| w.board_visible(s, h, cw, vw)); }
+    { let w = w(); window.on_section_changed(move || w.section_changed()); }
 }

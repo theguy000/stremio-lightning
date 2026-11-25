@@ -8,17 +8,17 @@ use super::sync::{
 use crate::plumbing::images::Images;
 use crate::screens::{addons, board, calendar, discover, library, SelectMenu};
 use crate::{
-    AddonData, AddonPendingData, AddonsUi, CalendarData, CalendarDay, CalendarSlot, CatalogRow,
-    LibraryCard, LibrarySort, MainWindow, SelectOption,
+    AddonData, AddonPendingData, AddonsUi, BoardUi, CalendarData, CalendarDay, CalendarSlot,
+    CatalogRow, DiscoverUi, LibraryCard, LibrarySort, LibraryUi, MainWindow, SelectOption,
 };
 
 pub(super) fn apply_board(window: &MainWindow, board: &crate::app::BoardData, images: &Images) {
-    window.set_status(board.status.clone().into());
     sync_board_rows(window, &board.rows, images);
 }
 
 fn sync_board_rows(window: &MainWindow, rows: &[board::Row], images: &Images) {
-    let existing = window.get_rows();
+    let ui = window.global::<BoardUi>();
+    let existing = ui.get_rows();
     let updated_in_place = with_mirrors(|mirrors| {
         let Some(model) = existing.as_any().downcast_ref::<VecModel<CatalogRow>>() else {
             return false;
@@ -77,32 +77,33 @@ fn sync_board_rows(window: &MainWindow, rows: &[board::Row], images: &Images) {
             })
             .collect::<Vec<_>>()
     });
-    window.set_rows(ModelRc::new(VecModel::from(catalog_rows)));
+    ui.set_rows(ModelRc::new(VecModel::from(catalog_rows)));
 }
 
 pub(super) fn apply_discover(window: &MainWindow, discover: &discover::Data, images: &Images) {
-    window.set_discover_shape(discover.shape.into());
-    let selected = usize::try_from(window.get_discover_selected_index()).unwrap_or(0);
+    let ui = window.global::<DiscoverUi>();
+    ui.set_shape(discover.shape.into());
+    let selected = usize::try_from(ui.get_selected_index()).unwrap_or(0);
     let menus: Vec<SelectMenu> = discover.inputs.iter().map(|i| i.menu.clone()).collect();
     with_mirrors(|m| {
         if let Some(replaced) = m.discover_cards.sync(
-            &window.get_discover_cards(),
+            &ui.get_cards(),
             &discover.cards,
             |_, card| (card.clone(), image_rev(images, &card.poster)),
             |_, card| poster_data(card, images),
         ) {
-            window.set_discover_cards(replaced);
+            ui.set_cards(replaced);
         }
         if let Some(replaced) = m.discover_inputs.sync(
-            &window.get_discover_inputs(),
+            &ui.get_inputs(),
             &menus,
             |_, menu| menu.clone(),
             |_, menu| select_input_data(menu),
         ) {
-            window.set_discover_inputs(replaced);
+            ui.set_inputs(replaced);
         }
         if let Some(replaced) = m.discover_previews.sync(
-            &window.get_discover_previews(),
+            &ui.get_previews(),
             &discover.previews,
             |idx, p| {
                 let (l, b) = if idx == selected {
@@ -114,14 +115,15 @@ pub(super) fn apply_discover(window: &MainWindow, discover: &discover::Data, ima
             },
             |idx, p| preview_data(p, images, idx == selected),
         ) {
-            window.set_discover_previews(replaced);
+            ui.set_previews(replaced);
         }
     });
 }
 
 pub(super) fn apply_library(window: &MainWindow, library: &library::Data, images: &Images) {
-    window.set_library_type_title(library.types.menu.title.clone().into());
-    window.set_library_type_index(i32::try_from(library.types.menu.selected).unwrap_or_default());
+    let ui = window.global::<LibraryUi>();
+    ui.set_type_title(library.types.menu.title.clone().into());
+    ui.set_type_index(i32::try_from(library.types.menu.selected).unwrap_or_default());
     let sorts: Vec<(String, bool)> = library
         .sorts
         .iter()
@@ -129,7 +131,7 @@ pub(super) fn apply_library(window: &MainWindow, library: &library::Data, images
         .collect();
     with_mirrors(|m| {
         if let Some(replaced) = m.library_types.sync(
-            &window.get_library_types(),
+            &ui.get_type_options(),
             &library.types.menu.options,
             |_, opt| opt.clone(),
             |_, (label, selected)| SelectOption {
@@ -137,10 +139,10 @@ pub(super) fn apply_library(window: &MainWindow, library: &library::Data, images
                 selected: *selected,
             },
         ) {
-            window.set_library_types(replaced);
+            ui.set_type_options(replaced);
         }
         if let Some(replaced) = m.library_sorts.sync(
-            &window.get_library_sorts(),
+            &ui.get_sorts(),
             &sorts,
             |_, s| s.clone(),
             |_, (label, selected)| LibrarySort {
@@ -148,10 +150,10 @@ pub(super) fn apply_library(window: &MainWindow, library: &library::Data, images
                 selected: *selected,
             },
         ) {
-            window.set_library_sorts(replaced);
+            ui.set_sorts(replaced);
         }
         if let Some(replaced) = m.library_cards.sync(
-            &window.get_library_cards(),
+            &ui.get_cards(),
             &library.cards,
             |_, card| (card.clone(), image_rev(images, &card.poster)),
             |_, card| {
@@ -170,12 +172,12 @@ pub(super) fn apply_library(window: &MainWindow, library: &library::Data, images
                 }
             },
         ) {
-            window.set_library_cards(replaced);
+            ui.set_cards(replaced);
         }
     });
-    window.set_library_message(library.message.clone().into());
-    window.set_library_has_more(library.has_more);
-    window.set_library_grid_key(library.grid_key.clone().into());
+    ui.set_message(library.message.clone().into());
+    ui.set_has_more(library.has_more);
+    ui.set_grid_key(library.grid_key.clone().into());
 }
 
 pub(super) fn apply_addons(window: &MainWindow, addons_data: &addons::Data, images: &Images) {

@@ -26,6 +26,21 @@ export struct LibrarySort {
     selected: bool,
 }
 
+export global LibraryUi {
+    in-out property <[LibraryCard]> cards: [];
+    in-out property <string> type-title: "All";
+    in-out property <[SelectOption]> type-options: [];
+    in-out property <int> type-index: 0;
+    in-out property <[LibrarySort]> sorts: [];
+    in-out property <string> message: "";
+    in-out property <bool> has-more: false;
+    in-out property <string> grid-key;
+    callback select-type(int);
+    callback select-sort(int);
+    callback load-more();
+    callback item-action(string, string);
+}
+
 component SortChip inherits Rectangle {
     in property <string> label;
     in property <bool> selected;
@@ -112,22 +127,13 @@ component LibraryItemCard inherits Rectangle {
 }
 
 export component LibraryContent inherits Rectangle {
-    in property <[LibraryCard]> cards;
-    in property <string> type-title;
-    in property <[SelectOption]> type-options;
-    in property <int> type-index;
-    in property <[LibrarySort]> sorts;
-    in property <string> message: "";
-    in property <bool> has-more: false;
-    in property <string> grid-key;
     in property <length> viewport-width;
     in-out property <length> scroll-offset <=> meta-items-container.content-y;
     callback scroll-bounds(length, length, length, length, length);
-    callback select-type(int);
-    callback select-sort(int);
-    callback load-more();
     callback open-item(string, string, string);
     callback item-action(string, string);
+
+    property <string> grid-key: LibraryUi.grid-key;
 
     property <length> rem-size: Theme.rem-size(root.viewport-width);
     property <int> columns: root.width > 2200px ? 10
@@ -141,10 +147,10 @@ export component LibraryContent inherits Rectangle {
     property <length> grid-gap: 0.5 * root.rem-size;
     property <length> tile-width: (root.width - 2 * root.grid-padding - (root.columns - 1) * root.grid-gap) / root.columns;
     property <length> tile-height: 2 * root.rem-size + (root.tile-width - 2 * root.rem-size) * 1.464 + 4 * root.rem-size;
-    property <float> row-count: Math.ceil(root.cards.length / root.columns);
+    property <float> row-count: Math.ceil(LibraryUi.cards.length / root.columns);
     property <length> row-pitch: root.tile-height + root.grid-gap;
     property <length> grid-height: root.row-count * root.tile-height + Math.max(root.row-count - 1, 0) * root.grid-gap;
-    property <bool> empty: root.cards.length == 0;
+    property <bool> empty: LibraryUi.cards.length == 0;
     property <float> first-shown-row: Math.max(0,
         Math.floor((-meta-items-container.content-y - root.grid-padding) / Math.max(root.row-pitch, 1px)) - 1);
     property <float> last-shown-row: Math.floor(
@@ -198,10 +204,10 @@ export component LibraryContent inherits Rectangle {
                     width: 12 * root.rem-size;
                     height: 2.75 * root.rem-size;
                     rem-size: root.rem-size;
-                    title: root.type-title;
-                    options: root.type-options;
-                    selected-index: root.type-index;
-                    select(index) => { root.select-type(index); }
+                    title: LibraryUi.type-title;
+                    options: LibraryUi.type-options;
+                    selected-index: LibraryUi.type-index;
+                    select(index) => { LibraryUi.select-type(index); }
                 }
                 sort-chips := Rectangle {
                     height: 2.75 * root.rem-size;
@@ -210,11 +216,11 @@ export component LibraryContent inherits Rectangle {
                     HorizontalLayout {
                         spacing: 1 * root.rem-size;
                         alignment: start;
-                        for sort[index] in root.sorts: SortChip {
+                        for sort[index] in LibraryUi.sorts: SortChip {
                             label: sort.label;
                             selected: sort.selected;
                             rem-size: root.rem-size;
-                            clicked => { root.select-sort(index); }
+                            clicked => { LibraryUi.select-sort(index); }
                         }
                     }
                 }
@@ -243,7 +249,7 @@ export component LibraryContent inherits Rectangle {
                 Text {
                     width: parent.width;
                     height: 2 * root.rem-size;
-                    text: root.message;
+                    text: LibraryUi.message;
                     horizontal-alignment: center;
                     vertical-alignment: center;
                     font-size: 2 * root.rem-size;
@@ -260,15 +266,15 @@ export component LibraryContent inherits Rectangle {
             content-width: self.width;
             content-height: Math.max(root.grid-height + 2 * root.grid-padding, self.height);
             changed content-y => {
-                if (root.has-more && self.content-height > self.height
+                if (LibraryUi.has-more && self.content-height > self.height
                     && self.content-height != root.page-asked-at
                     && -self.content-y > self.content-height - self.height - 400px) {
                     root.page-asked-at = self.content-height;
-                    root.load-more();
+                    LibraryUi.load-more();
                 }
             }
 
-            for card[index] in root.cards: Rectangle {
+            for card[index] in LibraryUi.cards: Rectangle {
                 x: root.grid-padding + Math.mod(index, root.columns) * (root.tile-width + root.grid-gap);
                 y: root.grid-padding + Math.floor(index / root.columns) * (root.tile-height + root.grid-gap);
                 width: root.tile-width;

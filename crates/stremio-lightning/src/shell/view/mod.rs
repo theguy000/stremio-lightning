@@ -16,7 +16,7 @@ use slint::ComponentHandle;
 
 use crate::app::{App, ScreenMask, Snapshot};
 use crate::plumbing::images::Images;
-use crate::{DetailsUi, MainWindow, PlayerUi};
+use crate::{CalendarUi, DetailsUi, MainWindow, PlayerUi, SettingsUi};
 
 /// Drains `app`'s pending dirty `ScreenMask` on the UI thread and projects only the changed
 /// screen slices onto `window`, cloning only `Arc` handles from `Snapshot`.
@@ -50,10 +50,14 @@ pub(crate) fn apply_mask(
         browse::apply_addons(window, &snapshot.addons, images);
     }
     if mask.contains(ScreenMask::CALENDAR) {
-        window.set_calendar(browse::calendar_view(&snapshot.calendar, images));
+        window
+            .global::<CalendarUi>()
+            .set_data(browse::calendar_view(&snapshot.calendar, images));
     }
     if mask.contains(ScreenMask::SETTINGS) {
-        window.set_settings(settings_view(&snapshot.settings));
+        window
+            .global::<SettingsUi>()
+            .set_data(settings_view(&snapshot.settings));
         window
             .global::<DetailsUi>()
             .set_wrap_streams(snapshot.settings.wrap_streams);

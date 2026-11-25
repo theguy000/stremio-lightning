@@ -26,7 +26,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use slint::{ComponentHandle, Model};
-use stremio_lightning::{AddonData, AddonsUi, DetailsUi, MainWindow, Section};
+use stremio_lightning::{AddonData, AddonsUi, BoardUi, DetailsUi, MainWindow, Section};
 
 use support::ui_driver::{self, Outcome, Step};
 
@@ -847,7 +847,7 @@ fn the_community_list_installs_and_every_addon_answers() {
                 check: Box::new({
                     let wanted = wanted_rows.clone();
                     move |window: &MainWindow| {
-                        let rows = window.get_rows();
+                        let rows = window.global::<BoardUi>().get_rows();
                         let titled: Vec<(String, usize)> = (0..rows.row_count())
                             .filter_map(|index| rows.row_data(index))
                             .map(|row| (row.title.to_string(), row.cards.row_count()))
@@ -879,7 +879,7 @@ fn the_community_list_installs_and_every_addon_answers() {
     // drawing. The rows the addons just added are on screen further down; what they prove is the
     // row above, which is their data arriving at the Board.
     let drawn = ui_driver::labels(window);
-    let rows = window.get_rows();
+    let rows = window.global::<BoardUi>().get_rows();
     let picked: Option<(String, String)> = (0..rows.row_count())
         .filter_map(|index| rows.row_data(index))
         .filter(|row| drawn.iter().any(|label| label == row.title.as_str()))

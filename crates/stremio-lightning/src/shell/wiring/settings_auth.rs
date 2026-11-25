@@ -5,7 +5,9 @@ use stremio_core::types::profile::GDPRConsent;
 use super::Wiring;
 use crate::plumbing::{links, logs, stream_server};
 use crate::screens::{auth, settings};
-use crate::MainWindow;
+use slint::ComponentHandle;
+
+use crate::{AuthUi, MainWindow, SettingsUi};
 
 impl Wiring {
     fn setting_changed(&self, updated: Option<stremio_core::types::profile::Settings>) {
@@ -57,7 +59,9 @@ impl Wiring {
 
     pub(super) fn reload_streaming_server(&self) {
         let _ = self.window.upgrade_in_event_loop(|window| {
-            window.set_server_status("Stream server: restarting...".into())
+            window
+                .global::<SettingsUi>()
+                .set_server_status("Stream server: restarting...".into())
         });
         let _ = self.server.stop();
         let started = self.server.start();
@@ -77,8 +81,9 @@ impl Wiring {
                 _ => logs::Level::Warn,
             };
             logs_handle.record(logs::Source::Server, stream_server::ADDRESS, level, &text);
-            let _ =
-                window.upgrade_in_event_loop(move |window| window.set_server_status(text.into()));
+            let _ = window.upgrade_in_event_loop(move |window| {
+                window.global::<SettingsUi>().set_server_status(text.into())
+            });
         });
     }
 
@@ -96,8 +101,9 @@ impl Wiring {
         self.app.auth().generation().cancel();
         let _ = self.window.upgrade_in_event_loop(|window| {
             crate::shell::auth::clear_progress(&window);
-            window.set_auth_open(false);
-            window.set_auth_error("".into());
+            let ui = window.global::<AuthUi>();
+            ui.set_open(false);
+            ui.set_error("".into());
         });
     }
 
@@ -116,20 +122,23 @@ impl Wiring {
 }
 
 pub(super) fn wire(window: &MainWindow, wiring: &Wiring) {
+    let set = window.global::<SettingsUi>();
     let w = wiring.clone();
-    window.on_select_setting_option(move |key, opt| w.select_setting_option(key.to_string(), opt));
+    set.on_select_option(move |key, opt| w.select_setting_option(key.to_string(), opt));
     let w = wiring.clone();
-    window.on_toggle_setting_option(move |key, on| w.toggle_setting_option(key.to_string(), on));
-    window.on_open_settings_link(move |kind| links::open(&kind));
+    set.on_toggle_option(move |key, on| w.toggle_setting_option(key.to_string(), on));
+    set.on_open_external_link(move |kind| links::open(&kind));
     let w = wiring.clone();
-    window.on_logout_user(move || settings::logout(w.app.runtime()));
+    set.on_log_out(move || settings::logout(w.app.runtime()));
     let w = wiring.clone();
-    window.on_reload_streaming_server(move || w.reload_streaming_server());
+    set.on_reload_streaming_server(move || w.reload_streaming_server());
+    let auth_ui = window.global::<AuthUi>();
     let w = wiring.clone();
-    window.on_submit_auth_login(move |email, password| {
+    auth_ui.on_submit_login(move |email, password| {
         let _ = w.window.upgrade_in_event_loop(|window| {
-            window.set_auth_loading(true);
-            window.set_auth_error("".into());
+            let ui = window.global::<AuthUi>();
+            ui.set_loading(true);
+            ui.set_error("".into());
         });
         auth::login(
             w.app.runtime(),
@@ -138,10 +147,11 @@ pub(super) fn wire(window: &MainWindow, wiring: &Wiring) {
         );
     });
     let w = wiring.clone();
-    window.on_submit_auth_register(move |email, password, tos, privacy, marketing| {
+    auth_ui.on_submit_register(move |email, password, tos, privacy, marketing| {
         let _ = w.window.upgrade_in_event_loop(|window| {
-            window.set_auth_loading(true);
-            window.set_auth_error("".into());
+            let ui = window.global::<AuthUi>();
+            ui.set_loading(true);
+            ui.set_error("".into());
         });
         auth::register(
             w.app.runtime(),
@@ -156,13 +166,13 @@ pub(super) fn wire(window: &MainWindow, wiring: &Wiring) {
         );
     });
     let w = wiring.clone();
-    window.on_auth_guest_login(move || w.dismiss_sign_in());
+    auth_ui.on_guest_login(move || w.dismiss_sign_in());
     let w = wiring.clone();
-    window.on_auth_facebook_login(move || w.start_browser_login(auth::Provider::Facebook));
+    auth_ui.on_facebook_login(move || w.start_browser_login(auth::Provider::Facebook));
     let w = wiring.clone();
-    window.on_auth_apple_login(move || w.start_browser_login(auth::Provider::Apple));
+    auth_ui.on_apple_login(move || w.start_browser_login(auth::Provider::Apple));
     let w = wiring.clone();
-    window.on_auth_forgot_password(move |email| w.forgot_password(email.to_string()));
+    auth_ui.on_forgot_password(move |email| w.forgot_password(email.to_string()));
     let w = wiring.clone();
-    window.on_auth_dismissed(move || w.dismiss_sign_in());
+    auth_ui.on_dismissed(move || w.dismiss_sign_in());
 }

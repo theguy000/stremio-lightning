@@ -3,19 +3,20 @@
 
 use std::sync::Arc;
 
-use slint::Weak;
+use slint::{ComponentHandle, Weak};
 use stremio_core::runtime::msg::{Action, ActionCtx};
 use stremio_core::runtime::RuntimeAction;
 
 use crate::plumbing::{links, oauth};
 use crate::screens::auth::{self, Generation, Provider};
-use crate::{AppRuntime, MainWindow};
+use crate::{AppRuntime, AuthUi, MainWindow};
 
 /// Drops the sign-in screen's live markers (spinner and provider waiting flags).
 pub(crate) fn clear_progress(window: &MainWindow) {
-    window.set_auth_loading(false);
-    window.set_auth_facebook_loading(false);
-    window.set_auth_apple_loading(false);
+    let ui = window.global::<AuthUi>();
+    ui.set_loading(false);
+    ui.set_facebook_loading(false);
+    ui.set_apple_loading(false);
 }
 
 /// Opens the browser for Facebook/Apple sign-in and polls `strem.io` until credentials arrive.
@@ -32,7 +33,7 @@ pub(crate) fn start_browser_login(
             let message = auth::poll_error_message(&error, provider);
             let _ = window.upgrade_in_event_loop(move |w| {
                 clear_progress(&w);
-                w.set_auth_error(message.into());
+                w.global::<AuthUi>().set_error(message.into());
             });
             return;
         }
@@ -41,10 +42,11 @@ pub(crate) fn start_browser_login(
     let login_url = attempt.login_url();
     let waiting = auth::waiting_message(provider, &login_url);
     let _ = window.upgrade_in_event_loop(move |w| {
-        w.set_auth_loading(true);
-        w.set_auth_error(waiting.into());
-        w.set_auth_facebook_loading(provider == Provider::Facebook);
-        w.set_auth_apple_loading(provider == Provider::Apple);
+        let ui = w.global::<AuthUi>();
+        ui.set_loading(true);
+        ui.set_error(waiting.into());
+        ui.set_facebook_loading(provider == Provider::Facebook);
+        ui.set_apple_loading(provider == Provider::Apple);
     });
     links::open(&login_url);
 
@@ -74,7 +76,7 @@ pub(crate) fn start_browser_login(
                 let message = auth::poll_error_message(&error, provider);
                 let _ = window.upgrade_in_event_loop(move |w| {
                     clear_progress(&w);
-                    w.set_auth_error(message.into());
+                    w.global::<AuthUi>().set_error(message.into());
                 });
             }
         }
@@ -94,13 +96,14 @@ mod tests {
             (true, true, false),
             (true, false, true),
         ] {
-            window.set_auth_loading(loading);
-            window.set_auth_facebook_loading(facebook);
-            window.set_auth_apple_loading(apple);
+            let ui = window.global::<AuthUi>();
+            ui.set_loading(loading);
+            ui.set_facebook_loading(facebook);
+            ui.set_apple_loading(apple);
             clear_progress(&window);
-            assert!(!window.get_auth_loading());
-            assert!(!window.get_auth_facebook_loading());
-            assert!(!window.get_auth_apple_loading());
+            assert!(!ui.get_loading());
+            assert!(!ui.get_facebook_loading());
+            assert!(!ui.get_apple_loading());
         }
     }
 }

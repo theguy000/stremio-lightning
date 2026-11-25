@@ -15,6 +15,12 @@ export struct CatalogRow {
     cards: [PosterData],
 }
 
+export global BoardUi {
+    in-out property <[CatalogRow]> rows: [];
+    callback board-visible(length, length, length, length);
+    callback item-action(string, string);
+}
+
 component MetaRow inherits Rectangle {
     in property <CatalogRow> catalog;
     in property <length> rem-size;
@@ -128,11 +134,9 @@ component MetaRow inherits Rectangle {
 }
 
 export component BoardContent inherits Rectangle {
-    in property <[CatalogRow]> rows;
     in property <length> viewport-width;
     in-out property <length> scroll-offset <=> board-content.content-y;
     callback scroll-bounds(length, length, length, length, length);
-    callback board-visible(length, length, length, length);
     callback open-item(string, string, string);
     callback item-action(string, string);
 
@@ -158,7 +162,7 @@ export component BoardContent inherits Rectangle {
     }
 
     function report-visible() {
-        root.board-visible(
+        BoardUi.board-visible(
             -board-content.content-y,
             board-content.height,
             board-content.width,
@@ -189,7 +193,7 @@ export component BoardContent inherits Rectangle {
             padding-bottom: 2 * root.rem-size;
             spacing: 2 * root.rem-size;
 
-            for entry in root.rows: board-row := MetaRow {
+            for entry in BoardUi.rows: board-row := MetaRow {
                 catalog: entry;
                 background: ClassStyles.background-or(ClassStyles.board-row, transparent);
                 opacity: ClassStyles.opacity-or(ClassStyles.board-row, 1.0);
