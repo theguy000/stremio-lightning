@@ -1,5 +1,6 @@
 //! Addons Screen and Add-Addon Modal callbacks.
 
+use slint::ComponentHandle;
 use stremio_core::runtime::msg::Action;
 use stremio_core::runtime::RuntimeAction;
 
@@ -7,7 +8,7 @@ use super::Wiring;
 use crate::app::AppModelField;
 use crate::plumbing::links;
 use crate::screens::{addons, calendar, details};
-use crate::MainWindow;
+use crate::{AddonsUi, MainWindow};
 
 impl Wiring {
     pub(super) fn select_addon_input_option(&self, input: i32, option: i32) {
@@ -77,50 +78,49 @@ impl Wiring {
 }
 
 pub(super) fn wire(window: &MainWindow, wiring: &Wiring) {
+    let ui = window.global::<AddonsUi>();
     let w = wiring.clone();
-    window.on_select_addon_input_option(move |input, option| {
-        w.select_addon_input_option(input, option)
-    });
+    ui.on_select_option(move |input, option| w.select_addon_input_option(input, option));
     let w = wiring.clone();
-    window.on_search_addons(move |_| w.repaint());
+    ui.on_search_changed(move |_| w.repaint());
     let w = wiring.clone();
-    window.on_addon_add(move || {
+    ui.on_add_addon(move || {
         w.app.runtime().dispatch(RuntimeAction {
             field: Some(AppModelField::AddonDetails),
             action: Action::Unload,
         });
         if let Some(window) = w.window.upgrade() {
-            window.set_addon_add_error("".into());
+            window.global::<AddonsUi>().set_add_error("".into());
         }
     });
     let w = wiring.clone();
-    window.on_addon_add_submit(move |text| {
+    ui.on_add_submit(move |text| {
         let error = addons::open_details(w.app.runtime(), &text)
             .err()
             .unwrap_or_default();
         if let Some(window) = w.window.upgrade() {
-            window.set_addon_add_error(error.into());
+            window.global::<AddonsUi>().set_add_error(error.into());
         }
     });
     let w = wiring.clone();
-    window.on_addon_add_install(move || addons::install(w.app.runtime()));
+    ui.on_add_install(move || addons::install(w.app.runtime()));
     let w = wiring.clone();
-    window.on_addon_add_close(move || {
+    ui.on_add_close(move || {
         if let Some(window) = w.window.upgrade() {
-            window.set_addon_add_error("".into());
+            window.global::<AddonsUi>().set_add_error("".into());
         }
     });
     let w = wiring.clone();
-    window.on_addon_uninstall(move |url| addons::uninstall(w.app.runtime(), &url));
+    ui.on_uninstall(move |url| addons::uninstall(w.app.runtime(), &url));
     let w = wiring.clone();
-    window.on_addon_share(move |url| {
+    ui.on_share(move |url| {
         if let Some(window) = w.window.upgrade() {
             window.set_share_link(url.clone());
             window.set_share_open(true);
         }
     });
     let w = wiring.clone();
-    window.on_addon_open(move |url| {
+    ui.on_open(move |url| {
         let installed = w
             .app
             .addons()
@@ -131,10 +131,11 @@ pub(super) fn wire(window: &MainWindow, wiring: &Wiring) {
         if !installed {
             if addons::open_details(w.app.runtime(), &url).is_ok() {
                 if let Some(window) = w.window.upgrade() {
-                    window.set_addon_add_open(true);
-                    window.set_addon_add_url(url.clone());
-                    window.set_addon_add_submitted(true);
-                    window.set_addon_add_error("".into());
+                    let ui = window.global::<AddonsUi>();
+                    ui.set_add_open(true);
+                    ui.set_add_url(url.clone());
+                    ui.set_add_submitted(true);
+                    ui.set_add_error("".into());
                 }
             }
             return;
@@ -142,8 +143,8 @@ pub(super) fn wire(window: &MainWindow, wiring: &Wiring) {
         links::open(&addons::configure_url(&url));
     });
     let w = wiring.clone();
-    window.on_addon_install_market(move |url| w.install_market_addon(&url));
-    window.on_addon_configure(move |url| links::open(&addons::configure_url(&url)));
+    ui.on_install(move |url| w.install_market_addon(&url));
+    ui.on_configure(move |url| links::open(&addons::configure_url(&url)));
     let w = wiring.clone();
     window.on_calendar_shown(move || w.calendar_shown());
     let w = wiring.clone();

@@ -8,8 +8,8 @@ use crate::screens::details::Data as DetailsData;
 use crate::screens::player::Data as PlayerData;
 use crate::screens::settings::Data as SettingsData;
 use crate::{
-    MainWindow, PlayerEpisode, PlayerOption, PlayerTrack, PlayerUi, PreviewData, SelectOption,
-    SettingsViewData, StreamData, VideoRow,
+    DetailsUi, MainWindow, PlayerEpisode, PlayerOption, PlayerTrack, PlayerUi, PreviewData,
+    SelectOption, SettingsViewData, StreamData, VideoRow,
 };
 
 pub(super) fn apply_details(
@@ -18,48 +18,44 @@ pub(super) fn apply_details(
     wrap_streams: bool,
     images: &Images,
 ) {
-    window.set_details_has_preview(details.preview.is_some());
+    let ui = window.global::<DetailsUi>();
+    ui.set_has_preview(details.preview.is_some());
     if let Some(preview) = &details.preview {
         let mut data = preview_data(preview, images, true);
         let backdrop = preview.background.as_ref().map(|k| images::backdrop_key(k));
         let backdrop = slint_image(images, &backdrop);
         data.has_panel_backdrop = backdrop.is_some();
         data.panel_backdrop = backdrop.unwrap_or_default();
-        window.set_details_preview(data);
+        ui.set_preview(data);
     } else {
-        window.set_details_preview(PreviewData::default());
+        ui.set_preview(PreviewData::default());
     }
-    window.set_streams_loading(i32::try_from(details.sources_loading).unwrap_or_default());
-    window.set_details_waits_for_streams(details.waits_for_streams);
-    window.set_details_rate_visible(details.rating_known);
-    window.set_details_rate_enabled(details.rating_ready);
-    window.set_details_rated_liked(
-        details.rating == Some(stremio_core::types::rating::Rating::Liked),
-    );
-    window.set_details_rated_loved(
-        details.rating == Some(stremio_core::types::rating::Rating::Loved),
-    );
-    window.set_details_show_picker(details.show_picker);
-    window.set_details_has_steps(details.steps.is_some());
-    window.set_details_season_number(
+    ui.set_streams_loading(i32::try_from(details.sources_loading).unwrap_or_default());
+    ui.set_waits_for_streams(details.waits_for_streams);
+    ui.set_rate_visible(details.rating_known);
+    ui.set_rate_enabled(details.rating_ready);
+    ui.set_rated_liked(details.rating == Some(stremio_core::types::rating::Rating::Liked));
+    ui.set_rated_loved(details.rating == Some(stremio_core::types::rating::Rating::Loved));
+    ui.set_show_picker(details.show_picker);
+    ui.set_has_steps(details.steps.is_some());
+    ui.set_season_number(
         details
             .steps
             .map(|steps| i32::try_from(steps.season).unwrap_or_default())
             .unwrap_or_default(),
     );
-    window.set_details_episode_number(
+    ui.set_episode_number(
         details
             .steps
             .map(|steps| i32::try_from(steps.episode).unwrap_or_default())
             .unwrap_or_default(),
     );
-    window.set_details_can_show_streams(details.steps.is_some_and(|s| s.ask_again));
-    window.set_details_season_index(i32::try_from(details.season).unwrap_or_default());
-    window.set_details_season_watched(details.season_watched);
-    window.set_details_picked_label(details.picked_label.clone().unwrap_or_default().into());
-    window.set_details_wrap_streams(wrap_streams);
-    window.set_details_has_next_episode(details.next_episode.is_some());
-    window.set_details_season_title(
+    ui.set_can_show_streams(details.steps.is_some_and(|s| s.ask_again));
+    ui.set_season_index(i32::try_from(details.season).unwrap_or_default());
+    ui.set_season_watched(details.season_watched);
+    ui.set_picked_label(details.picked_label.clone().unwrap_or_default().into());
+    ui.set_wrap_streams(wrap_streams);
+    ui.set_season_title(
         details
             .seasons
             .get(details.season)
@@ -78,7 +74,7 @@ pub(super) fn apply_details(
 
     with_mirrors(|m| {
         if let Some(replaced) = m.details_streams.sync(
-            &window.get_streams(),
+            &ui.get_streams(),
             &details.streams,
             |_, src| src.clone(),
             |_, src| StreamData {
@@ -87,10 +83,10 @@ pub(super) fn apply_details(
                 addon: src.addon.clone().into(),
             },
         ) {
-            window.set_streams(replaced);
+            ui.set_streams(replaced);
         }
         if let Some(replaced) = m.details_seasons.sync(
-            &window.get_details_seasons(),
+            &ui.get_seasons(),
             &season_opts,
             |_, opt| opt.clone(),
             |_, (label, selected)| SelectOption {
@@ -98,10 +94,10 @@ pub(super) fn apply_details(
                 selected: *selected,
             },
         ) {
-            window.set_details_seasons(replaced);
+            ui.set_seasons(replaced);
         }
         if let Some(replaced) = m.details_episodes.sync(
-            &window.get_details_episodes(),
+            &ui.get_episodes(),
             &details.episodes,
             |_, ep| {
                 (
@@ -124,7 +120,7 @@ pub(super) fn apply_details(
                 }
             },
         ) {
-            window.set_details_episodes(replaced);
+            ui.set_episodes(replaced);
         }
     });
 }

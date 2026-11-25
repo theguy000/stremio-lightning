@@ -1,14 +1,15 @@
 //! Mods Logs row reconciliation and in-place Plugin settings field preservation.
 
-use slint::{Model, ModelRc, SharedString, VecModel};
+use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 
 use super::mods::mods_view;
 use crate::screens::mods;
-use crate::{MainWindow, ModsLogRow, ModsNavItem, ModsViewData, SettingsFieldData};
+use crate::{MainWindow, ModsLogRow, ModsNavItem, ModsUi, ModsViewData, SettingsFieldData};
 
-/// filtered row ids are unchanged and reporting live prepends so a scrolled reader stays anchored.
+/// Keeps row models in place when visible row ids are unchanged and reports live prepends.
 pub(crate) fn apply_logs_data(window: &MainWindow, logs: &mods::logs::Data) {
-    let old = window.get_mods();
+    let ui = window.global::<ModsUi>();
+    let old = ui.get_data();
     let mut data = old.clone();
     data.log_source_index = logs.source_index;
     data.log_level_index = logs.level_index;
@@ -28,7 +29,7 @@ pub(crate) fn apply_logs_data(window: &MainWindow, logs: &mods::logs::Data) {
     data.log_selected_count = i32::try_from(logs.selected_count).unwrap_or(0);
     data.log_clear_armed = logs.clear_armed;
     reconcile_log_rows(&old, &logs.rows, &mut data);
-    window.set_mods(data);
+    ui.set_data(data);
 }
 
 /// Keeps the existing `log_rows` model in place when the visible row ids are unchanged, and
@@ -91,28 +92,26 @@ pub(super) fn log_row(row: &mods::logs::Row) -> ModsLogRow {
 /// because a new model tears down every row -- including the one a press may be standing on. Which
 /// row is marked is not in the model: the menu marks the page `data.page` names.
 pub(crate) fn show_mods(window: &MainWindow, data: &crate::screens::mods::Data) {
-    let old = window.get_mods();
+    let ui = window.global::<ModsUi>();
+    let old = ui.get_data();
     let mut view = mods_view(data);
-    keep_settings_fields(window, &mut view);
+    keep_settings_fields(&old, &mut view);
     reconcile_log_rows(&old, &data.logs.rows, &mut view);
     let rows: Vec<(String, String)> = data
         .menu
         .iter()
         .map(|item| (item.id.clone(), item.label.clone()))
         .collect();
-    if rows != window_nav_rows(window) {
-        window.set_mods_nav(nav_rows(data));
+    if rows != window_nav_rows(&ui) {
+        ui.set_menu(nav_rows(data));
     }
-    window.set_mods_page(data.page.clone().into());
-    window.set_mods(view);
+    ui.set_page(data.page.clone().into());
+    ui.set_data(view);
 }
 
 /// Keeps the settings field rows the window already holds when the same plugin's page is drawn
-/// again. A fresh model tears every row down, and the text box a person is typing into loses its
-/// focus with them; the data of each row is updated in place instead, so the box survives the
-/// repaint and the letters after the first are not typed into an editor that no longer exists.
-fn keep_settings_fields(window: &MainWindow, view: &mut ModsViewData) {
-    let old = window.get_mods();
+/// again so an active editor survives the repaint.
+fn keep_settings_fields(old: &ModsViewData, view: &mut ModsViewData) {
     if old.settings_plugin != view.settings_plugin {
         return;
     }
@@ -138,8 +137,8 @@ fn keep_settings_fields(window: &MainWindow, view: &mut ModsViewData) {
 }
 
 /// The menu's rows the window holds now, as pairs of id and label.
-fn window_nav_rows(window: &MainWindow) -> Vec<(String, String)> {
-    let nav = window.get_mods_nav();
+fn window_nav_rows(ui: &ModsUi<'_>) -> Vec<(String, String)> {
+    let nav = ui.get_menu();
     (0..nav.row_count())
         .filter_map(|row| nav.row_data(row))
         .map(|item| (item.id.to_string(), item.label.to_string()))

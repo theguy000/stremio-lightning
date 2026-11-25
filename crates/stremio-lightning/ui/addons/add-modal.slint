@@ -17,7 +17,15 @@ export component AddAddonModal inherits Rectangle {
     callback add-configure(string);
     callback add-close();
 
-    background: #00000066;
+    background: Theme.scrim;
+
+    TouchArea {
+        clicked => {
+            root.add-open = false;
+            root.add-submitted = false;
+            root.add-close();
+        }
+    }
 
     dialog := Rectangle {
         width: 34 * root.rem-size;
@@ -26,6 +34,12 @@ export component AddAddonModal inherits Rectangle {
         y: (parent.height - self.height) / 2;
         border-radius: 0.75 * root.rem-size;
         background: Theme.modal-background;
+        drop-shadow-blur: 1.5 * root.rem-size;
+        drop-shadow-color: Theme.outer-glow;
+
+        TouchArea {
+            pointer-event(event) => { EventResult.accept }
+        }
 
         Text {
             x: 2 * root.rem-size;

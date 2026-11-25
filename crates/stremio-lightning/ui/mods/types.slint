@@ -173,3 +173,33 @@ export component SettingsButton inherits Rectangle {
         }
     }
 }
+
+export global ModsUi {
+    in-out property <ModsViewData> data;
+    in-out property <string> page: "plugins";
+    in-out property <[ModsNavItem]> menu: [];
+
+    callback select-page(string);
+    callback toggle-mod(string, bool);
+    callback remove-mod(string);
+    callback dismiss-remove();
+    callback pick-settings-plugin(string);
+    callback edit-settings-toggle(string, bool);
+    callback edit-settings-text(string, string);
+    callback edit-settings-number(string, float);
+    callback save-settings();
+    callback filter-logs(string, int);
+    callback search-logs(string);
+    callback reset-logs-filter();
+    callback press-log(int, bool, bool);
+    callback drag-log(int);
+    callback release-log(int);
+    callback select-all-logs();
+    callback step-log(int, bool);
+    callback copy-log();
+    callback close-log();
+    callback clear-logs();
+    callback refresh-about();
+    callback export-diagnostics();
+    callback copy-version();
+}

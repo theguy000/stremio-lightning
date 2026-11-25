@@ -1,7 +1,6 @@
 // Native Mods section: side navigation, Plugins/Themes catalogues, Plugin settings, Logs, and About.
 import { ClassStyles } from "class-styles.slint";
 import { ScrollBar } from "scroll-bar.slint";
-import { ModsNavItem } from "shell.slint";
 import { Theme } from "theme.slint";
 import { ModsAboutPage } from "mods/about-page.slint";
 import { ModCardView } from "mods/card.slint";
@@ -12,6 +11,7 @@ import {
     ModsAboutLine,
     ModsLogRow,
     ModsMenuButton,
+    ModsUi,
     ModsViewData,
     SettingsFieldData,
     SettingsPluginData,
@@ -21,6 +21,7 @@ export {
     ModCardData,
     ModsAboutLine,
     ModsLogRow,
+    ModsUi,
     ModsViewData,
     SettingsFieldData,
     SettingsPluginData,
@@ -28,45 +29,18 @@ export {
 }
 
 export component ModsContent inherits Rectangle {
-    in property <ModsViewData> data;
-    in property <string> page: root.data.page;
-    in property <[ModsNavItem]> menu: root.data.menu;
     in property <length> viewport-width;
-
-    callback select-page(string);
-    callback toggle-mod(string, bool);
-    callback remove-mod(string);
-    callback dismiss-remove();
-    callback pick-settings-plugin(string);
-    callback edit-settings-toggle(string, bool);
-    callback edit-settings-text(string, string);
-    callback edit-settings-number(string, float);
-    callback save-settings();
-    callback filter-logs(string, int);
-    callback search-logs(string);
-    callback reset-logs-filter();
-    callback press-log(int, bool, bool);
-    callback drag-log(int);
-    callback release-log(int);
-    callback select-all-logs();
-    callback step-log(int, bool);
-    callback copy-log();
-    callback close-log();
-    callback clear-logs();
-    callback refresh-about();
-    callback export-diagnostics();
-    callback copy-version();
 
     property <length> rem-size: Theme.rem-size(root.viewport-width);
     property <length> menu-width: 18 * root.rem-size;
     property <length> page-padding: 3 * root.rem-size;
     property <length> page-width: root.width - root.menu-width - 2 * root.page-padding;
-    property <bool> on-plugins: root.page == "plugins";
-    property <bool> on-themes: root.page == "themes";
+    property <bool> on-plugins: ModsUi.page == "plugins";
+    property <bool> on-themes: ModsUi.page == "themes";
     property <bool> on-catalogue: root.on-plugins || root.on-themes;
-    property <bool> on-settings: root.page == "settings";
-    property <bool> on-logs: root.page == "logs";
-    property <bool> on-about: root.page == "about";
+    property <bool> on-settings: ModsUi.page == "settings";
+    property <bool> on-logs: ModsUi.page == "logs";
+    property <bool> on-about: ModsUi.page == "about";
     property <bool> has-page-note: root.on-about;
     property <length> page-top: 5.2 * root.rem-size;
     property <length> list-top: root.has-page-note ? 8.0 * root.rem-size : 6.4 * root.rem-size;
@@ -79,14 +53,14 @@ export component ModsContent inherits Rectangle {
         opacity: ClassStyles.opacity-or(ClassStyles.mods-menu-container, 1.0);
         visible: !ClassStyles.mods-menu-container.hidden;
 
-        for item[index] in root.menu: ModsMenuButton {
+        for item[index] in ModsUi.menu: ModsMenuButton {
             x: 1.5 * root.rem-size;
             y: 2 * root.rem-size + index * 3.6 * root.rem-size;
             width: 15 * root.rem-size;
             rem-size: root.rem-size;
             label-text: item.label;
-            selected: item.id == root.page;
-            clicked => { root.select-page(item.id); }
+            selected: item.id == ModsUi.page;
+            clicked => { ModsUi.select-page(item.id); }
         }
     }
 
@@ -114,19 +88,19 @@ export component ModsContent inherits Rectangle {
             visible: !root.on-settings && !ClassStyles.mods-page-title.hidden;
         }
 
-        if root.data.notice != "": mod-notice := Text {
+        if ModsUi.data.notice != "": mod-notice := Text {
             x: root.page-padding + 10 * root.rem-size;
             y: 2 * root.rem-size;
             width: Math.max(0px, root.page-width - 10 * root.rem-size);
             height: 3 * root.rem-size;
-            text: root.data.notice;
+            text: ModsUi.data.notice;
             wrap: no-wrap;
             overflow: elide;
             horizontal-alignment: right;
             vertical-alignment: center;
             font-size: 0.9 * root.rem-size;
-            color: ClassStyles.color-or(ClassStyles.mod-notice, root.data.notice-failed ? Theme.accent-red : Theme.text);
-            opacity: ClassStyles.opacity-or(ClassStyles.mod-notice, root.data.notice-failed ? 1.0 : 0.7);
+            color: ClassStyles.color-or(ClassStyles.mod-notice, ModsUi.data.notice-failed ? Theme.accent-red : Theme.text);
+            opacity: ClassStyles.opacity-or(ClassStyles.mod-notice, ModsUi.data.notice-failed ? 1.0 : 0.7);
             visible: !ClassStyles.mod-notice.hidden;
         }
 
@@ -144,7 +118,7 @@ export component ModsContent inherits Rectangle {
             visible: root.has-page-note && !ClassStyles.mods-page-note.hidden;
         }
 
-        if root.on-plugins && root.data.plugins.length == 0: mods-empty-plugins := Text {
+        if root.on-plugins && ModsUi.data.plugins.length == 0: mods-empty-plugins := Text {
             x: root.page-padding;
             y: root.list-top;
             width: root.page-width;
@@ -155,7 +129,7 @@ export component ModsContent inherits Rectangle {
             opacity: ClassStyles.opacity-or(ClassStyles.mods-empty, 0.8);
             visible: !ClassStyles.mods-empty.hidden;
         }
-        if root.on-themes && root.data.themes.length == 0: mods-empty-themes := Text {
+        if root.on-themes && ModsUi.data.themes.length == 0: mods-empty-themes := Text {
             x: root.page-padding;
             y: root.list-top;
             width: root.page-width;
@@ -184,14 +158,14 @@ export component ModsContent inherits Rectangle {
                     spacing: 0.75 * root.rem-size;
                     alignment: start;
 
-                    for entry in (root.on-plugins ? root.data.plugins : root.data.themes): ModCardView {
+                    for entry in (root.on-plugins ? ModsUi.data.plugins : ModsUi.data.themes): ModCardView {
                         width: root.page-width - 8px;
                         rem-size: root.rem-size;
                         data: entry;
-                        toggle => { root.toggle-mod(entry.filename, !entry.enabled); }
-                        remove => { root.remove-mod(entry.filename); }
-                        dismiss => { root.dismiss-remove(); }
-                        settings => { root.pick-settings-plugin(entry.filename); }
+                        toggle => { ModsUi.toggle-mod(entry.filename, !entry.enabled); }
+                        remove => { ModsUi.remove-mod(entry.filename); }
+                        dismiss => { ModsUi.dismiss-remove(); }
+                        settings => { ModsUi.pick-settings-plugin(entry.filename); }
                     }
                 }
             }
@@ -210,17 +184,17 @@ export component ModsContent inherits Rectangle {
             width: root.page-width;
             height: Math.max(root.height - 2 * root.rem-size, 0px);
             rem-size: root.rem-size;
-            settings-plugin: root.data.settings-plugin;
-            settings-title: root.data.settings-title;
-            settings-fields: root.data.settings-fields;
-            settings-trouble: root.data.settings-trouble;
-            settings-empty: root.data.settings-empty;
-            settings-dirty: root.data.settings-dirty;
-            back-to-plugins => { root.select-page("plugins"); }
-            edit-settings-toggle(key, value) => { root.edit-settings-toggle(key, value); }
-            edit-settings-text(key, text) => { root.edit-settings-text(key, text); }
-            edit-settings-number(key, value) => { root.edit-settings-number(key, value); }
-            save-settings => { root.save-settings(); }
+            settings-plugin: ModsUi.data.settings-plugin;
+            settings-title: ModsUi.data.settings-title;
+            settings-fields: ModsUi.data.settings-fields;
+            settings-trouble: ModsUi.data.settings-trouble;
+            settings-empty: ModsUi.data.settings-empty;
+            settings-dirty: ModsUi.data.settings-dirty;
+            back-to-plugins => { ModsUi.select-page("plugins"); }
+            edit-settings-toggle(key, value) => { ModsUi.edit-settings-toggle(key, value); }
+            edit-settings-text(key, text) => { ModsUi.edit-settings-text(key, text); }
+            edit-settings-number(key, value) => { ModsUi.edit-settings-number(key, value); }
+            save-settings => { ModsUi.save-settings(); }
         }
 
         if root.on-logs: ModsLogsPage {
@@ -229,34 +203,34 @@ export component ModsContent inherits Rectangle {
             width: root.page-width;
             height: Math.max(root.height - 6.4 * root.rem-size - 2 * root.rem-size, 0px);
             rem-size: root.rem-size;
-            log-source-options: root.data.log-source-options;
-            log-level-options: root.data.log-level-options;
-            log-source-index: root.data.log-source-index;
-            log-level-index: root.data.log-level-index;
-            log-search: root.data.log-search;
-            log-rows: root.data.log-rows;
-            log-empty: root.data.log-empty;
-            log-detail-heading: root.data.log-detail-heading;
-            log-detail: root.data.log-detail;
-            log-open-id: root.data.log-open-id;
-            log-active-index: root.data.log-active-index;
-            log-selected-count: root.data.log-selected-count;
-            log-count: root.data.log-count;
-            log-filtered: root.data.log-filtered;
-            log-prepended: root.data.log-prepended;
-            log-prepend-seq: root.data.log-prepend-seq;
-            log-clear-armed: root.data.log-clear-armed;
-            filter-logs(part, value) => { root.filter-logs(part, value); }
-            search-logs(text) => { root.search-logs(text); }
-            reset-logs-filter => { root.reset-logs-filter(); }
-            press-log(id, shift, ctrl) => { root.press-log(id, shift, ctrl); }
-            drag-log(id) => { root.drag-log(id); }
-            release-log(id) => { root.release-log(id); }
-            select-all-logs => { root.select-all-logs(); }
-            step-log(delta, shift) => { root.step-log(delta, shift); }
-            copy-log => { root.copy-log(); }
-            close-log => { root.close-log(); }
-            clear-logs => { root.clear-logs(); }
+            log-source-options: ModsUi.data.log-source-options;
+            log-level-options: ModsUi.data.log-level-options;
+            log-source-index: ModsUi.data.log-source-index;
+            log-level-index: ModsUi.data.log-level-index;
+            log-search: ModsUi.data.log-search;
+            log-rows: ModsUi.data.log-rows;
+            log-empty: ModsUi.data.log-empty;
+            log-detail-heading: ModsUi.data.log-detail-heading;
+            log-detail: ModsUi.data.log-detail;
+            log-open-id: ModsUi.data.log-open-id;
+            log-active-index: ModsUi.data.log-active-index;
+            log-selected-count: ModsUi.data.log-selected-count;
+            log-count: ModsUi.data.log-count;
+            log-filtered: ModsUi.data.log-filtered;
+            log-prepended: ModsUi.data.log-prepended;
+            log-prepend-seq: ModsUi.data.log-prepend-seq;
+            log-clear-armed: ModsUi.data.log-clear-armed;
+            filter-logs(part, value) => { ModsUi.filter-logs(part, value); }
+            search-logs(text) => { ModsUi.search-logs(text); }
+            reset-logs-filter => { ModsUi.reset-logs-filter(); }
+            press-log(id, shift, ctrl) => { ModsUi.press-log(id, shift, ctrl); }
+            drag-log(id) => { ModsUi.drag-log(id); }
+            release-log(id) => { ModsUi.release-log(id); }
+            select-all-logs => { ModsUi.select-all-logs(); }
+            step-log(delta, shift) => { ModsUi.step-log(delta, shift); }
+            copy-log => { ModsUi.copy-log(); }
+            close-log => { ModsUi.close-log(); }
+            clear-logs => { ModsUi.clear-logs(); }
         }
 
         if root.on-about: ModsAboutPage {
@@ -265,15 +239,15 @@ export component ModsContent inherits Rectangle {
             width: root.page-width;
             height: Math.max(root.height - root.list-top, 0px);
             rem-size: root.rem-size;
-            about-build: root.data.about-build;
-            about-places: root.data.about-places;
-            about-counts: root.data.about-counts;
-            about-enabled: root.data.about-enabled;
-            about-license: root.data.about-license;
-            about-export: root.data.about-export;
-            refresh-about => { root.refresh-about(); }
-            export-diagnostics => { root.export-diagnostics(); }
-            copy-version => { root.copy-version(); }
+            about-build: ModsUi.data.about-build;
+            about-places: ModsUi.data.about-places;
+            about-counts: ModsUi.data.about-counts;
+            about-enabled: ModsUi.data.about-enabled;
+            about-license: ModsUi.data.about-license;
+            about-export: ModsUi.data.about-export;
+            refresh-about => { ModsUi.refresh-about(); }
+            export-diagnostics => { ModsUi.export-diagnostics(); }
+            copy-version => { ModsUi.copy-version(); }
         }
     }
 }

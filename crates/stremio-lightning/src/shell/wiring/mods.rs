@@ -6,7 +6,7 @@ use crate::screens::mods;
 use crate::shell;
 use slint::ComponentHandle;
 
-use crate::{MainWindow, PlayerUi};
+use crate::{MainWindow, ModsUi, PlayerUi};
 
 const DISARM_MS: u64 = 5000;
 
@@ -24,7 +24,7 @@ impl Wiring {
         self.disarm_mods();
         self.app.mods().set_page(page.id().to_owned());
         if let Some(window) = self.window.upgrade() {
-            window.set_mods_page(page.id().into());
+            window.global::<ModsUi>().set_page(page.id().into());
         }
         let data = self.app.mods().rebuild(None);
         if let Some(window) = self.window.upgrade() {
@@ -248,31 +248,31 @@ impl Wiring {
 }
 
 pub(super) fn wire(window: &MainWindow, wiring: &Wiring) {
+    let ui = window.global::<ModsUi>();
     let w = wiring.clone();
-    window.on_select_mods_page(move |page| w.select_mods_page(page.to_string()));
+    ui.on_select_page(move |page| w.select_mods_page(page.to_string()));
     let w = wiring.clone();
-    window.on_toggle_mods_mod(move |filename, enabled| w.toggle_mod(filename.to_string(), enabled));
+    ui.on_toggle_mod(move |filename, enabled| w.toggle_mod(filename.to_string(), enabled));
     let w = wiring.clone();
-    window.on_remove_mods_mod(move |filename| w.remove_mod(filename.to_string()));
+    ui.on_remove_mod(move |filename| w.remove_mod(filename.to_string()));
     let w = wiring.clone();
-    window.on_dismiss_mods_remove(move || w.dismiss_mods_remove());
+    ui.on_dismiss_remove(move || w.dismiss_mods_remove());
     let w = wiring.clone();
-    window.on_pick_mods_settings_plugin(move |filename| w.pick_plugin(filename.to_string()));
+    ui.on_pick_settings_plugin(move |filename| w.pick_plugin(filename.to_string()));
     let w = wiring.clone();
-    window.on_edit_mods_setting_toggle(move |key, on| {
+    ui.on_edit_settings_toggle(move |key, on| {
         w.edit_plugin_setting(key.to_string(), serde_json::Value::Bool(on))
     });
     let w = wiring.clone();
-    window.on_edit_mods_setting_text(move |key, text| {
+    ui.on_edit_settings_text(move |key, text| {
         w.edit_plugin_setting(key.to_string(), serde_json::Value::String(text.to_string()))
     });
     let w = wiring.clone();
-    window.on_edit_mods_setting_number(move |key, number| {
-        let value = serde_json::Number::from_f64(f64::from(number))
-            .map(serde_json::Value::Number)
-            .unwrap_or(serde_json::Value::Null);
-        w.edit_plugin_setting(key.to_string(), value);
+    ui.on_edit_settings_number(move |key, number| {
+        if let Some(n) = serde_json::Number::from_f64(f64::from(number)) {
+            w.edit_plugin_setting(key.to_string(), serde_json::Value::Number(n));
+        }
     });
     let w = wiring.clone();
-    window.on_save_mods_settings(move || w.save_plugin_settings());
+    ui.on_save_settings(move || w.save_plugin_settings());
 }

@@ -161,7 +161,7 @@ fn handle_wheel(
         || window.get_details_open()
         || window.get_playing()
         || window.get_auth_open()
-        || window.get_addon_add_open()
+        || window.global::<crate::AddonsUi>().get_add_open()
         || window.get_share_open()
     {
         return EventResult::Propagate;

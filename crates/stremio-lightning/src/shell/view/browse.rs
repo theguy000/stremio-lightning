@@ -1,6 +1,6 @@
 //! Board, Discover, Library, Addons, and Calendar view projections via `ModelMirror`.
 
-use slint::{Model, ModelRc, VecModel};
+use slint::{ComponentHandle, Model, ModelRc, VecModel};
 
 use super::sync::{
     image_rev, poster_data, preview_data, select_input_data, slint_image, with_mirrors, ModelMirror,
@@ -8,8 +8,8 @@ use super::sync::{
 use crate::plumbing::images::Images;
 use crate::screens::{addons, board, calendar, discover, library, SelectMenu};
 use crate::{
-    AddonData, AddonPendingData, CalendarData, CalendarDay, CalendarSlot, CatalogRow, LibraryCard,
-    LibrarySort, MainWindow, SelectOption,
+    AddonData, AddonPendingData, AddonsUi, CalendarData, CalendarDay, CalendarSlot, CatalogRow,
+    LibraryCard, LibrarySort, MainWindow, SelectOption,
 };
 
 pub(super) fn apply_board(window: &MainWindow, board: &crate::app::BoardData, images: &Images) {
@@ -179,15 +179,15 @@ pub(super) fn apply_library(window: &MainWindow, library: &library::Data, images
 }
 
 pub(super) fn apply_addons(window: &MainWindow, addons_data: &addons::Data, images: &Images) {
-    let visible: Vec<addons::AddonCard> =
-        addons::visible(&addons_data.cards, &window.get_addons_query())
-            .into_iter()
-            .cloned()
-            .collect();
+    let ui = window.global::<AddonsUi>();
+    let visible: Vec<addons::AddonCard> = addons::visible(&addons_data.cards, &ui.get_query())
+        .into_iter()
+        .cloned()
+        .collect();
     let menus: Vec<SelectMenu> = addons_data.inputs.iter().map(|i| i.menu.clone()).collect();
     with_mirrors(|m| {
         if let Some(replaced) = m.addons_cards.sync(
-            &window.get_addons(),
+            &ui.get_addons(),
             &visible,
             |_, card| (card.clone(), image_rev(images, &card.logo)),
             |_, card| {
@@ -206,19 +206,19 @@ pub(super) fn apply_addons(window: &MainWindow, addons_data: &addons::Data, imag
                 }
             },
         ) {
-            window.set_addons(replaced);
+            ui.set_addons(replaced);
         }
         if let Some(replaced) = m.addons_inputs.sync(
-            &window.get_addon_inputs(),
+            &ui.get_inputs(),
             &menus,
             |_, menu| menu.clone(),
             |_, menu| select_input_data(menu),
         ) {
-            window.set_addon_inputs(replaced);
+            ui.set_inputs(replaced);
         }
     });
-    window.set_addon_pending(addon_pending(&addons_data.pending, images));
-    window.set_addons_message(addons_data.message.clone().into());
+    ui.set_pending(addon_pending(&addons_data.pending, images));
+    ui.set_message(addons_data.message.clone().into());
 }
 
 fn addon_pending(pending: &Option<addons::Pending>, images: &Images) -> AddonPendingData {

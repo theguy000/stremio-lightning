@@ -11,31 +11,33 @@ import { Theme } from "theme.slint";
 
 export { AddonData, AddonPendingData }
 
-export component AddonsContent inherits Rectangle {
-    in property <[AddonData]> addons;
-    in property <[SelectInputData]> inputs;
-    in property <string> message;
-    in property <length> viewport-width;
+export global AddonsUi {
+    in-out property <[AddonData]> addons: [];
+    in-out property <[SelectInputData]> inputs: [];
+    in-out property <string> message;
     in-out property <string> query;
     in-out property <bool> add-open;
     in-out property <string> add-url;
     in-out property <bool> add-submitted: false;
-    in property <AddonPendingData> pending;
-    in property <string> add-error;
-    in-out property <length> scroll-offset <=> addons-list-container.content-y;
+    in-out property <AddonPendingData> pending;
+    in-out property <string> add-error;
 
     callback select-option(int, int);
     callback search-changed(string);
     callback add-addon();
     callback add-submit(string);
     callback add-install();
-    callback add-configure(string);
     callback add-close();
     callback uninstall(string);
     callback install(string);
     callback configure(string);
     callback share(string);
     callback open(string);
+}
+
+export component AddonsContent inherits Rectangle {
+    in property <length> viewport-width;
+    in-out property <length> scroll-offset <=> addons-list-container.content-y;
     callback scroll-bounds(length, length, length, length, length);
 
     property <length> rem-size: Theme.rem-size(root.viewport-width);
@@ -67,7 +69,7 @@ export component AddonsContent inherits Rectangle {
     property <length> bar-height: 6 * root.rem-size;
     property <length> card-pitch: 179 * root.px;
     property <length> list-height: Math.max(root.height - root.bar-height, 0px);
-    property <length> list-content-height: root.addons.length * root.card-pitch;
+    property <length> list-content-height: AddonsUi.addons.length * root.card-pitch;
     property <bool> overflows: root.list-content-height > root.list-height + 1px;
     property <length> card-width: root.width - 3 * root.rem-size - (root.overflows ? 10px : 0px);
     property <length> search-width: 18 * root.rem-size;
@@ -82,7 +84,7 @@ export component AddonsContent inherits Rectangle {
         opacity: ClassStyles.opacity-or(ClassStyles.selectable-inputs-container, 1.0);
         visible: !ClassStyles.selectable-inputs-container.hidden;
 
-        for input[index] in root.inputs: select-input := MultiselectMenu {
+        for input[index] in AddonsUi.inputs: select-input := MultiselectMenu {
             x: 1.5 * root.rem-size + index * 16.5 * root.rem-size;
             y: 1.5 * root.rem-size;
             width: 15 * root.rem-size;
@@ -90,7 +92,7 @@ export component AddonsContent inherits Rectangle {
             options: input.options;
             selected-index: input.selected-index;
             rem-size: root.rem-size;
-            select(option) => { root.select-option(index, option); }
+            select(option) => { AddonsUi.select-option(index, option); }
         }
 
         add-button-container := Rectangle {
@@ -132,10 +134,10 @@ export component AddonsContent inherits Rectangle {
                 accessible-role: button;
                 accessible-label: "Add addon";
                 clicked => {
-                    root.add-open = true;
-                    root.add-url = "";
-                    root.add-submitted = false;
-                    root.add-addon();
+                    AddonsUi.add-open = true;
+                    AddonsUi.add-url = "";
+                    AddonsUi.add-submitted = false;
+                    AddonsUi.add-addon();
                 }
             }
         }
@@ -160,8 +162,8 @@ export component AddonsContent inherits Rectangle {
                 font-size: root.rem-size;
                 font-weight: 400;
                 color: ClassStyles.color-or(ClassStyles.search, Theme.text);
-                text <=> root.query;
-                edited => { root.search-changed(self.text); }
+                text <=> AddonsUi.query;
+                edited => { AddonsUi.search-changed(self.text); }
             }
             if search.text == "": search-placeholder := Text {
                 x: 23 * root.px;
@@ -193,17 +195,17 @@ export component AddonsContent inherits Rectangle {
         content-width: self.width;
         content-height: root.list-content-height;
 
-        for entry[index] in root.addons: AddonCard {
+        for entry[index] in AddonsUi.addons: AddonCard {
             x: 1.5 * root.rem-size;
             y: index * root.card-pitch;
             width: root.card-width;
             data: entry;
             rem-size: root.rem-size;
-            open => { root.open(entry.transport-url); }
-            uninstall => { root.uninstall(entry.transport-url); }
-            install => { root.install(entry.transport-url); }
-            configure => { root.configure(entry.transport-url); }
-            share => { root.share(entry.transport-url); }
+            open => { AddonsUi.open(entry.transport-url); }
+            uninstall => { AddonsUi.uninstall(entry.transport-url); }
+            install => { AddonsUi.install(entry.transport-url); }
+            configure => { AddonsUi.configure(entry.transport-url); }
+            share => { AddonsUi.share(entry.transport-url); }
         }
     }
 
@@ -216,11 +218,11 @@ export component AddonsContent inherits Rectangle {
         offset <=> addons-list-container.content-y;
     }
 
-    if root.message != "": message-container := Text {
+    if AddonsUi.message != "": message-container := Text {
         x: 1.5 * root.rem-size;
         y: root.bar-height;
         width: root.width - 3 * root.rem-size;
-        text: root.message;
+        text: AddonsUi.message;
         wrap: word-wrap;
         font-size: 2 * root.rem-size;
         color: ClassStyles.color-or(ClassStyles.message-container, Theme.text);
@@ -228,18 +230,18 @@ export component AddonsContent inherits Rectangle {
         visible: !ClassStyles.message-container.hidden;
     }
 
-    if root.add-open: AddAddonModal {
+    if AddonsUi.add-open: AddAddonModal {
         width: parent.width;
         height: parent.height;
         rem-size: root.rem-size;
-        add-open <=> root.add-open;
-        add-url <=> root.add-url;
-        add-submitted <=> root.add-submitted;
-        pending: root.pending;
-        add-error: root.add-error;
-        add-submit(url) => { root.add-submit(url); }
-        add-install => { root.add-install(); }
-        add-configure(url) => { root.add-configure(url); }
-        add-close => { root.add-close(); }
+        add-open <=> AddonsUi.add-open;
+        add-url <=> AddonsUi.add-url;
+        add-submitted <=> AddonsUi.add-submitted;
+        pending: AddonsUi.pending;
+        add-error: AddonsUi.add-error;
+        add-submit(url) => { AddonsUi.add-submit(url); }
+        add-install => { AddonsUi.add-install(); }
+        add-configure(url) => { AddonsUi.configure(url); }
+        add-close => { AddonsUi.add-close(); }
     }
 }

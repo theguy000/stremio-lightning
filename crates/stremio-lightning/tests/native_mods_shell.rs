@@ -11,11 +11,11 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use serde_json::json;
-use slint::Model;
+use slint::{ComponentHandle, Model};
 use stremio_lightning::screens::mods::{self, catalogue, Page};
 use stremio_lightning::screens::settings::LocalExtras;
 use stremio_lightning::themes;
-use stremio_lightning::{MainWindow, Section};
+use stremio_lightning::{MainWindow, ModsUi, Section};
 
 mod support;
 
@@ -24,7 +24,8 @@ use support::ui_driver::{self, Outcome};
 /// The theme cards the page holds now, by name.
 fn on_screen(window: &MainWindow) -> Vec<String> {
     window
-        .get_mods()
+        .global::<ModsUi>()
+        .get_data()
         .themes
         .iter()
         .map(|card| card.name.to_string())
@@ -376,8 +377,8 @@ fn the_window_opens_every_page_and_removes_a_theme_in_two_presses() {
         ("about", "About"),
     ];
     let page_is = |page: &'static str| {
-        let shown = window.get_mods_page().to_string();
-        let drawn = window.get_mods().page.to_string();
+        let shown = window.global::<ModsUi>().get_page().to_string();
+        let drawn = window.global::<ModsUi>().get_data().page.to_string();
         if shown == page && drawn == page {
             Ok(page.to_owned())
         } else {
@@ -400,7 +401,7 @@ fn the_window_opens_every_page_and_removes_a_theme_in_two_presses() {
         outcomes,
         "the Plugins page lists built-in AniSkip",
         wait(window, Duration::from_secs(10), |window| {
-            let plugins = window.get_mods().plugins;
+            let plugins = window.global::<ModsUi>().get_data().plugins;
             let ids: Vec<String> = (0..plugins.row_count())
                 .filter_map(|row| plugins.row_data(row))
                 .map(|card| card.filename.to_string())
@@ -421,7 +422,7 @@ fn the_window_opens_every_page_and_removes_a_theme_in_two_presses() {
             .and_then(|_| wait(window, Duration::from_secs(10), |_| page_is("plugins"))),
     );
     outcomes = step(outcomes, "the menu lists the four pages", {
-        let nav = window.get_mods_nav();
+        let nav = window.global::<ModsUi>().get_menu();
         let shown: Vec<String> = (0..nav.row_count())
             .filter_map(|row| nav.row_data(row))
             .map(|item| item.label.to_string())
@@ -451,7 +452,7 @@ fn the_window_opens_every_page_and_removes_a_theme_in_two_presses() {
         outcomes,
         "the theme the folder holds has a card",
         wait(window, Duration::from_secs(15), |window| {
-            let themes = window.get_mods().themes;
+            let themes = window.global::<ModsUi>().get_data().themes;
             let names: Vec<String> = (0..themes.row_count())
                 .filter_map(|row| themes.row_data(row))
                 .map(|card| card.name.to_string())
@@ -464,7 +465,7 @@ fn the_window_opens_every_page_and_removes_a_theme_in_two_presses() {
         }),
     );
     outcomes = step(outcomes, "the card starts out unarmed", {
-        let themes = window.get_mods().themes;
+        let themes = window.global::<ModsUi>().get_data().themes;
         match (0..themes.row_count())
             .filter_map(|row| themes.row_data(row))
             .find(|card| card.filename == "red.theme.css")
@@ -486,7 +487,7 @@ fn the_window_opens_every_page_and_removes_a_theme_in_two_presses() {
                 if !red.exists() {
                     return Err("the first press deleted the file".to_owned());
                 }
-                let themes = window.get_mods().themes;
+                let themes = window.global::<ModsUi>().get_data().themes;
                 match (0..themes.row_count())
                     .filter_map(|row| themes.row_data(row))
                     .find(|card| card.filename == "red.theme.css")
@@ -549,7 +550,7 @@ fn the_window_opens_every_page_and_removes_a_theme_in_two_presses() {
         second,
         "and the screen says what happened",
         wait(window, Duration::from_secs(10), |window| {
-            let notice = window.get_mods().notice.to_string();
+            let notice = window.global::<ModsUi>().get_data().notice.to_string();
             if notice == "Removed red.theme.css." {
                 Ok(notice)
             } else {

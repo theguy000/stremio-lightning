@@ -16,7 +16,7 @@ use slint::ComponentHandle;
 
 use crate::app::{App, ScreenMask, Snapshot};
 use crate::plumbing::images::Images;
-use crate::{MainWindow, PlayerUi};
+use crate::{DetailsUi, MainWindow, PlayerUi};
 
 /// Drains `app`'s pending dirty `ScreenMask` on the UI thread and projects only the changed
 /// screen slices onto `window`, cloning only `Arc` handles from `Snapshot`.
@@ -54,7 +54,9 @@ pub(crate) fn apply_mask(
     }
     if mask.contains(ScreenMask::SETTINGS) {
         window.set_settings(settings_view(&snapshot.settings));
-        window.set_details_wrap_streams(snapshot.settings.wrap_streams);
+        window
+            .global::<DetailsUi>()
+            .set_wrap_streams(snapshot.settings.wrap_streams);
         let player_ui = window.global::<PlayerUi>();
         player_ui.set_seek_step(snapshot.settings.seek_time_secs);
         player_ui.set_seek_short_step(snapshot.settings.seek_short_time_secs);

@@ -4,17 +4,17 @@ export { Theme }
 import { CalendarContent, CalendarData } from "calendar.slint";
 import { HorizontalNavBar, ModsNavItem, Section, VerticalNavBar } from "shell.slint";
 import { BoardContent, CatalogRow, PosterData } from "board.slint";
-import { AddonData, AddonPendingData, AddonsContent } from "addons.slint";
+import { AddonData, AddonPendingData, AddonsContent, AddonsUi } from "addons.slint";
 import { DiscoverContent, SelectInputData } from "discover.slint";
 import { LoggedOutPlaceholder } from "logged-out-placeholder.slint";
 import { LibraryCard, LibraryContent, LibrarySort } from "library.slint";
-import { ModCardData, ModsContent, ModsViewData } from "mods.slint";
+import { ModCardData, ModsContent, ModsUi, ModsViewData } from "mods.slint";
 import { SettingsContent, SettingsViewData } from "settings.slint";
 import { SelectOption } from "multiselect-menu.slint";
 import { LinkGroup, PreviewData } from "meta-preview.slint";
-import { DetailsScreen, StreamData } from "details-screen.slint";
+import { DetailsScreen, DetailsUi, StreamData } from "details-screen.slint";
 import { LanguageOption, PlayerScreen, PlayerUi, PlayerEpisode, PlayerOption, PlayerTrack, SkipMark, SkipRow } from "player.slint";
-export { PlayerUi, PlayerEpisode, PlayerOption, PlayerTrack, SkipMark, SkipRow }
+export { AddonsUi, DetailsUi, ModsUi, PlayerUi, PlayerEpisode, PlayerOption, PlayerTrack, SkipMark, SkipRow }
 import { VideoRow } from "videos-list.slint";
 export { AddonData, LanguageOption, LibraryCard, LibrarySort, LinkGroup, ModCardData, ModsNavItem, ModsViewData, PreviewData, SelectInputData, SelectOption, SettingsViewData, StreamData, VideoRow }
 import { ClassStyle, ClassStyles } from "class-styles.slint";
@@ -53,31 +53,6 @@ export component MainWindow inherits Window {
     callback load-more-library();
     callback library-item-action(string, string);
     callback board-item-action(string, string);
-    in property <[AddonData]> addons: [];
-    in property <[SelectInputData]> addon-inputs: [];
-    in property <string> addons-message;
-    in-out property <string> addons-query;
-    /// The add-addon dialog: up or not, what was typed, and the manifest the URL answered with.
-    in-out property <bool> addon-add-open;
-    in-out property <string> addon-add-url;
-    /// Whether the pasted URL has been submitted, so a manifest the core already holds is not
-    /// shown before the dialog asks for one.
-    in-out property <bool> addon-add-submitted: false;
-    in property <AddonPendingData> addon-pending;
-    /// A URL the add-addon dialog could not parse, and nothing else.
-    in-out property <string> addon-add-error;
-    callback addon-add();
-    callback addon-add-submit(string);
-    callback addon-add-install();
-    callback addon-add-close();
-    callback addon-uninstall(string);
-    /// A marketplace card's Install button.
-    callback addon-install-market(string);
-    /// A card's Configure button, and the icon one beside Uninstall: the addon's own
-    /// configuration page, opened in the browser.
-    callback addon-configure(string);
-    callback addon-share(string);
-    callback addon-open(string);
     /// The Calendar's month, its days and the days with something on them, as the core holds them.
     in-out property <CalendarData> calendar;
     /// The day the user clicked in the grid: a highlight, and nothing the core is told about.
@@ -91,76 +66,7 @@ export component MainWindow inherits Window {
     in property <string> app-version;
     in property <string> build-version;
     in property <SettingsViewData> settings;
-    /// The Mods section: its page menu, the page on screen and the plugins and themes it lists.
-    in property <ModsViewData> mods;
-    /// The page of the Mods menu on screen, and the menu itself with that page marked. Both are
-    /// the window's own: a press only says which page was picked.
-    in-out property <string> mods-page: "plugins";
-    in-out property <[ModsNavItem]> mods-nav: [];
-    callback select-mods-page(string);
-    /// A card's switch, naming the file. Which list the file belongs to is the page's business.
-    callback toggle-mods-mod(string, bool);
-    /// A card's Remove button. Its first press arms the card and only its second press, on the
-    /// same card, removes the file.
-    callback remove-mods-mod(string);
-    /// Any other press on a Mods card takes back an armed Remove.
-    callback dismiss-mods-remove();
-    /// The Plugin settings page: the plugin picked, a press in one of its controls, and Save.
-    /// Every one names the plugin by the file name the page shows.
-    callback pick-mods-settings-plugin(string);
-    callback edit-mods-setting-toggle(string, bool);
-    callback edit-mods-setting-text(string, string);
-    callback edit-mods-setting-number(string, float);
-    callback save-mods-settings();
-
-    /// The Logs page's filter: which part of it ("source" or "level") and the id picked, empty
-    /// for every one; the search box, where each change is a press; a press on a record, which
-    /// opens its full text; and Clear, whose second press empties the list.
-    callback filter-mods-logs(string, int);
-    callback search-mods-logs(string);
-    callback reset-mods-logs-filter();
-    callback press-mods-log(int, bool, bool);
-    callback drag-mods-log(int);
-    callback release-mods-log(int);
-    callback select-all-mods-logs();
-    callback step-mods-log(int, bool);
-    callback copy-mods-log();
-    callback close-mods-log();
-    callback clear-mods-logs();
-    /// The About page: read the folders again, write the diagnostics file, and copy the version.
-    callback refresh-mods-about();
-    callback export-mods-diagnostics();
-    callback copy-mods-version();
-
     in-out property <bool> details-open: false;
-    in property <PreviewData> details-preview;
-    in property <bool> details-has-preview: false;
-    // The no-Streams message's Season and Episode steppers.
-    in property <bool> details-has-steps: false;
-    in property <int> details-season-number: 0;
-    in property <int> details-episode-number: 0;
-    in property <bool> details-can-show-streams: false;
-    // Whether the Streams list wraps its descriptions; kept in the shell's own settings file.
-    in property <bool> details-wrap-streams: false;
-    in property <bool> details-rate-visible: false;
-    in property <bool> details-rate-enabled: false;
-    in property <bool> details-rated-liked: false;
-    in property <bool> details-rated-loved: false;
-    in property <[StreamData]> streams: [];
-    in property <int> streams-loading: 0;
-    // False when nothing is going to answer with Streams: no account, or no addon that serves
-    // them. The placeholder rows would be a wait for nothing.
-    in property <bool> details-waits-for-streams: false;
-    // The episode picker: shown instead of the Streams while no Episode has been picked.
-    in property <bool> details-show-picker: false;
-    in property <[SelectOption]> details-seasons: [];
-    in property <int> details-season-index: 0;
-    in property <string> details-season-title;
-    in property <bool> details-season-watched: false;
-    in property <[VideoRow]> details-episodes: [];
-    in-out property <string> details-video-query;
-    in property <string> details-picked-label;
-    in property <bool> details-has-next-episode: false;
     in-out property <bool> playing: false;
     in-out property <Section> section: Section.board;
     in-out property <bool> auth-open: false;
@@ -178,7 +84,6 @@ export component MainWindow inherits Window {
         : root.section == Section.calendar ? "Calendar"
         : root.section == Section.addons ? "Addons"
         : root.section == Section.mods ? "Mods" : "Settings";
-    in property <string> play-message;
     // One line at the bottom of the window, then gone: what the app says after a copy.
     in property <string> toast;
     // The share dialog, over everything else while it is open.
@@ -216,34 +121,14 @@ export component MainWindow inherits Window {
     in-out property <length> addons-scroll: 0px;
     in-out property <length> settings-scroll: 0px;
     callback select-input-option(int, int);
-    callback select-addon-input-option(int, int);
-    callback search-addons(string);
     callback select-setting-option(string, int);
     callback toggle-setting-option(string, bool);
     callback open-settings-link(string);
     callback reload-streaming-server();
     callback logout-user();
-    callback play-stream(int);
-    callback select-season(int);
-    callback pick-video(string);
-    callback search-videos(string);
-    callback watch-episode(string);
-    callback toggle-episode-watched(string);
-    callback toggle-season-watched();
-    callback back-to-episodes();
-    callback step-season(int);
-    callback step-episode(int);
-    callback show-streams();
-    callback toggle-stream-wrap();
-    callback share();
-    callback rate-like();
-    callback rate-love();
-    callback details-toggle-library();
-    callback details-toggle-watched();
     callback share-close();
     callback share-copy();
     callback share-to(string);
-    callback next-episode();
     callback submit-auth-login(string, string);
     callback submit-auth-register(string, string, bool, bool, bool);
     callback auth-guest-login();
@@ -326,78 +211,7 @@ export component MainWindow inherits Window {
         width: parent.width;
         height: parent.height;
         rem-size: root.rem-size;
-        preview: root.details-preview;
-        has-preview: root.details-has-preview;
-        episodes: root.details-episodes;
-        video-query: root.details-video-query;
         bar-height: root.bar-height;
-        seasons: root.details-seasons;
-        season-index: root.details-season-index;
-        season-title: root.details-season-title;
-        season-watched: root.details-season-watched;
-        picked-label: root.details-picked-label;
-        show-picker: root.details-show-picker;
-        streams: root.streams;
-        streams-loading: root.streams-loading;
-        waits-for-streams: root.details-waits-for-streams;
-        play-message: root.play-message;
-        has-steps: root.details-has-steps;
-        season-number: root.details-season-number;
-        episode-number: root.details-episode-number;
-        can-show-streams: root.details-can-show-streams;
-        wrap-streams: root.details-wrap-streams;
-        rate-visible: root.details-rate-visible;
-        rate-enabled: root.details-rate-enabled;
-        rated-liked: root.details-rated-liked;
-        rated-loved: root.details-rated-loved;
-        select-season(index) => {
-            root.select-season(index);
-        }
-        pick-video(id) => {
-            root.pick-video(id);
-        }
-        search-videos(text) => {
-            root.search-videos(text);
-        }
-        watch-episode(id) => {
-            root.watch-episode(id);
-        }
-        toggle-episode-watched(id) => {
-            root.toggle-episode-watched(id);
-        }
-        toggle-season-watched => {
-            root.toggle-season-watched();
-        }
-        back-to-episodes => {
-            root.back-to-episodes();
-        }
-        play-stream(index) => {
-            root.play-stream(index);
-        }
-        step-season(delta) => {
-            root.step-season(delta);
-        }
-        step-episode(delta) => {
-            root.step-episode(delta);
-        }
-        show-streams => {
-            root.show-streams();
-        }
-        share => {
-            root.share();
-        }
-        rate-like => {
-            root.rate-like();
-        }
-        rate-love => {
-            root.rate-love();
-        }
-        toggle-library => {
-            root.details-toggle-library();
-        }
-        toggle-watched => {
-            root.details-toggle-watched();
-        }
     }
 
     if !root.playing && !root.details-open: VerticalNavBar {
@@ -439,9 +253,9 @@ export component MainWindow inherits Window {
         show-back: root.details-open;
         // ...and the Streams wrap toggle rides beside the fullscreen button there.
         show-wrap: root.details-open;
-        wrap-active: root.details-wrap-streams;
+        wrap-active: DetailsUi.wrap-streams;
         toggle-wrap => {
-            root.toggle-stream-wrap();
+            DetailsUi.toggle-stream-wrap();
         }
         bare: root.details-open;
         back-clicked => {
@@ -561,60 +375,10 @@ export component MainWindow inherits Window {
         y: root.bar-height;
         width: parent.width - root.nav-width;
         height: parent.height - root.bar-height;
-        addons: root.addons;
-        inputs: root.addon-inputs;
-        message: root.addons-message;
         viewport-width: root.width;
         scroll-offset <=> root.addons-scroll;
         scroll-bounds(x, y, width, viewport, content) => {
             root.scroll-bounds("addons", x, y, width, viewport, content);
-        }
-        query <=> root.addons-query;
-        add-open <=> root.addon-add-open;
-        add-url <=> root.addon-add-url;
-        add-submitted <=> root.addon-add-submitted;
-        pending: root.addon-pending;
-        add-error: root.addon-add-error;
-        select-option(input, option) => {
-            root.select-addon-input-option(input, option);
-        }
-        search-changed(text) => {
-            root.search-addons(text);
-        }
-        add-addon => {
-            root.addon-add();
-        }
-        add-submit(text) => {
-            root.addon-add-submit(text);
-        }
-        add-install => {
-            root.addon-add-install();
-        }
-        add-configure(url) => {
-            // An addon that must be set up first has no manifest to add yet: pressing Configure
-            // opens its own page, exactly as the same card's Configure pill does.
-            root.addon-configure(url);
-        }
-        add-close => {
-            root.addon-add-close();
-        }
-        uninstall(url) => {
-            root.addon-uninstall(url);
-        }
-        install(url) => {
-            root.addon-install-market(url);
-        }
-        configure(url) => {
-            root.addon-configure(url);
-        }
-        share(url) => {
-            root.addon-share(url);
-        }
-        open(url) => {
-            // A card is not pressable while a dialog is over it: the press belongs to the dialog.
-            if !root.share-open && !root.addon-add-open {
-                root.addon-open(url);
-            }
         }
     }
 
@@ -624,78 +388,6 @@ export component MainWindow inherits Window {
         width: parent.width - root.nav-width;
         height: parent.height - root.bar-height;
         viewport-width: root.width;
-        data: root.mods;
-        page: root.mods-page;
-        menu: root.mods-nav;
-        select-page(page) => {
-            root.select-mods-page(page);
-        }
-        toggle-mod(filename, enabled) => {
-            root.toggle-mods-mod(filename, enabled);
-        }
-        remove-mod(filename) => {
-            root.remove-mods-mod(filename);
-        }
-        dismiss-remove => {
-            root.dismiss-mods-remove();
-        }
-        pick-settings-plugin(filename) => {
-            root.pick-mods-settings-plugin(filename);
-        }
-        edit-settings-toggle(key, on) => {
-            root.edit-mods-setting-toggle(key, on);
-        }
-        edit-settings-text(key, text) => {
-            root.edit-mods-setting-text(key, text);
-        }
-        edit-settings-number(key, number) => {
-            root.edit-mods-setting-number(key, number);
-        }
-        save-settings => {
-            root.save-mods-settings();
-        }
-        filter-logs(part, value) => {
-            root.filter-mods-logs(part, value);
-        }
-        search-logs(text) => {
-            root.search-mods-logs(text);
-        }
-        reset-logs-filter => {
-            root.reset-mods-logs-filter();
-        }
-        press-log(id, shift, ctrl) => {
-            root.press-mods-log(id, shift, ctrl);
-        }
-        drag-log(id) => {
-            root.drag-mods-log(id);
-        }
-        release-log(id) => {
-            root.release-mods-log(id);
-        }
-        select-all-logs => {
-            root.select-all-mods-logs();
-        }
-        step-log(delta, shift) => {
-            root.step-mods-log(delta, shift);
-        }
-        copy-log => {
-            root.copy-mods-log();
-        }
-        close-log => {
-            root.close-mods-log();
-        }
-        clear-logs => {
-            root.clear-mods-logs();
-        }
-        refresh-about => {
-            root.refresh-mods-about();
-        }
-        export-diagnostics => {
-            root.export-mods-diagnostics();
-        }
-        copy-version => {
-            root.copy-mods-version();
-        }
     }
 
     if root.section == Section.settings && !root.details-open && !root.playing: SettingsContent {

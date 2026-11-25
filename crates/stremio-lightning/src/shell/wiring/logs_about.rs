@@ -4,7 +4,9 @@ use super::Wiring;
 use crate::plumbing::{clipboard, diagnostics, logs, update};
 use crate::screens::mods;
 use crate::shell;
-use crate::MainWindow;
+use slint::ComponentHandle;
+
+use crate::{MainWindow, ModsUi};
 
 impl Wiring {
     pub(super) fn filter_logs(&self, part: &str, value: i32) {
@@ -198,34 +200,35 @@ impl Wiring {
 }
 
 pub(super) fn wire(window: &MainWindow, wiring: &Wiring) {
+    let ui = window.global::<ModsUi>();
     let w = wiring.clone();
-    window.on_filter_mods_logs(move |part, value| w.filter_logs(&part, value));
+    ui.on_filter_logs(move |part, value| w.filter_logs(&part, value));
     let w = wiring.clone();
-    window.on_search_mods_logs(move |text| w.search_logs(text.to_string()));
+    ui.on_search_logs(move |text| w.search_logs(text.to_string()));
     let w = wiring.clone();
-    window.on_reset_mods_logs_filter(move || w.reset_logs_filter());
+    ui.on_reset_logs_filter(move || w.reset_logs_filter());
     let w = wiring.clone();
-    window.on_press_mods_log(move |id, shift, ctrl| {
+    ui.on_press_log(move |id, shift, ctrl| {
         w.press_log_record(id.max(0) as u32, shift, ctrl)
     });
     let w = wiring.clone();
-    window.on_drag_mods_log(move |id| w.drag_log_record(id.max(0) as u32));
+    ui.on_drag_log(move |id| w.drag_log_record(id.max(0) as u32));
     let w = wiring.clone();
-    window.on_release_mods_log(move |id| w.release_log_record(id.max(0) as u32));
+    ui.on_release_log(move |id| w.release_log_record(id.max(0) as u32));
     let w = wiring.clone();
-    window.on_select_all_mods_logs(move || w.select_all_logs());
+    ui.on_select_all_logs(move || w.select_all_logs());
     let w = wiring.clone();
-    window.on_step_mods_log(move |delta, shift| w.step_log_record(delta, shift));
+    ui.on_step_log(move |delta, shift| w.step_log_record(delta, shift));
     let w = wiring.clone();
-    window.on_copy_mods_log(move || w.copy_log_record());
+    ui.on_copy_log(move || w.copy_log_record());
     let w = wiring.clone();
-    window.on_close_mods_log(move || w.close_log_record());
+    ui.on_close_log(move || w.close_log_record());
     let w = wiring.clone();
-    window.on_clear_mods_logs(move || w.clear_logs());
+    ui.on_clear_logs(move || w.clear_logs());
     let w = wiring.clone();
-    window.on_refresh_mods_about(move || w.refresh_about());
+    ui.on_refresh_about(move || w.refresh_about());
     let w = wiring.clone();
-    window.on_export_mods_diagnostics(move || w.export_diagnostics());
+    ui.on_export_diagnostics(move || w.export_diagnostics());
     let w = wiring.clone();
-    window.on_copy_mods_version(move || w.copy_version());
+    ui.on_copy_version(move || w.copy_version());
 }

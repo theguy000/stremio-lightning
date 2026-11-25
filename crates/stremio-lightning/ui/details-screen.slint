@@ -10,33 +10,30 @@ import { VideoRow } from "videos-list.slint";
 
 export { StreamData }
 
-export component DetailsScreen inherits Rectangle {
-    in property <PreviewData> preview;
-    in property <bool> has-preview: false;
-    in property <[VideoRow]> episodes;
-    in property <string> video-query;
-    in property <[SelectOption]> seasons;
-    in property <int> season-index: 0;
-    in property <string> season-title;
-    in property <bool> season-watched: false;
-    in property <bool> show-picker: false;
-    in property <string> picked-label;
-    in property <[StreamData]> streams;
-    in property <int> streams-loading: 0;
-    in property <bool> waits-for-streams: false;
-    in property <bool> has-title: false;
-    in property <bool> rate-visible: false;
-    in property <bool> rate-enabled: false;
-    in property <bool> rated-liked: false;
-    in property <bool> rated-loved: false;
-    in property <string> play-message;
-    in property <bool> has-steps: false;
-    in property <int> season-number: 0;
-    in property <int> episode-number: 0;
-    in property <bool> can-show-streams: false;
-    in property <bool> wrap-streams: false;
-    in property <length> rem-size: 14px;
-    in property <length> bar-height: 0px;
+export global DetailsUi {
+    in-out property <PreviewData> preview;
+    in-out property <bool> has-preview: false;
+    in-out property <[VideoRow]> episodes: [];
+    in-out property <string> video-query;
+    in-out property <[SelectOption]> seasons: [];
+    in-out property <int> season-index: 0;
+    in-out property <string> season-title;
+    in-out property <bool> season-watched: false;
+    in-out property <bool> show-picker: false;
+    in-out property <string> picked-label;
+    in-out property <[StreamData]> streams: [];
+    in-out property <int> streams-loading: 0;
+    in-out property <bool> waits-for-streams: false;
+    in-out property <bool> rate-visible: false;
+    in-out property <bool> rate-enabled: false;
+    in-out property <bool> rated-liked: false;
+    in-out property <bool> rated-loved: false;
+    in-out property <string> play-message;
+    in-out property <bool> has-steps: false;
+    in-out property <int> season-number: 0;
+    in-out property <int> episode-number: 0;
+    in-out property <bool> can-show-streams: false;
+    in-out property <bool> wrap-streams: false;
 
     callback select-season(int);
     callback pick-video(string);
@@ -48,19 +45,25 @@ export component DetailsScreen inherits Rectangle {
     callback play-stream(int);
     callback step-season(int);
     callback step-episode(int);
-    callback show-streams;
-    callback share;
-    callback rate-like;
-    callback rate-love;
-    callback toggle-library;
-    callback toggle-watched;
+    callback show-streams();
+    callback toggle-stream-wrap();
+    callback share();
+    callback rate-like();
+    callback rate-love();
+    callback toggle-library();
+    callback toggle-watched();
+}
+
+export component DetailsScreen inherits Rectangle {
+    in property <length> rem-size: 14px;
+    in property <length> bar-height: 0px;
 
     background: Theme.modal-background;
 
-    if root.has-preview && root.preview.has-background: CoverRightImage {
+    if DetailsUi.has-preview && DetailsUi.preview.has-background: CoverRightImage {
         width: 100%;
         height: 100%;
-        source: root.preview.background;
+        source: DetailsUi.preview.background;
     }
 
     panel-backdrop := Rectangle {
@@ -73,14 +76,14 @@ export component DetailsScreen inherits Rectangle {
         border-bottom-left-radius: 0.75 * root.rem-size;
         clip: true;
 
-        if root.has-preview && root.preview.has-panel-backdrop: panel-backdrop-image := CoverRightImage {
+        if DetailsUi.has-preview && DetailsUi.preview.has-panel-backdrop: panel-backdrop-image := CoverRightImage {
             x: -(root.width - 30 * root.rem-size);
             y: -root.bar-height;
             width: root.width;
             height: root.height;
-            source: root.preview.panel-backdrop;
+            source: DetailsUi.preview.panel-backdrop;
         }
-        Rectangle { background: #00000066; }
+        Rectangle { background: Theme.scrim; }
     }
 
     HorizontalLayout {
@@ -94,19 +97,19 @@ export component DetailsScreen inherits Rectangle {
                 padding-right: 4 * root.rem-size;
                 padding-bottom: 2 * root.rem-size;
                 MetaPreview {
-                    preview: root.preview;
-                    has-preview: root.has-preview;
+                    preview: DetailsUi.preview;
+                    has-preview: DetailsUi.has-preview;
                     rem-size: root.rem-size;
                     on-page: true;
-                    rate-visible: root.rate-visible;
-                    rate-enabled: root.rate-enabled;
-                    rated-liked: root.rated-liked;
-                    rated-loved: root.rated-loved;
-                    share => { root.share(); }
-                    rate-like => { root.rate-like(); }
-                    rate-love => { root.rate-love(); }
-                    toggle-library => { root.toggle-library(); }
-                    toggle-watched => { root.toggle-watched(); }
+                    rate-visible: DetailsUi.rate-visible;
+                    rate-enabled: DetailsUi.rate-enabled;
+                    rated-liked: DetailsUi.rated-liked;
+                    rated-loved: DetailsUi.rated-loved;
+                    share => { DetailsUi.share(); }
+                    rate-like => { DetailsUi.rate-like(); }
+                    rate-love => { DetailsUi.rate-love(); }
+                    toggle-library => { DetailsUi.toggle-library(); }
+                    toggle-watched => { DetailsUi.toggle-watched(); }
                 }
             }
         }
@@ -114,37 +117,37 @@ export component DetailsScreen inherits Rectangle {
         DetailsPanel {
             width: 30 * root.rem-size;
             rem-size: root.rem-size;
-            seasons: root.seasons;
-            season-index: root.season-index;
-            season-title: root.season-title;
-            season-watched: root.season-watched;
-            episodes: root.episodes;
+            seasons: DetailsUi.seasons;
+            season-index: DetailsUi.season-index;
+            season-title: DetailsUi.season-title;
+            season-watched: DetailsUi.season-watched;
+            episodes: DetailsUi.episodes;
             viewport-width: root.width;
             viewport-height: root.height;
-            query: root.video-query;
-            show-picker: root.show-picker;
-            picked-label: root.picked-label;
-            streams: root.streams;
-            streams-loading: root.streams-loading;
-            waits-for-streams: root.waits-for-streams;
-            has-title: root.has-preview;
-            play-message: root.play-message;
-            has-steps: root.has-steps;
-            season-number: root.season-number;
-            episode-number: root.episode-number;
-            can-show-streams: root.can-show-streams;
-            wrap-streams: root.wrap-streams;
-            select-season(index) => { root.select-season(index); }
-            pick-video(id) => { root.pick-video(id); }
-            search-videos(text) => { root.search-videos(text); }
-            watch-episode(id) => { root.watch-episode(id); }
-            toggle-episode-watched(id) => { root.toggle-episode-watched(id); }
-            toggle-season-watched => { root.toggle-season-watched(); }
-            back-to-episodes => { root.back-to-episodes(); }
-            play-stream(index) => { root.play-stream(index); }
-            stepped-season(delta) => { root.step-season(delta); }
-            stepped-episode(delta) => { root.step-episode(delta); }
-            show-streams => { root.show-streams(); }
+            query: DetailsUi.video-query;
+            show-picker: DetailsUi.show-picker;
+            picked-label: DetailsUi.picked-label;
+            streams: DetailsUi.streams;
+            streams-loading: DetailsUi.streams-loading;
+            waits-for-streams: DetailsUi.waits-for-streams;
+            has-title: DetailsUi.has-preview;
+            play-message: DetailsUi.play-message;
+            has-steps: DetailsUi.has-steps;
+            season-number: DetailsUi.season-number;
+            episode-number: DetailsUi.episode-number;
+            can-show-streams: DetailsUi.can-show-streams;
+            wrap-streams: DetailsUi.wrap-streams;
+            select-season(index) => { DetailsUi.select-season(index); }
+            pick-video(id) => { DetailsUi.pick-video(id); }
+            search-videos(text) => { DetailsUi.search-videos(text); }
+            watch-episode(id) => { DetailsUi.watch-episode(id); }
+            toggle-episode-watched(id) => { DetailsUi.toggle-episode-watched(id); }
+            toggle-season-watched => { DetailsUi.toggle-season-watched(); }
+            back-to-episodes => { DetailsUi.back-to-episodes(); }
+            play-stream(index) => { DetailsUi.play-stream(index); }
+            stepped-season(delta) => { DetailsUi.step-season(delta); }
+            stepped-episode(delta) => { DetailsUi.step-episode(delta); }
+            show-streams => { DetailsUi.show-streams(); }
         }
     }
 }

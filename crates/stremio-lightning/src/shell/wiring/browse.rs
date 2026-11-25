@@ -1,5 +1,6 @@
 //! Board, Discover, Library, Calendar, and viewport scroll/settle callbacks.
 
+use slint::ComponentHandle;
 use stremio_core::models::catalog_with_filters::Selected as CatalogSelected;
 use stremio_core::models::library_with_filters::Selected as LibrarySelected;
 use stremio_core::runtime::msg::{
@@ -117,7 +118,7 @@ impl Wiring {
                     Err(error) => format!("Can't play this title: {error}"),
                 };
                 if let Some(window) = self.window.upgrade() {
-                    window.set_play_message(message.into());
+                    window.global::<crate::DetailsUi>().set_play_message(message.into());
                 }
             }
             "details" => self.open_item(card.id, card.kind, card.title),

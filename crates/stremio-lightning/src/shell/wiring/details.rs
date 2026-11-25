@@ -1,12 +1,12 @@
 //! Details Screen, Episode Picker, Streams List, and Share Modal callbacks.
 
-use slint::ModelRc;
+use slint::{ComponentHandle, ModelRc};
 
 use super::Wiring;
 use crate::app::ActiveScreen;
 use crate::plumbing::{clipboard, links};
 use crate::screens::{details, player};
-use crate::MainWindow;
+use crate::{DetailsUi, MainWindow};
 
 impl Wiring {
     pub(super) fn open_item(&self, id: String, kind: String, _title: String) {
@@ -14,14 +14,15 @@ impl Wiring {
         self.app.details().reset_inputs();
         self.app.viewport().set_active_screen(ActiveScreen::Details);
         if let Some(window) = self.window.upgrade() {
-            window.set_details_has_preview(false);
-            window.set_play_message("".into());
-            window.set_streams(ModelRc::default());
-            window.set_streams_loading(0);
-            window.set_details_seasons(ModelRc::default());
-            window.set_details_episodes(ModelRc::default());
-            window.set_details_season_watched(false);
-            window.set_details_show_picker(false);
+            let ui = window.global::<DetailsUi>();
+            ui.set_has_preview(false);
+            ui.set_play_message("".into());
+            ui.set_streams(ModelRc::default());
+            ui.set_streams_loading(0);
+            ui.set_seasons(ModelRc::default());
+            ui.set_episodes(ModelRc::default());
+            ui.set_season_watched(false);
+            ui.set_show_picker(false);
         }
         details::open(self.app.runtime(), &id, &kind);
     }
@@ -57,19 +58,21 @@ impl Wiring {
         match player::open_video(self.app.runtime(), &video_id) {
             Ok(player::VideoOpen::Opened) => {
                 if let Some(window) = self.window.upgrade() {
-                    window.set_play_message("".into());
+                    window.global::<DetailsUi>().set_play_message("".into());
                 }
             }
             Ok(player::VideoOpen::OpenExternal(url)) => {
                 links::open(&url);
                 if let Some(window) = self.window.upgrade() {
-                    window.set_play_message("".into());
+                    window.global::<DetailsUi>().set_play_message("".into());
                 }
             }
             Ok(player::VideoOpen::PickFromStreams) => self.pick_video(video_id),
             Err(error) => {
                 if let Some(window) = self.window.upgrade() {
-                    window.set_play_message(format!("Can't play this episode: {error}").into());
+                    window
+                        .global::<DetailsUi>()
+                        .set_play_message(format!("Can't play this episode: {error}").into());
                 }
             }
         }
@@ -126,12 +129,6 @@ impl Wiring {
         };
         if let Some(video) = video {
             self.pick_video(video);
-        }
-    }
-
-    pub(super) fn next_episode(&self) {
-        if let Some(next) = self.app.details().view().next_episode.clone() {
-            self.pick_video(next);
         }
     }
 
@@ -231,7 +228,7 @@ impl Wiring {
             Err(error) => format!("Can't play this stream: {error}"),
         };
         if let Some(window) = self.window.upgrade() {
-            window.set_play_message(message.into());
+            window.global::<DetailsUi>().set_play_message(message.into());
         }
     }
 }
@@ -241,47 +238,45 @@ pub(super) fn wire(window: &MainWindow, wiring: &Wiring) {
     window.on_open_item(move |id, kind, title| {
         w.open_item(id.to_string(), kind.to_string(), title.to_string())
     });
+    let ui = window.global::<DetailsUi>();
     let w = wiring.clone();
-    window.on_play_stream(move |index| w.play_stream(index));
+    ui.on_play_stream(move |index| w.play_stream(index));
     let w = wiring.clone();
-    window.on_select_season(move |index| w.select_season(index));
+    ui.on_select_season(move |index| w.select_season(index));
     let w = wiring.clone();
-    window.on_pick_video(move |video_id| w.pick_video(video_id.to_string()));
+    ui.on_pick_video(move |video_id| w.pick_video(video_id.to_string()));
     let w = wiring.clone();
-    window.on_search_videos(move |query| w.search_videos(query.to_string()));
+    ui.on_search_videos(move |query| w.search_videos(query.to_string()));
     let w = wiring.clone();
-    window.on_watch_episode(move |video_id| w.watch_episode(video_id.to_string()));
+    ui.on_watch_episode(move |video_id| w.watch_episode(video_id.to_string()));
     let w = wiring.clone();
-    window
-        .on_toggle_episode_watched(move |video_id| w.toggle_episode_watched(video_id.to_string()));
+    ui.on_toggle_episode_watched(move |video_id| w.toggle_episode_watched(video_id.to_string()));
     let w = wiring.clone();
-    window.on_toggle_season_watched(move || w.toggle_season_watched());
+    ui.on_toggle_season_watched(move || w.toggle_season_watched());
     let w = wiring.clone();
-    window.on_back_to_episodes(move || w.back_to_episodes());
+    ui.on_back_to_episodes(move || w.back_to_episodes());
     let w = wiring.clone();
-    window.on_toggle_stream_wrap(move || w.toggle_stream_wrap());
+    ui.on_toggle_stream_wrap(move || w.toggle_stream_wrap());
     let w = wiring.clone();
-    window.on_step_season(move |step| w.step(step, 0));
+    ui.on_step_season(move |step| w.step(step, 0));
     let w = wiring.clone();
-    window.on_step_episode(move |step| w.step(0, step));
+    ui.on_step_episode(move |step| w.step(0, step));
     let w = wiring.clone();
-    window.on_show_streams(move || w.show_streams());
+    ui.on_show_streams(move || w.show_streams());
     let w = wiring.clone();
-    window.on_share(move || w.share());
+    ui.on_share(move || w.share());
     let w = wiring.clone();
-    window.on_rate_like(move || w.rate(true));
+    ui.on_rate_like(move || w.rate(true));
     let w = wiring.clone();
-    window.on_rate_love(move || w.rate(false));
+    ui.on_rate_love(move || w.rate(false));
     let w = wiring.clone();
-    window.on_details_toggle_library(move || w.toggle_library());
+    ui.on_toggle_library(move || w.toggle_library());
     let w = wiring.clone();
-    window.on_details_toggle_watched(move || w.toggle_watched());
+    ui.on_toggle_watched(move || w.toggle_watched());
     let w = wiring.clone();
     window.on_share_close(move || w.close_share());
     let w = wiring.clone();
     window.on_share_copy(move || w.copy_share());
     let w = wiring.clone();
     window.on_share_to(move |network| w.open_share_target(network.as_str()));
-    let w = wiring.clone();
-    window.on_next_episode(move || w.next_episode());
 }
