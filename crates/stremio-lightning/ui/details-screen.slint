@@ -128,8 +128,8 @@ export component DetailsScreen inherits Rectangle {
             picked-released: DetailsUi.picked-released;
             picked-has-still: DetailsUi.picked-has-still;
             picked-still: DetailsUi.picked-still;
-            can-play: DetailsUi.streams.length > 0 || DetailsUi.episodes.length > 0;
-            play-label: DetailsUi.resume-label != "" ? DetailsUi.resume-label : "Watch";
+            can-play: DetailsUi.resume-label != "";
+            play-label: DetailsUi.resume-label;
             play-sublabel: DetailsUi.resume-sublabel;
             play-primary => {
                 if (DetailsUi.streams.length > 0) {
