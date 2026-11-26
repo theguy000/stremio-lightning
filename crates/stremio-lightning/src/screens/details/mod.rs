@@ -29,6 +29,8 @@ pub struct Source {
     pub name: String,
     pub description: String,
     pub addon: String,
+    pub link: String,
+    pub is_magnet: bool,
 }
 
 /// Metadata for the currently picked episode, shown in the Details hero.
@@ -247,21 +249,37 @@ fn source_rows(model: &AppModel, details: &MetaDetails) -> Vec<Source> {
         })
         .flat_map(|(base, list)| {
             let addon = addon_name(model, base);
-            list.iter().map(move |stream| Source {
-                name: stream
-                    .name
-                    .clone()
-                    .unwrap_or_else(|| "Stream".to_owned())
-                    .replace('\n', " "),
-                description: stream
-                    .description
-                    .clone()
-                    .unwrap_or_default()
-                    .replace('\n', " | "),
-                addon: addon.clone(),
+            list.iter().map(move |stream| {
+                let (link, is_magnet) = stream_link(&stream.source);
+                let raw_name = stream.name.as_deref().unwrap_or("").trim();
+                let name = if raw_name.is_empty() {
+                    if addon.is_empty() { "Stream".to_owned() } else { addon.clone() }
+                } else {
+                    raw_name.replace('\n', " ")
+                };
+                Source {
+                    name,
+                    description: stream.description.clone().unwrap_or_default().trim().to_owned(),
+                    addon: addon.clone(),
+                    link,
+                    is_magnet,
+                }
             })
         })
         .collect()
+}
+
+fn stream_link(source: &stremio_core::types::resource::StreamSource) -> (String, bool) {
+    use stremio_core::types::resource::StreamSource;
+    match source {
+        StreamSource::Url { url } => (url.as_str().to_owned(), false),
+        StreamSource::Torrent { info_hash, .. } => {
+            let hex: String = info_hash.iter().map(|b| format!("{b:02x}")).collect();
+            (format!("magnet:?xt=urn:btih:{hex}"), true)
+        }
+        StreamSource::External { external_url: Some(url), .. } => (url.as_str().to_owned(), false),
+        _ => (String::new(), false),
+    }
 }
 
 #[cfg(test)]

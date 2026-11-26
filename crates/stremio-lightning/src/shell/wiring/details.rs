@@ -238,6 +238,13 @@ impl Wiring {
                 .set_play_message(message.into());
         }
     }
+
+    pub(super) fn copy_stream_link(&self, link: &str) {
+        if !link.is_empty() {
+            let msg = clipboard::copy(link).map_or_else(|e| e, |_| "Link copied".to_owned());
+            self.say(&msg);
+        }
+    }
 }
 
 pub(super) fn wire(window: &MainWindow, wiring: &Wiring) {
@@ -248,6 +255,8 @@ pub(super) fn wire(window: &MainWindow, wiring: &Wiring) {
     let ui = window.global::<DetailsUi>();
     let w = wiring.clone();
     ui.on_play_stream(move |index| w.play_stream(index));
+    let w = wiring.clone();
+    ui.on_copy_stream_link(move |link| w.copy_stream_link(link.as_str()));
     let w = wiring.clone();
     ui.on_select_season(move |index| w.select_season(index));
     let w = wiring.clone();

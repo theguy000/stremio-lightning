@@ -50,6 +50,7 @@ export global DetailsUi {
     callback toggle-season-watched();
     callback back-to-episodes();
     callback play-stream(int);
+    callback copy-stream-link(string);
     callback step-season(int);
     callback step-episode(int);
     callback show-streams();
@@ -139,7 +140,7 @@ export component DetailsScreen inherits Rectangle {
         y: root.panel-y;
         width: root.panel-width;
         height: root.panel-height;
-        background: rgba(12, 11, 17, 0.72);
+        background: Theme.page-background;
         border-radius: 1.5 * root.rem-size;
         border-width: 1px;
         border-color: rgba(255, 255, 255, 0.08);
@@ -191,6 +192,7 @@ export component DetailsScreen inherits Rectangle {
             toggle-season-watched => { DetailsUi.toggle-season-watched(); }
             back-to-episodes => { DetailsUi.back-to-episodes(); }
             play-stream(index) => { DetailsUi.play-stream(index); }
+            copy-stream-link(link) => { DetailsUi.copy-stream-link(link); }
             stepped-season(delta) => { DetailsUi.step-season(delta); }
             stepped-episode(delta) => { DetailsUi.step-episode(delta); }
             show-streams => { DetailsUi.show-streams(); }

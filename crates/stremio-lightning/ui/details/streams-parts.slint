@@ -7,6 +7,8 @@ export struct StreamData {
     name: string,
     description: string,
     addon: string,
+    link: string,
+    is-magnet: bool,
 }
 
 export component StreamRow inherits Rectangle {
@@ -14,63 +16,53 @@ export component StreamRow inherits Rectangle {
     in property <length> rem-size;
     in property <bool> wrap: false;
     callback clicked;
+    callback open-menu(length, length);
 
-    property <length> description-cap: root.wrap ? 1000px : 3.5 * root.rem-size;
-    property <length> description-shown: Math.min(description-text.preferred-height, root.description-cap);
-
-    height: Math.max(
-        6 * root.rem-size,
-        Math.max(name-text.preferred-height, root.description-shown) + 1 * root.rem-size,
-    );
+    height: Math.max(4.75 * root.rem-size, row-body.preferred-height);
     border-radius: 0.75 * root.rem-size;
     background: touch.has-hover ? Theme.overlay : transparent;
+    animate background { duration: 150ms; }
 
-    HorizontalLayout {
-        padding: 0.5 * root.rem-size;
+    row-body := HorizontalLayout {
+        padding-top: 0.85 * root.rem-size;
+        padding-bottom: 0.85 * root.rem-size;
         padding-left: 1 * root.rem-size;
-        padding-right: 1 * root.rem-size;
+        padding-right: 0.85 * root.rem-size;
         spacing: 1 * root.rem-size;
 
-        name-text := Text {
-            width: 7 * root.rem-size;
-            horizontal-stretch: 0;
-            text: root.source.name;
-            font-size: 1.1 * root.rem-size;
-            font-weight: 600;
-            color: Theme.text;
-            wrap: word-wrap;
-            overflow: clip;
-            vertical-alignment: center;
-        }
         VerticalLayout {
             horizontal-stretch: 1;
             alignment: center;
-            description-text := Text {
-                horizontal-stretch: 1;
-                text: root.source.description;
-                font-size: 0.9 * root.rem-size;
+            spacing: 0.25 * root.rem-size;
+            Text {
+                text: root.source.name;
+                font-size: 0.9375 * root.rem-size;
+                font-weight: 600;
                 color: Theme.text;
-                opacity: 0.9;
                 wrap: word-wrap;
-                overflow: clip;
-                max-height: root.description-cap;
+            }
+            if root.source.description != "": Text {
+                text: root.source.description;
+                font-size: 0.8125 * root.rem-size;
+                color: rgba(255, 255, 255, 0.64);
+                wrap: word-wrap;
             }
         }
         VerticalLayout {
             alignment: center;
             Rectangle {
-                width: 3 * root.rem-size;
-                height: 3 * root.rem-size;
-                border-radius: 1.5 * root.rem-size;
-                background: Theme.accent-green;
-                opacity: touch.has-hover ? 1 : 0;
+                width: 2.625 * root.rem-size;
+                height: 2.625 * root.rem-size;
+                border-radius: 1.3125 * root.rem-size;
+                background: touch.has-hover ? Theme.accent-green : Theme.overlay;
+                animate background { duration: 150ms; }
                 Image {
                     x: (parent.width - self.width) / 2;
                     y: (parent.height - self.height) / 2;
-                    width: 1.2 * root.rem-size;
-                    height: 1.2 * root.rem-size;
+                    width: 1.125 * root.rem-size;
+                    height: 1.125 * root.rem-size;
                     source: @image-url("../icons/play.svg");
-                    colorize: Theme.text;
+                    colorize: #ffffff;
                 }
             }
         }
@@ -80,6 +72,11 @@ export component StreamRow inherits Rectangle {
         mouse-cursor: pointer;
         accessible-role: button;
         accessible-label: root.source.name;
+        pointer-event(event) => {
+            if (event.button == PointerEventButton.right && event.kind == PointerEventKind.up) {
+                root.open-menu(self.mouse-x, self.mouse-y);
+            }
+        }
         clicked => { root.clicked(); }
     }
 }

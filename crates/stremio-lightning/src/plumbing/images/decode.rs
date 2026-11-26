@@ -13,7 +13,7 @@ pub(crate) const PAGE_SUFFIX: &str = "#page";
 pub(crate) const BACKDROP_SUFFIX: &str = "#backdrop";
 
 const BLUR_SIGMA: f32 = 3.0;
-const BACKDROP_SIGMA: f32 = 3.5;
+const BACKDROP_SIGMA: f32 = 1.6;
 
 /// Standard `MetaItem` portrait poster aspect ratio (`ui/board.slint`: `1.464`).
 const POSTER_ASPECT: f32 = 1.464;
@@ -28,7 +28,7 @@ pub(crate) fn source(key: &str) -> (&str, (u32, u32), Option<f32>) {
     } else if let Some(url) = key.strip_suffix(BLUR_SUFFIX) {
         (url, (150, 225), Some(BLUR_SIGMA))
     } else if let Some(url) = key.strip_suffix(BACKDROP_SUFFIX) {
-        (url, (240, 135), Some(BACKDROP_SIGMA))
+        (url, (360, 202), Some(BACKDROP_SIGMA))
     } else if let Some(url) = key.strip_suffix(PAGE_SUFFIX) {
         (url, (1280, 720), None)
     } else {

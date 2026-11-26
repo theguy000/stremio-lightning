@@ -97,6 +97,8 @@ pub(super) fn apply_details(
                 name: src.name.clone().into(),
                 description: src.description.clone().into(),
                 addon: src.addon.clone().into(),
+                link: src.link.clone().into(),
+                is_magnet: src.is_magnet,
             },
         ) {
             ui.set_streams(replaced);
