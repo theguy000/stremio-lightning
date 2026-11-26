@@ -2,6 +2,7 @@
 import { LinkGroup, PreviewData } from "../meta-preview.slint";
 import { Theme } from "../theme.slint";
 import { DetailsHeroActions } from "hero-actions.slint";
+import { HeroSkeleton } from "skeleton.slint";
 
 export component DetailsHero inherits VerticalLayout {
     in property <PreviewData> preview;
@@ -31,6 +32,11 @@ export component DetailsHero inherits VerticalLayout {
     spacing: 0px;
 
     property <length> logo-h: 9 * root.rem-size;
+
+    if !root.has-preview: HeroSkeleton {
+        vertical-stretch: 1;
+        rem-size: root.rem-size;
+    }
 
     if root.has-preview && root.preview.has-logo: HorizontalLayout {
         vertical-stretch: 0;

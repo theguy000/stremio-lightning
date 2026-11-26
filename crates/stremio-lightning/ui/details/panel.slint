@@ -5,7 +5,8 @@ import { SelectOption } from "../multiselect-menu.slint";
 import { ScrollBar } from "../scroll-bar.slint";
 import { Theme } from "../theme.slint";
 import { VideoRow, VideosList } from "../videos-list.slint";
-import { StreamData, StreamPlaceholder, StreamRow, StreamsMessage } from "streams-parts.slint";
+import { StreamsSkeleton, VideosSkeleton } from "skeleton.slint";
+import { StreamData, StreamRow, StreamsMessage } from "streams-parts.slint";
 
 export component DetailsPanel inherits Rectangle {
     in property <length> rem-size;
@@ -127,10 +128,11 @@ export component DetailsPanel inherits Rectangle {
                     wrap: word-wrap;
                 }
 
-                if root.streams.length == 0 && (root.streams-loading > 0 ? root.waits-for-streams : !root.has-title): VerticalLayout {
-                    alignment: start;
-                    StreamPlaceholder { rem-size: root.rem-size; }
-                    StreamPlaceholder { rem-size: root.rem-size; }
+                if !root.has-title && root.picked-label == "" && root.streams.length == 0: VideosSkeleton {
+                    rem-size: root.rem-size;
+                }
+                if root.streams.length == 0 && (root.has-title || root.picked-label != "") && (root.streams-loading > 0 ? root.waits-for-streams : !root.has-title): StreamsSkeleton {
+                    rem-size: root.rem-size;
                 }
 
                 if root.streams.length == 0 && root.has-title && (root.streams-loading == 0 || !root.waits-for-streams): StreamsMessage {
