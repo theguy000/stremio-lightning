@@ -161,6 +161,7 @@ pub(super) fn player_view(window: &MainWindow, data: &PlayerData, images: &Image
     if !data.open {
         ui.set_title("".into());
         ui.set_error(data.error.clone().into());
+        ui.set_expects_logo(false);
         ui.set_has_logo(false);
         ui.set_logo(Default::default());
         ui.set_has_backdrop(false);
@@ -175,6 +176,7 @@ pub(super) fn player_view(window: &MainWindow, data: &PlayerData, images: &Image
     }
     ui.set_title(data.title.clone().into());
     ui.set_error(data.error.clone().into());
+    ui.set_expects_logo(data.logo.is_some());
     let logo = slint_image(images, &data.logo);
     ui.set_has_logo(logo.is_some());
     ui.set_logo(logo.unwrap_or_default());
@@ -237,13 +239,21 @@ pub(crate) fn tracks(tracks: &[crate::plumbing::player::Track]) -> ModelRc<Playe
     ModelRc::new(VecModel::from(
         tracks
             .iter()
-            .map(|track| PlayerTrack {
-                id: track.id.clone().into(),
-                title: track.title.clone().into(),
-                language: crate::screens::language_names::label_or_code(&track.language).into(),
-                selected: track.selected,
-                external: track.external,
-                origin: Default::default(),
+            .enumerate()
+            .map(|(index, track)| {
+                let language = if track.language.is_empty() {
+                    format!("Track {}", index + 1)
+                } else {
+                    crate::screens::language_names::label_or_code(&track.language)
+                };
+                PlayerTrack {
+                    id: track.id.clone().into(),
+                    title: track.title.clone().into(),
+                    language: language.into(),
+                    selected: track.selected,
+                    external: track.external,
+                    origin: Default::default(),
+                }
             })
             .collect::<Vec<_>>(),
     ))

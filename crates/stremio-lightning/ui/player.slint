@@ -149,8 +149,8 @@ export component PlayerScreen inherits Rectangle {
     if !PlayerUi.loaded && PlayerUi.error == "": PlayerBufferingOverlay {
         x: 0; y: 0; width: root.width; height: root.height; rem-size: root.rem-size;
         backdrop: PlayerUi.backdrop; has-backdrop: PlayerUi.has-backdrop;
-        logo: PlayerUi.logo; has-logo: PlayerUi.has-logo; title: PlayerUi.title;
-        buffering: PlayerUi.buffering; pulse: root.pulse;
+        logo: PlayerUi.logo; has-logo: PlayerUi.has-logo; expects-logo: PlayerUi.expects-logo;
+        title: PlayerUi.title; buffering: PlayerUi.buffering; pulse: root.pulse;
     }
     if PlayerUi.error != "" && !PlayerUi.loaded: PlayerErrorOverlay {
         x: 0; y: 0; width: root.width; height: root.height; rem-size: root.rem-size; error: PlayerUi.error;

@@ -47,9 +47,12 @@ export component PlayerMenusPopup inherits Rectangle {
         count <= 0 ? root.rem-size : count * root.menu-row + (count - 1) * 0.5 * root.rem-size + root.rem-size
     }
     property <length> menu-list-room: Math.max(0px, root.menu-max - root.menu-header);
+    property <length> options-rows-height:
+        root.options.length <= 0 ? 0px
+        : root.options.length * 3.5 * root.rem-size + (root.options.length - 1) * root.menu-gap;
     property <length> menu-list-height:
         root.menu == "options"
-        ? Math.min(root.rows-height(root.options.length), Math.max(0px, root.menu-max - 2 * root.menu-padding))
+        ? Math.min(root.options-rows-height, Math.max(0px, root.menu-max - 2 * root.menu-padding))
         : root.menu-list-room;
     property <length> skip-rows-height:
         root.skip-rows.length == 0 ? 2.4 * root.rem-size
@@ -64,7 +67,7 @@ export component PlayerMenusPopup inherits Rectangle {
         : root.menu == "subtitles" ? root.menu-max
         : root.menu == "audio"
         ? Math.min(root.menu-header + root.rows-height(root.audio-tracks.length), root.menu-max)
-        : 2 * root.menu-padding + Math.min(root.rows-height(root.options.length), root.menu-list-room);
+        : 2 * root.menu-padding + root.menu-list-height;
 
     TouchArea {
         pointer-event(event) => { EventResult.accept }
@@ -201,9 +204,9 @@ export component PlayerMenusPopup inherits Rectangle {
             padding: 1 * root.rem-size;
             alignment: start;
             Flickable {
-                width: parent.width;
                 height: root.menu-list-height;
                 VerticalLayout {
+                    width: parent.width;
                     spacing: root.menu-gap;
                     alignment: start;
                     for option in root.options: OptionRow {

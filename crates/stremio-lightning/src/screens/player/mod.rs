@@ -104,6 +104,7 @@ pub fn data(model: &AppModel, wanted_season: Option<usize>) -> Data {
     let Some(selected) = player.selected.as_ref() else {
         return Data::default();
     };
+    let selected_meta_id = selected.meta_request.as_ref().map(|r| r.path.id.as_str());
     let meta = player
         .meta_item
         .as_ref()
@@ -111,6 +112,11 @@ pub fn data(model: &AppModel, wanted_season: Option<usize>) -> Data {
         .and_then(|content| match content {
             Loadable::Ready(meta) => Some(meta),
             _ => None,
+        })
+        .or_else(|| {
+            crate::screens::details::meta_item(&model.meta_details).filter(|item| {
+                selected_meta_id.is_none() || Some(item.preview.id.as_str()) == selected_meta_id
+            })
         });
     let video_id = selected.stream_request.as_ref().map(|r| r.path.id.clone());
     let (urls, error) = match player.stream.as_ref() {

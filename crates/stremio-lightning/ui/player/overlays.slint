@@ -8,9 +8,12 @@ export component PlayerBufferingOverlay inherits Rectangle {
     in property <bool> has-backdrop;
     in property <image> logo;
     in property <bool> has-logo;
+    in property <bool> expects-logo;
     in property <string> title;
     in property <bool> buffering;
     in property <bool> pulse;
+
+    background: #000000;
 
     if root.has-backdrop: Image {
         x: 0;
@@ -31,7 +34,7 @@ export component PlayerBufferingOverlay inherits Rectangle {
         opacity: root.pulse ? 1 : 0.4;
         animate opacity { duration: 1s; easing: ease-in-out; }
     }
-    if !root.has-logo: Text {
+    if !root.has-logo && !root.expects-logo: Text {
         width: parent.width - 16 * root.rem-size;
         x: 8 * root.rem-size;
         y: (parent.height - self.height) / 2;

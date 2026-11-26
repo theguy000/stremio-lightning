@@ -156,7 +156,6 @@ export component PlayerControlBar inherits Rectangle {
             value: root.muted ? 0 : root.volume;
             minimum: 0;
             maximum: 200;
-            boost: true;
             track-size: 0.35 * root.rem-size;
             thumb-size: 1 * root.rem-size;
             slid(value) => { root.set-volume(value); }
