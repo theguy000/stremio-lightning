@@ -6,23 +6,28 @@ use super::Wiring;
 use crate::app::ActiveScreen;
 use crate::plumbing::{clipboard, links};
 use crate::screens::{details, player};
-use crate::{DetailsUi, MainWindow};
+use crate::{DetailsUi, MainWindow, PreviewData};
 
 impl Wiring {
+    pub(super) fn clear_details_ui(window: &MainWindow) {
+        let ui = window.global::<DetailsUi>();
+        ui.set_has_preview(false);
+        ui.set_preview(PreviewData::default());
+        ui.set_play_message("".into());
+        ui.set_streams(ModelRc::default());
+        ui.set_streams_loading(0);
+        ui.set_seasons(ModelRc::default());
+        ui.set_episodes(ModelRc::default());
+        ui.set_season_watched(false);
+        ui.set_show_picker(false);
+    }
+
     pub(super) fn open_item(&self, id: String, kind: String, _title: String) {
         self.app.details().clear_snapshot();
         self.app.details().reset_inputs();
         self.app.viewport().set_active_screen(ActiveScreen::Details);
         if let Some(window) = self.window.upgrade() {
-            let ui = window.global::<DetailsUi>();
-            ui.set_has_preview(false);
-            ui.set_play_message("".into());
-            ui.set_streams(ModelRc::default());
-            ui.set_streams_loading(0);
-            ui.set_seasons(ModelRc::default());
-            ui.set_episodes(ModelRc::default());
-            ui.set_season_watched(false);
-            ui.set_show_picker(false);
+            Self::clear_details_ui(&window);
         }
         details::open(self.app.runtime(), &id, &kind);
     }

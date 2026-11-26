@@ -59,6 +59,8 @@ fn link_windows_mpv() {
     );
     println!("cargo:rustc-link-search=native={}", dev.display());
     println!("cargo:rerun-if-changed={}", lib.display());
+    println!("cargo:rustc-link-lib=delayimp");
+    println!("cargo:rustc-link-arg-bin=stremio-lightning=/DELAYLOAD:libmpv-2.dll");
 
     let dll = manifest.join("resources/libmpv-2.dll");
     println!("cargo:rerun-if-changed={}", dll.display());

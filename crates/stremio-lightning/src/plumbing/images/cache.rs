@@ -6,9 +6,9 @@ use std::sync::Arc;
 
 /// How much decoded picture the cache may hold before evicting least-recently-used entries.
 ///
-/// A poster is 240x351 RGBA8 (~337 kB). Because `wanted` only pins the active screen's visible
-/// viewport (+ one slack row, ~7-12 MB), 16 MB holds ~48 posters while keeping CPU RAM tight.
-const CACHE_LIMIT: usize = 16 * 1024 * 1024;
+/// A poster is 240x351 RGBA8 (~337 kB). Because `wanted` pins only the active screen's visible
+/// viewport (+ one slack row, ~7-10 MB), 12 MB holds ~36 posters while keeping CPU RAM tight.
+const CACHE_LIMIT: usize = 12 * 1024 * 1024;
 
 static NEXT_REV: AtomicU64 = AtomicU64::new(1);
 
@@ -105,6 +105,18 @@ impl Cached {
             self.limit
         };
         let mut let_go = Vec::new();
+        let stale_variants: Vec<String> = self
+            .entries
+            .keys()
+            .filter(|k| k.contains('#') && protect != Some(k.as_str()) && !keep.contains(*k))
+            .cloned()
+            .collect();
+        for key in stale_variants {
+            if let Some((_, bytes, _)) = self.entries.remove(&key) {
+                self.bytes -= bytes;
+                let_go.push(key);
+            }
+        }
         while self.bytes > limit {
             let Some(oldest) = self
                 .entries

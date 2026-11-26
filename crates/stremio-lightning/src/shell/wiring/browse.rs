@@ -9,7 +9,7 @@ use stremio_core::runtime::msg::{
 use stremio_core::runtime::RuntimeAction;
 
 use super::{active_screen_of, Wiring};
-use crate::app::{AppModelField, ScreenMask};
+use crate::app::{ActiveScreen, AppModelField, ScreenMask};
 use crate::plumbing::links;
 use crate::screens::{discover, player};
 use crate::MainWindow;
@@ -170,6 +170,9 @@ impl Wiring {
             return;
         };
         let screen = active_screen_of(&window);
+        if screen != ActiveScreen::Details {
+            Self::clear_details_ui(&window);
+        }
         self.app.viewport().set_active_screen(screen);
         self.app.mark_dirty(screen.mask());
     }

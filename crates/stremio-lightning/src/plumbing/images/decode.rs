@@ -30,7 +30,7 @@ pub(crate) fn source(key: &str) -> (&str, (u32, u32), Option<f32>) {
     } else if let Some(url) = key.strip_suffix(BACKDROP_SUFFIX) {
         (url, (240, 135), Some(BACKDROP_SIGMA))
     } else if let Some(url) = key.strip_suffix(PAGE_SUFFIX) {
-        (url, (1920, 1080), None)
+        (url, (1280, 720), None)
     } else {
         (key, (240, 360), None)
     }
