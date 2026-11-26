@@ -37,6 +37,9 @@ pub(super) fn image_rev(images: &Images, key: &Option<String>) -> Option<u64> {
 pub(super) fn slint_image(images: &Images, key: &Option<String>) -> Option<Image> {
     let key = key.as_ref()?;
     let decoded = images.get(&Some(key.clone()))?;
+    if !key.contains('#') {
+        return Some(to_slint_image(&decoded));
+    }
     let rev = decoded.rev();
     SLINT_IMAGES.with(|cell| {
         let mut cache = cell.borrow_mut();

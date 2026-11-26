@@ -17,7 +17,7 @@ use cache::Cached;
 use decode::{find_derivation_source, is_urgent, prepare_variant, source};
 use fetch::{fetch, trace, Fetched};
 
-type Waiter = (String, Box<dyn FnOnce() + Send>);
+type Waiter = (String, Box<dyn FnOnce(bool) + Send>);
 
 const BULK_FETCHES: usize = 16;
 const URGENT_FETCHES: usize = 4;
@@ -38,9 +38,11 @@ impl PoolState {
         }
     }
 
-    fn insert_and_evict(&mut self, key: String, image: DecodedImage) {
+    fn insert_and_evict(&mut self, key: String, image: DecodedImage) -> bool {
         let let_go = self.cache.insert(key, image, &self.wanted);
+        let evicted = !let_go.is_empty();
         self.forget(let_go);
+        evicted
     }
 
     fn take_waiters(&mut self, base: &str) -> Vec<Waiter> {
@@ -109,7 +111,7 @@ impl Images {
     }
 
     /// Requests a key if not already cached, in flight, or known missing (4xx).
-    pub(crate) fn request(&self, key: String, on_ready: impl FnOnce() + Send + 'static) {
+    pub(crate) fn request(&self, key: String, on_ready: impl FnOnce(bool) + Send + 'static) {
         let derivation_src = {
             let mut state = self.state.lock().unwrap();
             if !state.requested.insert(key.clone()) {
@@ -166,12 +168,13 @@ impl Images {
 
             match result {
                 Fetched::Ready(image) => {
-                    let waiters = {
+                    let (evicted, waiters) = {
                         let mut pool = state.lock().unwrap();
-                        pool.insert_and_evict(key, image);
-                        pool.take_waiters(&base)
+                        let evicted = pool.insert_and_evict(key, image);
+                        let waiters = pool.take_waiters(&base);
+                        (evicted, waiters)
                     };
-                    on_ready();
+                    on_ready(evicted);
                     release(&runtime, &state, waiters);
                 }
                 Fetched::Missing => {
@@ -208,8 +211,8 @@ fn release(runtime: &tokio::runtime::Handle, state: &Arc<Mutex<PoolState>>, wait
             };
             match made {
                 Some(image) => {
-                    state.lock().unwrap().insert_and_evict(key, image);
-                    on_ready();
+                    let evicted = state.lock().unwrap().insert_and_evict(key, image);
+                    on_ready(evicted);
                 }
                 None => {
                     state.lock().unwrap().requested.remove(&key);

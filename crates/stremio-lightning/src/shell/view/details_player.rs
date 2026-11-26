@@ -158,6 +158,21 @@ pub(crate) fn settings_view(data: &SettingsData) -> SettingsViewData {
 pub(super) fn player_view(window: &MainWindow, data: &PlayerData, images: &Images) {
     window.set_playing(data.open);
     let ui = window.global::<PlayerUi>();
+    if !data.open {
+        ui.set_title("".into());
+        ui.set_error(data.error.clone().into());
+        ui.set_has_logo(false);
+        ui.set_logo(Default::default());
+        ui.set_has_backdrop(false);
+        ui.set_backdrop(Default::default());
+        ui.set_options(ModelRc::default());
+        ui.set_episodes(ModelRc::default());
+        ui.set_seasons(ModelRc::default());
+        ui.set_has_episodes(false);
+        ui.set_preview(PreviewData::default());
+        ui.set_has_next(false);
+        return;
+    }
     ui.set_title(data.title.clone().into());
     ui.set_error(data.error.clone().into());
     let logo = slint_image(images, &data.logo);

@@ -236,23 +236,18 @@ impl AppStore {
             .images
             .set_wanted(shown_images(&snap, screen, board_view, range, selected));
         if evicted {
-            self.mark_dirty(screen.mask());
+            self.mark_dirty(ScreenMask::IMAGE_SCREENS);
         }
         evicted
     }
 
     pub(crate) fn request_active_images(self: &Arc<Self>) {
+        self.sync_images();
         let snap = self.snapshot();
         let screen = *self.active_screen.lock().unwrap();
         let board_view = *self.board_visible.lock().unwrap();
         let range = self.drawn_range();
         let selected = self.discover_selected.load(Ordering::Relaxed);
-        if self
-            .images
-            .set_wanted(shown_images(&snap, screen, board_view, range, selected))
-        {
-            self.mark_dirty(screen.mask());
-        }
         for url in snapshot_images(&snap, screen, board_view, range, selected) {
             self.request_image(url);
         }
@@ -260,11 +255,17 @@ impl AppStore {
 
     pub(crate) fn request_image(self: &Arc<Self>, url: String) {
         let weak = Arc::downgrade(self);
-        self.images.request(url, move || {
-            if let Some(store) = weak.upgrade() {
-                let active = *store.active_screen.lock().unwrap();
-                store.mark_dirty(active.mask().union(ScreenMask::PLAYER));
+        self.images.request(url, move |evicted| {
+            let Some(store) = weak.upgrade() else { return };
+            let mut dirty = if evicted {
+                ScreenMask::IMAGE_SCREENS
+            } else {
+                store.active_screen.lock().unwrap().mask()
+            };
+            if store.snapshot.lock().unwrap().player.open {
+                dirty = dirty.union(ScreenMask::PLAYER);
             }
+            store.mark_dirty(dirty);
         });
     }
 

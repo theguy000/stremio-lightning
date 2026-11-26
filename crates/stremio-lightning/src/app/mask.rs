@@ -23,6 +23,15 @@ impl ScreenMask {
     pub const MODS: Self = Self(1 << 8);
     /// Live log rows on the Mods -> Logs page only; never rebuilds plugins/themes.
     pub const MODS_LOGS: Self = Self(1 << 9);
+    pub const IMAGE_SCREENS: Self = Self(
+        Self::BOARD.0
+            | Self::DISCOVER.0
+            | Self::LIBRARY.0
+            | Self::DETAILS.0
+            | Self::PLAYER.0
+            | Self::ADDONS.0
+            | Self::CALENDAR.0,
+    );
     pub const ALL: Self = Self((1 << 10) - 1);
 
     pub const fn bits(self) -> u16 {
