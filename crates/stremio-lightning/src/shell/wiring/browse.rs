@@ -171,7 +171,7 @@ impl Wiring {
         };
         let screen = active_screen_of(&window);
         if screen != ActiveScreen::Details {
-            Self::clear_details_ui(&window);
+            Self::clear_details_ui(&window, false);
         }
         self.app.viewport().set_active_screen(screen);
         self.app.mark_dirty(screen.mask());

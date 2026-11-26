@@ -32,6 +32,13 @@ pub(super) fn apply_details(
     }
     ui.set_streams_loading(i32::try_from(details.sources_loading).unwrap_or_default());
     ui.set_waits_for_streams(details.waits_for_streams);
+    ui.set_expect_streams(
+        details.picked.is_some()
+            || (!details.show_picker
+                && (details.waits_for_streams
+                    || details.sources_loading > 0
+                    || !details.streams.is_empty())),
+    );
     ui.set_rate_visible(details.rating_known);
     ui.set_rate_enabled(details.rating_ready);
     ui.set_rated_liked(details.rating == Some(stremio_core::types::rating::Rating::Liked));

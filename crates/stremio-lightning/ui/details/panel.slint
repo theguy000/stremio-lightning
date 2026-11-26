@@ -23,6 +23,7 @@ export component DetailsPanel inherits Rectangle {
     in property <[StreamData]> streams;
     in property <int> streams-loading: 0;
     in property <bool> waits-for-streams: false;
+    in property <bool> expect-streams: false;
     in property <bool> has-title: false;
     in property <string> play-message;
     in property <bool> has-steps: false;
@@ -128,10 +129,10 @@ export component DetailsPanel inherits Rectangle {
                     wrap: word-wrap;
                 }
 
-                if !root.has-title && root.picked-label == "" && root.streams.length == 0: VideosSkeleton {
+                if !root.has-title && !root.expect-streams && root.streams.length == 0: VideosSkeleton {
                     rem-size: root.rem-size;
                 }
-                if root.streams.length == 0 && (root.has-title || root.picked-label != "") && (root.streams-loading > 0 ? root.waits-for-streams : !root.has-title): StreamsSkeleton {
+                if root.streams.length == 0 && (root.expect-streams || root.has-title) && (!root.has-title || (root.streams-loading > 0 && root.waits-for-streams)): StreamsSkeleton {
                     rem-size: root.rem-size;
                 }
 

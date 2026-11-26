@@ -35,6 +35,7 @@ export global DetailsUi {
     in-out property <[StreamData]> streams: [];
     in-out property <int> streams-loading: 0;
     in-out property <bool> waits-for-streams: false;
+    in-out property <bool> expect-streams: false;
     in-out property <bool> rate-visible: false;
     in-out property <bool> rate-enabled: false;
     in-out property <bool> rated-liked: false;
@@ -188,6 +189,7 @@ export component DetailsScreen inherits Rectangle {
             streams: DetailsUi.streams;
             streams-loading: DetailsUi.streams-loading;
             waits-for-streams: DetailsUi.waits-for-streams;
+            expect-streams: DetailsUi.expect-streams;
             has-title: DetailsUi.has-preview;
             play-message: DetailsUi.play-message;
             has-steps: DetailsUi.has-steps;
