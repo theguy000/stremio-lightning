@@ -192,6 +192,7 @@ export component ModsPluginSettingsPage inherits Rectangle {
 
         settings-header := Text {
             x: 3.6 * root.rem-size;
+            y: 0px;
             width: parent.width - 3.6 * root.rem-size - 8px;
             height: root.header-height;
             text: root.settings-title;
@@ -231,6 +232,7 @@ export component ModsPluginSettingsPage inherits Rectangle {
             opacity: 0.7;
         }
         settings-save := SettingsButton {
+            x: 0px;
             y: root.save-y;
             rem-size: root.rem-size;
             label-text: "Save";
@@ -248,6 +250,8 @@ export component ModsPluginSettingsPage inherits Rectangle {
         offset <=> fields-flickable.content-y;
     }
     settings-back := Rectangle {
+        x: 0px;
+        y: 0px;
         width: 3 * root.rem-size;
         height: 3 * root.rem-size;
         border-radius: 0.5 * root.rem-size;

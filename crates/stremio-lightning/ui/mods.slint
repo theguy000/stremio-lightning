@@ -47,6 +47,8 @@ export component ModsContent inherits Rectangle {
     property <length> list-height: Math.max(root.height - root.list-top, 0px);
 
     mods-menu-container := Rectangle {
+        x: 0px;
+        y: 0px;
         width: root.menu-width;
         height: root.height;
         background: ClassStyles.background-or(ClassStyles.mods-menu-container, transparent);
@@ -66,6 +68,7 @@ export component ModsContent inherits Rectangle {
 
     mods-content := Rectangle {
         x: root.menu-width;
+        y: 0px;
         width: root.width - root.menu-width;
         height: root.height;
         background: ClassStyles.background-or(ClassStyles.mods-content, transparent);
@@ -142,11 +145,14 @@ export component ModsContent inherits Rectangle {
         }
 
         if root.on-catalogue: Rectangle {
+            x: 0px;
             y: root.list-top;
             width: parent.width;
             height: root.list-height;
 
             mods-list := Flickable {
+                x: 0px;
+                y: 0px;
                 width: parent.width;
                 height: parent.height;
                 content-width: self.width;

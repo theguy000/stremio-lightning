@@ -56,6 +56,8 @@ export component ModsAboutPage inherits Rectangle {
     property <length> about-enabled-height: root.about-enabled.length * about-row;
 
     about-actions := HorizontalLayout {
+        x: 0px;
+        y: 0px;
         width: parent.width;
         height: 3 * root.rem-size;
         spacing: 1.2 * root.rem-size;
@@ -88,6 +90,7 @@ export component ModsAboutPage inherits Rectangle {
     }
 
     about-body := Flickable {
+        x: 0px;
         y: about-actions.y + about-actions.height + 1.2 * root.rem-size;
         width: parent.width - 8px;
         height: Math.max(0px, parent.height - self.y);
@@ -101,6 +104,7 @@ export component ModsAboutPage inherits Rectangle {
             entry: entry;
         }
         about-places-box := VerticalLayout {
+            x: 0px;
             y: about-build-height + 1.4 * root.rem-size;
             width: parent.width;
             height: about-places-height;

@@ -105,27 +105,17 @@ export component ModsLogsPage inherits Rectangle {
                 }
                 return reject;
             }
-            if (event.text == Key.DownArrow && root.log-rows.length > 0) {
-                root.step-log(1, event.modifiers.shift);
-                return accept;
-            }
-            if (event.text == Key.UpArrow && root.log-rows.length > 0) {
-                root.step-log(-1, event.modifiers.shift);
-                return accept;
-            }
-            if ((event.modifiers.control || event.modifiers.meta) && (event.text == "c" || event.text == "C" || event.text == "\u{0003}") && root.log-selected-count > 0) {
-                root.copy-log();
-                return accept;
-            }
-            if ((event.modifiers.control || event.modifiers.meta) && (event.text == "a" || event.text == "A" || event.text == "\u{0001}") && root.log-rows.length > 0) {
-                root.select-all-logs();
-                return accept;
-            }
+            if (event.text == Key.DownArrow && root.log-rows.length > 0) { root.step-log(1, event.modifiers.shift); return accept; }
+            if (event.text == Key.UpArrow && root.log-rows.length > 0) { root.step-log(-1, event.modifiers.shift); return accept; }
+            if ((event.modifiers.control || event.modifiers.meta) && (event.text == "c" || event.text == "C" || event.text == "\u{0003}") && root.log-selected-count > 0) { root.copy-log(); return accept; }
+            if ((event.modifiers.control || event.modifiers.meta) && (event.text == "a" || event.text == "A" || event.text == "\u{0001}") && root.log-rows.length > 0) { root.select-all-logs(); return accept; }
             return reject;
         }
     }
 
     ModsLogsHeaderBar {
+        x: 0px;
+        y: 0px;
         width: parent.width;
         rem-size: root.rem-size;
         log-source-options: root.log-source-options;
@@ -147,6 +137,7 @@ export component ModsLogsPage inherits Rectangle {
     }
 
     logs-body := VerticalLayout {
+        x: 0px;
         y: root.filter-height;
         width: parent.width;
         height: Math.max(0px, parent.height - root.filter-height);
@@ -167,6 +158,8 @@ export component ModsLogsPage inherits Rectangle {
             property <length> source-width: Math.min(15 * root.rem-size, Math.max(9 * root.rem-size, self.rows-width * 0.27));
 
             ModsLogHeader {
+                x: 0px;
+                y: 0px;
                 width: parent.width;
                 rem-size: root.rem-size;
                 source-width: log-table-box.source-width;
@@ -174,6 +167,7 @@ export component ModsLogsPage inherits Rectangle {
             }
 
             log-list := Flickable {
+                x: 0px;
                 y: log-table-box.header-height;
                 width: log-table-box.rows-width;
                 height: Math.max(0px, parent.height - log-table-box.header-height);
@@ -182,6 +176,7 @@ export component ModsLogsPage inherits Rectangle {
                 interactive: false;
 
                 for row[index] in root.log-rows: ModsLogRowView {
+                    x: 0px;
                     y: index * root.row-height;
                     width: log-list.width;
                     rem-size: root.rem-size;
@@ -193,6 +188,8 @@ export component ModsLogsPage inherits Rectangle {
                 }
 
                 log-drag-area := TouchArea {
+                    x: 0px;
+                    y: 0px;
                     width: log-list.content-width;
                     height: Math.max(log-list.height, log-list.content-height);
                     property <length> row-height: root.row-height;

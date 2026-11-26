@@ -33,6 +33,8 @@ export component ModsLogsHeaderBar inherits Rectangle {
     }
 
     log-filter-row := HorizontalLayout {
+        x: 0px;
+        y: 0px;
         width: parent.width;
         height: 3 * root.rem-size;
         spacing: 0.8 * root.rem-size;
@@ -106,6 +108,7 @@ export component ModsLogsHeaderBar inherits Rectangle {
     }
 
     log-toolbar := HorizontalLayout {
+        x: 0px;
         y: 3.9 * root.rem-size;
         width: parent.width;
         height: 3 * root.rem-size;
@@ -151,6 +154,7 @@ export component ModsLogsHeaderBar inherits Rectangle {
                 }
                 log-search-input := TextInput {
                     x: 2.8 * root.rem-size;
+                    y: 0px;
                     width: Math.max(0px, parent.width - (self.text != "" ? 5.6 * root.rem-size : 3.8 * root.rem-size));
                     height: parent.height;
                     single-line: true;
@@ -163,6 +167,7 @@ export component ModsLogsHeaderBar inherits Rectangle {
                 }
                 if log-search-input.text == "": search-placeholder := Text {
                     x: log-search-input.x;
+                    y: 0px;
                     width: log-search-input.width;
                     height: parent.height;
                     text: "Search logs";

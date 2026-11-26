@@ -261,7 +261,7 @@ mod tests {
                 view.open_id,
                 view.active_index
             ),
-            (3, 3, 3, 0)
+            (3, 3, 1, 2)
         );
         assert_eq!(view.rows[2].text, "first line2");
         assert_eq!(view.detail, ["first", "line2"]);
