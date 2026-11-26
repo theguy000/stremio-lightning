@@ -150,76 +150,6 @@ impl Wiring {
         }
     }
 
-    pub(super) fn rate(&self, like: bool) {
-        let current = self.app.details().view().rating.clone();
-        details::rate(
-            self.app.runtime(),
-            details::next_rating(current.as_ref(), like),
-        );
-    }
-
-    pub(super) fn toggle_library(&self) {
-        details::toggle_library(self.app.runtime());
-    }
-
-    pub(super) fn toggle_watched(&self) {
-        details::toggle_watched(self.app.runtime());
-    }
-
-    pub(super) fn share(&self) {
-        let Ok(model) = self.app.runtime().model() else {
-            return;
-        };
-        let Some(selected) = model.meta_details.selected.as_ref() else {
-            return;
-        };
-        let Some(item) = details::meta_item(&model.meta_details) else {
-            return;
-        };
-        let link = details::share_link(
-            &item.preview.name,
-            &selected.meta_path.r#type,
-            &selected.meta_path.id,
-        );
-        drop(model);
-        if let Some(window) = self.window.upgrade() {
-            window.set_share_link(link.into());
-            window.set_share_open(true);
-        }
-    }
-
-    pub(super) fn close_share(&self) {
-        if let Some(window) = self.window.upgrade() {
-            window.set_share_open(false);
-        }
-    }
-
-    pub(super) fn copy_share(&self) {
-        let Some(window) = self.window.upgrade() else {
-            return;
-        };
-        let link = window.get_share_link().to_string();
-        let said = match clipboard::copy(&link) {
-            Ok(()) => "Link copied".to_owned(),
-            Err(error) => error,
-        };
-        self.say(&said);
-    }
-
-    pub(super) fn open_share_target(&self, network: &str) {
-        let Some(window) = self.window.upgrade() else {
-            return;
-        };
-        let link = window.get_share_link().to_string();
-        let target = match network {
-            "facebook" => format!("https://www.facebook.com/sharer/sharer.php?u={link}"),
-            "x" => format!("https://twitter.com/intent/tweet?text={link}"),
-            "reddit" => format!("https://www.reddit.com/submit?url={link}"),
-            _ => return,
-        };
-        links::open(&target);
-    }
-
     pub(super) fn back_to_episodes(&self) {
         self.app.details().set_picked(None);
         self.app.details().set_moved(None);
@@ -266,89 +196,30 @@ pub(super) fn wire(window: &MainWindow, wiring: &Wiring) {
         w.open_item(id.to_string(), kind.to_string(), title.to_string())
     });
     let ui = window.global::<DetailsUi>();
-    let c = || wiring.clone();
-    ui.on_play_stream({
-        let w = c();
-        move |index| w.play_stream(index)
-    });
-    ui.on_copy_stream_link({
-        let w = c();
-        move |link| w.copy_stream_link(link.as_str())
-    });
-    ui.on_select_season({
-        let w = c();
-        move |index| w.select_season(index)
-    });
-    ui.on_pick_video({
-        let w = c();
-        move |video_id| w.pick_video(video_id.to_string())
-    });
-    ui.on_search_videos({
-        let w = c();
-        move |query| w.search_videos(query.to_string())
-    });
-    ui.on_watch_episode({
-        let w = c();
-        move |video_id| w.watch_episode(video_id.to_string())
-    });
-    ui.on_toggle_episode_watched({
-        let w = c();
-        move |id| w.toggle_episode_watched(id.to_string())
-    });
-    ui.on_toggle_season_watched({
-        let w = c();
-        move || w.toggle_season_watched()
-    });
-    ui.on_back_to_episodes({
-        let w = c();
-        move || w.back_to_episodes()
-    });
-    ui.on_toggle_stream_wrap({
-        let w = c();
-        move || w.toggle_stream_wrap()
-    });
-    ui.on_step_season({
-        let w = c();
-        move |step| w.step(step, 0)
-    });
-    ui.on_step_episode({
-        let w = c();
-        move |step| w.step(0, step)
-    });
-    ui.on_show_streams({
-        let w = c();
-        move || w.show_streams()
-    });
-    ui.on_share({
-        let w = c();
-        move || w.share()
-    });
-    ui.on_rate_like({
-        let w = c();
-        move || w.rate(true)
-    });
-    ui.on_rate_love({
-        let w = c();
-        move || w.rate(false)
-    });
-    ui.on_toggle_library({
-        let w = c();
-        move || w.toggle_library()
-    });
-    ui.on_toggle_watched({
-        let w = c();
-        move || w.toggle_watched()
-    });
-    window.on_share_close({
-        let w = c();
-        move || w.close_share()
-    });
-    window.on_share_copy({
-        let w = c();
-        move || w.copy_share()
-    });
-    window.on_share_to({
-        let w = c();
-        move |net| w.open_share_target(net.as_str())
-    });
+    let w = wiring.clone();
+    ui.on_play_stream(move |index| w.play_stream(index));
+    let w = wiring.clone();
+    ui.on_copy_stream_link(move |link| w.copy_stream_link(link.as_str()));
+    let w = wiring.clone();
+    ui.on_select_season(move |index| w.select_season(index));
+    let w = wiring.clone();
+    ui.on_pick_video(move |video_id| w.pick_video(video_id.to_string()));
+    let w = wiring.clone();
+    ui.on_search_videos(move |query| w.search_videos(query.to_string()));
+    let w = wiring.clone();
+    ui.on_watch_episode(move |video_id| w.watch_episode(video_id.to_string()));
+    let w = wiring.clone();
+    ui.on_toggle_episode_watched(move |id| w.toggle_episode_watched(id.to_string()));
+    let w = wiring.clone();
+    ui.on_toggle_season_watched(move || w.toggle_season_watched());
+    let w = wiring.clone();
+    ui.on_back_to_episodes(move || w.back_to_episodes());
+    let w = wiring.clone();
+    ui.on_toggle_stream_wrap(move || w.toggle_stream_wrap());
+    let w = wiring.clone();
+    ui.on_step_season(move |step| w.step(step, 0));
+    let w = wiring.clone();
+    ui.on_step_episode(move |step| w.step(0, step));
+    let w = wiring.clone();
+    ui.on_show_streams(move || w.show_streams());
 }

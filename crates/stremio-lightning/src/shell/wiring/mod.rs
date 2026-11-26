@@ -13,6 +13,7 @@ mod player_skip;
 mod player_skip_panel;
 mod player_tracks;
 mod settings_auth;
+mod share;
 mod viewport;
 
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -212,6 +213,7 @@ fn wire_player(window: &MainWindow, wiring: &Wiring) {
 pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
     wire_player(window, &wiring);
     details::wire(window, &wiring);
+    share::wire(window, &wiring);
     browse::wire(window, &wiring);
     addons::wire(window, &wiring);
     settings_auth::wire(window, &wiring);
