@@ -65,7 +65,7 @@ export component DetailsScreen inherits Rectangle {
     in property <length> rem-size: 14px;
     in property <length> bar-height: 0px;
 
-    background: #0c0b11;
+    background: Theme.page-background;
 
     property <length> panel-width: 27.5 * root.rem-size;
     property <length> panel-gap: 2 * root.rem-size;
@@ -78,7 +78,7 @@ export component DetailsScreen inherits Rectangle {
         width: 100%;
         height: 100%;
         source: DetailsUi.preview.background;
-        opacity: 0.62;
+        image-opacity: 0.62;
     }
     Rectangle {
         width: 100%;
@@ -151,12 +151,12 @@ export component DetailsScreen inherits Rectangle {
             width: root.width;
             height: root.height;
             source: DetailsUi.preview.panel-backdrop;
-            opacity: 0.85;
+            image-opacity: 0.62;
         }
         Rectangle {
             width: parent.width;
             height: parent.height;
-            background: rgba(12, 11, 17, 0.52);
+            background: rgba(12, 11, 17, 0.62);
         }
 
         DetailsPanel {
