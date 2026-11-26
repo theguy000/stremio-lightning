@@ -80,10 +80,8 @@ export component VideoListItem inherits Rectangle {
     callback open-menu(length, length);
 
     height: 6.3 * root.rem-size;
-    border-width: 0.15 * root.rem-size;
-    border-color: root.episode.selected ? Theme.accent : transparent;
     border-radius: 0.75 * root.rem-size;
-    background: ClassStyles.background-or(ClassStyles.video_container, touch.has-hover ? Theme.overlay : transparent);
+    background: ClassStyles.background-or(ClassStyles.video_container, (touch.has-hover || root.episode.selected) ? Theme.overlay : transparent);
 
     HorizontalLayout {
         padding: 0.5 * root.rem-size;
