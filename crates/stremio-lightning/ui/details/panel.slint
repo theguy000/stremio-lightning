@@ -44,8 +44,7 @@ export component DetailsPanel inherits Rectangle {
     callback show-streams;
 
     background: transparent;
-    border-top-left-radius: 0.75 * root.rem-size;
-    border-bottom-left-radius: 0.75 * root.rem-size;
+    border-radius: 1.5 * root.rem-size;
 
     if root.show-picker: VideosList {
         seasons: root.seasons;
@@ -70,27 +69,27 @@ export component DetailsPanel inherits Rectangle {
         height: parent.height;
 
         HorizontalLayout {
-            y: 1 * root.rem-size;
-            height: 3 * root.rem-size;
-            padding-left: 1 * root.rem-size;
-            padding-right: 1 * root.rem-size;
+            y: 1.25 * root.rem-size;
+            height: 2.25 * root.rem-size;
+            padding-left: 1.25 * root.rem-size;
+            padding-right: 1.25 * root.rem-size;
             spacing: 0.5 * root.rem-size;
             alignment: start;
             visible: root.picked-label != "";
 
             if root.picked-label != "": Rectangle {
-                width: 3 * root.rem-size;
-                height: 3 * root.rem-size;
-                border-radius: 0.5 * root.rem-size;
+                width: 2.25 * root.rem-size;
+                height: 2.25 * root.rem-size;
+                border-radius: 1.125 * root.rem-size;
                 background: back-touch.has-hover ? Theme.overlay : transparent;
                 Image {
                     x: (parent.width - self.width) / 2;
                     y: (parent.height - self.height) / 2;
-                    width: 1.5 * root.rem-size;
-                    height: 1.5 * root.rem-size;
+                    width: 1 * root.rem-size;
+                    height: 1 * root.rem-size;
                     source: @image-url("../icons/chevron-back.svg");
                     colorize: Theme.text;
-                    opacity: back-touch.has-hover ? 0.8 : 0.6;
+                    opacity: back-touch.has-hover ? 1 : 0.85;
                 }
                 back-touch := TouchArea {
                     mouse-cursor: pointer;
@@ -98,10 +97,11 @@ export component DetailsPanel inherits Rectangle {
                 }
             }
             if root.picked-label != "": Text {
-                height: 3 * root.rem-size;
+                height: 2.25 * root.rem-size;
                 text: root.picked-label;
                 color: Theme.text;
                 font-size: root.rem-size;
+                font-weight: 600;
                 vertical-alignment: center;
                 overflow: elide;
                 horizontal-stretch: 1;
@@ -109,9 +109,9 @@ export component DetailsPanel inherits Rectangle {
         }
 
         body := Flickable {
-            x: 1 * root.rem-size;
+            x: 0.625 * root.rem-size;
             y: root.choices-bottom;
-            width: parent.width - 2 * root.rem-size;
+            width: parent.width - 1.25 * root.rem-size;
             height: parent.height - self.y;
             content-width: self.width;
 

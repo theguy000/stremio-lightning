@@ -60,62 +60,86 @@ export component DetailsScreen inherits Rectangle {
 
     background: Theme.modal-background;
 
+    property <length> panel-width: 27.5 * root.rem-size;
+    property <length> panel-gap: 2 * root.rem-size;
+    property <length> panel-x: root.width - root.panel-width - root.panel-gap;
+    property <length> panel-y: root.bar-height + 1 * root.rem-size;
+    property <length> panel-height: Math.max(0px, root.height - root.panel-y - root.panel-gap);
+    property <length> hero-gutter: 3.5 * root.rem-size;
+
     if DetailsUi.has-preview && DetailsUi.preview.has-background: CoverRightImage {
         width: 100%;
         height: 100%;
         source: DetailsUi.preview.background;
+        opacity: 0.62;
+    }
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        background: @linear-gradient(90deg, rgba(12, 11, 17, 0.94) 0%, rgba(12, 11, 17, 0.86) 22%, rgba(12, 11, 17, 0.60) 40%, rgba(12, 11, 17, 0.20) 58%, rgba(12, 11, 17, 0.0) 70%);
+    }
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        background: @linear-gradient(0deg, rgba(12, 11, 17, 0.90) 0%, rgba(12, 11, 17, 0.40) 26%, rgba(12, 11, 17, 0.0) 46%);
+    }
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        background: @linear-gradient(180deg, rgba(12, 11, 17, 0.55) 0%, rgba(12, 11, 17, 0.0) 18%);
+    }
+
+    Rectangle {
+        x: root.hero-gutter;
+        y: root.bar-height + 1.5 * root.rem-size;
+        width: Math.max(0px, Math.min(50 * root.rem-size, root.panel-x - root.hero-gutter - root.panel-gap));
+        height: Math.max(0px, root.height - self.y - 2 * root.rem-size);
+
+        MetaPreview {
+            width: parent.width;
+            height: parent.height;
+            preview: DetailsUi.preview;
+            has-preview: DetailsUi.has-preview;
+            rem-size: root.rem-size;
+            on-page: true;
+            rate-visible: DetailsUi.rate-visible;
+            rate-enabled: DetailsUi.rate-enabled;
+            rated-liked: DetailsUi.rated-liked;
+            rated-loved: DetailsUi.rated-loved;
+            share => { DetailsUi.share(); }
+            rate-like => { DetailsUi.rate-like(); }
+            rate-love => { DetailsUi.rate-love(); }
+            toggle-library => { DetailsUi.toggle-library(); }
+            toggle-watched => { DetailsUi.toggle-watched(); }
+        }
     }
 
     panel-backdrop := Rectangle {
-        x: root.width - 30 * root.rem-size;
-        y: root.bar-height;
-        width: 30 * root.rem-size;
-        height: parent.height - root.bar-height;
-        background: Theme.modal-background;
-        border-top-left-radius: 0.75 * root.rem-size;
-        border-bottom-left-radius: 0.75 * root.rem-size;
+        x: root.panel-x;
+        y: root.panel-y;
+        width: root.panel-width;
+        height: root.panel-height;
+        background: rgba(12, 11, 17, 0.62);
+        border-radius: 1.5 * root.rem-size;
         clip: true;
 
         if DetailsUi.has-preview && DetailsUi.preview.has-panel-backdrop: panel-backdrop-image := CoverRightImage {
-            x: -(root.width - 30 * root.rem-size);
-            y: -root.bar-height;
+            x: -root.panel-x;
+            y: -root.panel-y;
             width: root.width;
             height: root.height;
             source: DetailsUi.preview.panel-backdrop;
+            opacity: 0.45;
         }
-        Rectangle { background: Theme.scrim; }
-    }
-
-    HorizontalLayout {
-        y: root.bar-height;
-        height: parent.height - root.bar-height;
-
         Rectangle {
-            horizontal-stretch: 1;
-            VerticalLayout {
-                padding-left: 4 * root.rem-size;
-                padding-right: 4 * root.rem-size;
-                padding-bottom: 2 * root.rem-size;
-                MetaPreview {
-                    preview: DetailsUi.preview;
-                    has-preview: DetailsUi.has-preview;
-                    rem-size: root.rem-size;
-                    on-page: true;
-                    rate-visible: DetailsUi.rate-visible;
-                    rate-enabled: DetailsUi.rate-enabled;
-                    rated-liked: DetailsUi.rated-liked;
-                    rated-loved: DetailsUi.rated-loved;
-                    share => { DetailsUi.share(); }
-                    rate-like => { DetailsUi.rate-like(); }
-                    rate-love => { DetailsUi.rate-love(); }
-                    toggle-library => { DetailsUi.toggle-library(); }
-                    toggle-watched => { DetailsUi.toggle-watched(); }
-                }
-            }
+            width: parent.width;
+            height: parent.height;
+            background: rgba(12, 11, 17, 0.62);
         }
 
         DetailsPanel {
-            width: 30 * root.rem-size;
+            width: parent.width;
+            height: parent.height;
             rem-size: root.rem-size;
             seasons: DetailsUi.seasons;
             season-index: DetailsUi.season-index;
