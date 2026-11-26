@@ -33,15 +33,18 @@ export component DetailsHero inherits VerticalLayout {
     property <length> logo-h: 9 * root.rem-size;
 
     if root.has-preview && root.preview.has-logo: HorizontalLayout {
+        vertical-stretch: 0;
         alignment: start;
         Image {
-            height: root.logo-h;
-            width: Math.min(parent.width, self.source.height > 0 ? root.logo-h * (self.source.width / self.source.height) : 16 * root.rem-size);
+            property <float> ratio: self.source.height > 0 ? (self.source.width * 1.0) / (self.source.height * 1.0) : 2.0;
+            height: Math.min(root.logo-h, 30 * root.rem-size / Math.max(0.5, self.ratio));
+            width: Math.min(parent.width, self.height * self.ratio);
             source: root.preview.logo;
             image-fit: contain;
         }
     }
     if root.has-preview && !root.preview.has-logo && root.preview.title != "": Text {
+        vertical-stretch: 0;
         text: root.preview.title;
         font-size: 2.75 * root.rem-size;
         font-weight: 600;
@@ -55,6 +58,7 @@ export component DetailsHero inherits VerticalLayout {
     }
 
     if root.has-preview && !root.has-picked-episode: VerticalLayout {
+        vertical-stretch: 0;
         spacing: 0px;
         alignment: start;
 
@@ -64,14 +68,14 @@ export component DetailsHero inherits VerticalLayout {
             if root.preview.release-info != "": Text {
                 text: root.preview.release-info;
                 font-size: 1 * root.rem-size;
-                font-weight: 500;
+                font-weight: 600;
                 color: Theme.text;
                 vertical-alignment: center;
             }
             if root.preview.runtime != "": Text {
                 text: root.preview.runtime;
                 font-size: 1 * root.rem-size;
-                font-weight: 500;
+                font-weight: 600;
                 color: Theme.text;
                 vertical-alignment: center;
             }
@@ -81,7 +85,7 @@ export component DetailsHero inherits VerticalLayout {
                 Text {
                     text: root.preview.rating;
                     font-size: 1 * root.rem-size;
-                    font-weight: 500;
+                    font-weight: 600;
                     color: Theme.text;
                     vertical-alignment: center;
                 }
@@ -154,6 +158,7 @@ export component DetailsHero inherits VerticalLayout {
     }
 
     if root.has-preview && root.has-picked-episode: VerticalLayout {
+        vertical-stretch: 0;
         spacing: 0px;
         alignment: start;
 
@@ -207,10 +212,12 @@ export component DetailsHero inherits VerticalLayout {
     }
 
     if root.has-preview: Rectangle {
+        vertical-stretch: 0;
         height: 2.5 * root.rem-size;
     }
 
     if root.has-preview: DetailsHeroActions {
+        vertical-stretch: 0;
         preview: root.preview;
         rem-size: root.rem-size;
         rate-visible: root.rate-visible;

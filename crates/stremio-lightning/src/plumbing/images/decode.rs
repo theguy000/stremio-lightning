@@ -80,6 +80,8 @@ pub(crate) fn decode_bytes(bytes: &[u8], key: &str) -> Option<DecodedImage> {
         .to_rgba8();
     let image = if is_plain_poster(key) {
         prepare_portrait_poster(image)
+    } else if key.ends_with(LOGO_SUFFIX) {
+        trim_transparent(image)
     } else {
         image
     };
@@ -125,6 +127,26 @@ pub(crate) fn prepare_variant(source_img: &DecodedImage, key: &str) -> DecodedIm
         None => image,
     };
     DecodedImage::new(image)
+}
+
+/// Crops transparent margins around `#logo` artwork (Web: `Logo.tsx` `.inked` bounds).
+fn trim_transparent(image: image::RgbaImage) -> image::RgbaImage {
+    let (w, h) = image.dimensions();
+    let (mut min_x, mut min_y, mut max_x, mut max_y) = (w, h, 0u32, 0u32);
+    for (x, y, p) in image.enumerate_pixels() {
+        if p[3] > 8 {
+            min_x = min_x.min(x);
+            min_y = min_y.min(y);
+            max_x = max_x.max(x);
+            max_y = max_y.max(y);
+        }
+    }
+    if min_x <= max_x && min_y <= max_y {
+        image::imageops::crop_imm(&image, min_x, min_y, max_x - min_x + 1, max_y - min_y + 1)
+            .to_image()
+    } else {
+        image
+    }
 }
 
 /// Cover-crops a portrait poster to `POSTER_ASPECT` and modulates only the alpha channel in the
