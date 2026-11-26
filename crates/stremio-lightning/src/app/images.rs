@@ -82,6 +82,14 @@ fn details_images(snapshot: &Snapshot) -> impl Iterator<Item = String> + '_ {
         .chain(
             snapshot
                 .details
+                .picked_episode
+                .as_ref()
+                .filter(move |_| preview.is_some())
+                .and_then(|episode| episode.thumbnail.clone()),
+        )
+        .chain(
+            snapshot
+                .details
                 .episodes
                 .iter()
                 .filter(move |_| preview.is_some())
