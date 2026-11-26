@@ -6,6 +6,8 @@ component PillDual inherits Rectangle {
     in property <length> rem-size;
     in property <image> left-icon;
     in property <image> right-icon;
+    in property <bool> left-active: false;
+    in property <bool> right-active: false;
     in property <bool> enabled: true;
     callback left-clicked;
     callback right-clicked;
@@ -32,6 +34,14 @@ component PillDual inherits Rectangle {
                 colorize: Theme.text;
                 opacity: 0.9;
             }
+            if root.left-active: Rectangle {
+                x: parent.width / 2 + 0.15 * root.rem-size;
+                y: parent.height / 2 + 0.05 * root.rem-size;
+                width: 0.8 * root.rem-size;
+                height: 0.8 * root.rem-size;
+                border-radius: 0.4 * root.rem-size;
+                background: #f5c518;
+            }
             left-touch := TouchArea {
                 enabled: root.enabled;
                 mouse-cursor: pointer;
@@ -55,6 +65,14 @@ component PillDual inherits Rectangle {
                 source: root.right-icon;
                 colorize: Theme.text;
                 opacity: 0.9;
+            }
+            if root.right-active: Rectangle {
+                x: parent.width / 2 + 0.15 * root.rem-size;
+                y: parent.height / 2 + 0.05 * root.rem-size;
+                width: 0.8 * root.rem-size;
+                height: 0.8 * root.rem-size;
+                border-radius: 0.4 * root.rem-size;
+                background: #f5c518;
             }
             right-touch := TouchArea {
                 enabled: root.enabled;
@@ -153,6 +171,8 @@ export component DetailsHeroActions inherits HorizontalLayout {
         rem-size: root.rem-size;
         left-icon: root.preview.in-library ? @image-url("../icons/remove-from-library.svg") : @image-url("../icons/add-to-library.svg");
         right-icon: root.preview.watched ? @image-url("../icons/eye-off.svg") : @image-url("../icons/eye.svg");
+        left-active: root.preview.in-library;
+        right-active: root.preview.watched;
         left-clicked => { root.toggle-library(); }
         right-clicked => { root.toggle-watched(); }
     }
