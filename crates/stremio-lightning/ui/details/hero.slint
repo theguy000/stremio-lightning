@@ -63,19 +63,19 @@ export component DetailsHero inherits VerticalLayout {
         alignment: start;
 
         HorizontalLayout {
-            spacing: 2.5 * root.rem-size;
+            spacing: 2.75 * root.rem-size;
             alignment: start;
             if root.preview.release-info != "": Text {
                 text: root.preview.release-info;
                 font-size: 1 * root.rem-size;
-                font-weight: 600;
+                font-weight: 700;
                 color: Theme.text;
                 vertical-alignment: center;
             }
             if root.preview.runtime != "": Text {
                 text: root.preview.runtime;
                 font-size: 1 * root.rem-size;
-                font-weight: 600;
+                font-weight: 700;
                 color: Theme.text;
                 vertical-alignment: center;
             }
@@ -85,7 +85,7 @@ export component DetailsHero inherits VerticalLayout {
                 Text {
                     text: root.preview.rating;
                     font-size: 1 * root.rem-size;
-                    font-weight: 600;
+                    font-weight: 700;
                     color: Theme.text;
                     vertical-alignment: center;
                 }
@@ -109,16 +109,17 @@ export component DetailsHero inherits VerticalLayout {
             }
         }
 
-        if root.preview.description != "": Rectangle { height: 1.5 * root.rem-size; }
+        if root.preview.description != "": Rectangle { height: 1.75 * root.rem-size; }
         if root.preview.description != "": Text {
             width: Math.min(parent.width, 37.5 * root.rem-size);
             text: root.preview.description;
             font-size: 0.9375 * root.rem-size;
+            font-weight: 500;
             color: rgba(255, 255, 255, 0.64);
             wrap: word-wrap;
         }
 
-        if root.preview.groups.length > 0: Rectangle { height: 1.75 * root.rem-size; }
+        if root.preview.groups.length > 0: Rectangle { height: 2 * root.rem-size; }
         VerticalLayout {
             spacing: 1.125 * root.rem-size;
             alignment: start;
@@ -126,11 +127,11 @@ export component DetailsHero inherits VerticalLayout {
                 spacing: 1.25 * root.rem-size;
                 alignment: start;
                 Text {
-                    width: 3.5 * root.rem-size;
+                    width: 3.75 * root.rem-size;
                     text: group.label;
                     font-size: 0.8125 * root.rem-size;
                     font-weight: 700;
-                    color: rgba(255, 255, 255, 0.46);
+                    color: rgba(255, 255, 255, 0.52);
                     vertical-alignment: center;
                 }
                 HorizontalLayout {
@@ -146,7 +147,7 @@ export component DetailsHero inherits VerticalLayout {
                             height: parent.height;
                             text: item;
                             font-size: 0.875 * root.rem-size;
-                            font-weight: 500;
+                            font-weight: 600;
                             color: Theme.text;
                             horizontal-alignment: center;
                             vertical-alignment: center;
