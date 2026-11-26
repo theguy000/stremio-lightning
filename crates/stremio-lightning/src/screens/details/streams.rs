@@ -99,15 +99,13 @@ pub(super) fn resume_summary(
     }
     let minutes_left = ((duration - offset) / 60_000).max(1);
     let sublabel = format!("{minutes_left} min left");
-    let label = if picked.is_some() {
-        "Resume".to_owned()
-    } else if let Some(v) = videos.iter().find(|v| v.id == vid_id) {
-        match v.series_info.as_ref() {
-            Some(info) => format!("Resume S{} E{}", info.season, info.episode),
-            None => "Resume".to_owned(),
-        }
-    } else {
-        "Resume".to_owned()
+    let label = match videos
+        .iter()
+        .find(|v| v.id == vid_id)
+        .and_then(|v| v.series_info.as_ref())
+    {
+        Some(info) => format!("Resume S{} E{}", info.season, info.episode),
+        None => "Resume".to_owned(),
     };
     (label, sublabel, Some(vid_id.to_owned()))
 }
