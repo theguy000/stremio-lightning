@@ -25,8 +25,8 @@ export component StreamRow inherits Rectangle {
     animate background { duration: 150ms; }
 
     row-body := HorizontalLayout {
-        padding-top: 1 * root.rem-size;
-        padding-bottom: 1 * root.rem-size;
+        padding-top: 1.15 * root.rem-size;
+        padding-bottom: 1.15 * root.rem-size;
         padding-left: 1.125 * root.rem-size;
         padding-right: 0.875 * root.rem-size;
         spacing: 1.125 * root.rem-size;
@@ -34,14 +34,14 @@ export component StreamRow inherits Rectangle {
         VerticalLayout {
             horizontal-stretch: 1;
             alignment: center;
-            spacing: 0.25 * root.rem-size;
+            spacing: 0.45 * root.rem-size;
             HorizontalLayout {
                 spacing: 0.625 * root.rem-size;
                 alignment: start;
                 Text {
                     text: root.source.name;
-                    font-size: 0.9375 * root.rem-size;
-                    font-weight: 600;
+                    font-size: 0.95 * root.rem-size;
+                    font-weight: 700;
                     color: Theme.text;
                     wrap: word-wrap;
                     vertical-alignment: center;
@@ -66,7 +66,9 @@ export component StreamRow inherits Rectangle {
             }
             if root.source.description != "": Text {
                 text: root.source.description;
-                font-size: 0.8125 * root.rem-size;
+                font-family: "Plus Jakarta Sans Medium";
+                font-size: 0.825 * root.rem-size;
+                font-weight: 500;
                 color: rgba(255, 255, 255, 0.64);
                 wrap: word-wrap;
             }

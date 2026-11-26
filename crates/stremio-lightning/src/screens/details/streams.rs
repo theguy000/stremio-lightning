@@ -109,3 +109,20 @@ pub(super) fn resume_summary(
     };
     (label, sublabel, Some(vid_id.to_owned()))
 }
+
+pub(super) fn episode_header(videos: &[Video], picked: &str) -> Option<String> {
+    let video = videos.iter().find(|v| v.id == picked)?;
+    let title = video.title.trim();
+    let code = video.series_info.as_ref().map(|info| {
+        if info.season == 0 {
+            format!("SPECIAL {}", info.episode)
+        } else {
+            format!("S{} E{}", info.season, info.episode)
+        }
+    });
+    Some(match (code, title.is_empty()) {
+        (Some(c), false) => format!("{c} · {title}"),
+        (Some(c), true) => c,
+        (None, _) => title.to_owned(),
+    })
+}

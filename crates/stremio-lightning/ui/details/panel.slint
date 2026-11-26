@@ -29,7 +29,7 @@ export component DetailsPanel inherits Rectangle {
     in property <int> episode-number: 0;
     in property <bool> can-show-streams: false;
     in property <bool> wrap-streams: false;
-    property <length> choices-bottom: root.picked-label == "" ? 1.25 * root.rem-size : 3.75 * root.rem-size;
+    property <length> choices-bottom: root.picked-label == "" ? 1.25 * root.rem-size : 4.5 * root.rem-size;
 
     callback select-season(int);
     callback pick-video(string);
@@ -101,8 +101,8 @@ export component DetailsPanel inherits Rectangle {
                 height: 2.25 * root.rem-size;
                 text: root.picked-label;
                 color: Theme.text;
-                font-size: root.rem-size;
-                font-weight: 600;
+                font-size: 1.05 * root.rem-size;
+                font-weight: 700;
                 vertical-alignment: center;
                 overflow: elide;
                 horizontal-stretch: 1;
@@ -146,16 +146,16 @@ export component DetailsPanel inherits Rectangle {
 
                 if root.streams.length > 0: VerticalLayout {
                     alignment: start;
-                    padding-top: 0.5 * root.rem-size;
+                    padding-top: 0.25 * root.rem-size;
                     padding-bottom: 2.5 * root.rem-size;
-                    spacing: 0.25 * root.rem-size;
+                    spacing: 0.6 * root.rem-size;
                     for stream[index] in root.streams: VerticalLayout {
-                        spacing: 0.25 * root.rem-size;
+                        spacing: 0.5 * root.rem-size;
                         if stream.addon != "" && (index == 0 || root.streams[index - 1].addon != stream.addon): HorizontalLayout {
                             padding-left: 1.125 * root.rem-size;
                             padding-right: 1.125 * root.rem-size;
-                            padding-top: index == 0 ? 0.5 * root.rem-size : 1.125 * root.rem-size;
-                            padding-bottom: 0.25 * root.rem-size;
+                            padding-top: index == 0 ? 0.25 * root.rem-size : 1.25 * root.rem-size;
+                            padding-bottom: 0.35 * root.rem-size;
                             Text {
                                 text: stream.addon;
                                 font-size: 0.8125 * root.rem-size;
@@ -196,13 +196,7 @@ export component DetailsPanel inherits Rectangle {
             }
         }
 
-        Rectangle {
-            x: 0;
-            y: body.y;
-            width: parent.width;
-            height: 0.75 * root.rem-size;
-            background: @linear-gradient(180deg, rgba(12, 11, 17, 0.65) 0%, rgba(12, 11, 17, 0.0) 100%);
-        }
+
 
         ScrollBar {
             x: parent.width - self.width;

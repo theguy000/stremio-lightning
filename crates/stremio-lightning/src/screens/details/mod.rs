@@ -19,7 +19,7 @@ use stremio_core::types::rating::Rating;
 use stremio_core::types::resource::{MetaItem, Video};
 
 use crate::screens::videos::{
-    default_season, episodes_for_season, picked_label, season_all_watched, seasons,
+    default_season, episodes_for_season, season_all_watched, seasons,
 };
 use crate::screens::Preview;
 use crate::AppModel;
@@ -230,7 +230,7 @@ pub fn data(
         rating_known: details.rating_info.is_some(),
         rating_ready: matches!(&details.rating_info, Some(Loadable::Ready(_))),
         show_picker: shows_picker(picked, &listed),
-        picked_label: picked.and_then(|p| picked_label(videos, p)),
+        picked_label: picked.and_then(|p| streams::episode_header(videos, p)),
         picked_episode: picked.and_then(|id| {
             videos.iter().find(|v| v.id == id).map(|v| PickedEpisode {
                 title: if v.title.is_empty() { v.id.clone() } else { v.title.clone() },
