@@ -65,7 +65,12 @@ pub(super) fn source_rows(
                 let last_used = last_stream.is_some_and(|last| last.source == stream.source);
                 Source {
                     name,
-                    description: stream.description.clone().unwrap_or_default().trim().to_owned(),
+                    description: stream
+                        .description
+                        .clone()
+                        .unwrap_or_default()
+                        .trim()
+                        .to_owned(),
                     addon: addon.to_uppercase(),
                     link,
                     is_magnet,

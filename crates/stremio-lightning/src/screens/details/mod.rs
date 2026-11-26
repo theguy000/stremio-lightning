@@ -18,9 +18,7 @@ use stremio_core::types::addon::ResourcePath;
 use stremio_core::types::rating::Rating;
 use stremio_core::types::resource::{MetaItem, Video};
 
-use crate::screens::videos::{
-    default_season, episodes_for_season, season_all_watched, seasons,
-};
+use crate::screens::videos::{default_season, episodes_for_season, season_all_watched, seasons};
 use crate::screens::Preview;
 use crate::AppModel;
 
@@ -233,9 +231,16 @@ pub fn data(
         picked_label: picked.and_then(|p| streams::episode_header(videos, p)),
         picked_episode: picked.and_then(|id| {
             videos.iter().find(|v| v.id == id).map(|v| PickedEpisode {
-                title: if v.title.is_empty() { v.id.clone() } else { v.title.clone() },
+                title: if v.title.is_empty() {
+                    v.id.clone()
+                } else {
+                    v.title.clone()
+                },
                 overview: v.overview.clone().unwrap_or_default(),
-                released: v.released.map(|d| d.format("%b %d, %Y").to_string()).unwrap_or_default(),
+                released: v
+                    .released
+                    .map(|d| d.format("%b %d, %Y").to_string())
+                    .unwrap_or_default(),
                 thumbnail: v.thumbnail.as_ref().map(crate::plumbing::images::page_key),
             })
         }),
@@ -251,8 +256,6 @@ pub fn data(
         season_watched,
     }
 }
-
-
 
 #[cfg(test)]
 mod tests;

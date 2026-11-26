@@ -33,7 +33,9 @@ impl Wiring {
         self.app.details().reset_inputs();
         self.app.details().set_picked(resume_vid.clone());
         self.app.viewport().set_active_screen(ActiveScreen::Details);
-        if let Some(w) = self.window.upgrade() { Self::clear_details_ui(&w, expect_streams); }
+        if let Some(w) = self.window.upgrade() {
+            Self::clear_details_ui(&w, expect_streams);
+        }
         details::open(self.app.runtime(), &id, &kind, resume_vid.as_deref());
     }
 
@@ -265,25 +267,88 @@ pub(super) fn wire(window: &MainWindow, wiring: &Wiring) {
     });
     let ui = window.global::<DetailsUi>();
     let c = || wiring.clone();
-    ui.on_play_stream({ let w = c(); move |index| w.play_stream(index) });
-    ui.on_copy_stream_link({ let w = c(); move |link| w.copy_stream_link(link.as_str()) });
-    ui.on_select_season({ let w = c(); move |index| w.select_season(index) });
-    ui.on_pick_video({ let w = c(); move |video_id| w.pick_video(video_id.to_string()) });
-    ui.on_search_videos({ let w = c(); move |query| w.search_videos(query.to_string()) });
-    ui.on_watch_episode({ let w = c(); move |video_id| w.watch_episode(video_id.to_string()) });
-    ui.on_toggle_episode_watched({ let w = c(); move |id| w.toggle_episode_watched(id.to_string()) });
-    ui.on_toggle_season_watched({ let w = c(); move || w.toggle_season_watched() });
-    ui.on_back_to_episodes({ let w = c(); move || w.back_to_episodes() });
-    ui.on_toggle_stream_wrap({ let w = c(); move || w.toggle_stream_wrap() });
-    ui.on_step_season({ let w = c(); move |step| w.step(step, 0) });
-    ui.on_step_episode({ let w = c(); move |step| w.step(0, step) });
-    ui.on_show_streams({ let w = c(); move || w.show_streams() });
-    ui.on_share({ let w = c(); move || w.share() });
-    ui.on_rate_like({ let w = c(); move || w.rate(true) });
-    ui.on_rate_love({ let w = c(); move || w.rate(false) });
-    ui.on_toggle_library({ let w = c(); move || w.toggle_library() });
-    ui.on_toggle_watched({ let w = c(); move || w.toggle_watched() });
-    window.on_share_close({ let w = c(); move || w.close_share() });
-    window.on_share_copy({ let w = c(); move || w.copy_share() });
-    window.on_share_to({ let w = c(); move |net| w.open_share_target(net.as_str()) });
+    ui.on_play_stream({
+        let w = c();
+        move |index| w.play_stream(index)
+    });
+    ui.on_copy_stream_link({
+        let w = c();
+        move |link| w.copy_stream_link(link.as_str())
+    });
+    ui.on_select_season({
+        let w = c();
+        move |index| w.select_season(index)
+    });
+    ui.on_pick_video({
+        let w = c();
+        move |video_id| w.pick_video(video_id.to_string())
+    });
+    ui.on_search_videos({
+        let w = c();
+        move |query| w.search_videos(query.to_string())
+    });
+    ui.on_watch_episode({
+        let w = c();
+        move |video_id| w.watch_episode(video_id.to_string())
+    });
+    ui.on_toggle_episode_watched({
+        let w = c();
+        move |id| w.toggle_episode_watched(id.to_string())
+    });
+    ui.on_toggle_season_watched({
+        let w = c();
+        move || w.toggle_season_watched()
+    });
+    ui.on_back_to_episodes({
+        let w = c();
+        move || w.back_to_episodes()
+    });
+    ui.on_toggle_stream_wrap({
+        let w = c();
+        move || w.toggle_stream_wrap()
+    });
+    ui.on_step_season({
+        let w = c();
+        move |step| w.step(step, 0)
+    });
+    ui.on_step_episode({
+        let w = c();
+        move |step| w.step(0, step)
+    });
+    ui.on_show_streams({
+        let w = c();
+        move || w.show_streams()
+    });
+    ui.on_share({
+        let w = c();
+        move || w.share()
+    });
+    ui.on_rate_like({
+        let w = c();
+        move || w.rate(true)
+    });
+    ui.on_rate_love({
+        let w = c();
+        move || w.rate(false)
+    });
+    ui.on_toggle_library({
+        let w = c();
+        move || w.toggle_library()
+    });
+    ui.on_toggle_watched({
+        let w = c();
+        move || w.toggle_watched()
+    });
+    window.on_share_close({
+        let w = c();
+        move || w.close_share()
+    });
+    window.on_share_copy({
+        let w = c();
+        move || w.copy_share()
+    });
+    window.on_share_to({
+        let w = c();
+        move |net| w.open_share_target(net.as_str())
+    });
 }
