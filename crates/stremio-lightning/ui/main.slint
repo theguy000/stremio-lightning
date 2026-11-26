@@ -60,8 +60,10 @@ export {
 export component MainWindow inherits Window {
     title: "Stremio Lightning";
     default-font-family: Theme.font-family;
-    preferred-width: 1100px;
-    preferred-height: 720px;
+    min-width: 1000px;
+    min-height: 650px;
+    preferred-width: 1536px;
+    preferred-height: 864px;
     // The player draws mpv's frames under this window's items, so while playing the
     // window background must stay transparent.
     background: root.playing ? transparent : Theme.page-background;

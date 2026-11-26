@@ -42,9 +42,10 @@ export component VideosList inherits Rectangle {
         spacing: 0.5 * root.rem-size;
 
         HorizontalLayout {
-            padding: 1 * root.rem-size;
+            padding: 0px;
+            padding-bottom: 0.25 * root.rem-size;
             spacing: 0.5 * root.rem-size;
-            alignment: space-between;
+            alignment: stretch;
 
             SeasonButton {
                 label: "Prev";

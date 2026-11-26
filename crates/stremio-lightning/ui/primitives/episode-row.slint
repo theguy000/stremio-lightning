@@ -23,10 +23,10 @@ export component SeasonButton inherits Rectangle {
     in property <length> rem-size;
     callback clicked;
 
-    width: 2.5 * root.rem-size;
-    height: 2.5 * root.rem-size;
-    border-radius: 1.25 * root.rem-size;
-    background: touch.has-hover && !root.disabled ? rgba(255, 255, 255, 0.14) : rgba(255, 255, 255, 0.08);
+    width: 2.75 * root.rem-size;
+    height: 2.75 * root.rem-size;
+    border-radius: 1.375 * root.rem-size;
+    background: touch.has-hover && !root.disabled ? rgba(255, 255, 255, 0.12) : rgba(255, 255, 255, 0.06);
 
     Image {
         x: (parent.width - self.width) / 2;
@@ -103,21 +103,26 @@ export component VideoListItem inherits Rectangle {
                 opacity: root.episode.watched ? 0.55 : 0.95;
             }
             if root.episode.watched: Rectangle {
-                x: parent.width - self.width - 0.35 * root.rem-size;
-                y: 0.35 * root.rem-size;
-                width: 1.35 * root.rem-size;
-                height: 1.35 * root.rem-size;
-                border-radius: 0.675 * root.rem-size;
+                x: parent.width - self.width - 0.4 * root.rem-size;
+                y: 0.4 * root.rem-size;
+                width: 1.4 * root.rem-size;
+                height: 1.4 * root.rem-size;
+                border-radius: 0.7 * root.rem-size;
                 background: #f5c518;
-                Text {
-                    width: parent.width;
-                    height: parent.height;
-                    text: "✓";
-                    font-size: 0.85 * root.rem-size;
-                    font-weight: 800;
-                    color: #000000;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
+                Path {
+                    width: 0.8 * root.rem-size;
+                    height: 0.8 * root.rem-size;
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    viewbox-width: 16;
+                    viewbox-height: 16;
+                    stroke: #141414;
+                    stroke-width: 2.2px;
+                    stroke-line-cap: round;
+                    stroke-line-join: round;
+                    MoveTo { x: 3; y: 8.5; }
+                    LineTo { x: 6.5; y: 12; }
+                    LineTo { x: 13; y: 4.5; }
                 }
             }
             if root.episode.progress > 0: EpisodeProgress {

@@ -30,11 +30,12 @@ export component DetailsHero inherits VerticalLayout {
     spacing: 1.25 * root.rem-size;
 
     if root.has-preview && root.preview.has-logo: Image {
-        width: Math.min(parent.width, 16 * root.rem-size);
-        height: 8.5 * root.rem-size;
+        width: Math.min(parent.width, 20 * root.rem-size);
+        height: 10.5 * root.rem-size;
         source: root.preview.logo;
         image-fit: contain;
         horizontal-alignment: left;
+        vertical-alignment: top;
     }
     if root.has-preview && !root.preview.has-logo && root.preview.title != "": Text {
         text: root.preview.title;
