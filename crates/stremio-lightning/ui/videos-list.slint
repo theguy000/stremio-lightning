@@ -54,7 +54,7 @@ export component VideosList inherits Rectangle {
                 clicked => { root.select-season(Math.max(root.season-index - 1, 0)); }
             }
             MultiselectMenu {
-                width: 10 * root.rem-size;
+                horizontal-stretch: 1;
                 title: root.season-title;
                 options: root.seasons;
                 selected-index: root.season-index;

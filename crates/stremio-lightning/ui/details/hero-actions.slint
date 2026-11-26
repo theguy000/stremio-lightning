@@ -1,0 +1,188 @@
+// Stremio Web Details pill action bar: Primary Play, Trailer, Library/Watched, Like/Love, Share.
+import { PreviewData } from "../meta-preview.slint";
+import { Theme } from "../theme.slint";
+
+component PillDual inherits Rectangle {
+    in property <length> rem-size;
+    in property <image> left-icon;
+    in property <image> right-icon;
+    in property <bool> enabled: true;
+    callback left-clicked;
+    callback right-clicked;
+
+    width: 6.75 * root.rem-size;
+    height: 3.5 * root.rem-size;
+    border-radius: 1.75 * root.rem-size;
+    background: rgba(255, 255, 255, 0.08);
+    opacity: root.enabled ? 1 : 0.45;
+    clip: true;
+
+    HorizontalLayout {
+        width: parent.width;
+        height: parent.height;
+        Rectangle {
+            horizontal-stretch: 1;
+            background: left-touch.has-hover && root.enabled ? rgba(255, 255, 255, 0.1) : transparent;
+            Image {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                width: 1.375 * root.rem-size;
+                height: 1.375 * root.rem-size;
+                source: root.left-icon;
+                colorize: Theme.text;
+                opacity: 0.9;
+            }
+            left-touch := TouchArea {
+                enabled: root.enabled;
+                mouse-cursor: pointer;
+                clicked => { root.left-clicked(); }
+            }
+        }
+        Rectangle {
+            width: 1px;
+            height: 1.5 * root.rem-size;
+            y: (parent.height - self.height) / 2;
+            background: rgba(255, 255, 255, 0.12);
+        }
+        Rectangle {
+            horizontal-stretch: 1;
+            background: right-touch.has-hover && root.enabled ? rgba(255, 255, 255, 0.1) : transparent;
+            Image {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                width: 1.375 * root.rem-size;
+                height: 1.375 * root.rem-size;
+                source: root.right-icon;
+                colorize: Theme.text;
+                opacity: 0.9;
+            }
+            right-touch := TouchArea {
+                enabled: root.enabled;
+                mouse-cursor: pointer;
+                clicked => { root.right-clicked(); }
+            }
+        }
+    }
+}
+
+export component DetailsHeroActions inherits HorizontalLayout {
+    in property <PreviewData> preview;
+    in property <length> rem-size;
+    in property <bool> rate-visible;
+    in property <bool> rate-enabled;
+    in property <bool> rated-liked;
+    in property <bool> rated-loved;
+    in property <bool> can-play: false;
+
+    callback play-primary;
+    callback share;
+    callback rate-like;
+    callback rate-love;
+    callback toggle-library;
+    callback toggle-watched;
+
+    height: 3.5 * root.rem-size;
+    spacing: 0.875 * root.rem-size;
+    alignment: start;
+
+    if root.can-play: Rectangle {
+        width: play-row.preferred-width + 3.5 * root.rem-size;
+        height: 3.5 * root.rem-size;
+        border-radius: 1.75 * root.rem-size;
+        background: play-touch.has-hover ? #2ee59d : Theme.accent-green;
+        play-row := HorizontalLayout {
+            padding-left: 1.75 * root.rem-size;
+            padding-right: 1.75 * root.rem-size;
+            spacing: 0.65 * root.rem-size;
+            alignment: center;
+            VerticalLayout {
+                alignment: center;
+                Image {
+                    width: 1.25 * root.rem-size;
+                    height: 1.25 * root.rem-size;
+                    source: @image-url("../icons/play.svg");
+                    colorize: Theme.text;
+                }
+            }
+            Text {
+                text: "Watch";
+                font-size: 0.95 * root.rem-size;
+                font-weight: 700;
+                color: Theme.text;
+                vertical-alignment: center;
+            }
+        }
+        play-touch := TouchArea {
+            mouse-cursor: pointer;
+            clicked => { root.play-primary(); }
+        }
+    }
+
+    if root.preview.has-trailer: Rectangle {
+        width: trailer-row.preferred-width + 3.5 * root.rem-size;
+        height: 3.5 * root.rem-size;
+        border-radius: 1.75 * root.rem-size;
+        background: trailer-touch.has-hover ? rgba(255, 255, 255, 0.14) : rgba(255, 255, 255, 0.08);
+        trailer-row := HorizontalLayout {
+            padding-left: 1.75 * root.rem-size;
+            padding-right: 1.75 * root.rem-size;
+            spacing: 0.75 * root.rem-size;
+            alignment: center;
+            VerticalLayout {
+                alignment: center;
+                Image {
+                    width: 1.375 * root.rem-size;
+                    height: 1.375 * root.rem-size;
+                    source: @image-url("../icons/trailer.svg");
+                    colorize: Theme.text;
+                    opacity: 0.9;
+                }
+            }
+            Text {
+                text: "Trailer";
+                font-size: 0.9375 * root.rem-size;
+                font-weight: 600;
+                color: Theme.text;
+                vertical-alignment: center;
+            }
+        }
+        trailer-touch := TouchArea { mouse-cursor: pointer; }
+    }
+
+    PillDual {
+        rem-size: root.rem-size;
+        left-icon: root.preview.in-library ? @image-url("../icons/remove-from-library.svg") : @image-url("../icons/add-to-library.svg");
+        right-icon: root.preview.watched ? @image-url("../icons/eye-off.svg") : @image-url("../icons/eye.svg");
+        left-clicked => { root.toggle-library(); }
+        right-clicked => { root.toggle-watched(); }
+    }
+
+    if root.rate-visible: PillDual {
+        rem-size: root.rem-size;
+        enabled: root.rate-enabled;
+        left-icon: root.rated-liked ? @image-url("../icons/thumbs-up.svg") : @image-url("../icons/thumbs-up-outline.svg");
+        right-icon: root.rated-loved ? @image-url("../icons/heart.svg") : @image-url("../icons/heart-outline.svg");
+        left-clicked => { root.rate-like(); }
+        right-clicked => { root.rate-love(); }
+    }
+
+    Rectangle {
+        width: 3.5 * root.rem-size;
+        height: 3.5 * root.rem-size;
+        border-radius: 1.75 * root.rem-size;
+        background: share-touch.has-hover ? rgba(255, 255, 255, 0.14) : rgba(255, 255, 255, 0.08);
+        Image {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: 1.375 * root.rem-size;
+            height: 1.375 * root.rem-size;
+            source: @image-url("../icons/share.svg");
+            colorize: Theme.text;
+            opacity: 0.9;
+        }
+        share-touch := TouchArea {
+            mouse-cursor: pointer;
+            clicked => { root.share(); }
+        }
+    }
+}

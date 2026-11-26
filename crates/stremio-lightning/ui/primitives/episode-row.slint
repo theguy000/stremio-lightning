@@ -23,38 +23,19 @@ export component SeasonButton inherits Rectangle {
     in property <length> rem-size;
     callback clicked;
 
-    width: 6.5 * root.rem-size;
-    height: 3 * root.rem-size;
-    border-radius: 3 * root.rem-size;
-    background: touch.has-hover && !root.disabled ? Theme.overlay : transparent;
+    width: 2.5 * root.rem-size;
+    height: 2.5 * root.rem-size;
+    border-radius: 1.25 * root.rem-size;
+    background: touch.has-hover && !root.disabled ? rgba(255, 255, 255, 0.14) : rgba(255, 255, 255, 0.08);
 
-    HorizontalLayout {
-        padding-left: 1 * root.rem-size;
-        padding-right: 1 * root.rem-size;
-        spacing: 0.5 * root.rem-size;
-        alignment: center;
-
-        VerticalLayout {
-            alignment: center;
-            Image {
-                width: 1.5 * root.rem-size;
-                height: 1.5 * root.rem-size;
-                source: root.glyph;
-                colorize: Theme.text;
-                opacity: root.disabled ? 0.3 : 1;
-            }
-        }
-        VerticalLayout {
-            alignment: center;
-            Text {
-                text: root.label;
-                color: Theme.text;
-                font-size: root.rem-size;
-                font-weight: 500;
-                opacity: root.disabled ? 0.3 : 1;
-                overflow: elide;
-            }
-        }
+    Image {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: 1.15 * root.rem-size;
+        height: 1.15 * root.rem-size;
+        source: root.glyph;
+        colorize: Theme.text;
+        opacity: root.disabled ? 0.3 : 0.9;
     }
     touch := TouchArea {
         mouse-cursor: pointer;
@@ -119,7 +100,25 @@ export component VideoListItem inherits Rectangle {
                 height: 100%;
                 source: root.episode.thumbnail;
                 image-fit: cover;
-                opacity: 0.9;
+                opacity: root.episode.watched ? 0.55 : 0.95;
+            }
+            if root.episode.watched: Rectangle {
+                x: parent.width - self.width - 0.35 * root.rem-size;
+                y: 0.35 * root.rem-size;
+                width: 1.35 * root.rem-size;
+                height: 1.35 * root.rem-size;
+                border-radius: 0.675 * root.rem-size;
+                background: #f5c518;
+                Text {
+                    width: parent.width;
+                    height: parent.height;
+                    text: "✓";
+                    font-size: 0.85 * root.rem-size;
+                    font-weight: 800;
+                    color: #000000;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
             }
             if root.episode.progress > 0: EpisodeProgress {
                 x: 0.5 * root.rem-size;
@@ -158,11 +157,7 @@ export component VideoListItem inherits Rectangle {
                     overflow: elide;
                     vertical-alignment: center;
                 }
-                if root.episode.watched: WatchedChip {
-                    x: parent.width - self.width;
-                    y: 0;
-                    rem-size: root.rem-size;
-                }
+
             }
         }
     }

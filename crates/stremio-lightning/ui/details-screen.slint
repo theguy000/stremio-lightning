@@ -118,6 +118,8 @@ export component DetailsScreen inherits Rectangle {
             picked-released: DetailsUi.picked-released;
             picked-has-still: DetailsUi.picked-has-still;
             picked-still: DetailsUi.picked-still;
+            can-play: DetailsUi.streams.length > 0;
+            play-primary => { DetailsUi.play-stream(0); }
             share => { DetailsUi.share(); }
             rate-like => { DetailsUi.rate-like(); }
             rate-love => { DetailsUi.rate-love(); }
@@ -131,8 +133,10 @@ export component DetailsScreen inherits Rectangle {
         y: root.panel-y;
         width: root.panel-width;
         height: root.panel-height;
-        background: rgba(12, 11, 17, 0.62);
+        background: rgba(12, 11, 17, 0.72);
         border-radius: 1.5 * root.rem-size;
+        border-width: 1px;
+        border-color: rgba(255, 255, 255, 0.08);
         clip: true;
 
         if DetailsUi.has-preview && DetailsUi.preview.has-panel-backdrop: panel-backdrop-image := CoverRightImage {
@@ -141,12 +145,12 @@ export component DetailsScreen inherits Rectangle {
             width: root.width;
             height: root.height;
             source: DetailsUi.preview.panel-backdrop;
-            opacity: 0.45;
+            opacity: 0.85;
         }
         Rectangle {
             width: parent.width;
             height: parent.height;
-            background: rgba(12, 11, 17, 0.62);
+            background: rgba(12, 11, 17, 0.52);
         }
 
         DetailsPanel {

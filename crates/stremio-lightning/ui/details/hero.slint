@@ -1,71 +1,9 @@
-// Details hero column: series/movie preview or picked-episode still view + Stremio Web pill action bar.
-import { MetaPreview, PreviewData } from "../meta-preview.slint";
+// Stremio Web Details hero column: left-aligned logo, facts, summary, inline links, episode still, and pill actions.
+import { LinkGroup, PreviewData } from "../meta-preview.slint";
 import { Theme } from "../theme.slint";
+import { DetailsHeroActions } from "hero-actions.slint";
 
-component PillDual inherits Rectangle {
-    in property <length> rem-size;
-    in property <image> left-icon;
-    in property <image> right-icon;
-    in property <bool> enabled: true;
-    callback left-clicked;
-    callback right-clicked;
-
-    width: 7 * root.rem-size;
-    height: 3.5 * root.rem-size;
-    border-radius: 1.75 * root.rem-size;
-    background: Theme.overlay;
-    opacity: root.enabled ? 1 : 0.45;
-    clip: true;
-
-    HorizontalLayout {
-        width: parent.width;
-        height: parent.height;
-        Rectangle {
-            horizontal-stretch: 1;
-            background: left-touch.has-hover && root.enabled ? rgba(255, 255, 255, 0.1) : transparent;
-            Image {
-                x: (parent.width - self.width) / 2;
-                y: (parent.height - self.height) / 2;
-                width: 1.375 * root.rem-size;
-                height: 1.375 * root.rem-size;
-                source: root.left-icon;
-                colorize: Theme.text;
-                opacity: 0.9;
-            }
-            left-touch := TouchArea {
-                enabled: root.enabled;
-                mouse-cursor: pointer;
-                clicked => { root.left-clicked(); }
-            }
-        }
-        Rectangle {
-            width: 1px;
-            height: 1.5 * root.rem-size;
-            y: (parent.height - self.height) / 2;
-            background: rgba(255, 255, 255, 0.12);
-        }
-        Rectangle {
-            horizontal-stretch: 1;
-            background: right-touch.has-hover && root.enabled ? rgba(255, 255, 255, 0.1) : transparent;
-            Image {
-                x: (parent.width - self.width) / 2;
-                y: (parent.height - self.height) / 2;
-                width: 1.375 * root.rem-size;
-                height: 1.375 * root.rem-size;
-                source: root.right-icon;
-                colorize: Theme.text;
-                opacity: 0.9;
-            }
-            right-touch := TouchArea {
-                enabled: root.enabled;
-                mouse-cursor: pointer;
-                clicked => { root.right-clicked(); }
-            }
-        }
-    }
-}
-
-export component DetailsHero inherits Rectangle {
+export component DetailsHero inherits VerticalLayout {
     in property <PreviewData> preview;
     in property <bool> has-preview;
     in property <length> rem-size;
@@ -79,178 +17,188 @@ export component DetailsHero inherits Rectangle {
     in property <string> picked-released;
     in property <bool> picked-has-still;
     in property <image> picked-still;
+    in property <bool> can-play: false;
 
+    callback play-primary;
     callback share;
     callback rate-like;
     callback rate-love;
     callback toggle-library;
     callback toggle-watched;
 
-    property <length> actions-height: 4.5 * root.rem-size;
+    alignment: start;
+    spacing: 1.25 * root.rem-size;
 
-    if !root.has-picked-episode: MetaPreview {
-        x: 0;
-        y: 0;
-        width: parent.width;
-        height: Math.max(0px, parent.height - root.actions-height);
+    if root.has-preview && root.preview.has-logo: Image {
+        width: Math.min(parent.width, 16 * root.rem-size);
+        height: 8.5 * root.rem-size;
+        source: root.preview.logo;
+        image-fit: contain;
+        horizontal-alignment: left;
+    }
+    if root.has-preview && !root.preview.has-logo && root.preview.title != "": Text {
+        text: root.preview.title;
+        font-size: 2.25 * root.rem-size;
+        font-weight: 700;
+        color: Theme.text;
+        wrap: word-wrap;
+    }
+
+    if root.has-preview && !root.has-picked-episode: Rectangle {
+        vertical-stretch: 1;
+        min-height: 1 * root.rem-size;
+    }
+
+    if root.has-preview && !root.has-picked-episode: VerticalLayout {
+        spacing: 1.25 * root.rem-size;
+        alignment: start;
+
+        HorizontalLayout {
+            spacing: 2 * root.rem-size;
+            alignment: start;
+            if root.preview.release-info != "": Text {
+                text: root.preview.release-info;
+                font-size: 1 * root.rem-size;
+                font-weight: 600;
+                color: Theme.text;
+                vertical-alignment: center;
+            }
+            if root.preview.runtime != "": Text {
+                text: root.preview.runtime;
+                font-size: 1 * root.rem-size;
+                font-weight: 600;
+                color: Theme.text;
+                vertical-alignment: center;
+            }
+            if root.preview.rating != "": HorizontalLayout {
+                spacing: 0.5 * root.rem-size;
+                alignment: start;
+                Text {
+                    text: root.preview.rating;
+                    font-size: 1 * root.rem-size;
+                    font-weight: 600;
+                    color: Theme.text;
+                    vertical-alignment: center;
+                }
+                Rectangle {
+                    width: 2.6 * root.rem-size;
+                    height: 1.35 * root.rem-size;
+                    y: (parent.height - self.height) / 2;
+                    border-radius: 0.25 * root.rem-size;
+                    background: #f5c518;
+                    Text {
+                        width: parent.width;
+                        height: parent.height;
+                        text: "IMDb";
+                        font-size: 0.78 * root.rem-size;
+                        font-weight: 800;
+                        color: #000000;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+
+        if root.preview.description != "": Text {
+            text: root.preview.description;
+            font-size: 0.95 * root.rem-size;
+            color: rgba(255, 255, 255, 0.78);
+            wrap: word-wrap;
+        }
+
+        for group in root.preview.groups: HorizontalLayout {
+            spacing: 0.65 * root.rem-size;
+            alignment: start;
+            Text {
+                width: 5.5 * root.rem-size;
+                text: group.label;
+                font-size: 0.72 * root.rem-size;
+                font-weight: 700;
+                color: rgba(255, 255, 255, 0.46);
+                vertical-alignment: center;
+            }
+            for item in group.links: Rectangle {
+                height: 2 * root.rem-size;
+                width: chip-label.preferred-width + 1.5 * root.rem-size;
+                border-radius: 1 * root.rem-size;
+                background: rgba(255, 255, 255, 0.08);
+                chip-label := Text {
+                    width: parent.width;
+                    height: parent.height;
+                    text: item;
+                    font-size: 0.85 * root.rem-size;
+                    font-weight: 500;
+                    color: Theme.text;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+
+    if root.has-preview && root.has-picked-episode: VerticalLayout {
+        vertical-stretch: 1;
+        spacing: 1.1 * root.rem-size;
+        alignment: start;
+
+        if root.picked-has-still: Rectangle {
+            width: Math.min(parent.width, 24 * root.rem-size);
+            height: self.width * 9 / 16;
+            border-radius: 1 * root.rem-size;
+            clip: true;
+            background: rgba(255, 255, 255, 0.06);
+            Image {
+                width: parent.width;
+                height: parent.height;
+                source: root.picked-still;
+                image-fit: cover;
+            }
+        }
+        Text {
+            text: root.picked-title;
+            font-size: 1.875 * root.rem-size;
+            font-weight: 600;
+            color: Theme.text;
+            wrap: word-wrap;
+        }
+        if root.picked-released != "" || root.preview.runtime != "": HorizontalLayout {
+            spacing: 2 * root.rem-size;
+            alignment: start;
+            if root.picked-released != "": Text {
+                text: root.picked-released;
+                font-size: 1 * root.rem-size;
+                font-weight: 600;
+                color: Theme.text;
+            }
+            if root.preview.runtime != "": Text {
+                text: root.preview.runtime;
+                font-size: 1 * root.rem-size;
+                font-weight: 600;
+                color: Theme.text;
+            }
+        }
+        if root.picked-overview != "" || root.preview.description != "": Text {
+            text: root.picked-overview != "" ? root.picked-overview : root.preview.description;
+            font-size: 0.95 * root.rem-size;
+            color: rgba(255, 255, 255, 0.78);
+            wrap: word-wrap;
+        }
+    }
+
+    if root.has-preview: DetailsHeroActions {
         preview: root.preview;
-        has-preview: root.has-preview;
         rem-size: root.rem-size;
-        on-page: true;
-        show-actions: false;
         rate-visible: root.rate-visible;
         rate-enabled: root.rate-enabled;
         rated-liked: root.rated-liked;
         rated-loved: root.rated-loved;
+        can-play: root.can-play;
+        play-primary => { root.play-primary(); }
         share => { root.share(); }
         rate-like => { root.rate-like(); }
         rate-love => { root.rate-love(); }
         toggle-library => { root.toggle-library(); }
         toggle-watched => { root.toggle-watched(); }
-    }
-
-    if root.has-picked-episode: Flickable {
-        x: 0;
-        y: 0;
-        width: parent.width;
-        height: Math.max(0px, parent.height - root.actions-height);
-        content-width: self.width;
-
-        VerticalLayout {
-            width: parent.width;
-            alignment: start;
-            spacing: 1.25 * root.rem-size;
-
-            if root.preview.has-logo: Image {
-                width: Math.min(parent.width, 18 * root.rem-size);
-                height: 6 * root.rem-size;
-                source: root.preview.logo;
-                image-fit: contain;
-                horizontal-alignment: left;
-            }
-            if !root.preview.has-logo && root.preview.title != "": Text {
-                text: root.preview.title;
-                font-size: 2 * root.rem-size;
-                font-weight: 700;
-                color: Theme.text;
-                wrap: word-wrap;
-            }
-            if root.picked-has-still: Rectangle {
-                width: Math.min(parent.width, 24 * root.rem-size);
-                height: self.width * 9 / 16;
-                border-radius: 1 * root.rem-size;
-                clip: true;
-                background: rgba(255, 255, 255, 0.06);
-                Image {
-                    width: parent.width;
-                    height: parent.height;
-                    source: root.picked-still;
-                    image-fit: cover;
-                }
-            }
-            Text {
-                text: root.picked-title;
-                font-size: 1.875 * root.rem-size;
-                font-weight: 600;
-                color: Theme.text;
-                wrap: word-wrap;
-            }
-            if root.picked-released != "" || root.preview.runtime != "": HorizontalLayout {
-                spacing: 2 * root.rem-size;
-                alignment: start;
-                if root.picked-released != "": Text {
-                    text: root.picked-released;
-                    font-size: 1 * root.rem-size;
-                    color: rgba(255, 255, 255, 0.72);
-                }
-                if root.preview.runtime != "": Text {
-                    text: root.preview.runtime;
-                    font-size: 1 * root.rem-size;
-                    color: rgba(255, 255, 255, 0.72);
-                }
-            }
-            if root.picked-overview != "" || root.preview.description != "": Text {
-                text: root.picked-overview != "" ? root.picked-overview : root.preview.description;
-                font-size: 1 * root.rem-size;
-                color: rgba(255, 255, 255, 0.85);
-                wrap: word-wrap;
-            }
-        }
-    }
-
-    if root.has-preview: HorizontalLayout {
-        x: 0;
-        y: parent.height - 3.5 * root.rem-size;
-        height: 3.5 * root.rem-size;
-        spacing: 0.875 * root.rem-size;
-        alignment: start;
-
-        if root.preview.has-trailer: Rectangle {
-            width: trailer-row.preferred-width + 3.5 * root.rem-size;
-            height: 3.5 * root.rem-size;
-            border-radius: 1.75 * root.rem-size;
-            background: trailer-touch.has-hover ? rgba(255, 255, 255, 0.1) : Theme.overlay;
-            trailer-row := HorizontalLayout {
-                padding-left: 1.75 * root.rem-size;
-                padding-right: 1.75 * root.rem-size;
-                spacing: 0.75 * root.rem-size;
-                alignment: center;
-                VerticalLayout {
-                    alignment: center;
-                    Image {
-                        width: 1.375 * root.rem-size;
-                        height: 1.375 * root.rem-size;
-                        source: @image-url("../icons/trailer.svg");
-                        colorize: Theme.text;
-                        opacity: 0.9;
-                    }
-                }
-                Text {
-                    text: "Trailer";
-                    font-size: 0.9375 * root.rem-size;
-                    font-weight: 600;
-                    color: Theme.text;
-                    vertical-alignment: center;
-                }
-            }
-            trailer-touch := TouchArea { mouse-cursor: pointer; }
-        }
-
-        PillDual {
-            rem-size: root.rem-size;
-            left-icon: root.preview.in-library ? @image-url("../icons/remove-from-library.svg") : @image-url("../icons/add-to-library.svg");
-            right-icon: root.preview.watched ? @image-url("../icons/eye-off.svg") : @image-url("../icons/eye.svg");
-            left-clicked => { root.toggle-library(); }
-            right-clicked => { root.toggle-watched(); }
-        }
-
-        if root.rate-visible: PillDual {
-            rem-size: root.rem-size;
-            enabled: root.rate-enabled;
-            left-icon: root.rated-liked ? @image-url("../icons/thumbs-up.svg") : @image-url("../icons/thumbs-up-outline.svg");
-            right-icon: root.rated-loved ? @image-url("../icons/heart.svg") : @image-url("../icons/heart-outline.svg");
-            left-clicked => { root.rate-like(); }
-            right-clicked => { root.rate-love(); }
-        }
-
-        Rectangle {
-            width: 3.5 * root.rem-size;
-            height: 3.5 * root.rem-size;
-            border-radius: 1.75 * root.rem-size;
-            background: share-touch.has-hover ? rgba(255, 255, 255, 0.1) : Theme.overlay;
-            Image {
-                x: (parent.width - self.width) / 2;
-                y: (parent.height - self.height) / 2;
-                width: 1.375 * root.rem-size;
-                height: 1.375 * root.rem-size;
-                source: @image-url("../icons/share.svg");
-                colorize: Theme.text;
-                opacity: 0.9;
-            }
-            share-touch := TouchArea {
-                mouse-cursor: pointer;
-                clicked => { root.share(); }
-            }
-        }
     }
 }
