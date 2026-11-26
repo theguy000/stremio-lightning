@@ -118,8 +118,14 @@ export component DetailsScreen inherits Rectangle {
             picked-released: DetailsUi.picked-released;
             picked-has-still: DetailsUi.picked-has-still;
             picked-still: DetailsUi.picked-still;
-            can-play: DetailsUi.streams.length > 0;
-            play-primary => { DetailsUi.play-stream(0); }
+            can-play: DetailsUi.streams.length > 0 || DetailsUi.episodes.length > 0;
+            play-primary => {
+                if (DetailsUi.streams.length > 0) {
+                    DetailsUi.play-stream(0);
+                } else if (DetailsUi.episodes.length > 0) {
+                    DetailsUi.pick-video(DetailsUi.episodes[0].id);
+                }
+            }
             share => { DetailsUi.share(); }
             rate-like => { DetailsUi.rate-like(); }
             rate-love => { DetailsUi.rate-love(); }

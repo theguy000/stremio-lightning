@@ -35,12 +35,27 @@ component PillDual inherits Rectangle {
                 opacity: 0.9;
             }
             if root.left-active: Rectangle {
-                x: parent.width / 2 + 0.15 * root.rem-size;
+                x: parent.width / 2 + 0.1 * root.rem-size;
                 y: parent.height / 2 + 0.05 * root.rem-size;
-                width: 0.8 * root.rem-size;
-                height: 0.8 * root.rem-size;
-                border-radius: 0.4 * root.rem-size;
+                width: 0.9 * root.rem-size;
+                height: 0.9 * root.rem-size;
+                border-radius: 0.45 * root.rem-size;
                 background: #f5c518;
+                Path {
+                    width: 0.55 * root.rem-size;
+                    height: 0.55 * root.rem-size;
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    viewbox-width: 16;
+                    viewbox-height: 16;
+                    stroke: #141414;
+                    stroke-width: 2.5px;
+                    stroke-line-cap: round;
+                    stroke-line-join: round;
+                    MoveTo { x: 3; y: 8.5; }
+                    LineTo { x: 6.5; y: 12; }
+                    LineTo { x: 13; y: 4.5; }
+                }
             }
             left-touch := TouchArea {
                 enabled: root.enabled;
@@ -67,12 +82,27 @@ component PillDual inherits Rectangle {
                 opacity: 0.9;
             }
             if root.right-active: Rectangle {
-                x: parent.width / 2 + 0.15 * root.rem-size;
+                x: parent.width / 2 + 0.1 * root.rem-size;
                 y: parent.height / 2 + 0.05 * root.rem-size;
-                width: 0.8 * root.rem-size;
-                height: 0.8 * root.rem-size;
-                border-radius: 0.4 * root.rem-size;
+                width: 0.9 * root.rem-size;
+                height: 0.9 * root.rem-size;
+                border-radius: 0.45 * root.rem-size;
                 background: #f5c518;
+                Path {
+                    width: 0.55 * root.rem-size;
+                    height: 0.55 * root.rem-size;
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    viewbox-width: 16;
+                    viewbox-height: 16;
+                    stroke: #141414;
+                    stroke-width: 2.5px;
+                    stroke-line-cap: round;
+                    stroke-line-join: round;
+                    MoveTo { x: 3; y: 8.5; }
+                    LineTo { x: 6.5; y: 12; }
+                    LineTo { x: 13; y: 4.5; }
+                }
             }
             right-touch := TouchArea {
                 enabled: root.enabled;

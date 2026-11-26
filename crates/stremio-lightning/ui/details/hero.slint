@@ -26,16 +26,16 @@ export component DetailsHero inherits VerticalLayout {
     callback toggle-library;
     callback toggle-watched;
 
-    alignment: start;
     spacing: 0px;
 
-    if root.has-preview && root.preview.has-logo: Image {
-        width: Math.min(parent.width, 23 * root.rem-size);
-        height: 9 * root.rem-size;
-        source: root.preview.logo;
-        image-fit: contain;
-        horizontal-alignment: left;
-        vertical-alignment: center;
+    if root.has-preview && root.preview.has-logo: HorizontalLayout {
+        alignment: start;
+        Image {
+            height: 9 * root.rem-size;
+            width: Math.min(parent.width, self.source.height > 0 ? (9 * root.rem-size) * (self.source.width / self.source.height) : 16 * root.rem-size);
+            source: root.preview.logo;
+            image-fit: contain;
+        }
     }
     if root.has-preview && !root.preview.has-logo && root.preview.title != "": Text {
         text: root.preview.title;
