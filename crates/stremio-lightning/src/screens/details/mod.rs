@@ -5,7 +5,9 @@ mod stepper;
 mod streams;
 
 pub use crate::screens::videos::{Episode, Season};
-pub(crate) use actions::{back_to_episodes, open, pick, rate, toggle_library, toggle_watched};
+pub(crate) use actions::{
+    back_to_episodes, library_video_id, open, pick, rate, toggle_library, toggle_watched,
+};
 pub use actions::{mark_season_watched, mark_video_watched};
 pub use stepper::{shown_pair, step, stepped_video, steps, Steps};
 
@@ -19,7 +21,7 @@ use stremio_core::types::resource::{MetaItem, Video};
 use crate::screens::videos::{
     default_season, episodes_for_season, picked_label, season_all_watched, seasons,
 };
-use crate::screens::{addon_name, Preview};
+use crate::screens::Preview;
 use crate::AppModel;
 
 const MAX_STREAMS: usize = 100;

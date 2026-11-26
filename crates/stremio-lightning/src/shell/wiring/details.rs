@@ -23,13 +23,13 @@ impl Wiring {
     }
 
     pub(super) fn open_item(&self, id: String, kind: String, _title: String) {
+        let resume_vid = details::library_video_id(self.app.runtime(), &id);
         self.app.details().clear_snapshot();
         self.app.details().reset_inputs();
+        self.app.details().set_picked(resume_vid.clone());
         self.app.viewport().set_active_screen(ActiveScreen::Details);
-        if let Some(window) = self.window.upgrade() {
-            Self::clear_details_ui(&window);
-        }
-        details::open(self.app.runtime(), &id, &kind);
+        if let Some(w) = self.window.upgrade() { Self::clear_details_ui(&w); }
+        details::open(self.app.runtime(), &id, &kind, resume_vid.as_deref());
     }
 
     pub(super) fn refresh_details(&self) {

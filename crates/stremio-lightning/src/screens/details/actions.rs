@@ -95,24 +95,36 @@ pub fn mark_season_watched(runtime: &AppRuntime, season: u32) {
     });
 }
 
-/// Opens a title on the Details Screen (series guess a stream until an Episode is picked).
-pub(crate) fn open(runtime: &AppRuntime, id: &str, kind: &str) {
-    let (stream_path, guess_stream) = if kind == "movie" {
-        (
-            Some(ResourcePath::without_extra(STREAM_RESOURCE_NAME, kind, id)),
-            false,
-        )
+/// Opens a title on the Details Screen, jumping straight to `video_id`'s streams when present
+/// (Web: `getMetaDetailsHref` opens `metaDetailsStreams` first when available).
+pub(crate) fn open(runtime: &AppRuntime, id: &str, kind: &str, video_id: Option<&str>) {
+    let stream_path = if let Some(vid) = video_id {
+        Some(ResourcePath::without_extra(STREAM_RESOURCE_NAME, kind, vid))
+    } else if kind == "movie" {
+        Some(ResourcePath::without_extra(STREAM_RESOURCE_NAME, kind, id))
     } else {
-        (None, false)
+        None
     };
     runtime.dispatch(RuntimeAction {
         field: None,
         action: Action::Load(ActionLoad::MetaDetails(DetailsSelected {
             meta_path: ResourcePath::without_extra(META_RESOURCE_NAME, kind, id),
             stream_path,
-            guess_stream,
+            guess_stream: false,
         })),
     });
+}
+
+/// Returns the active episode `video_id` for a library item (used by Continue Watching / Board).
+pub(crate) fn library_video_id(runtime: &AppRuntime, id: &str) -> Option<String> {
+    let model = runtime.model().ok()?;
+    model
+        .ctx
+        .library
+        .items
+        .get(id)
+        .and_then(|item| item.state.video_id.clone())
+        .filter(|vid| !vid.is_empty())
 }
 
 /// Picks an Episode by Video id and requests its Streams.
