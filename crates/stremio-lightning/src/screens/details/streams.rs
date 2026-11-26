@@ -66,7 +66,7 @@ pub(super) fn source_rows(
                 Source {
                     name,
                     description: stream.description.clone().unwrap_or_default().trim().to_owned(),
-                    addon: addon.clone(),
+                    addon: addon.to_uppercase(),
                     link,
                     is_magnet,
                     last_used,

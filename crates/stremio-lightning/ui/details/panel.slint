@@ -29,7 +29,7 @@ export component DetailsPanel inherits Rectangle {
     in property <int> episode-number: 0;
     in property <bool> can-show-streams: false;
     in property <bool> wrap-streams: false;
-    property <length> choices-bottom: root.picked-label == "" ? 1 * root.rem-size : 4 * root.rem-size;
+    property <length> choices-bottom: root.picked-label == "" ? 1.25 * root.rem-size : 3.75 * root.rem-size;
 
     callback select-season(int);
     callback pick-video(string);
@@ -199,15 +199,8 @@ export component DetailsPanel inherits Rectangle {
             x: 0;
             y: body.y;
             width: parent.width;
-            height: 0.85 * root.rem-size;
-            background: @linear-gradient(180deg, rgba(12, 11, 17, 0.55) 0%, rgba(12, 11, 17, 0.0) 100%);
-        }
-        Rectangle {
-            x: 0;
-            y: parent.height - 3 * root.rem-size;
-            width: parent.width;
-            height: 3 * root.rem-size;
-            background: @linear-gradient(0deg, rgba(12, 11, 17, 0.78) 0%, rgba(12, 11, 17, 0.0) 100%);
+            height: 0.75 * root.rem-size;
+            background: @linear-gradient(180deg, rgba(12, 11, 17, 0.65) 0%, rgba(12, 11, 17, 0.0) 100%);
         }
 
         ScrollBar {
@@ -218,5 +211,13 @@ export component DetailsPanel inherits Rectangle {
             content-height: body.content-height;
             offset <=> body.content-y;
         }
+    }
+
+    Rectangle {
+        x: 0;
+        y: parent.height - 3 * root.rem-size;
+        width: parent.width;
+        height: 3 * root.rem-size;
+        background: @linear-gradient(0deg, rgba(12, 11, 17, 0.78) 0%, rgba(12, 11, 17, 0.0) 100%);
     }
 }

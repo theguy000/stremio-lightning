@@ -97,13 +97,13 @@ pub fn mark_season_watched(runtime: &AppRuntime, season: u32) {
 
 /// Opens a title on the Details Screen (series guess a stream until an Episode is picked).
 pub(crate) fn open(runtime: &AppRuntime, id: &str, kind: &str) {
-    let (stream_path, guess_stream) = if kind == "series" {
-        (None, true)
-    } else {
+    let (stream_path, guess_stream) = if kind == "movie" {
         (
             Some(ResourcePath::without_extra(STREAM_RESOURCE_NAME, kind, id)),
             false,
         )
+    } else {
+        (None, false)
     };
     runtime.dispatch(RuntimeAction {
         field: None,

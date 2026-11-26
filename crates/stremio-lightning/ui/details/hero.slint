@@ -30,7 +30,7 @@ export component DetailsHero inherits VerticalLayout {
 
     spacing: 0px;
 
-    property <length> logo-h: root.has-picked-episode ? 6.5 * root.rem-size : 9 * root.rem-size;
+    property <length> logo-h: 9 * root.rem-size;
 
     if root.has-preview && root.preview.has-logo: HorizontalLayout {
         alignment: start;
@@ -55,7 +55,7 @@ export component DetailsHero inherits VerticalLayout {
     }
 
     if root.has-preview && !root.has-picked-episode: VerticalLayout {
-        spacing: 1.5 * root.rem-size;
+        spacing: 0px;
         alignment: start;
 
         HorizontalLayout {
@@ -64,14 +64,14 @@ export component DetailsHero inherits VerticalLayout {
             if root.preview.release-info != "": Text {
                 text: root.preview.release-info;
                 font-size: 1 * root.rem-size;
-                font-weight: 600;
+                font-weight: 500;
                 color: Theme.text;
                 vertical-alignment: center;
             }
             if root.preview.runtime != "": Text {
                 text: root.preview.runtime;
                 font-size: 1 * root.rem-size;
-                font-weight: 600;
+                font-weight: 500;
                 color: Theme.text;
                 vertical-alignment: center;
             }
@@ -81,7 +81,7 @@ export component DetailsHero inherits VerticalLayout {
                 Text {
                     text: root.preview.rating;
                     font-size: 1 * root.rem-size;
-                    font-weight: 600;
+                    font-weight: 500;
                     color: Theme.text;
                     vertical-alignment: center;
                 }
@@ -105,6 +105,7 @@ export component DetailsHero inherits VerticalLayout {
             }
         }
 
+        if root.preview.description != "": Rectangle { height: 1.5 * root.rem-size; }
         if root.preview.description != "": Text {
             width: Math.min(parent.width, 37.5 * root.rem-size);
             text: root.preview.description;
@@ -113,34 +114,39 @@ export component DetailsHero inherits VerticalLayout {
             wrap: word-wrap;
         }
 
+        if root.preview.groups.length > 0: Rectangle { height: 1.75 * root.rem-size; }
         VerticalLayout {
             spacing: 1.125 * root.rem-size;
             alignment: start;
             for group in root.preview.groups: HorizontalLayout {
-                spacing: 0.625 * root.rem-size;
+                spacing: 1.25 * root.rem-size;
                 alignment: start;
                 Text {
-                    width: 4.75 * root.rem-size;
+                    width: 3.5 * root.rem-size;
                     text: group.label;
                     font-size: 0.8125 * root.rem-size;
                     font-weight: 700;
                     color: rgba(255, 255, 255, 0.46);
                     vertical-alignment: center;
                 }
-                for item in group.links: Rectangle {
-                    height: 2.125 * root.rem-size;
-                    width: chip-label.preferred-width + 2.25 * root.rem-size;
-                    border-radius: 1.0625 * root.rem-size;
-                    background: Theme.overlay;
-                    chip-label := Text {
-                        width: parent.width;
-                        height: parent.height;
-                        text: item;
-                        font-size: 0.875 * root.rem-size;
-                        font-weight: 500;
-                        color: Theme.text;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
+                HorizontalLayout {
+                    spacing: 0.625 * root.rem-size;
+                    alignment: start;
+                    for item in group.links: Rectangle {
+                        height: 2.125 * root.rem-size;
+                        width: chip-label.preferred-width + 2.25 * root.rem-size;
+                        border-radius: 1.0625 * root.rem-size;
+                        background: Theme.overlay;
+                        chip-label := Text {
+                            width: parent.width;
+                            height: parent.height;
+                            text: item;
+                            font-size: 0.875 * root.rem-size;
+                            font-weight: 500;
+                            color: Theme.text;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
                     }
                 }
             }

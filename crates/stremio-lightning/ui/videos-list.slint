@@ -36,14 +36,14 @@ export component VideosList inherits Rectangle {
     visible: !ClassStyles.videos_list_container.hidden;
 
     VerticalLayout {
-        padding-left: 1 * root.rem-size;
-        padding-right: 1 * root.rem-size;
-        padding-top: 1.5 * root.rem-size;
-        spacing: 0.5 * root.rem-size;
+        padding-left: 0.625 * root.rem-size;
+        padding-right: 0.625 * root.rem-size;
+        padding-top: 1.25 * root.rem-size;
+        spacing: 0.625 * root.rem-size;
 
         HorizontalLayout {
-            padding: 0px;
-            padding-bottom: 0.25 * root.rem-size;
+            padding-left: 0.625 * root.rem-size;
+            padding-right: 0.625 * root.rem-size;
             spacing: 0.5 * root.rem-size;
             alignment: stretch;
 
@@ -71,45 +71,52 @@ export component VideosList inherits Rectangle {
             }
         }
 
-        Rectangle {
-            height: 3 * root.rem-size;
-            border-radius: 1.5 * root.rem-size;
-            background: Theme.surface-medium;
+        HorizontalLayout {
+            padding-left: 0.625 * root.rem-size;
+            padding-right: 0.625 * root.rem-size;
+            Rectangle {
+                horizontal-stretch: 1;
+                height: 2.75 * root.rem-size;
+                border-radius: 1.375 * root.rem-size;
+                background: Theme.overlay;
 
-            input := TextInput {
-                x: 1.5 * root.rem-size;
-                width: parent.width - 5 * root.rem-size;
-                height: parent.height;
-                text: root.query;
-                color: Theme.text;
-                font-size: root.rem-size;
-                single-line: true;
-                vertical-alignment: center;
-                edited => { root.search-videos(self.text); }
-            }
-            if root.query == "": Text {
-                x: 1.5 * root.rem-size;
-                width: input.width;
-                height: parent.height;
-                text: "search videos";
-                color: Theme.placeholder;
-                font-size: root.rem-size;
-                vertical-alignment: center;
-                overflow: elide;
-            }
-            Image {
-                x: parent.width - 1.5 * root.rem-size - 1.1 * root.rem-size;
-                y: (parent.height - self.height) / 2;
-                width: 1.1 * root.rem-size;
-                height: 1.1 * root.rem-size;
-                source: @image-url("icons/search.svg");
-                colorize: Theme.search-icon;
+                input := TextInput {
+                    x: 1.125 * root.rem-size;
+                    width: parent.width - 3.5 * root.rem-size;
+                    height: parent.height;
+                    text: root.query;
+                    color: Theme.text;
+                    font-size: 0.875 * root.rem-size;
+                    single-line: true;
+                    vertical-alignment: center;
+                    edited => { root.search-videos(self.text); }
+                }
+                if root.query == "": Text {
+                    x: 1.125 * root.rem-size;
+                    width: input.width;
+                    height: parent.height;
+                    text: "search videos";
+                    color: rgba(255, 255, 255, 0.46);
+                    font-size: 0.875 * root.rem-size;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+                Image {
+                    x: parent.width - 1.125 * root.rem-size - 1.125 * root.rem-size;
+                    y: (parent.height - self.height) / 2;
+                    width: 1.125 * root.rem-size;
+                    height: 1.125 * root.rem-size;
+                    source: @image-url("icons/search.svg");
+                    colorize: rgba(255, 255, 255, 0.46);
+                }
             }
         }
 
         ScrollView {
             VerticalLayout {
                 alignment: start;
+                spacing: 0.25 * root.rem-size;
+                padding-bottom: 2.5 * root.rem-size;
                 for video[index] in root.videos: VideoListItem {
                     episode: video;
                     rem-size: root.rem-size;
