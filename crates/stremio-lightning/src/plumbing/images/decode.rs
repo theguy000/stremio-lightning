@@ -231,7 +231,7 @@ mod tests {
             source("https://example.com/a.jpg#backdrop"),
             (
                 "https://example.com/a.jpg",
-                (240, 135),
+                (360, 202),
                 Some(BACKDROP_SIGMA)
             )
         );
