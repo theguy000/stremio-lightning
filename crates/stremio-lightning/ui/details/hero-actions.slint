@@ -1,21 +1,91 @@
-// Stremio Web Details pill action bar: Primary Play, Trailer, Library/Watched, Like/Love, Share.
+// Stremio Web Details pill action bar: PlayButton, Trailer, ToggleButton (Library/Watched), RateButton, Share.
 import { PreviewData } from "../meta-preview.slint";
 import { Theme } from "../theme.slint";
 
-component PillDual inherits Rectangle {
+component CheckMark inherits Path {
+    viewbox-width: 16;
+    viewbox-height: 16;
+    stroke: #141414;
+    stroke-width: 1.6px;
+    stroke-line-cap: round;
+    stroke-line-join: round;
+    MoveTo { x: 3; y: 8.5; }
+    LineTo { x: 6.5; y: 12; }
+    LineTo { x: 13; y: 4.5; }
+}
+
+component ToggleSlot inherits Rectangle {
+    in property <length> rem-size;
+    in property <image> base-icon;
+    in property <image> on-icon;
+    in property <bool> active: false;
+    in property <bool> enabled: true;
+    callback clicked;
+
+    background: touch.has-hover && root.enabled ? rgba(255, 255, 255, 0.1) : transparent;
+    animate background { duration: 150ms; }
+
+    Rectangle {
+        width: 1.625 * root.rem-size;
+        height: 1.625 * root.rem-size;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+
+        Image {
+            width: 1.375 * root.rem-size;
+            height: 1.375 * root.rem-size;
+            x: root.active ? 0px : (parent.width - self.width) / 2;
+            y: root.active ? 0px : (parent.height - self.height) / 2;
+            source: root.active ? root.on-icon : root.base-icon;
+            colorize: Theme.text;
+            opacity: (touch.has-hover || root.active) ? 1 : 0.7;
+            transform-scale: root.active ? 0.82 : 1.0;
+            animate opacity { duration: 150ms; }
+            animate transform-scale { duration: 220ms; easing: ease-out; }
+            animate x { duration: 220ms; easing: ease-out; }
+            animate y { duration: 220ms; easing: ease-out; }
+        }
+
+        Rectangle {
+            x: parent.width - self.width;
+            y: parent.height - self.height;
+            width: 0.875 * root.rem-size;
+            height: 0.875 * root.rem-size;
+            border-radius: 0.4375 * root.rem-size;
+            background: #f5c518;
+            opacity: root.active ? 1 : 0;
+            transform-scale: root.active ? 1.0 : 0.0;
+            animate opacity { duration: 180ms; easing: ease-out; }
+            animate transform-scale { duration: 240ms; easing: ease-out; }
+
+            CheckMark {
+                width: 0.56 * root.rem-size;
+                height: 0.56 * root.rem-size;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+            }
+        }
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+component RateDual inherits Rectangle {
     in property <length> rem-size;
     in property <image> left-icon;
     in property <image> right-icon;
-    in property <bool> left-active: false;
-    in property <bool> right-active: false;
     in property <bool> enabled: true;
     callback left-clicked;
     callback right-clicked;
 
-    width: 6.75 * root.rem-size;
+    width: 7 * root.rem-size;
     height: 3.5 * root.rem-size;
     border-radius: 1.75 * root.rem-size;
-    background: rgba(255, 255, 255, 0.08);
+    background: Theme.overlay;
     opacity: root.enabled ? 1 : 0.45;
     clip: true;
 
@@ -24,7 +94,7 @@ component PillDual inherits Rectangle {
         height: parent.height;
         Rectangle {
             horizontal-stretch: 1;
-            background: left-touch.has-hover && root.enabled ? rgba(255, 255, 255, 0.1) : transparent;
+            background: lt.has-hover && root.enabled ? rgba(255, 255, 255, 0.1) : transparent;
             Image {
                 x: (parent.width - self.width) / 2;
                 y: (parent.height - self.height) / 2;
@@ -32,46 +102,17 @@ component PillDual inherits Rectangle {
                 height: 1.375 * root.rem-size;
                 source: root.left-icon;
                 colorize: Theme.text;
-                opacity: 0.9;
+                opacity: lt.has-hover ? 1 : 0.85;
             }
-            if root.left-active: Rectangle {
-                x: parent.width / 2 + 0.1 * root.rem-size;
-                y: parent.height / 2 + 0.05 * root.rem-size;
-                width: 0.9 * root.rem-size;
-                height: 0.9 * root.rem-size;
-                border-radius: 0.45 * root.rem-size;
-                background: #f5c518;
-                Path {
-                    width: 0.55 * root.rem-size;
-                    height: 0.55 * root.rem-size;
-                    x: (parent.width - self.width) / 2;
-                    y: (parent.height - self.height) / 2;
-                    viewbox-width: 16;
-                    viewbox-height: 16;
-                    stroke: #141414;
-                    stroke-width: 2.5px;
-                    stroke-line-cap: round;
-                    stroke-line-join: round;
-                    MoveTo { x: 3; y: 8.5; }
-                    LineTo { x: 6.5; y: 12; }
-                    LineTo { x: 13; y: 4.5; }
-                }
-            }
-            left-touch := TouchArea {
+            lt := TouchArea {
                 enabled: root.enabled;
                 mouse-cursor: pointer;
                 clicked => { root.left-clicked(); }
             }
         }
         Rectangle {
-            width: 1px;
-            height: 1.5 * root.rem-size;
-            y: (parent.height - self.height) / 2;
-            background: rgba(255, 255, 255, 0.12);
-        }
-        Rectangle {
             horizontal-stretch: 1;
-            background: right-touch.has-hover && root.enabled ? rgba(255, 255, 255, 0.1) : transparent;
+            background: rt.has-hover && root.enabled ? rgba(255, 255, 255, 0.1) : transparent;
             Image {
                 x: (parent.width - self.width) / 2;
                 y: (parent.height - self.height) / 2;
@@ -79,32 +120,9 @@ component PillDual inherits Rectangle {
                 height: 1.375 * root.rem-size;
                 source: root.right-icon;
                 colorize: Theme.text;
-                opacity: 0.9;
+                opacity: rt.has-hover ? 1 : 0.85;
             }
-            if root.right-active: Rectangle {
-                x: parent.width / 2 + 0.1 * root.rem-size;
-                y: parent.height / 2 + 0.05 * root.rem-size;
-                width: 0.9 * root.rem-size;
-                height: 0.9 * root.rem-size;
-                border-radius: 0.45 * root.rem-size;
-                background: #f5c518;
-                Path {
-                    width: 0.55 * root.rem-size;
-                    height: 0.55 * root.rem-size;
-                    x: (parent.width - self.width) / 2;
-                    y: (parent.height - self.height) / 2;
-                    viewbox-width: 16;
-                    viewbox-height: 16;
-                    stroke: #141414;
-                    stroke-width: 2.5px;
-                    stroke-line-cap: round;
-                    stroke-line-join: round;
-                    MoveTo { x: 3; y: 8.5; }
-                    LineTo { x: 6.5; y: 12; }
-                    LineTo { x: 13; y: 4.5; }
-                }
-            }
-            right-touch := TouchArea {
+            rt := TouchArea {
                 enabled: root.enabled;
                 mouse-cursor: pointer;
                 clicked => { root.right-clicked(); }
@@ -134,29 +152,29 @@ export component DetailsHeroActions inherits HorizontalLayout {
     alignment: start;
 
     if root.can-play: Rectangle {
-        width: play-row.preferred-width + 3.5 * root.rem-size;
+        width: play-row.preferred-width;
         height: 3.5 * root.rem-size;
         border-radius: 1.75 * root.rem-size;
-        background: play-touch.has-hover ? #2ee59d : Theme.accent-green;
+        background: play-touch.has-hover ? #27c470 : Theme.accent-green;
         play-row := HorizontalLayout {
             padding-left: 1.75 * root.rem-size;
             padding-right: 1.75 * root.rem-size;
-            spacing: 0.65 * root.rem-size;
+            spacing: 0.75 * root.rem-size;
             alignment: center;
             VerticalLayout {
                 alignment: center;
                 Image {
-                    width: 1.25 * root.rem-size;
-                    height: 1.25 * root.rem-size;
+                    width: 1.375 * root.rem-size;
+                    height: 1.375 * root.rem-size;
                     source: @image-url("../icons/play.svg");
-                    colorize: Theme.text;
+                    colorize: #ffffff;
                 }
             }
             Text {
                 text: "Watch";
-                font-size: 0.95 * root.rem-size;
-                font-weight: 700;
-                color: Theme.text;
+                font-size: 0.9375 * root.rem-size;
+                font-weight: 600;
+                color: #ffffff;
                 vertical-alignment: center;
             }
         }
@@ -167,14 +185,14 @@ export component DetailsHeroActions inherits HorizontalLayout {
     }
 
     if root.preview.has-trailer: Rectangle {
-        width: trailer-row.preferred-width + 3.5 * root.rem-size;
+        width: trailer-row.preferred-width;
         height: 3.5 * root.rem-size;
         border-radius: 1.75 * root.rem-size;
-        background: trailer-touch.has-hover ? rgba(255, 255, 255, 0.14) : rgba(255, 255, 255, 0.08);
+        background: trailer-touch.has-hover ? rgba(255, 255, 255, 0.1) : Theme.overlay;
         trailer-row := HorizontalLayout {
-            padding-left: 1.75 * root.rem-size;
-            padding-right: 1.75 * root.rem-size;
-            spacing: 0.75 * root.rem-size;
+            padding-left: 1.5 * root.rem-size;
+            padding-right: 1.5 * root.rem-size;
+            spacing: 0.65 * root.rem-size;
             alignment: center;
             VerticalLayout {
                 alignment: center;
@@ -197,17 +215,36 @@ export component DetailsHeroActions inherits HorizontalLayout {
         trailer-touch := TouchArea { mouse-cursor: pointer; }
     }
 
-    PillDual {
-        rem-size: root.rem-size;
-        left-icon: root.preview.in-library ? @image-url("../icons/remove-from-library.svg") : @image-url("../icons/add-to-library.svg");
-        right-icon: root.preview.watched ? @image-url("../icons/eye-off.svg") : @image-url("../icons/eye.svg");
-        left-active: root.preview.in-library;
-        right-active: root.preview.watched;
-        left-clicked => { root.toggle-library(); }
-        right-clicked => { root.toggle-watched(); }
+    Rectangle {
+        width: 7 * root.rem-size;
+        height: 3.5 * root.rem-size;
+        border-radius: 1.75 * root.rem-size;
+        background: Theme.overlay;
+        clip: true;
+
+        HorizontalLayout {
+            width: parent.width;
+            height: parent.height;
+            ToggleSlot {
+                horizontal-stretch: 1;
+                rem-size: root.rem-size;
+                base-icon: @image-url("../icons/library-outline.svg");
+                on-icon: @image-url("../icons/library.svg");
+                active: root.preview.in-library;
+                clicked => { root.toggle-library(); }
+            }
+            ToggleSlot {
+                horizontal-stretch: 1;
+                rem-size: root.rem-size;
+                base-icon: @image-url("../icons/eye.svg");
+                on-icon: @image-url("../icons/eye.svg");
+                active: root.preview.watched;
+                clicked => { root.toggle-watched(); }
+            }
+        }
     }
 
-    if root.rate-visible: PillDual {
+    if root.rate-visible: RateDual {
         rem-size: root.rem-size;
         enabled: root.rate-enabled;
         left-icon: root.rated-liked ? @image-url("../icons/thumbs-up.svg") : @image-url("../icons/thumbs-up-outline.svg");
@@ -220,7 +257,7 @@ export component DetailsHeroActions inherits HorizontalLayout {
         width: 3.5 * root.rem-size;
         height: 3.5 * root.rem-size;
         border-radius: 1.75 * root.rem-size;
-        background: share-touch.has-hover ? rgba(255, 255, 255, 0.14) : rgba(255, 255, 255, 0.08);
+        background: share-touch.has-hover ? rgba(255, 255, 255, 0.1) : Theme.overlay;
         Image {
             x: (parent.width - self.width) / 2;
             y: (parent.height - self.height) / 2;
