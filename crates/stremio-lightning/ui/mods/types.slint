@@ -1,0 +1,205 @@
+// Data types and shared pill primitives for the Mods section.
+import { ClassStyles } from "../class-styles.slint";
+import { SelectOption } from "../multiselect-menu.slint";
+import { ModsNavItem } from "../shell.slint";
+import { Theme } from "../theme.slint";
+
+export struct ModCardData {
+    id: string,
+    filename: string,
+    name: string,
+    byline: string,
+    description: string,
+    unreadable: string,
+    warnings: [string],
+    enabled: bool,
+    armed: bool,
+    state: string,
+    removable: bool,
+    has-settings: bool,
+}
+
+export struct SettingsPluginData {
+    filename: string,
+    name: string,
+    controls: string,
+    enabled: bool,
+}
+
+export struct SettingsFieldData {
+    key: string,
+    label: string,
+    kind: string,
+    hint: string,
+    on: bool,
+    text: string,
+    options: [string],
+    number: float,
+    min: float,
+    max: float,
+    shown: string,
+}
+
+export struct ModsLogRow {
+    id: int,
+    source: string,
+    level: string,
+    level-id: string,
+    time: string,
+    text: string,
+    selected: bool,
+}
+
+export struct ModsAboutLine {
+    label: string,
+    value: string,
+}
+
+export struct ModsViewData {
+    page: string,
+    menu: [ModsNavItem],
+    notice: string,
+    notice-failed: bool,
+    plugins: [ModCardData],
+    themes: [ModCardData],
+    themes-note: string,
+    settings-plugins: [SettingsPluginData],
+    settings-plugin: string,
+    settings-title: string,
+    settings-fields: [SettingsFieldData],
+    settings-trouble: [string],
+    settings-empty: string,
+    settings-dirty: bool,
+    log-source-options: [SelectOption],
+    log-level-options: [SelectOption],
+    log-source-index: int,
+    log-level-index: int,
+    log-search: string,
+    log-rows: [ModsLogRow],
+    log-empty: string,
+    log-detail-heading: string,
+    log-detail: [string],
+    log-open-id: int,
+    log-active-index: int,
+    log-selected-count: int,
+    log-count: string,
+    log-filtered: bool,
+    log-prepended: int,
+    log-prepend-seq: int,
+    log-clear-armed: bool,
+    about-build: [ModsAboutLine],
+    about-places: [ModsAboutLine],
+    about-counts: [ModsAboutLine],
+    about-enabled: [ModsAboutLine],
+    about-license: string,
+    about-export: string,
+}
+
+export component ModsMenuButton inherits Rectangle {
+    in property <string> label-text;
+    in property <bool> selected;
+    in property <length> rem-size;
+    callback clicked();
+
+    height: 3.2 * root.rem-size;
+    border-radius: self.height / 2;
+    background: (root.selected || touch.has-hover) ? ClassStyles.background-or(ClassStyles.mods-menu-button, Theme.overlay) : transparent;
+    opacity: ClassStyles.opacity-or(ClassStyles.mods-menu-button, root.selected ? 1.0 : 0.4);
+    visible: !ClassStyles.mods-menu-button.hidden;
+
+    mods-menu-label := Text {
+        x: 1.6 * root.rem-size;
+        y: 0px;
+        width: parent.width - 3.2 * root.rem-size;
+        height: parent.height;
+        text: root.label-text;
+        overflow: elide;
+        vertical-alignment: center;
+        font-size: 1.05 * root.rem-size;
+        font-weight: root.selected ? 600 : 500;
+        color: ClassStyles.color-or(ClassStyles.mods-menu-button, Theme.text);
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        accessible-role: button;
+        accessible-label: root.label-text;
+        accessible-checkable: true;
+        accessible-checked: root.selected;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component SettingsButton inherits Rectangle {
+    in property <string> label-text;
+    in property <bool> enabled;
+    in property <bool> primary;
+    in property <bool> danger: false;
+    in property <string> name;
+    in property <length> rem-size;
+    callback clicked();
+
+    height: 3 * rem-size;
+    width: settings-button-label.width + 2 * rem-size;
+    border-radius: self.height / 2;
+    border-width: 2px;
+    border-color: (root.danger && root.enabled) ? Theme.accent-red
+        : (root.primary && root.enabled) ? Theme.accent-green : Theme.text;
+    background: (root.danger && root.enabled)
+        ? (settings-button-touch.has-hover ? #ff707033 : #ff70701a)
+        : (root.enabled && root.primary) ? Theme.accent-green
+        : (root.enabled && settings-button-touch.has-hover) ? Theme.overlay : transparent;
+    opacity: root.enabled ? 1.0 : 0.3;
+
+    settings-button-label := Text {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: self.preferred-width;
+        text: root.label-text;
+        font-size: rem-size;
+        font-weight: 700;
+        color: (root.danger && root.enabled) ? Theme.accent-red
+            : (root.primary && root.enabled) ? Theme.on-accent : Theme.text;
+    }
+    settings-button-touch := TouchArea {
+        width: 100%;
+        height: 100%;
+        mouse-cursor: root.enabled ? pointer : default;
+        accessible-role: button;
+        accessible-label: root.name;
+        clicked => {
+            if root.enabled {
+                root.clicked();
+            }
+        }
+    }
+}
+
+export global ModsUi {
+    in-out property <ModsViewData> data;
+    in-out property <string> page: "plugins";
+    in-out property <[ModsNavItem]> menu: [];
+
+    callback select-page(string);
+    callback toggle-mod(string, bool);
+    callback remove-mod(string);
+    callback dismiss-remove();
+    callback pick-settings-plugin(string);
+    callback edit-settings-toggle(string, bool);
+    callback edit-settings-text(string, string);
+    callback edit-settings-number(string, float);
+    callback save-settings();
+    callback filter-logs(string, int);
+    callback search-logs(string);
+    callback reset-logs-filter();
+    callback press-log(int, bool, bool);
+    callback drag-log(int);
+    callback release-log(int);
+    callback select-all-logs();
+    callback step-log(int, bool);
+    callback copy-log();
+    callback close-log();
+    callback clear-logs();
+    callback refresh-about();
+    callback export-diagnostics();
+    callback copy-version();
+}

@@ -1,0 +1,133 @@
+// Keyboard shortcuts for the Player screen, using user-configured seek step durations.
+export component PlayerKeyHandler inherits Rectangle {
+    in property <bool> live;
+    in property <bool> has-episodes;
+    in property <bool> next-open;
+    in property <float> volume;
+    in property <float> speed;
+    in property <float> seek-step: 10;
+    in property <float> seek-short-step: 3;
+    in-out property <string> menu;
+    in-out property <bool> drawer-open;
+
+    callback play-pause();
+    callback seek-by(float);
+    callback set-volume(float);
+    callback toggle-muted();
+    callback toggle-subtitles();
+    callback cycle-scale();
+    callback play-next();
+    callback toggle-fullscreen();
+    callback set-speed(float);
+    callback close-menus();
+    callback back();
+
+    width: 0;
+    height: 0;
+
+    public function focus-keys() {
+        keys.focus();
+    }
+
+    keys := FocusScope {
+        width: 0;
+        height: 0;
+
+        KeyBinding {
+            keys: @keys(Space);
+            activated => { if (root.live) { root.play-pause(); } }
+        }
+        KeyBinding {
+            keys: @keys(RightArrow);
+            activated => { if (root.live) { root.seek-by(root.seek-step); } }
+        }
+        KeyBinding {
+            keys: @keys(Shift + RightArrow);
+            activated => { if (root.live) { root.seek-by(root.seek-short-step); } }
+        }
+        KeyBinding {
+            keys: @keys(LeftArrow);
+            activated => { if (root.live) { root.seek-by(-root.seek-step); } }
+        }
+        KeyBinding {
+            keys: @keys(Shift + LeftArrow);
+            activated => { if (root.live) { root.seek-by(-root.seek-short-step); } }
+        }
+        KeyBinding {
+            keys: @keys(UpArrow);
+            activated => { if (root.live) { root.set-volume(Math.min(root.volume + 5, 200)); } }
+        }
+        KeyBinding {
+            keys: @keys(DownArrow);
+            activated => { if (root.live) { root.set-volume(Math.max(root.volume - 5, 0)); } }
+        }
+        KeyBinding {
+            keys: @keys("m");
+            activated => { if (root.live) { root.toggle-muted(); } }
+        }
+        KeyBinding {
+            keys: @keys("c");
+            activated => { if (root.live) { root.toggle-subtitles(); } }
+        }
+        KeyBinding {
+            keys: @keys("v");
+            activated => { if (root.live) { root.cycle-scale(); } }
+        }
+        KeyBinding {
+            keys: @keys("s");
+            activated => {
+                root.menu = root.menu == "subtitles" ? "" : "subtitles";
+                root.drawer-open = false;
+            }
+        }
+        KeyBinding {
+            keys: @keys("a");
+            activated => {
+                root.menu = root.menu == "audio" ? "" : "audio";
+                root.drawer-open = false;
+            }
+        }
+        KeyBinding {
+            keys: @keys("r");
+            activated => {
+                root.menu = root.menu == "speed" ? "" : "speed";
+                root.drawer-open = false;
+            }
+        }
+        KeyBinding {
+            keys: @keys("i");
+            activated => {
+                if (root.has-episodes) {
+                    root.drawer-open = !root.drawer-open;
+                    root.menu = "";
+                }
+            }
+        }
+        KeyBinding {
+            keys: @keys(Shift + "n");
+            activated => { if (root.live) { root.play-next(); } }
+        }
+        KeyBinding {
+            keys: @keys("f");
+            activated => { if (root.live) { root.toggle-fullscreen(); } }
+        }
+        KeyBinding {
+            keys: @keys("]");
+            activated => { if (root.live) { root.set-speed(Math.min(root.speed + 0.25, 4)); } }
+        }
+        KeyBinding {
+            keys: @keys("[");
+            activated => { if (root.live) { root.set-speed(Math.max(root.speed - 0.25, 0.1)); } }
+        }
+        KeyBinding {
+            keys: @keys(Escape);
+            activated => {
+                if (root.menu != "" || root.drawer-open || root.next-open) {
+                    root.close-menus();
+                } else {
+                    root.back();
+                }
+            }
+        }
+    }
+}

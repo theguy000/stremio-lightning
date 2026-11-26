@@ -5,42 +5,34 @@
 // Licence basis: ../THIRD_PARTY_NOTICES.md. Element ids reuse the web class names where one exists.
 import { MetaItem, PosterData } from "board.slint";
 import { MetaPreview, PreviewData } from "meta-preview.slint";
-import { MultiselectMenu, SelectOption } from "multiselect-menu.slint";
+import { MultiselectMenu, SelectInputData, SelectOption } from "multiselect-menu.slint";
 import { ScrollBar } from "scroll-bar.slint";
 import { Theme } from "theme.slint";
 
-// One filter in the bar: the closed label, its options and which one is selected.
-export struct SelectInputData {
-    title: string,
-    selected-index: int,
-    options: [SelectOption],
+export { SelectInputData }
+
+export global DiscoverUi {
+    in-out property <[PosterData]> cards: [];
+    in-out property <string> shape: "poster";
+    in-out property <[SelectInputData]> inputs: [];
+    in-out property <[PreviewData]> previews: [];
+    in-out property <int> selected-index: 0;
+    in-out property <int> settle-count: 0;
+    callback load-next-page();
+    callback select-item(int);
+    callback hover-card(int);
+    callback visible-range(length, length, length, int);
+    callback select-option(int, int);
 }
 
 export component DiscoverContent inherits Rectangle {
-    in property <[PosterData]> cards;
-    in property <string> shape;
-    in property <[SelectInputData]> inputs;
-    in property <[PreviewData]> previews;
     in property <length> viewport-width;
-    in-out property <int> selected-index: 0;
     callback open-item(string, string, string);
-    callback load-next-page();
-    callback select-item(int);
-    /// The pointer came to rest on a card: its pictures can be fetched before it is opened.
-    callback hover-card(int);
-    // How much of the grid is on screen: the scrolled distance, the viewport's height, the height
-    // of one row of cards and how many cards are in a row. The shell works out which cards that is
-    // and asks for those pictures only, the way a browser's `loading="lazy"` does.
-    callback visible-range(length, length, length, int);
-    /// Where the grid is on the window, how big its viewport is and how tall its contents are. The
-    /// shell scrolls it (`wheel.rs`), so it needs all three to clamp one wheel notch.
     callback grid-bounds(length, length, length, length, length);
-    // (input index, option index): the user picked an option in the filter bar.
-    callback select-option(int, int);
 
     property <length> rem-size: Theme.rem-size(root.viewport-width);
-    property <bool> has-preview: root.previews.length > root.selected-index;
-    property <PreviewData> preview: root.previews[root.selected-index];
+    property <bool> has-preview: DiscoverUi.previews.length > DiscoverUi.selected-index;
+    property <PreviewData> preview: DiscoverUi.previews[DiscoverUi.selected-index];
     // Web: the preview panel is `display: none` from @xsmall (1000px) down.
     property <bool> preview-visible: root.viewport-width > 1000px;
     property <length> preview-width: root.preview-visible ? 29 * root.rem-size : 0px;
@@ -58,12 +50,11 @@ export component DiscoverContent inherits Rectangle {
         : root.viewport-width > 1000px ? 4 : 5;
     property <length> gap: 0.5 * root.rem-size;
     property <length> cell-width: (root.grid-width - (root.columns - 1) * root.gap) / root.columns;
-    property <float> poster-shape-ratio: root.shape == "square" ? 1.0
-        : root.shape == "landscape" ? 0.5625 : 1.464;
+    property <float> poster-shape-ratio: Theme.poster-ratio(DiscoverUi.shape);
     property <length> cell-height: 2 * root.rem-size
         + (root.cell-width - 2 * root.rem-size) * root.poster-shape-ratio
         + 4 * root.rem-size;
-    property <int> row-count: Math.ceil(root.cards.length / root.columns);
+    property <int> row-count: Math.ceil(DiscoverUi.cards.length / root.columns);
     /// How far the grid is scrolled: zero at the top, negative further down. Nothing but the shell
     /// and the scrollbar touch it -- this grid is not a `Flickable`, because a `Flickable` animates
     /// every wheel notch over 180ms and redraws the whole window for each frame of that animation:
@@ -92,7 +83,7 @@ export component DiscoverContent inherits Rectangle {
     /// Counts how many times the shell has said the grid stopped moving. A count rather than a
     /// flag, so two settles in a row are two changes: the next page is asked for once the scrolling
     /// has stopped, not on every notch of a flick that would fly straight past it.
-    in property <int> settle-count: 0;
+    property <int> settle-count: DiscoverUi.settle-count;
     changed settle-count => {
         root.check-end();
     }
@@ -113,7 +104,7 @@ export component DiscoverContent inherits Rectangle {
         root.report-bounds();
     }
     // Web: up to three inputs of 15rem that shrink together beside a 5rem filter button slot.
-    property <int> input-count: Math.max(1, Math.min(root.inputs.length, 3));
+    property <int> input-count: Math.max(1, Math.min(DiscoverUi.inputs.length, 3));
     property <length> input-width: Math.min(15 * root.rem-size,
         (root.catalog-width - 3 * root.rem-size - 5 * root.rem-size
             - (root.input-count - 1) * 1.5 * root.rem-size) / root.input-count);
@@ -125,7 +116,7 @@ export component DiscoverContent inherits Rectangle {
         if (-root.scroll-offset + meta-items-container.height > root.grid-height-total - 400px
             && root.grid-height-total != root.page-asked-at) {
             root.page-asked-at = root.grid-height-total;
-            root.load-next-page();
+            DiscoverUi.load-next-page();
         }
     }
 
@@ -149,7 +140,7 @@ export component DiscoverContent inherits Rectangle {
     }
 
     function report-visible() {
-        root.visible-range(root.grid-scroll, root.grid-height, root.row-pitch, root.columns);
+        DiscoverUi.visible-range(root.grid-scroll, root.grid-height, root.row-pitch, root.columns);
     }
 
     discover-content := Rectangle {
@@ -167,7 +158,7 @@ export component DiscoverContent inherits Rectangle {
                 width: parent.width;
                 height: 6 * root.rem-size;
 
-                for input[index] in root.inputs: select-input := MultiselectMenu {
+                for input[index] in DiscoverUi.inputs: select-input := MultiselectMenu {
                     x: 1.5 * root.rem-size + index * (root.input-width + 1.5 * root.rem-size);
                     y: 1.5 * root.rem-size;
                     width: root.input-width;
@@ -176,10 +167,9 @@ export component DiscoverContent inherits Rectangle {
                     selected-index: input.selected-index;
                     rem-size: root.rem-size;
                     select(option) => {
-                        // A new catalog starts at the top with its first card selected.
-                        root.selected-index = 0;
+                        DiscoverUi.selected-index = 0;
                         root.scroll-offset = 0px;
-                        root.select-option(index, option);
+                        DiscoverUi.select-option(index, option);
                     }
                 }
             }
@@ -204,7 +194,7 @@ export component DiscoverContent inherits Rectangle {
                     // Only the rows on screen are drawn, and the viewport does not clip: a clip is a
                     // stencil pass for the whole frame, and forty-nine cards of which sixteen are
                     // visible cost more to draw than sixteen.
-                    for card[index] in root.cards: Rectangle {
+                    for card[index] in DiscoverUi.cards: Rectangle {
                         x: 1.5 * root.rem-size + Math.mod(index, root.columns) * (root.cell-width + root.gap);
                         y: Math.floor(index / root.columns) * (root.cell-height + root.gap);
                         width: root.cell-width;
@@ -217,19 +207,18 @@ export component DiscoverContent inherits Rectangle {
                             width: parent.width;
                             height: parent.height;
                             card: card;
-                            selected: index == root.selected-index;
+                            selected: index == DiscoverUi.selected-index;
                             rem-size: root.rem-size;
                             poster-shape-ratio: root.poster-shape-ratio;
                             hovered => {
-                                root.hover-card(index);
+                                DiscoverUi.hover-card(index);
                             }
-                            // Web: a click on a card that is not selected selects it, a second click opens it.
                             clicked => {
-                                if (index == root.selected-index || !root.preview-visible) {
+                                if (index == DiscoverUi.selected-index || !root.preview-visible) {
                                     root.open-item(card.item-id, card.kind, card.title);
                                 } else {
-                                    root.selected-index = index;
-                                    root.select-item(index);
+                                    DiscoverUi.selected-index = index;
+                                    DiscoverUi.select-item(index);
                                 }
                             }
                         }
@@ -280,8 +269,8 @@ export component DiscoverContent inherits Rectangle {
             rem-size: root.rem-size;
             // Web: the Show pill is a link to the title's details route, like a second click.
             show => {
-                if (root.cards.length > root.selected-index) {
-                    root.open-item(root.cards[root.selected-index].item-id, root.cards[root.selected-index].kind, root.cards[root.selected-index].title);
+                if (DiscoverUi.cards.length > DiscoverUi.selected-index) {
+                    root.open-item(DiscoverUi.cards[DiscoverUi.selected-index].item-id, DiscoverUi.cards[DiscoverUi.selected-index].kind, DiscoverUi.cards[DiscoverUi.selected-index].title);
                 }
             }
         }

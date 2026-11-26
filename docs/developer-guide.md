@@ -1,18 +1,16 @@
 # Developer Guide
 
-This guide covers initial setup and the commands used for day-to-day Stremio
-Lightning development. Platform setup, packaging, plugin APIs, and runtime
-internals are documented separately.
+This guide covers initial setup and day-to-day commands for Stremio Lightning development.
+Platform setup, packaging, mods/theming, and architecture internals are documented separately.
 
-The client being developed is the native one, in `crates/stremio-lightning`.
-Its shape — screens, wiring, plumbing, and where a new screen goes — is described
-in the [runtime architecture](runtime-architecture.md).
+The native client lives in `crates/stremio-lightning`. Its four-layer architecture (`plumbing/`,
+`screens/`, `app/`, `shell/`) and Slint UI layout are described in the
+[runtime architecture](runtime-architecture.md).
 
 ## Prerequisites
 
 Install:
 
-- Node.js, preferably the current LTS release
 - The stable Rust toolchain
 - Native dependencies for your platform:
   [Linux](platforms/linux.md), [macOS](platforms/macos.md), or
@@ -20,13 +18,8 @@ Install:
 
 ## Initial Setup
 
-Install frontend dependencies:
-
-```bash
-npm install
-```
-
-On Linux or Windows, download native runtime dependencies for the current host:
+On Linux or Windows, download native runtime dependencies (`stream-server`, `ffmpeg`, `ffprobe`,
+and `libmpv` on Windows) for the current host:
 
 ```bash
 cargo xtask setup
@@ -39,8 +32,8 @@ cargo xtask setup-linux
 cargo xtask setup-windows
 ```
 
-There is no macOS setup xtask. Follow the [macOS guide](platforms/macos.md) for
-its runtime requirements.
+There is no macOS setup xtask. Follow the [macOS guide](platforms/macos.md) for its runtime
+requirements.
 
 ## Common Commands
 
@@ -52,41 +45,14 @@ cargo xtask help
 
 | Task | Command |
 | --- | --- |
-| Run the Linux shell | `cargo linux` |
-| Run the macOS shell | `cargo macos` |
-| Run the Windows shell | `cargo windows` |
-| Watch the UI bundle | `npm run dev:ui` |
-| Test the UI | `cargo xtask test-ui` |
-| Build the UI | `cargo xtask build-ui` |
+| Run the native client | `cargo run -p stremio-lightning` |
+| Compile-check workspace and tests | `cargo check --workspace --all-targets` |
 | Run full validation | `cargo xtask validate` |
+| Bump version | `cargo xtask bump-version <version>` |
 | Build release artifacts | See the [packaging guide](packaging.md) |
 
-Use the platform shell aliases for local iteration. Use plain `cargo build` when
-you only need a compile check, and `cargo xtask package-*` when you need a
-distributable artifact under `dist/`.
-
-## UI Development
-
-Run frontend tests:
-
-```bash
-cargo xtask test-ui
-```
-
-Build the injected Svelte/Vite bundle:
-
-```bash
-cargo xtask build-ui
-```
-
-Use watch mode while editing UI source:
-
-```bash
-npm run dev:ui
-```
-
-The generated bundle is written to
-`src/dist/mod-ui-svelte.iife.js`.
+Use `cargo build` or `cargo check --workspace --all-targets` for fast compile checks, and
+`cargo xtask package-*` when you need a distributable artifact under `dist/`.
 
 ## Validation
 
@@ -96,20 +62,17 @@ Run the complete validation suite before submitting changes:
 cargo xtask validate
 ```
 
-This runs Rust formatting checks, Clippy across the workspace, Rust tests,
-Vitest frontend tests, and a production UI build.
+This runs:
+
+1. `cargo fmt --all -- --check`
+2. `cargo clippy --workspace --all-targets`
+3. `cargo test --workspace`
 
 Run narrower checks while iterating when appropriate:
 
 ```bash
 cargo test -p stremio-lightning
-cargo test -p stremio-lightning-core
-cargo test -p stremio-lightning-linux
-cargo test -p stremio-lightning-macos
-cargo test -p stremio-lightning-windows
 cargo test -p xtask
-cargo xtask test-ui
-cargo xtask build-ui
 ```
 
 Packaging changes also need artifact-specific validation from the
@@ -121,5 +84,5 @@ Packaging changes also need artifact-specific validation from the
 - [macOS development](platforms/macos.md)
 - [Windows development](platforms/windows.md)
 - [Packaging](packaging.md)
-- [Plugin API](plugin-api.md)
+- [Mods & Plugin Contract](plugin-api.md)
 - [Runtime architecture](runtime-architecture.md)

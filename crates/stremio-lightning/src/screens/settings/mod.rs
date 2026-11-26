@@ -1,119 +1,20 @@
-//! What the Settings screen shows and updates: profile settings from stremio-core's `Profile`
-//! (`useProfileSettingsInputs.js` in stremio-web) plus local shell/streaming preferences.
-//! Licence basis: ../../../THIRD_PARTY_NOTICES.md.
-//!
-//! `options` holds the tables: what each setting's options are and what each option means.
-//! This file holds the screen's data and the actions that change a setting.
-
-use std::collections::HashMap;
-use std::path::Path;
+//! Settings screen: pure projection from stremio-core's `Profile` + `LocalExtras` (no disk I/O,
+//! no whole-`Profile` JSON round-trip) and settings mutation actions.
 
 use serde_json::{json, Value};
 use stremio_core::runtime::msg::{Action, ActionCtx, ActionStreamingServer};
 use stremio_core::runtime::RuntimeAction;
 use stremio_core::types::profile::{Profile, Settings as ProfileSettings};
 
-use super::{AppModel, Input};
+use super::{AppModel, SelectMenu};
 use crate::AppRuntime;
 
 mod options;
+mod tables;
 
-pub(crate) use options::TOGGLES;
-
-/// The settings the player itself needs, pulled out of the profile so mpv does not have to read
-/// JSON.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct PlayerConfig {
-    pub hardware_decoding: bool,
-    pub subtitles_size: u32,
-    pub subtitles_language: String,
-    pub subtitles_text_color: String,
-    pub subtitles_background_color: String,
-    pub subtitles_outline_color: String,
-    pub audio_language: String,
-}
-
-impl Default for PlayerConfig {
-    fn default() -> Self {
-        Self {
-            hardware_decoding: true,
-            subtitles_size: 100,
-            subtitles_language: "eng".to_owned(),
-            subtitles_text_color: "#FFFFFFFF".to_owned(),
-            subtitles_background_color: "#00000000".to_owned(),
-            subtitles_outline_color: "#FF000000".to_owned(),
-            audio_language: "eng".to_owned(),
-        }
-    }
-}
-
-/// Settings this shell keeps beside the profile: values that stremio-web stores but the core's
-/// `Profile` does not carry. They are written next to the app's data, not into the profile, and
-/// merged over it when the screen is built.
-// A key this struct does not have is ignored when the file is read, and dropped when it is next
-// written: `save` rewrites the whole file from this struct. Ignoring it is what keeps a
-// `settings.json` from another build from taking the choices this one reads down with it; without
-// that, one unknown key turned every plugin and theme the user had switched on back off.
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-#[serde(default)]
-pub struct LocalExtras {
-    pub overrides: HashMap<String, Value>,
-    /// Whether the Streams list wraps its descriptions. Kept here rather than in the profile
-    /// because it is a reading preference of this shell, and `#[serde(default)]` lets the file
-    /// written by an older build still load.
-    #[serde(default)]
-    pub wrap_streams: bool,
-    /// Whether the player offers the AniSkip button. A feature of this shell, so it lives beside
-    /// the other local choices and not in the profile.
-    #[serde(default = "yes")]
-    pub skip_intros: bool,
-    /// The theme files the app draws with, by file name, in the order they are applied. The Mods
-    /// page turns on one at a time; `plumbing::theme` applies whichever names are here. Absent
-    /// means none.
-    #[serde(default)]
-    pub enabled_themes: Vec<String>,
-    /// The values of the fields a built-in feature declares on its settings page, by the feature's
-    /// id and then by field key. A built-in has no file of its own, so its settings live here,
-    /// beside the switch that turns it on.
-    #[serde(default)]
-    pub builtin_settings: HashMap<String, HashMap<String, Value>>,
-}
-
-impl Default for LocalExtras {
-    fn default() -> Self {
-        Self {
-            overrides: HashMap::new(),
-            wrap_streams: false,
-            skip_intros: true,
-            enabled_themes: Vec::new(),
-            builtin_settings: HashMap::new(),
-        }
-    }
-}
-
-impl LocalExtras {
-    pub(crate) fn load(data_dir: &Path) -> Self {
-        let path = data_dir.join("settings.json");
-        // The file used to be called `native_settings.json`. Rename it once rather than keep a
-        // second name alive: settings written under the old name are the same settings.
-        let previous = data_dir.join("native_settings.json");
-        if !path.exists() && previous.exists() {
-            let _ = std::fs::rename(&previous, &path);
-        }
-        std::fs::read_to_string(path)
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default()
-    }
-
-    pub(crate) fn save(&self, data_dir: &Path) {
-        let path = data_dir.join("settings.json");
-        if let Ok(json) = serde_json::to_string_pretty(self) {
-            let _ = std::fs::create_dir_all(data_dir);
-            let _ = std::fs::write(path, json);
-        }
-    }
-}
+pub use crate::plumbing::local_settings::LocalExtras;
+pub use crate::plumbing::player::PlayerConfig;
+pub(crate) use tables::TOGGLES;
 
 #[derive(Clone, Default)]
 pub struct Data {
@@ -121,36 +22,31 @@ pub struct Data {
     pub logged_in: bool,
     pub trakt_authenticated: bool,
     pub streaming_server_url: String,
-    pub ui_language: Input,
+    pub ui_language: SelectMenu,
     pub quit_on_close: bool,
     pub esc_exit_fullscreen: bool,
     pub hide_spoilers: bool,
-    pub subtitles_language: Input,
-    pub subtitles_size: Input,
-    pub subtitles_text_color: Input,
-    pub subtitles_bg_color: Input,
-    pub subtitles_outline_color: Input,
-    pub audio_language: Input,
+    pub subtitles_language: SelectMenu,
+    pub subtitles_size: SelectMenu,
+    pub subtitles_text_color: SelectMenu,
+    pub subtitles_bg_color: SelectMenu,
+    pub subtitles_outline_color: SelectMenu,
+    pub audio_language: SelectMenu,
     pub surround_sound: bool,
-    pub seek_time: Input,
-    pub seek_short_time: Input,
+    pub seek_time: SelectMenu,
+    pub seek_short_time: SelectMenu,
+    pub seek_time_secs: f32,
+    pub seek_short_time_secs: f32,
     pub play_in_background: bool,
     pub binge_watching: bool,
-    pub next_video_duration: Input,
-    pub external_player: Input,
+    pub next_video_duration: SelectMenu,
+    pub external_player: SelectMenu,
     pub hardware_decoding: bool,
-    pub pause_on_minimize: bool,
-    pub caching: Input,
-    pub torrent_profile: Input,
-    pub transcoding_profile: Input,
+    pub caching: SelectMenu,
+    pub torrent_profile: SelectMenu,
+    pub transcoding_profile: SelectMenu,
     pub player_config: PlayerConfig,
-    /// Whether the Streams list wraps its descriptions.
     pub wrap_streams: bool,
-}
-
-/// A switch that starts on: a file written before the switch existed still has the feature.
-fn yes() -> bool {
-    true
 }
 
 fn merged_settings_value(settings: &ProfileSettings, extras: &LocalExtras) -> Value {
@@ -171,22 +67,19 @@ pub fn data(model: &AppModel, extras: &LocalExtras) -> Data {
     data_from_profile(&model.ctx.profile, extras)
 }
 
-pub(crate) fn data_from_profile(profile: &Profile, extras: &LocalExtras) -> Data {
-    let profile_json = serde_json::to_value(profile).unwrap_or_default();
+fn data_from_profile(profile: &Profile, extras: &LocalExtras) -> Data {
     let settings_val = merged_settings_value(&profile.settings, extras);
     let input = |key: &str| options::input(key, &settings_val);
 
-    let auth = profile_json.get("auth").filter(|v| !v.is_null());
-    let logged_in = auth.is_some();
-    let user_email = auth
-        .and_then(|a| a.get("user"))
-        .and_then(|u| u.get("email"))
-        .and_then(Value::as_str)
-        .map_or_else(|| "Anonymous user".to_owned(), str::to_owned);
-    let trakt_authenticated = auth
-        .and_then(|a| a.get("user"))
-        .and_then(|u| u.get("trakt"))
-        .is_some_and(|t| !t.is_null());
+    let logged_in = profile.auth.is_some();
+    let user_email = profile
+        .auth
+        .as_ref()
+        .map_or_else(|| "Anonymous user".to_owned(), |a| a.user.email.clone());
+    let trakt_authenticated = profile
+        .auth
+        .as_ref()
+        .is_some_and(|a| a.user.trakt.is_some());
 
     let player_config = PlayerConfig {
         hardware_decoding: bool_field(&settings_val, "hardwareDecoding", true),
@@ -216,12 +109,14 @@ pub(crate) fn data_from_profile(profile: &Profile, extras: &LocalExtras) -> Data
         surround_sound: bool_field(&settings_val, "surroundSound", false),
         seek_time: input("seekTimeDuration"),
         seek_short_time: input("seekShortTimeDuration"),
+        seek_time_secs: options::number_at("seekTimeDuration", &settings_val) as f32 / 1000.0,
+        seek_short_time_secs: options::number_at("seekShortTimeDuration", &settings_val) as f32
+            / 1000.0,
         play_in_background: bool_field(&settings_val, "playInBackground", false),
         binge_watching: bool_field(&settings_val, "bingeWatching", true),
         next_video_duration: input("nextVideoNotificationDuration"),
         external_player: input("playerType"),
         hardware_decoding: bool_field(&settings_val, "hardwareDecoding", true),
-        pause_on_minimize: bool_field(&settings_val, "pauseOnMinimize", false),
         caching: input("caching"),
         torrent_profile: input("torrentProfile"),
         transcoding_profile: input("transcodingProfile"),
@@ -247,7 +142,6 @@ fn update_profile_and_extras(
     }
 }
 
-/// What "option `index` of `key`" means for the profile, already written into `extras`.
 pub(crate) fn apply_select_option(
     current: &ProfileSettings,
     extras: &mut LocalExtras,
@@ -258,7 +152,6 @@ pub(crate) fn apply_select_option(
     update_profile_and_extras(current, extras, key, new_val)
 }
 
-/// The same for a setting that is on or off.
 pub(crate) fn apply_toggle_option(
     current: &ProfileSettings,
     extras: &mut LocalExtras,
@@ -292,7 +185,6 @@ pub(crate) fn reload_server(runtime: &AppRuntime) {
     });
 }
 
-/// What the Settings screen says about the streaming server.
 pub(crate) fn server_status(state: &crate::plumbing::stream_server::State) -> String {
     use crate::plumbing::stream_server::State;
     match state {
@@ -311,88 +203,55 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_streams_wrap_choice_survives_a_restart() {
-        let dir = std::env::temp_dir().join("stremio-lightning-wrap-extras-test");
-        let _ = std::fs::remove_dir_all(&dir);
-        let mut extras = LocalExtras::default();
-        assert!(
-            !extras.wrap_streams,
-            "the list cuts its descriptions to begin with"
-        );
-
-        extras.wrap_streams = true;
-        extras.save(&dir);
-
-        // A fresh process reads the file back, and the screen is built from what it read.
-        let reloaded = LocalExtras::load(&dir);
-        assert!(reloaded.wrap_streams);
-        let data = data_from_profile(&Profile::default(), &reloaded);
-        assert!(data.wrap_streams);
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn a_settings_file_from_before_the_wrap_toggle_still_loads() {
-        let dir = std::env::temp_dir().join("stremio-lightning-wrap-extras-old-test");
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("native_settings.json"), r#"{"overrides":{}}"#).unwrap();
-
-        let reloaded = LocalExtras::load(&dir);
-        assert!(
-            !reloaded.wrap_streams,
-            "an older file keeps the default rather than failing"
-        );
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn defaults_populate_all_settings_menus() {
-        let profile = Profile::default();
-        let extras = LocalExtras::default();
-        let data = data_from_profile(&profile, &extras);
-        assert_eq!(data.user_email, "Anonymous user");
-        assert!(!data.logged_in);
-        assert_eq!(data.ui_language.title, "English");
-        assert_eq!(data.subtitles_size.title, "100%");
-        assert_eq!(data.seek_time.title, "10 seconds");
-        assert_eq!(data.caching.title, "2 GB");
-        assert_eq!(data.torrent_profile.title, "Default");
-        assert!(data.binge_watching);
-        assert!(data.hardware_decoding);
-    }
-
-    #[test]
-    fn selecting_and_toggling_options_updates_profile_and_local_settings() {
+    fn defaults_and_mutations_project_to_menus_and_player_config() {
         let profile = Profile::default();
         let mut extras = LocalExtras::default();
-        let maybe_updated = apply_select_option(&profile.settings, &mut extras, "subtitlesSize", 3);
-        let updated_profile = Profile {
-            settings: maybe_updated.unwrap_or_else(|| profile.settings.clone()),
+        let d = data_from_profile(&profile, &extras);
+        assert_eq!(
+            (d.user_email.as_str(), d.logged_in),
+            ("Anonymous user", false)
+        );
+        assert_eq!(
+            (
+                d.ui_language.title.as_str(),
+                d.subtitles_size.title.as_str()
+            ),
+            ("English", "100%")
+        );
+        assert_eq!(
+            (d.seek_time.title.as_str(), d.caching.title.as_str()),
+            ("10 seconds", "2 GB")
+        );
+        assert!(d.binge_watching && d.hardware_decoding);
+
+        let updated = apply_select_option(&profile.settings, &mut extras, "subtitlesSize", 3);
+        let p2 = Profile {
+            settings: updated.unwrap_or_else(|| profile.settings.clone()),
             ..profile
         };
-        let data = data_from_profile(&updated_profile, &extras);
-        assert_eq!(data.subtitles_size.title, "150%");
-        assert_eq!(data.player_config.subtitles_size, 150);
-
-        let maybe_toggled = apply_toggle_option(
-            &updated_profile.settings,
-            &mut extras,
-            "hardwareDecoding",
-            false,
+        let d2 = data_from_profile(&p2, &extras);
+        assert_eq!(
+            (
+                d2.subtitles_size.title.as_str(),
+                d2.player_config.subtitles_size
+            ),
+            ("150%", 150)
         );
-        let updated_profile = Profile {
-            settings: maybe_toggled.unwrap_or_else(|| updated_profile.settings.clone()),
-            ..updated_profile
-        };
-        let data = data_from_profile(&updated_profile, &extras);
-        assert!(!data.hardware_decoding);
-        assert!(!data.player_config.hardware_decoding);
 
-        let _ = apply_select_option(&updated_profile.settings, &mut extras, "caching", 3);
-        let _ = apply_toggle_option(&updated_profile.settings, &mut extras, "quitOnClose", true);
-        let data = data_from_profile(&updated_profile, &extras);
-        assert_eq!(data.caching.title, "10 GB");
-        assert!(data.quit_on_close);
+        let toggled = apply_toggle_option(&p2.settings, &mut extras, "hardwareDecoding", false);
+        let p3 = Profile {
+            settings: toggled.unwrap_or_else(|| p2.settings.clone()),
+            ..p2
+        };
+        let d3 = data_from_profile(&p3, &extras);
+        assert!(!d3.hardware_decoding && !d3.player_config.hardware_decoding);
+
+        let _ = apply_select_option(&p3.settings, &mut extras, "caching", 3);
+        let _ = apply_toggle_option(&p3.settings, &mut extras, "quitOnClose", true);
+        let d4 = data_from_profile(&p3, &extras);
+        assert_eq!(
+            (d4.caching.title.as_str(), d4.quit_on_close),
+            ("10 GB", true)
+        );
     }
 }

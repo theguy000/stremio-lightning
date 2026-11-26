@@ -1,0 +1,160 @@
+// About page for the Mods section.
+import { ClassStyles } from "../class-styles.slint";
+import { ScrollBar } from "../scroll-bar.slint";
+import { Theme } from "../theme.slint";
+import { ModsAboutLine, SettingsButton } from "types.slint";
+
+component ModsAboutRow inherits Rectangle {
+    in property <ModsAboutLine> entry;
+    in property <length> rem-size;
+
+    height: 2.2 * rem-size;
+
+    about-row-label := Text {
+        width: 18 * rem-size;
+        height: parent.height;
+        text: root.entry.label;
+        overflow: elide;
+        vertical-alignment: center;
+        font-size: 0.95 * rem-size;
+        color: ClassStyles.color-or(ClassStyles.mods-about-label, Theme.text);
+        opacity: ClassStyles.opacity-or(ClassStyles.mods-about-label, 0.7);
+        visible: !ClassStyles.mods-about-label.hidden;
+    }
+    about-row-value := Text {
+        x: about-row-label.width + rem-size;
+        width: Math.max(0px, parent.width - self.x - 0.4 * rem-size);
+        height: parent.height;
+        text: root.entry.value;
+        overflow: elide;
+        vertical-alignment: center;
+        font-size: 0.95 * rem-size;
+        color: ClassStyles.color-or(ClassStyles.mods-about-value, Theme.text);
+        opacity: ClassStyles.opacity-or(ClassStyles.mods-about-value, 1.0);
+        visible: !ClassStyles.mods-about-value.hidden;
+    }
+}
+
+export component ModsAboutPage inherits Rectangle {
+    in property <length> rem-size;
+    in property <[ModsAboutLine]> about-build;
+    in property <[ModsAboutLine]> about-places;
+    in property <[ModsAboutLine]> about-counts;
+    in property <[ModsAboutLine]> about-enabled;
+    in property <string> about-license;
+    in property <string> about-export;
+
+    callback refresh-about();
+    callback export-diagnostics();
+    callback copy-version();
+
+    property <length> about-row: 2.2 * root.rem-size;
+    property <length> about-build-height: root.about-build.length * about-row;
+    property <length> about-places-height: root.about-places.length * about-row
+        + (root.about-export == "" ? 0px : about-row);
+    property <length> about-counts-height: root.about-counts.length * about-row;
+    property <length> about-enabled-height: root.about-enabled.length * about-row;
+
+    about-actions := HorizontalLayout {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: 3 * root.rem-size;
+        spacing: 1.2 * root.rem-size;
+        alignment: start;
+
+        SettingsButton {
+            rem-size: root.rem-size;
+            label-text: "Refresh";
+            name: "Refresh the About page";
+            primary: false;
+            enabled: true;
+            clicked => { root.refresh-about(); }
+        }
+        SettingsButton {
+            rem-size: root.rem-size;
+            label-text: "Export diagnostics";
+            name: "Export diagnostics";
+            primary: true;
+            enabled: true;
+            clicked => { root.export-diagnostics(); }
+        }
+        SettingsButton {
+            rem-size: root.rem-size;
+            label-text: "Copy version";
+            name: "Copy the version";
+            primary: false;
+            enabled: true;
+            clicked => { root.copy-version(); }
+        }
+    }
+
+    about-body := Flickable {
+        x: 0px;
+        y: about-actions.y + about-actions.height + 1.2 * root.rem-size;
+        width: parent.width - 8px;
+        height: Math.max(0px, parent.height - self.y);
+        content-width: self.width;
+        content-height: about-license.y + about-license.height;
+
+        for entry[index] in root.about-build: ModsAboutRow {
+            y: index * about-row;
+            width: about-body.width;
+            rem-size: root.rem-size;
+            entry: entry;
+        }
+        about-places-box := VerticalLayout {
+            x: 0px;
+            y: about-build-height + 1.4 * root.rem-size;
+            width: parent.width;
+            height: about-places-height;
+
+            for entry[index] in root.about-places: ModsAboutRow {
+                entry: entry;
+                rem-size: root.rem-size;
+            }
+            if root.about-export != "": ModsAboutRow {
+                entry: { label: "Diagnostics file", value: root.about-export };
+                rem-size: root.rem-size;
+            }
+        }
+        about-counts-box := VerticalLayout {
+            y: about-places-box.y + about-places-box.height + 1.4 * root.rem-size;
+            width: parent.width;
+            height: about-counts-height;
+
+            for entry[index] in root.about-counts: ModsAboutRow {
+                entry: entry;
+                rem-size: root.rem-size;
+            }
+        }
+        about-enabled-box := VerticalLayout {
+            y: about-counts-box.y + about-counts-box.height + 1.4 * root.rem-size;
+            width: parent.width;
+            height: about-enabled-height;
+
+            for entry[index] in root.about-enabled: ModsAboutRow {
+                entry: entry;
+                rem-size: root.rem-size;
+            }
+        }
+        about-license := Text {
+            y: about-enabled-box.y + about-enabled-box.height + 1.4 * root.rem-size;
+            width: parent.width;
+            height: 2.4 * root.rem-size;
+            text: root.about-license;
+            wrap: word-wrap;
+            font-size: 0.9 * root.rem-size;
+            color: ClassStyles.color-or(ClassStyles.mods-about-value, Theme.placeholder);
+            visible: !ClassStyles.mods-about-value.hidden;
+        }
+    }
+    ScrollBar {
+        x: parent.width - 8px;
+        y: about-body.y;
+        height: about-body.height;
+        view-height: about-body.height;
+        content-height: about-body.content-height;
+        offset <=> about-body.content-y;
+    }
+}

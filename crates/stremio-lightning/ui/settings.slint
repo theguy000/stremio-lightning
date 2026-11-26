@@ -1,425 +1,31 @@
 // Based on stremio-web (https://github.com/Stremio/stremio-web),
-// Copyright (C) 2017-2024 Smart code 203358507 (upstream's header; the end year varies per file).
-// Numbers translated by hand from src/routes/Settings (Settings.less, Menu/Menu.less, General/User/User.less,
-// components/Section, components/Option, components/Link) and measured on web.stremio.com at 1100x720 (1rem = 14px).
-// Licence basis: ../THIRD_PARTY_NOTICES.md. Element ids are the web class names.
+// Copyright (C) 2017-2024 Smart code 203358507.
+// Numbers translated by hand from src/routes/Settings/Settings.less.
+// Licence basis: ../THIRD_PARTY_NOTICES.md.
 import { ClassStyles } from "class-styles.slint";
-import { SelectInputData } from "discover.slint";
-import { MultiselectMenu, SelectOption } from "multiselect-menu.slint";
-
-export struct SettingsViewData {
-    user-email: string,
-    logged-in: bool,
-    trakt-authenticated: bool,
-    streaming-server-url: string,
-    ui-language: SelectInputData,
-    quit-on-close: bool,
-    esc-exit-fullscreen: bool,
-    hide-spoilers: bool,
-    subtitles-language: SelectInputData,
-    subtitles-size: SelectInputData,
-    subtitles-text-color: SelectInputData,
-    subtitles-bg-color: SelectInputData,
-    subtitles-outline-color: SelectInputData,
-    audio-language: SelectInputData,
-    surround-sound: bool,
-    seek-time: SelectInputData,
-    seek-short-time: SelectInputData,
-    play-in-background: bool,
-    binge-watching: bool,
-    next-video-duration: SelectInputData,
-    external-player: SelectInputData,
-    hardware-decoding: bool,
-    pause-on-minimize: bool,
-    caching: SelectInputData,
-    torrent-profile: SelectInputData,
-    transcoding-profile: SelectInputData,
-}
 import { ScrollBar } from "scroll-bar.slint";
+import { SettingsButton, SettingsCategoryHeader, SettingsLink, SettingsMenuButton, SettingsOption, SettingsSection, SettingsValuePill, SettingsVersionLabel, SettingsViewData } from "settings/controls.slint";
+import { SettingsSelectRow, SettingsShortcutsSection, SettingsToggleRow } from "settings/shortcuts.slint";
 import { Theme } from "theme.slint";
 
-// Web: Settings/Menu `.button`. A 4rem pill; dim until selected or hovered.
-component SettingsMenuButton inherits Rectangle {
-    in property <string> label-text;
-    in property <bool> selected;
-    in property <length> rem-size;
-    callback clicked();
+export { SettingsViewData }
 
-    height: 4 * root.rem-size;
-    border-radius: 2 * root.rem-size;
-    background: (root.selected || touch.has-hover) ? ClassStyles.background-or(ClassStyles.button, Theme.overlay) : transparent;
-    opacity: ClassStyles.opacity-or(ClassStyles.button, root.selected ? 1.0 : 0.4);
-    visible: !ClassStyles.button.hidden;
-
-    Text {
-        x: 2 * root.rem-size;
-        y: 0px;
-        width: parent.width - 4 * root.rem-size;
-        height: parent.height;
-        text: root.label-text;
-        overflow: elide;
-        vertical-alignment: center;
-        font-size: 1.1 * root.rem-size;
-        font-weight: root.selected ? 600 : 500;
-        color: ClassStyles.color-or(ClassStyles.button, Theme.text);
-    }
-    touch := TouchArea {
-        mouse-cursor: pointer;
-        clicked => {
-            root.clicked();
-        }
-    }
-}
-
-// Web: Settings/Menu `.version-info-label`. One line, 30% opacity, cut with an ellipsis.
-component SettingsVersionLabel inherits Rectangle {
-    in property <string> label-text;
-    in property <length> rem-size;
-
-    height: 18 * root.rem-size / 14;
-
-    version-info-label := Text {
-        x: 0px;
-        y: 0px;
-        width: parent.width;
-        height: parent.height;
-        text: root.label-text;
-        overflow: elide;
-        vertical-alignment: center;
-        font-size: root.rem-size;
-        color: ClassStyles.color-or(ClassStyles.version-info-label, Theme.text);
-        opacity: ClassStyles.opacity-or(ClassStyles.version-info-label, 0.3);
-        visible: !ClassStyles.version-info-label.hidden;
-    }
-}
-
-// Web: Settings/components/Link. Accent coloured, 2rem high, underlined on hover.
-component SettingsLink inherits Rectangle {
-    in property <string> label-text;
-    in property <length> rem-size;
-    callback clicked();
-
-    height: 2 * root.rem-size;
-    width: label.width;
-
-    link := Rectangle {
-        width: parent.width;
-        height: parent.height;
-        background: ClassStyles.background-or(ClassStyles.link, transparent);
-        opacity: ClassStyles.opacity-or(ClassStyles.link, 1.0);
-        visible: !ClassStyles.link.hidden;
-
-        label := Text {
-            x: 0px;
-            y: 0px;
-            width: self.preferred-width;
-            height: parent.height;
-            text: root.label-text;
-            vertical-alignment: center;
-            font-size: root.rem-size;
-            color: ClassStyles.color-or(ClassStyles.link, Theme.accent);
-        }
-        // Slint's Text has no underline, so a line stands in for it.
-        Rectangle {
-            x: 0px;
-            y: (parent.height + label.preferred-height) / 2 - 3 * root.rem-size / 14;
-            width: label.width;
-            height: 1px;
-            background: label.color;
-            visible: touch.has-hover;
-        }
-        touch := TouchArea {
-            mouse-cursor: pointer;
-            clicked => {
-                root.clicked();
-            }
-        }
-    }
-}
-
-// Web: Settings/components/Section. A column 35rem wide with a thin line under it, except the last one.
-// Children are placed by the caller, relative to the section's top left.
-component SettingsSection inherits Rectangle {
-    in property <length> rem-size;
-    in property <string> label-text;
-    in property <bool> last;
-
-    background: ClassStyles.background-or(ClassStyles.section, transparent);
-    opacity: ClassStyles.opacity-or(ClassStyles.section, 1.0);
-    visible: !ClassStyles.section.hidden;
-
-    if root.label-text != "": label := Text {
-        x: 0px;
-        y: 3 * root.rem-size;
-        width: parent.width;
-        height: 3.4 * root.rem-size;
-        text: root.label-text;
-        vertical-alignment: center;
-        font-size: 1.8 * root.rem-size;
-        color: ClassStyles.color-or(ClassStyles.label, Theme.text);
-        opacity: ClassStyles.opacity-or(ClassStyles.label, 1.0);
-        visible: !ClassStyles.label.hidden;
-    }
-    Rectangle {
-        x: 0px;
-        y: parent.height - 1px;
-        width: parent.width;
-        height: 1px;
-        background: Theme.overlay;
-        visible: !root.last;
-    }
-    @children
-}
-
-// Web: Settings/components/Option. A label (and an optional icon) in the left half, a control in the right half.
-component SettingsOption inherits Rectangle {
-    in property <length> rem-size;
-    in property <string> label-text;
-    in property <image> icon;
-    in property <bool> has-icon;
-
-    property <length> column: (root.width - 2 * root.rem-size) / 2;
-    // The right-hand half. Children passed in are placed there, but `parent.width` in them is the whole option.
-    out property <length> content-width: root.column;
-
-    background: ClassStyles.background-or(ClassStyles.option, transparent);
-    opacity: ClassStyles.opacity-or(ClassStyles.option, 1.0);
-    visible: !ClassStyles.option.hidden;
-
-    heading := Rectangle {
-        x: 0px;
-        y: 0px;
-        width: root.column;
-        height: parent.height;
-
-        if root.has-icon: Image {
-            source: root.icon;
-            x: 0px;
-            y: 0px;
-            width: 4 * root.rem-size;
-            height: 4 * root.rem-size;
-            colorize: ClassStyles.color-or(ClassStyles.icon, Theme.text);
-            visible: !ClassStyles.icon.hidden;
-        }
-        label := Text {
-            x: root.has-icon ? 4.75 * root.rem-size : 0px;
-            y: 0px;
-            width: root.column - self.x;
-            height: parent.height;
-            text: root.label-text;
-            wrap: word-wrap;
-            overflow: elide;
-            vertical-alignment: center;
-            font-size: root.rem-size;
-            color: ClassStyles.color-or(ClassStyles.label, Theme.text);
-            visible: !ClassStyles.label.hidden;
-        }
-    }
-    content := Rectangle {
-        x: root.column + 2 * root.rem-size;
-        y: 0px;
-        width: root.column;
-        height: parent.height;
-        @children
-    }
-}
-
-// Web: a `.button` inside an Option (Trakt "Authenticate"). Pill, overlay fill, ring and clear fill on hover.
-// Disabled (nobody is logged in) it is dimmed and ignores the pointer.
-component SettingsButton inherits Rectangle {
-    in property <string> label-text;
-    in property <length> rem-size;
-    in property <bool> disabled;
-    callback clicked();
-
-    height: 3.5 * root.rem-size;
-    border-radius: self.height / 2;
-    border-width: (touch.has-hover && !root.disabled) ? 2px : 0px;
-    border-color: Theme.text;
-    background: (touch.has-hover && !root.disabled) ? transparent : ClassStyles.background-or(ClassStyles.button, Theme.overlay);
-    opacity: ClassStyles.opacity-or(ClassStyles.button, root.disabled ? 0.5 : 1.0);
-    visible: !ClassStyles.button.hidden;
-
-    Text {
-        x: 0px;
-        y: 0px;
-        width: parent.width;
-        height: parent.height;
-        text: root.label-text;
-        horizontal-alignment: center;
-        vertical-alignment: center;
-        font-size: 1.1 * root.rem-size;
-        color: ClassStyles.color-or(ClassStyles.button, Theme.text);
-    }
-    touch := TouchArea {
-        enabled: !root.disabled;
-        mouse-cursor: pointer;
-        clicked => {
-            root.clicked();
-        }
-    }
-}
-
-// Web: Checkbox / Toggle inside an Option.
-component SettingsToggle inherits Rectangle {
-    in property <bool> checked;
-    in property <length> rem-size;
-    callback toggled(bool);
-
-    property <length> track-width: 3.6 * root.rem-size;
-    property <length> track-height: 2 * root.rem-size;
-    property <length> thumb-size: 1.4 * root.rem-size;
-    height: 3 * root.rem-size;
-
-    track := Rectangle {
-        x: parent.width - root.track-width;
-        y: (parent.height - root.track-height) / 2;
-        width: root.track-width;
-        height: root.track-height;
-        border-radius: root.track-height / 2;
-        border-width: touch.has-hover ? 1px : 0px;
-        border-color: Theme.text;
-        background: root.checked ? Theme.accent : Theme.overlay;
-
-        thumb := Rectangle {
-            x: root.checked ? parent.width - self.width - 0.3 * root.rem-size : 0.3 * root.rem-size;
-            y: (parent.height - self.height) / 2;
-            width: root.thumb-size;
-            height: root.thumb-size;
-            border-radius: self.width / 2;
-            background: Theme.text;
-        }
-    }
-    touch := TouchArea {
-        mouse-cursor: pointer;
-        clicked => { root.toggled(!root.checked); }
-    }
-}
-
-component SettingsCategoryHeader inherits Rectangle {
-    in property <string> label-text;
-    in property <length> rem-size;
-    height: 2 * root.rem-size;
-
-    Text {
-        x: 0px;
-        y: 0px;
-        width: parent.width;
-        height: parent.height;
-        text: root.label-text;
-        vertical-alignment: center;
-        font-size: 1.1 * root.rem-size;
-        font-weight: 600;
-        color: ClassStyles.color-or(ClassStyles.label, Theme.text);
-        opacity: 0.5;
-    }
-}
-
-component SettingsValuePill inherits Rectangle {
-    in property <string> value-text;
-    in property <length> rem-size;
-    height: 3 * root.rem-size;
-    border-radius: 1.5 * root.rem-size;
-    background: ClassStyles.background-or(ClassStyles.select-input, Theme.overlay);
-
-    Text {
-        x: 1.5 * root.rem-size;
-        y: 0px;
-        width: parent.width - 3 * root.rem-size;
-        height: parent.height;
-        text: root.value-text;
-        vertical-alignment: center;
-        overflow: elide;
-        font-size: root.rem-size;
-        color: ClassStyles.color-or(ClassStyles.text, Theme.text);
-        opacity: 0.85;
-    }
-}
-
-component ShortcutKbd inherits Rectangle {
-    in property <string> key-text;
-    in property <length> rem-size;
-    width: Math.max(2.6 * root.rem-size, key-label.preferred-width + 1.6 * root.rem-size);
-    height: 2.4 * root.rem-size;
-    border-radius: 0.5 * root.rem-size;
-    background: Theme.overlay;
-    border-width: 1px;
-    border-color: #ffffff1a;
-
-    key-label := Text {
-        x: 0px;
-        y: 0px;
-        width: parent.width;
-        height: parent.height;
-        text: root.key-text;
-        horizontal-alignment: center;
-        vertical-alignment: center;
-        font-size: 0.9 * root.rem-size;
-        font-weight: 600;
-        color: ClassStyles.color-or(ClassStyles.text, Theme.text);
-    }
-}
-
-component SettingsShortcutRow inherits Rectangle {
-    in property <length> rem-size;
-    in property <string> label-text;
-    in property <string> first-key;
-    in property <string> joiner;
-    in property <string> second-key;
-    height: 3 * root.rem-size;
-
-    opt := SettingsOption {
-        x: 0px;
-        y: 0px;
-        width: parent.width;
-        height: parent.height;
-        rem-size: root.rem-size;
-        label-text: root.label-text;
-
-        HorizontalLayout {
-            x: 0px;
-            y: 0px;
-            width: opt.content-width;
-            height: parent.height;
-            alignment: end;
-            spacing: 0.6 * root.rem-size;
-
-            ShortcutKbd {
-                y: (parent.height - self.height) / 2;
-                key-text: root.first-key;
-                rem-size: root.rem-size;
-            }
-            if root.joiner != "": Text {
-                text: root.joiner;
-                vertical-alignment: center;
-                font-size: 0.9 * root.rem-size;
-                color: ClassStyles.color-or(ClassStyles.text, Theme.text);
-                opacity: 0.5;
-            }
-            if root.second-key != "": ShortcutKbd {
-                y: (parent.height - self.height) / 2;
-                key-text: root.second-key;
-                rem-size: root.rem-size;
-            }
-        }
-    }
-}
-
-// Web: routes/Settings. The menu on the left, the sections on the right. Clicking a menu item scrolls to its
-// section; the selected item follows the scroll position (marker = scroll + 50px, bottom = the last section).
-export component SettingsContent inherits Rectangle {
-    in property <length> viewport-width;
-    in property <string> app-version;
-    in property <string> build-version;
-    in property <string> server-status;
-    in property <SettingsViewData> data;
-    callback log-in();
+export global SettingsUi {
+    in-out property <SettingsViewData> data;
+    in-out property <string> app-version;
+    in-out property <string> build-version;
+    in-out property <string> server-status: "Stream server: starting...";
     callback log-out();
     callback open-external-link(string);
-    callback select-setting-option(string, int);
-    callback toggle-setting-option(string, bool);
+    callback select-option(string, int);
+    callback toggle-option(string, bool);
     callback reload-streaming-server();
+}
+
+export component SettingsContent inherits Rectangle {
+    in property <length> viewport-width;
     in-out property <length> scroll-offset <=> sections-container.content-y;
+    callback log-in();
     callback scroll-bounds(length, length, length, length, length);
 
     property <length> rem-size: Theme.rem-size(root.viewport-width);
@@ -440,10 +46,10 @@ export component SettingsContent inherits Rectangle {
             sections-container.content-height,
         );
     }
+
     property <length> menu-width: 18 * root.rem-size;
     property <length> sections-padding: 3 * root.rem-size;
     property <length> section-width: Math.min(35 * root.rem-size, root.width - root.menu-width - 2 * root.sections-padding);
-    // Heights are the web's, plus the 1px line under all but the last section.
     property <length> user-height: 11 * root.rem-size + 1px;
     property <length> links-height: 22 * root.rem-size + 1px;
     property <length> interface-height: 27 * root.rem-size + 1px;
@@ -488,8 +94,6 @@ export component SettingsContent inherits Rectangle {
                 height: 5 * root.rem-size;
 
                 avatar-container := Rectangle {
-                    x: 0px;
-                    y: 0px;
                     width: 5 * root.rem-size;
                     height: 5 * root.rem-size;
                     border-radius: self.width / 2;
@@ -513,7 +117,7 @@ export component SettingsContent inherits Rectangle {
                     x: 6 * root.rem-size;
                     y: (parent.height - self.preferred-height - 2 * root.rem-size) / 2;
                     width: parent.width - 6 * root.rem-size;
-                    text: root.data.user-email != "" ? root.data.user-email : "Anonymous user";
+                    text: SettingsUi.data.user-email != "" ? SettingsUi.data.user-email : "Anonymous user";
                     overflow: elide;
                     font-size: 1.1 * root.rem-size;
                     color: ClassStyles.color-or(ClassStyles.email-label, Theme.text);
@@ -524,13 +128,9 @@ export component SettingsContent inherits Rectangle {
                     x: 6 * root.rem-size;
                     y: email-label.y + email-label.preferred-height;
                     rem-size: root.rem-size;
-                    label-text: root.data.logged-in ? "Log out" : "Log in / Sign up";
+                    label-text: SettingsUi.data.logged-in ? "Log out" : "Log in / Sign up";
                     clicked => {
-                        if (root.data.logged-in) {
-                            root.log-out();
-                        } else {
-                            root.log-in();
-                        }
+                        if (SettingsUi.data.logged-in) { SettingsUi.log-out(); } else { root.log-in(); }
                     }
                 }
             }
@@ -543,11 +143,10 @@ export component SettingsContent inherits Rectangle {
             height: root.links-height;
             rem-size: root.rem-size;
 
-            SettingsLink { x: 0px; y: 3 * root.rem-size; rem-size: root.rem-size; label-text: "Contact support"; clicked => { root.open-external-link("support"); } }
-            SettingsLink { x: 0px; y: 5 * root.rem-size; rem-size: root.rem-size; label-text: "Source code"; clicked => { root.open-external-link("source"); } }
-            SettingsLink { x: 0px; y: 7 * root.rem-size; rem-size: root.rem-size; label-text: "Terms of Service"; clicked => { root.open-external-link("tos"); } }
-            SettingsLink { x: 0px; y: 9 * root.rem-size; rem-size: root.rem-size; label-text: "Privacy Policy"; clicked => { root.open-external-link("privacy"); } }
-            // Web: `trakt-container option`, 2rem under the links.
+            SettingsLink { x: 0px; y: 3 * root.rem-size; rem-size: root.rem-size; label-text: "Contact support"; clicked => { SettingsUi.open-external-link("support"); } }
+            SettingsLink { x: 0px; y: 5 * root.rem-size; rem-size: root.rem-size; label-text: "Source code"; clicked => { SettingsUi.open-external-link("source"); } }
+            SettingsLink { x: 0px; y: 7 * root.rem-size; rem-size: root.rem-size; label-text: "Terms of Service"; clicked => { SettingsUi.open-external-link("tos"); } }
+            SettingsLink { x: 0px; y: 9 * root.rem-size; rem-size: root.rem-size; label-text: "Privacy Policy"; clicked => { SettingsUi.open-external-link("privacy"); } }
             trakt-container := SettingsOption {
                 x: 0px;
                 y: 13 * root.rem-size;
@@ -559,12 +158,11 @@ export component SettingsContent inherits Rectangle {
                 has-icon: true;
 
                 SettingsButton {
-                    x: 0px;
                     y: (parent.height - self.height) / 2;
                     width: trakt-container.content-width;
                     rem-size: root.rem-size;
-                    label-text: root.data.trakt-authenticated ? "Logout" : "Authenticate";
-                    disabled: !root.data.logged-in;
+                    label-text: SettingsUi.data.trakt-authenticated ? "Logout" : "Authenticate";
+                    disabled: !SettingsUi.data.logged-in;
                 }
             }
         }
@@ -577,76 +175,10 @@ export component SettingsContent inherits Rectangle {
             rem-size: root.rem-size;
             label-text: "Interface";
 
-            ui-language := SettingsOption {
-                x: 0px;
-                y: 8.4 * root.rem-size;
-                width: parent.width;
-                height: 3 * root.rem-size;
-                rem-size: root.rem-size;
-                label-text: "UI Language";
-
-                MultiselectMenu {
-                    x: 0px;
-                    y: 0px;
-                    width: ui-language.content-width;
-                    title: root.data.ui-language.title != "" ? root.data.ui-language.title : "English";
-                    options: root.data.ui-language.options;
-                    selected-index: root.data.ui-language.selected-index;
-                    rem-size: root.rem-size;
-                    select(option) => { root.select-setting-option("interfaceLanguage", option); }
-                }
-            }
-            quit-on-close := SettingsOption {
-                x: 0px;
-                y: 13 * root.rem-size;
-                width: parent.width;
-                height: 3 * root.rem-size;
-                rem-size: root.rem-size;
-                label-text: "Quit on close";
-
-                SettingsToggle {
-                    x: 0px;
-                    y: 0px;
-                    width: quit-on-close.content-width;
-                    checked: root.data.quit-on-close;
-                    rem-size: root.rem-size;
-                    toggled(val) => { root.toggle-setting-option("quitOnClose", val); }
-                }
-            }
-            esc-exit-fs := SettingsOption {
-                x: 0px;
-                y: 17.5 * root.rem-size;
-                width: parent.width;
-                height: 3 * root.rem-size;
-                rem-size: root.rem-size;
-                label-text: "ESC to exit full screen";
-
-                SettingsToggle {
-                    x: 0px;
-                    y: 0px;
-                    width: esc-exit-fs.content-width;
-                    checked: root.data.esc-exit-fullscreen;
-                    rem-size: root.rem-size;
-                    toggled(val) => { root.toggle-setting-option("escExitFullscreen", val); }
-                }
-            }
-            hide-spoilers := SettingsOption {
-                x: 0px;
-                y: 22 * root.rem-size;
-                width: parent.width;
-                height: 3 * root.rem-size;
-                rem-size: root.rem-size;
-                label-text: "Blur unwatched episodes image";
-
-                SettingsToggle {
-                    x: 0px;
-                    y: 0px;
-                    width: hide-spoilers.content-width;
-                    checked: root.data.hide-spoilers;
-                    rem-size: root.rem-size;
-                    toggled(val) => { root.toggle-setting-option("hideSpoilers", val); }
-                }
-            }
+            SettingsSelectRow { x: 0px; y: 8.4 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "UI Language"; input: SettingsUi.data.ui-language; fallback-title: "English"; select(opt) => { SettingsUi.select-option("interfaceLanguage", opt); } }
+            SettingsToggleRow { x: 0px; y: 13 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Quit on close"; checked: SettingsUi.data.quit-on-close; toggled(val) => { SettingsUi.toggle-option("quitOnClose", val); } }
+            SettingsToggleRow { x: 0px; y: 17.5 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "ESC to exit full screen"; checked: SettingsUi.data.esc-exit-fullscreen; toggled(val) => { SettingsUi.toggle-option("escExitFullscreen", val); } }
+            SettingsToggleRow { x: 0px; y: 22 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Blur unwatched episodes image"; checked: SettingsUi.data.hide-spoilers; toggled(val) => { SettingsUi.toggle-option("hideSpoilers", val); } }
         }
 
         SettingsSection {
@@ -658,170 +190,28 @@ export component SettingsContent inherits Rectangle {
             label-text: "Player";
 
             SettingsCategoryHeader { x: 0px; y: 7.5 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Subtitles"; }
-            sub-lang := SettingsOption {
-                x: 0px; y: 10.5 * root.rem-size; width: parent.width; height: 3 * root.rem-size; rem-size: root.rem-size;
-                label-text: "Default Subtitles Language";
-                MultiselectMenu {
-                    x: 0px; y: 0px; width: sub-lang.content-width;
-                    title: root.data.subtitles-language.title != "" ? root.data.subtitles-language.title : "English";
-                    options: root.data.subtitles-language.options;
-                    selected-index: root.data.subtitles-language.selected-index;
-                    rem-size: root.rem-size;
-                    select(option) => { root.select-setting-option("subtitlesLanguage", option); }
-                }
-            }
-            sub-size := SettingsOption {
-                x: 0px; y: 15 * root.rem-size; width: parent.width; height: 3 * root.rem-size; rem-size: root.rem-size;
-                label-text: "Default Subtitles Size";
-                MultiselectMenu {
-                    x: 0px; y: 0px; width: sub-size.content-width;
-                    title: root.data.subtitles-size.title != "" ? root.data.subtitles-size.title : "100%";
-                    options: root.data.subtitles-size.options;
-                    selected-index: root.data.subtitles-size.selected-index;
-                    rem-size: root.rem-size;
-                    select(option) => { root.select-setting-option("subtitlesSize", option); }
-                }
-            }
-            sub-text-color := SettingsOption {
-                x: 0px; y: 19.5 * root.rem-size; width: parent.width; height: 3 * root.rem-size; rem-size: root.rem-size;
-                label-text: "Subtitles Text Color";
-                MultiselectMenu {
-                    x: 0px; y: 0px; width: sub-text-color.content-width;
-                    title: root.data.subtitles-text-color.title != "" ? root.data.subtitles-text-color.title : "White";
-                    options: root.data.subtitles-text-color.options;
-                    selected-index: root.data.subtitles-text-color.selected-index;
-                    rem-size: root.rem-size;
-                    select(option) => { root.select-setting-option("subtitlesTextColor", option); }
-                }
-            }
-            sub-bg-color := SettingsOption {
-                x: 0px; y: 24 * root.rem-size; width: parent.width; height: 3 * root.rem-size; rem-size: root.rem-size;
-                label-text: "Subtitles Background Color";
-                MultiselectMenu {
-                    x: 0px; y: 0px; width: sub-bg-color.content-width;
-                    title: root.data.subtitles-bg-color.title != "" ? root.data.subtitles-bg-color.title : "None";
-                    options: root.data.subtitles-bg-color.options;
-                    selected-index: root.data.subtitles-bg-color.selected-index;
-                    rem-size: root.rem-size;
-                    select(option) => { root.select-setting-option("subtitlesBackgroundColor", option); }
-                }
-            }
-            sub-outline-color := SettingsOption {
-                x: 0px; y: 28.5 * root.rem-size; width: parent.width; height: 3 * root.rem-size; rem-size: root.rem-size;
-                label-text: "Subtitles Outline Color";
-                MultiselectMenu {
-                    x: 0px; y: 0px; width: sub-outline-color.content-width;
-                    title: root.data.subtitles-outline-color.title != "" ? root.data.subtitles-outline-color.title : "Black";
-                    options: root.data.subtitles-outline-color.options;
-                    selected-index: root.data.subtitles-outline-color.selected-index;
-                    rem-size: root.rem-size;
-                    select(option) => { root.select-setting-option("subtitlesOutlineColor", option); }
-                }
-            }
+            SettingsSelectRow { x: 0px; y: 10.5 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Default Subtitles Language"; input: SettingsUi.data.subtitles-language; fallback-title: "English"; select(opt) => { SettingsUi.select-option("subtitlesLanguage", opt); } }
+            SettingsSelectRow { x: 0px; y: 15 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Default Subtitles Size"; input: SettingsUi.data.subtitles-size; fallback-title: "100%"; select(opt) => { SettingsUi.select-option("subtitlesSize", opt); } }
+            SettingsSelectRow { x: 0px; y: 19.5 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Subtitles Text Color"; input: SettingsUi.data.subtitles-text-color; fallback-title: "White"; select(opt) => { SettingsUi.select-option("subtitlesTextColor", opt); } }
+            SettingsSelectRow { x: 0px; y: 24 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Subtitles Background Color"; input: SettingsUi.data.subtitles-bg-color; fallback-title: "None"; select(opt) => { SettingsUi.select-option("subtitlesBackgroundColor", opt); } }
+            SettingsSelectRow { x: 0px; y: 28.5 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Subtitles Outline Color"; input: SettingsUi.data.subtitles-outline-color; fallback-title: "Black"; select(opt) => { SettingsUi.select-option("subtitlesOutlineColor", opt); } }
 
             SettingsCategoryHeader { x: 0px; y: 33.5 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Audio"; }
-            audio-lang := SettingsOption {
-                x: 0px; y: 36.5 * root.rem-size; width: parent.width; height: 3 * root.rem-size; rem-size: root.rem-size;
-                label-text: "Default Audio Track";
-                MultiselectMenu {
-                    x: 0px; y: 0px; width: audio-lang.content-width;
-                    title: root.data.audio-language.title != "" ? root.data.audio-language.title : "English";
-                    options: root.data.audio-language.options;
-                    selected-index: root.data.audio-language.selected-index;
-                    rem-size: root.rem-size;
-                    select(option) => { root.select-setting-option("audioLanguage", option); }
-                }
-            }
-            surround-opt := SettingsOption {
-                x: 0px; y: 41 * root.rem-size; width: parent.width; height: 3 * root.rem-size; rem-size: root.rem-size;
-                label-text: "Surround sound";
-                SettingsToggle {
-                    x: 0px; y: 0px; width: surround-opt.content-width;
-                    checked: root.data.surround-sound; rem-size: root.rem-size;
-                    toggled(val) => { root.toggle-setting-option("surroundSound", val); }
-                }
-            }
+            SettingsSelectRow { x: 0px; y: 36.5 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Default Audio Track"; input: SettingsUi.data.audio-language; fallback-title: "English"; select(opt) => { SettingsUi.select-option("audioLanguage", opt); } }
+            SettingsToggleRow { x: 0px; y: 41 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Surround sound"; checked: SettingsUi.data.surround-sound; toggled(val) => { SettingsUi.toggle-option("surroundSound", val); } }
 
             SettingsCategoryHeader { x: 0px; y: 46 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Controls"; }
-            seek-opt := SettingsOption {
-                x: 0px; y: 49 * root.rem-size; width: parent.width; height: 3 * root.rem-size; rem-size: root.rem-size;
-                label-text: "Seek Time Duration";
-                MultiselectMenu {
-                    x: 0px; y: 0px; width: seek-opt.content-width;
-                    title: root.data.seek-time.title != "" ? root.data.seek-time.title : "10 seconds";
-                    options: root.data.seek-time.options;
-                    selected-index: root.data.seek-time.selected-index;
-                    rem-size: root.rem-size;
-                    select(option) => { root.select-setting-option("seekTimeDuration", option); }
-                }
-            }
-            seek-short-opt := SettingsOption {
-                x: 0px; y: 53.5 * root.rem-size; width: parent.width; height: 3 * root.rem-size; rem-size: root.rem-size;
-                label-text: "Seek Time Duration (Shift)";
-                MultiselectMenu {
-                    x: 0px; y: 0px; width: seek-short-opt.content-width;
-                    title: root.data.seek-short-time.title != "" ? root.data.seek-short-time.title : "3 seconds";
-                    options: root.data.seek-short-time.options;
-                    selected-index: root.data.seek-short-time.selected-index;
-                    rem-size: root.rem-size;
-                    select(option) => { root.select-setting-option("seekShortTimeDuration", option); }
-                }
-            }
-            play-bg-opt := SettingsOption {
-                x: 0px; y: 58 * root.rem-size; width: parent.width; height: 3 * root.rem-size; rem-size: root.rem-size;
-                label-text: "Play in background";
-                SettingsToggle {
-                    x: 0px; y: 0px; width: play-bg-opt.content-width;
-                    checked: root.data.play-in-background; rem-size: root.rem-size;
-                    toggled(val) => { root.toggle-setting-option("playInBackground", val); }
-                }
-            }
+            SettingsSelectRow { x: 0px; y: 49 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Seek Time Duration"; input: SettingsUi.data.seek-time; fallback-title: "10 seconds"; select(opt) => { SettingsUi.select-option("seekTimeDuration", opt); } }
+            SettingsSelectRow { x: 0px; y: 53.5 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Seek Time Duration (Shift)"; input: SettingsUi.data.seek-short-time; fallback-title: "3 seconds"; select(opt) => { SettingsUi.select-option("seekShortTimeDuration", opt); } }
+            SettingsToggleRow { x: 0px; y: 58 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Play in background"; checked: SettingsUi.data.play-in-background; toggled(val) => { SettingsUi.toggle-option("playInBackground", val); } }
 
             SettingsCategoryHeader { x: 0px; y: 63 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Auto-Play"; }
-            binge-opt := SettingsOption {
-                x: 0px; y: 66 * root.rem-size; width: parent.width; height: 3 * root.rem-size; rem-size: root.rem-size;
-                label-text: "Auto-Play Next Episode";
-                SettingsToggle {
-                    x: 0px; y: 0px; width: binge-opt.content-width;
-                    checked: root.data.binge-watching; rem-size: root.rem-size;
-                    toggled(val) => { root.toggle-setting-option("bingeWatching", val); }
-                }
-            }
-            next-popup-opt := SettingsOption {
-                x: 0px; y: 70.5 * root.rem-size; width: parent.width; height: 3 * root.rem-size; rem-size: root.rem-size;
-                label-text: "Next Video Popup Duration";
-                MultiselectMenu {
-                    x: 0px; y: 0px; width: next-popup-opt.content-width;
-                    title: root.data.next-video-duration.title != "" ? root.data.next-video-duration.title : "35 seconds";
-                    options: root.data.next-video-duration.options;
-                    selected-index: root.data.next-video-duration.selected-index;
-                    rem-size: root.rem-size;
-                    select(option) => { root.select-setting-option("nextVideoNotificationDuration", option); }
-                }
-            }
+            SettingsToggleRow { x: 0px; y: 66 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Auto-Play Next Episode"; checked: SettingsUi.data.binge-watching; toggled(val) => { SettingsUi.toggle-option("bingeWatching", val); } }
+            SettingsSelectRow { x: 0px; y: 70.5 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Next Video Popup Duration"; input: SettingsUi.data.next-video-duration; fallback-title: "35 seconds"; select(opt) => { SettingsUi.select-option("nextVideoNotificationDuration", opt); } }
 
             SettingsCategoryHeader { x: 0px; y: 75.5 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Advanced"; }
-            ext-player-opt := SettingsOption {
-                x: 0px; y: 78.5 * root.rem-size; width: parent.width; height: 3 * root.rem-size; rem-size: root.rem-size;
-                label-text: "Play in External Player";
-                MultiselectMenu {
-                    x: 0px; y: 0px; width: ext-player-opt.content-width;
-                    title: root.data.external-player.title != "" ? root.data.external-player.title : "Disabled";
-                    options: root.data.external-player.options;
-                    selected-index: root.data.external-player.selected-index;
-                    rem-size: root.rem-size;
-                    select(option) => { root.select-setting-option("playerType", option); }
-                }
-            }
-            hwdec-opt := SettingsOption {
-                x: 0px; y: 83 * root.rem-size; width: parent.width; height: 3 * root.rem-size; rem-size: root.rem-size;
-                label-text: "Hardware-accelerated decoding";
-                SettingsToggle {
-                    x: 0px; y: 0px; width: hwdec-opt.content-width;
-                    checked: root.data.hardware-decoding; rem-size: root.rem-size;
-                    toggled(val) => { root.toggle-setting-option("hardwareDecoding", val); }
-                }
-            }
+            SettingsSelectRow { x: 0px; y: 78.5 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Play in External Player"; input: SettingsUi.data.external-player; fallback-title: "Disabled"; select(opt) => { SettingsUi.select-option("playerType", opt); } }
+            SettingsToggleRow { x: 0px; y: 83 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Hardware-accelerated decoding"; checked: SettingsUi.data.hardware-decoding; toggled(val) => { SettingsUi.toggle-option("hardwareDecoding", val); } }
         }
 
         SettingsSection {
@@ -834,89 +224,36 @@ export component SettingsContent inherits Rectangle {
 
             server-status-opt := SettingsOption {
                 x: 0px; y: 8.4 * root.rem-size; width: parent.width; height: 3.5 * root.rem-size; rem-size: root.rem-size;
-                label-text: root.server-status != "" ? root.server-status : "Streaming Server";
+                label-text: SettingsUi.server-status != "" ? SettingsUi.server-status : "Streaming Server";
                 SettingsButton {
-                    x: 0px; y: 0px; width: server-status-opt.content-width;
+                    width: server-status-opt.content-width;
                     rem-size: root.rem-size; label-text: "Reload"; disabled: false;
-                    clicked => { root.reload-streaming-server(); }
+                    clicked => { SettingsUi.reload-streaming-server(); }
                 }
             }
             server-url-opt := SettingsOption {
                 x: 0px; y: 13.5 * root.rem-size; width: parent.width; height: 3 * root.rem-size; rem-size: root.rem-size;
                 label-text: "Streaming Server URL";
                 SettingsValuePill {
-                    x: 0px; y: 0px; width: server-url-opt.content-width;
-                    value-text: root.data.streaming-server-url != "" ? root.data.streaming-server-url : "http://127.0.0.1:11470/";
+                    width: server-url-opt.content-width;
+                    value-text: SettingsUi.data.streaming-server-url != "" ? SettingsUi.data.streaming-server-url : "http://127.0.0.1:11470/";
                     rem-size: root.rem-size;
                 }
             }
-            caching-opt := SettingsOption {
-                x: 0px; y: 18 * root.rem-size; width: parent.width; height: 3 * root.rem-size; rem-size: root.rem-size;
-                label-text: "Caching";
-                MultiselectMenu {
-                    x: 0px; y: 0px; width: caching-opt.content-width;
-                    title: root.data.caching.title != "" ? root.data.caching.title : "2 GB";
-                    options: root.data.caching.options;
-                    selected-index: root.data.caching.selected-index;
-                    rem-size: root.rem-size;
-                    select(option) => { root.select-setting-option("caching", option); }
-                }
-            }
-            torrent-profile-opt := SettingsOption {
-                x: 0px; y: 22.5 * root.rem-size; width: parent.width; height: 3 * root.rem-size; rem-size: root.rem-size;
-                label-text: "Torrent Profile";
-                MultiselectMenu {
-                    x: 0px; y: 0px; width: torrent-profile-opt.content-width;
-                    title: root.data.torrent-profile.title != "" ? root.data.torrent-profile.title : "Default";
-                    options: root.data.torrent-profile.options;
-                    selected-index: root.data.torrent-profile.selected-index;
-                    rem-size: root.rem-size;
-                    select(option) => { root.select-setting-option("torrentProfile", option); }
-                }
-            }
-            transcoding-opt := SettingsOption {
-                x: 0px; y: 27 * root.rem-size; width: parent.width; height: 3 * root.rem-size; rem-size: root.rem-size;
-                label-text: "Transcoding Profile";
-                MultiselectMenu {
-                    x: 0px; y: 0px; width: transcoding-opt.content-width;
-                    title: root.data.transcoding-profile.title != "" ? root.data.transcoding-profile.title : "Disabled";
-                    options: root.data.transcoding-profile.options;
-                    selected-index: root.data.transcoding-profile.selected-index;
-                    rem-size: root.rem-size;
-                    select(option) => { root.select-setting-option("transcodingProfile", option); }
-                }
-            }
+            SettingsSelectRow { x: 0px; y: 18 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Caching"; input: SettingsUi.data.caching; fallback-title: "2 GB"; select(opt) => { SettingsUi.select-option("caching", opt); } }
+            SettingsSelectRow { x: 0px; y: 22.5 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Torrent Profile"; input: SettingsUi.data.torrent-profile; fallback-title: "Default"; select(opt) => { SettingsUi.select-option("torrentProfile", opt); } }
+            SettingsSelectRow { x: 0px; y: 27 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Transcoding Profile"; input: SettingsUi.data.transcoding-profile; fallback-title: "Disabled"; select(opt) => { SettingsUi.select-option("transcodingProfile", opt); } }
         }
 
-        SettingsSection {
+        SettingsShortcutsSection {
             x: root.sections-padding;
             y: root.shortcuts-top;
             width: root.section-width;
             height: root.shortcuts-height;
             rem-size: root.rem-size;
-            label-text: "Shortcuts";
-            last: true;
-
-            SettingsShortcutRow { x: 0px; y: 8.4 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Play / Pause"; first-key: "Space"; }
-            SettingsShortcutRow { x: 0px; y: 12.4 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Seek Forward"; first-key: "→"; joiner: "or"; second-key: "Shift + →"; }
-            SettingsShortcutRow { x: 0px; y: 16.4 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Seek Backward"; first-key: "←"; joiner: "or"; second-key: "Shift + ←"; }
-            SettingsShortcutRow { x: 0px; y: 20.4 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Volume Up"; first-key: "↑"; }
-            SettingsShortcutRow { x: 0px; y: 24.4 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Volume Down"; first-key: "↓"; }
-            SettingsShortcutRow { x: 0px; y: 28.4 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Mute / Unmute"; first-key: "M"; }
-            SettingsShortcutRow { x: 0px; y: 32.4 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Subtitles Size"; first-key: "-"; joiner: "/"; second-key: "="; }
-            SettingsShortcutRow { x: 0px; y: 36.4 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Subtitles Delay"; first-key: "G"; joiner: "/"; second-key: "H"; }
-            SettingsShortcutRow { x: 0px; y: 40.4 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Toggle Fullscreen"; first-key: "F"; joiner: "or"; second-key: "F11"; }
-            SettingsShortcutRow { x: 0px; y: 44.4 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Play Next Episode"; first-key: "Shift"; joiner: "+"; second-key: "N"; }
-            SettingsShortcutRow { x: 0px; y: 48.4 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Show Controls"; first-key: "T"; }
-            SettingsShortcutRow { x: 0px; y: 52.4 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Exit / Go Back"; first-key: "Esc"; joiner: "or"; second-key: "Backspace"; }
-            SettingsShortcutRow { x: 0px; y: 56.4 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Focus Search"; first-key: "S"; joiner: "or"; second-key: "Ctrl + F"; }
-            SettingsShortcutRow { x: 0px; y: 60.4 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Navigate Between Tabs"; first-key: "1"; joiner: "to"; second-key: "6"; }
-            SettingsShortcutRow { x: 0px; y: 64.4 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Go to Settings"; first-key: "Ctrl"; joiner: "+"; second-key: ","; }
-            SettingsShortcutRow { x: 0px; y: 68.4 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Reload App"; first-key: "F5"; joiner: "or"; second-key: "Ctrl + R"; }
         }
     }
 
-    // Web: Settings/Menu. 18rem wide, 3rem 1.5rem padding, the version labels at the bottom.
     menu := Rectangle {
         x: 0px;
         y: 0px;
@@ -926,28 +263,8 @@ export component SettingsContent inherits Rectangle {
         opacity: ClassStyles.opacity-or(ClassStyles.menu, 1.0);
         visible: !ClassStyles.menu.hidden;
 
-        SettingsMenuButton {
-            x: 1.5 * root.rem-size;
-            y: 3 * root.rem-size;
-            width: 15 * root.rem-size;
-            rem-size: root.rem-size;
-            label-text: "General";
-            selected: root.active-menu == 0;
-            clicked => {
-                sections-container.content-y = 0px;
-            }
-        }
-        SettingsMenuButton {
-            x: 1.5 * root.rem-size;
-            y: 7.5 * root.rem-size;
-            width: 15 * root.rem-size;
-            rem-size: root.rem-size;
-            label-text: "Interface";
-            selected: root.active-menu == 1;
-            clicked => {
-                root.scroll-to(root.interface-top);
-            }
-        }
+        SettingsMenuButton { x: 1.5 * root.rem-size; y: 3 * root.rem-size; width: 15 * root.rem-size; rem-size: root.rem-size; label-text: "General"; selected: root.active-menu == 0; clicked => { sections-container.content-y = 0px; } }
+        SettingsMenuButton { x: 1.5 * root.rem-size; y: 7.5 * root.rem-size; width: 15 * root.rem-size; rem-size: root.rem-size; label-text: "Interface"; selected: root.active-menu == 1; clicked => { root.scroll-to(root.interface-top); } }
         SettingsMenuButton { x: 1.5 * root.rem-size; y: 12 * root.rem-size; width: 15 * root.rem-size; rem-size: root.rem-size; label-text: "Player"; selected: root.active-menu == 2; clicked => { root.scroll-to(root.player-top); } }
         SettingsMenuButton { x: 1.5 * root.rem-size; y: 16.5 * root.rem-size; width: 15 * root.rem-size; rem-size: root.rem-size; label-text: "Streaming"; selected: root.active-menu == 3; clicked => { root.scroll-to(root.streaming-top); } }
         SettingsMenuButton { x: 1.5 * root.rem-size; y: 21 * root.rem-size; width: 15 * root.rem-size; rem-size: root.rem-size; label-text: "Shortcuts"; selected: root.active-menu == 4; clicked => { root.scroll-to(root.shortcuts-top); } }
@@ -957,14 +274,14 @@ export component SettingsContent inherits Rectangle {
             y: root.height - 99 * root.rem-size / 14;
             width: 15 * root.rem-size;
             rem-size: root.rem-size;
-            label-text: "App Version: " + root.app-version;
+            label-text: "App Version: " + SettingsUi.app-version;
         }
         SettingsVersionLabel {
             x: 1.5 * root.rem-size;
             y: root.height - 67 * root.rem-size / 14;
             width: 15 * root.rem-size;
             rem-size: root.rem-size;
-            label-text: "Build Version: " + root.build-version;
+            label-text: "Build Version: " + SettingsUi.build-version;
         }
     }
 

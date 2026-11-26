@@ -1,18 +1,15 @@
-//! Putting text on the system clipboard. One function, because the app only ever copies a link.
+//! Putting plain text on the system clipboard.
 
 /// Copies `text`, reporting a message when the system refuses so the caller can show it.
 #[cfg(target_os = "windows")]
 pub fn copy(text: &str) -> Result<(), String> {
-    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::Foundation::{GlobalFree, HANDLE, HGLOBAL};
     use windows::Win32::System::DataExchange::{EmptyClipboard, OpenClipboard, SetClipboardData};
     use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
 
-    /// The clipboard's plain-text format, from `winuser.h`. The `windows` crate types this as a
-    /// constant of the Ole subsystem, which this app does not otherwise use, so the number is here.
+    /// The clipboard's plain-text format, from `winuser.h`.
     const CF_UNICODETEXT: u32 = 13;
 
-    // The clipboard is one system-wide slot: while another process holds it the copy has to wait,
-    // and saying so beats reporting a copy that did not happen.
     // SAFETY: the clipboard is opened and closed on this same thread, and no window owns it.
     unsafe { OpenClipboard(None) }.map_err(|error| format!("the clipboard is busy: {error}"))?;
     let _closing = Closing;
@@ -22,11 +19,22 @@ pub fn copy(text: &str) -> Result<(), String> {
     // A trailing nul makes a valid CF_UNICODETEXT payload.
     let wide: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
 
-    // SAFETY: the block is allocated at the size of the buffer written into it just below, and then
-    // handed to the clipboard, which owns it from there on.
+    // Frees the allocation if anything fails before `SetClipboardData` takes ownership.
+    struct OwnedBlock(Option<HGLOBAL>);
+    impl Drop for OwnedBlock {
+        fn drop(&mut self) {
+            if let Some(block) = self.0.take() {
+                // SAFETY: `block` was allocated by `GlobalAlloc` and not handed to the clipboard.
+                let _ = unsafe { GlobalFree(Some(block)) };
+            }
+        }
+    }
+
+    // SAFETY: the block is sized for `wide`, filled while locked, unlocked, then transferred.
     unsafe {
         let block = GlobalAlloc(GMEM_MOVEABLE, wide.len() * 2)
             .map_err(|error| format!("could not allocate the clipboard memory: {error}"))?;
+        let mut owned = OwnedBlock(Some(block));
         let pointer = GlobalLock(block);
         if pointer.is_null() {
             return Err("could not reach the clipboard memory".to_owned());
@@ -35,6 +43,8 @@ pub fn copy(text: &str) -> Result<(), String> {
         GlobalUnlock(block).ok();
         SetClipboardData(CF_UNICODETEXT, Some(HANDLE(block.0)))
             .map_err(|error| format!("could not set the clipboard: {error}"))?;
+        // Ownership transferred to the system clipboard on success.
+        owned.0 = None;
     }
     Ok(())
 }

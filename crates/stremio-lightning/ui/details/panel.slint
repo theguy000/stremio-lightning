@@ -1,0 +1,221 @@
+// Based on stremio-web (https://github.com/Stremio/stremio-web), Copyright (C) 2017-2024 Smart code 203358507.
+// Numbers translated by hand from src/routes/MetaDetails/StreamsList/styles.less.
+// Licence basis: ../../THIRD_PARTY_NOTICES.md.
+import { SelectOption } from "../multiselect-menu.slint";
+import { ScrollBar } from "../scroll-bar.slint";
+import { Theme } from "../theme.slint";
+import { VideoRow, VideosList } from "../videos-list.slint";
+import { StreamsSkeleton, VideosSkeleton } from "skeleton.slint";
+import { StreamData, StreamRow, StreamsMessage } from "streams-parts.slint";
+
+export component DetailsPanel inherits Rectangle {
+    in property <length> rem-size;
+    in property <[SelectOption]> seasons;
+    in property <int> season-index: 0;
+    in property <string> season-title;
+    in property <bool> season-watched: false;
+    in property <[VideoRow]> episodes;
+    in property <length> viewport-width: 1280px;
+    in property <length> viewport-height: 720px;
+    in property <string> query;
+    in property <bool> show-picker: false;
+    in property <string> picked-label;
+    in property <[StreamData]> streams;
+    in property <int> streams-loading: 0;
+    in property <bool> waits-for-streams: false;
+    in property <bool> expect-streams: false;
+    in property <bool> has-title: false;
+    in property <string> play-message;
+    in property <bool> has-steps: false;
+    in property <int> season-number: 0;
+    in property <int> episode-number: 0;
+    in property <bool> can-show-streams: false;
+    in property <bool> wrap-streams: false;
+    property <length> choices-bottom: root.picked-label == "" ? 1.25 * root.rem-size : 4.5 * root.rem-size;
+
+    callback select-season(int);
+    callback pick-video(string);
+    callback search-videos(string);
+    callback watch-episode(string);
+    callback toggle-episode-watched(string);
+    callback toggle-season-watched();
+    callback back-to-episodes();
+    callback play-stream(int);
+    callback open-stream-menu(int, string, bool, length, length);
+    callback stepped-season(int);
+    callback stepped-episode(int);
+    callback show-streams;
+
+    background: transparent;
+    border-radius: 1.5 * root.rem-size;
+
+    if root.show-picker: VideosList {
+        seasons: root.seasons;
+        season-index: root.season-index;
+        season-title: root.season-title;
+        season-watched: root.season-watched;
+        videos: root.episodes;
+        rem-size: root.rem-size;
+        query: root.query;
+        viewport-width: root.viewport-width;
+        viewport-height: root.viewport-height;
+        select-season(index) => { root.select-season(index); }
+        pick-video(id) => { root.pick-video(id); }
+        search-videos(text) => { root.search-videos(text); }
+        watch-episode(id) => { root.watch-episode(id); }
+        toggle-episode-watched(id) => { root.toggle-episode-watched(id); }
+        toggle-season-watched => { root.toggle-season-watched(); }
+    }
+
+    if !root.show-picker: Rectangle {
+        width: parent.width;
+        height: parent.height;
+
+        HorizontalLayout {
+            y: 1.25 * root.rem-size;
+            height: 2.25 * root.rem-size;
+            padding-left: 1.25 * root.rem-size;
+            padding-right: 1.25 * root.rem-size;
+            spacing: 0.5 * root.rem-size;
+            alignment: start;
+            visible: root.picked-label != "";
+
+            if root.picked-label != "": Rectangle {
+                width: 2.25 * root.rem-size;
+                height: 2.25 * root.rem-size;
+                border-radius: 1.125 * root.rem-size;
+                background: back-touch.has-hover ? Theme.overlay : transparent;
+                Image {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    width: 1 * root.rem-size;
+                    height: 1 * root.rem-size;
+                    source: @image-url("../icons/chevron-back.svg");
+                    colorize: Theme.text;
+                    opacity: back-touch.has-hover ? 1 : 0.85;
+                }
+                back-touch := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { root.back-to-episodes(); }
+                }
+            }
+            if root.picked-label != "": Text {
+                height: 2.25 * root.rem-size;
+                text: root.picked-label;
+                color: Theme.text;
+                font-size: 1.05 * root.rem-size;
+                font-weight: 700;
+                vertical-alignment: center;
+                overflow: elide;
+                horizontal-stretch: 1;
+            }
+        }
+
+        body := Flickable {
+            x: 0.625 * root.rem-size;
+            y: root.choices-bottom;
+            width: parent.width - 1.25 * root.rem-size;
+            height: parent.height - self.y;
+            content-width: self.width;
+
+            VerticalLayout {
+                alignment: start;
+                spacing: 0;
+
+                if root.play-message != "": Text {
+                    text: root.play-message;
+                    color: Theme.accent-red;
+                    font-size: 0.9 * root.rem-size;
+                    wrap: word-wrap;
+                }
+
+                if !root.has-title && !root.expect-streams && root.streams.length == 0: VideosSkeleton {
+                    rem-size: root.rem-size;
+                }
+                if root.streams.length == 0 && (root.expect-streams || root.has-title) && (!root.has-title || (root.streams-loading > 0 && root.waits-for-streams)): StreamsSkeleton {
+                    rem-size: root.rem-size;
+                }
+
+                if root.streams.length == 0 && root.has-title && (root.streams-loading == 0 || !root.waits-for-streams): StreamsMessage {
+                    rem-size: root.rem-size;
+                    show-steps: root.has-steps;
+                    season: root.season-number;
+                    episode: root.episode-number;
+                    can-show-streams: root.can-show-streams;
+                    step-season(delta) => { root.stepped-season(delta); }
+                    step-episode(delta) => { root.stepped-episode(delta); }
+                    show-streams => { root.show-streams(); }
+                }
+
+                if root.streams.length > 0: VerticalLayout {
+                    alignment: start;
+                    padding-top: 0.25 * root.rem-size;
+                    padding-bottom: 2.5 * root.rem-size;
+                    spacing: 0.6 * root.rem-size;
+                    for stream[index] in root.streams: VerticalLayout {
+                        spacing: 0.5 * root.rem-size;
+                        if stream.addon != "" && (index == 0 || root.streams[index - 1].addon != stream.addon): HorizontalLayout {
+                            padding-left: 1.125 * root.rem-size;
+                            padding-right: 1.125 * root.rem-size;
+                            padding-top: index == 0 ? 0.25 * root.rem-size : 1.25 * root.rem-size;
+                            padding-bottom: 0.35 * root.rem-size;
+                            Text {
+                                text: stream.addon;
+                                font-size: 0.8125 * root.rem-size;
+                                font-weight: 800;
+                                letter-spacing: 0.035 * root.rem-size;
+                                color: rgba(255, 255, 255, 0.55);
+                            }
+                        }
+                        StreamRow {
+                            source: stream;
+                            rem-size: root.rem-size;
+                            wrap: root.wrap-streams;
+                            clicked => { root.play-stream(index); }
+                            open-menu(mx, my) => {
+                                root.open-stream-menu(index, stream.link, stream.is-magnet, mx, my);
+                            }
+                        }
+                    }
+                }
+
+                if root.streams.length > 0 && root.streams-loading > 0: VerticalLayout {
+                    alignment: center;
+                    padding: 2 * root.rem-size;
+                    spacing: 1 * root.rem-size;
+                    Text {
+                        text: root.streams-loading + " addons loading";
+                        color: Theme.text;
+                        font-size: 1 * root.rem-size;
+                        horizontal-alignment: center;
+                    }
+                    Rectangle {
+                        width: 90%;
+                        height: 0.3 * root.rem-size;
+                        border-radius: 0.75 * root.rem-size;
+                        background: Theme.accent;
+                    }
+                }
+            }
+        }
+
+
+
+        ScrollBar {
+            x: parent.width - self.width;
+            y: body.y;
+            height: body.height;
+            view-height: body.height;
+            content-height: body.content-height;
+            offset <=> body.content-y;
+        }
+    }
+
+    Rectangle {
+        x: 0;
+        y: parent.height - 3 * root.rem-size;
+        width: parent.width;
+        height: 3 * root.rem-size;
+        background: @linear-gradient(0deg, rgba(12, 11, 17, 0.78) 0%, rgba(12, 11, 17, 0.0) 100%);
+    }
+}

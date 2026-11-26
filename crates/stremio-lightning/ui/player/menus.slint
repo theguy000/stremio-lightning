@@ -1,0 +1,221 @@
+// Popup menus container for the Player screen (Speed, AniSkip, Audio, Subtitles, Options).
+import { Theme } from "../theme.slint";
+import { MenuHeader, OptionRow, TrackRow } from "menu-rows.slint";
+import { PlayerSkipPanel } from "skip-panel.slint";
+import { PlayerSlider } from "slider.slint";
+import { PlayerSubtitlesMenu } from "subtitles-menu.slint";
+import { LanguageOption, PlayerMenu, PlayerOption, PlayerTrack, SkipRow } from "types.slint";
+
+export component PlayerMenusPopup inherits Rectangle {
+    in property <length> rem-size;
+    in property <string> menu;
+    in property <float> time;
+    in property <float> speed;
+    in property <[PlayerTrack]> audio-tracks;
+    in property <[LanguageOption]> subtitle-languages;
+    in property <string> subtitle-language;
+    in property <[PlayerTrack]> subtitle-variants;
+    in property <bool> subtitles-enabled;
+    in property <float> subtitles-offset;
+    in property <float> subtitles-size;
+    in property <float> subtitles-position;
+    in property <[PlayerOption]> options;
+    in property <string> skip-kind;
+    in property <[SkipRow]> skip-rows;
+    in-out property <string> skip-start;
+    in-out property <string> skip-end;
+    in property <string> skip-notice;
+
+    callback set-speed(float);
+    callback select-audio(string);
+    callback choose-language(string);
+    callback choose-subtitles(string);
+    callback step-subtitles-offset(int);
+    callback step-subtitles-size(int);
+    callback step-subtitles-position(int);
+    callback choose-option(string);
+    callback pick-skip-kind(string);
+    callback submit-skip(string, string, string);
+    callback vote-skip(string, bool);
+
+    property <length> menu-padding: 1 * root.rem-size;
+    property <length> menu-gap: 0.25 * root.rem-size;
+    property <length> menu-header: 4.5 * root.rem-size;
+    property <length> menu-row: 4 * root.rem-size;
+    property <length> menu-max: 25 * root.rem-size;
+    pure function rows-height(count: int) -> length {
+        count <= 0 ? root.rem-size : count * root.menu-row + (count - 1) * 0.5 * root.rem-size + root.rem-size
+    }
+    property <length> menu-list-room: Math.max(0px, root.menu-max - root.menu-header);
+    property <length> options-rows-height:
+        root.options.length <= 0 ? 0px
+        : root.options.length * 3.5 * root.rem-size + (root.options.length - 1) * root.menu-gap;
+    property <length> menu-list-height:
+        root.menu == "options"
+        ? Math.min(root.options-rows-height, Math.max(0px, root.menu-max - 2 * root.menu-padding))
+        : root.menu-list-room;
+    property <length> skip-rows-height:
+        root.skip-rows.length == 0 ? 2.4 * root.rem-size
+        : root.skip-rows.length * 2.6 * root.rem-size + (root.skip-rows.length - 1) * 0.5 * root.rem-size;
+
+    width: root.menu == "speed" ? 30 * root.rem-size
+        : root.menu == "subtitles" ? 49 * root.rem-size
+        : root.menu == "audio" ? 16 * root.rem-size
+        : 22 * root.rem-size;
+    height: root.menu == "speed" ? root.rem-size * 12.6
+        : root.menu == "skip" ? root.rem-size * 15.4 + root.skip-rows-height
+        : root.menu == "subtitles" ? root.menu-max
+        : root.menu == "audio"
+        ? Math.min(root.menu-header + root.rows-height(root.audio-tracks.length), root.menu-max)
+        : 2 * root.menu-padding + root.menu-list-height;
+
+    TouchArea {
+        pointer-event(event) => { EventResult.accept }
+    }
+
+    PlayerMenu {
+        width: parent.width;
+        height: parent.height;
+        rem-size: root.rem-size;
+
+        if root.menu == "speed": VerticalLayout {
+            padding: 1 * root.rem-size;
+            spacing: 0.25 * root.rem-size;
+            alignment: start;
+
+            Text {
+                height: 3.4 * root.rem-size;
+                text: "Playback Speed";
+                font-size: 1 * root.rem-size;
+                font-weight: 700;
+                color: Theme.text;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+            VerticalLayout {
+                padding-top: 0.5 * root.rem-size;
+                padding-bottom: 0.5 * root.rem-size;
+                spacing: 0.5 * root.rem-size;
+                alignment: start;
+                Text {
+                    height: 1.4 * root.rem-size;
+                    text: (Math.round(root.speed * 100) / 100) + "x";
+                    font-size: 1 * root.rem-size;
+                    font-weight: 700;
+                    color: Theme.text;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                PlayerSlider {
+                    height: 2 * root.rem-size;
+                    rem-size: root.rem-size;
+                    value: root.speed;
+                    minimum: 0.1;
+                    maximum: 4;
+                    ring: true;
+                    track-size: 0.35 * root.rem-size;
+                    thumb-size: 1 * root.rem-size;
+                    slid(value) => { root.set-speed(Math.round(value * 20) / 20); }
+                }
+                HorizontalLayout {
+                    height: 1.8 * root.rem-size;
+                    spacing: 0.25 * root.rem-size;
+                    for rate in [0.5, 1, 1.25, 1.5, 1.75, 2, 4]: Rectangle {
+                        horizontal-stretch: 1;
+                        min-width: 3 * root.rem-size;
+                        height: 1.8 * root.rem-size;
+                        border-radius: 0.75 * root.rem-size;
+                        background: Math.abs(rate - root.speed) < 0.01 || rate-touch.has-hover ? Theme.overlay : transparent;
+                        Text {
+                            text: rate + "x";
+                            font-size: 0.9 * root.rem-size;
+                            color: Math.abs(rate - root.speed) < 0.01 ? Theme.accent-soft : Theme.text;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                        rate-touch := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => { root.set-speed(rate); }
+                        }
+                    }
+                }
+            }
+        }
+
+        if root.menu == "skip": PlayerSkipPanel {
+            rem-size: root.rem-size;
+            time: root.time;
+            skip-kind: root.skip-kind;
+            skip-rows: root.skip-rows;
+            skip-start <=> root.skip-start;
+            skip-end <=> root.skip-end;
+            skip-notice: root.skip-notice;
+            pick-skip-kind(kind) => { root.pick-skip-kind(kind); }
+            submit-skip(kind, start, end) => { root.submit-skip(kind, start, end); }
+            vote-skip(id, up) => { root.vote-skip(id, up); }
+        }
+
+        if root.menu == "audio": VerticalLayout {
+            spacing: 0;
+            alignment: start;
+            MenuHeader {
+                rem-size: root.rem-size;
+                title: "Audio Tracks";
+            }
+            Flickable {
+                width: parent.width;
+                height: root.menu-list-height;
+                VerticalLayout {
+                    spacing: 0.5 * root.rem-size;
+                    padding-left: 1 * root.rem-size;
+                    padding-right: 1 * root.rem-size;
+                    padding-bottom: 1 * root.rem-size;
+                    alignment: start;
+                    for track in root.audio-tracks: TrackRow {
+                        rem-size: root.rem-size;
+                        primary: track.language;
+                        secondary: track.title;
+                        selected: track.selected;
+                        clicked => { root.select-audio(track.id); }
+                    }
+                }
+            }
+        }
+
+        if root.menu == "subtitles": PlayerSubtitlesMenu {
+            rem-size: root.rem-size;
+            list-height: root.menu-list-height;
+            subtitle-languages: root.subtitle-languages;
+            subtitle-language: root.subtitle-language;
+            subtitle-variants: root.subtitle-variants;
+            subtitles-enabled: root.subtitles-enabled;
+            subtitles-offset: root.subtitles-offset;
+            subtitles-size: root.subtitles-size;
+            subtitles-position: root.subtitles-position;
+            choose-language(language) => { root.choose-language(language); }
+            choose-subtitles(id) => { root.choose-subtitles(id); }
+            step-subtitles-offset(delta) => { root.step-subtitles-offset(delta); }
+            step-subtitles-size(delta) => { root.step-subtitles-size(delta); }
+            step-subtitles-position(delta) => { root.step-subtitles-position(delta); }
+        }
+
+        if root.menu == "options": VerticalLayout {
+            spacing: 0.25 * root.rem-size;
+            padding: 1 * root.rem-size;
+            alignment: start;
+            Flickable {
+                height: root.menu-list-height;
+                VerticalLayout {
+                    width: parent.width;
+                    spacing: root.menu-gap;
+                    alignment: start;
+                    for option in root.options: OptionRow {
+                        rem-size: root.rem-size;
+                        option: option;
+                        clicked => { root.choose-option(option.action); }
+                    }
+                }
+            }
+        }
+    }
+}

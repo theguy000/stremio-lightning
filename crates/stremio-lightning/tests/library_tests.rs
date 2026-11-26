@@ -36,14 +36,14 @@ fn init_env() {
             .enable_all()
             .build()
             .expect("a tokio runtime");
-        stremio_lightning_env::AppEnv::init(dir, tokio.handle().clone()).expect("an environment");
+        stremio_lightning::AppEnv::init(dir, tokio.handle().clone()).expect("an environment");
     });
 }
 
 /// The app's runtime over a library the test hands it, and the library already selected the way
 /// `app::build::load_everything` selects it. The receiver is returned so the core can keep
 /// reporting events for as long as the test dispatches; dropping it panics the runtime.
-type Events = Receiver<RuntimeEvent<stremio_lightning_env::AppEnv, app::AppModel>>;
+type Events = Receiver<RuntimeEvent<stremio_lightning::AppEnv, app::AppModel>>;
 
 fn runtime_with(
     items: Vec<LibraryItem>,
@@ -54,7 +54,7 @@ fn runtime_with(
     let uid = profile.uid();
     let library = LibraryBucket::new(uid.clone(), items);
     let notifications =
-        NotificationsBucket::new::<stremio_lightning_env::AppEnv>(uid.clone(), notifications);
+        NotificationsBucket::new::<stremio_lightning::AppEnv>(uid.clone(), notifications);
     let (continue_watching_preview, _) = ContinueWatchingPreview::new(&library, &notifications);
     let (library_with_filters, _) =
         LibraryWithFilters::<NotRemovedFilter>::new(&library, &notifications);
@@ -65,7 +65,7 @@ fn runtime_with(
             profile,
             library,
             StreamsBucket::new(uid.clone()),
-            ServerUrlsBucket::new::<stremio_lightning_env::AppEnv>(uid.clone()),
+            ServerUrlsBucket::new::<stremio_lightning::AppEnv>(uid.clone()),
             notifications,
             SearchHistoryBucket::new(uid.clone()),
             DismissedEventsBucket::new(uid),
@@ -211,9 +211,11 @@ fn the_grid_lists_the_whole_library_newest_watched_first() {
     );
 
     assert_eq!(data.message, "");
-    assert!(data.type_title == "All");
+    assert!(data.types.menu.title == "All");
     assert_eq!(
-        data.type_options
+        data.types
+            .menu
+            .options
             .iter()
             .map(|(label, _)| label.as_str())
             .collect::<Vec<_>>(),
@@ -271,7 +273,7 @@ fn choosing_a_type_loads_only_that_type_and_the_message_says_when_it_is_empty() 
     let request = {
         let model = runtime.model().expect("the model is readable");
         let data = screens::library::data(&model);
-        data.type_requests[2].clone()
+        data.types.values[2].clone()
     };
     runtime.dispatch(RuntimeAction {
         field: None,
@@ -280,7 +282,7 @@ fn choosing_a_type_loads_only_that_type_and_the_message_says_when_it_is_empty() 
 
     let model = runtime.model().expect("the model is readable");
     let data = screens::library::data(&model);
-    assert_eq!(data.type_title, "Series");
+    assert_eq!(data.types.menu.title, "Series");
     assert_eq!(
         data.cards
             .iter()

@@ -34,7 +34,7 @@ fn init_env() {
             .enable_all()
             .build()
             .expect("a tokio runtime");
-        stremio_lightning_env::AppEnv::init(dir, tokio.handle().clone()).expect("an environment");
+        stremio_lightning::AppEnv::init(dir, tokio.handle().clone()).expect("an environment");
     });
 }
 
@@ -68,7 +68,7 @@ fn runtime_with(
 ) -> (
     std::sync::Arc<app::AppRuntime>,
     futures::channel::mpsc::Receiver<
-        stremio_core::runtime::RuntimeEvent<stremio_lightning_env::AppEnv, app::AppModel>,
+        stremio_core::runtime::RuntimeEvent<stremio_lightning::AppEnv, app::AppModel>,
     >,
 ) {
     let model = model_with(addons);
@@ -84,8 +84,7 @@ fn model_with(addons: Vec<Descriptor>) -> app::AppModel {
     };
     let uid = profile.uid();
     let library = LibraryBucket::new(uid.clone(), vec![]);
-    let notifications =
-        NotificationsBucket::new::<stremio_lightning_env::AppEnv>(uid.clone(), vec![]);
+    let notifications = NotificationsBucket::new::<stremio_lightning::AppEnv>(uid.clone(), vec![]);
     let (continue_watching_preview, _) = ContinueWatchingPreview::new(&library, &notifications);
     let (library_with_filters, _) =
         LibraryWithFilters::<NotRemovedFilter>::new(&library, &notifications);
@@ -97,7 +96,7 @@ fn model_with(addons: Vec<Descriptor>) -> app::AppModel {
             profile,
             library,
             StreamsBucket::new(uid.clone()),
-            ServerUrlsBucket::new::<stremio_lightning_env::AppEnv>(uid.clone()),
+            ServerUrlsBucket::new::<stremio_lightning::AppEnv>(uid.clone()),
             notifications,
             SearchHistoryBucket::new(uid.clone()),
             DismissedEventsBucket::new(uid),
@@ -120,7 +119,7 @@ fn the_catalog_menu_is_installed_and_then_every_catalog_the_addons_declare() {
     let model = model_with(vec![cinemeta()]);
     let data = screens::addons::data(&model);
 
-    let catalog = &data.inputs[0];
+    let catalog = &data.inputs[0].menu;
     let labels: Vec<&str> = catalog
         .options
         .iter()
@@ -133,12 +132,12 @@ fn the_catalog_menu_is_installed_and_then_every_catalog_the_addons_declare() {
     );
     assert_eq!(catalog.selected, 0);
     assert_eq!(
-        data.inputs[0].title, "Installed",
+        catalog.title, "Installed",
         "the closed menu names what is on screen"
     );
 
     // The type menu under "Installed" is the types the account's addons cover.
-    let kinds = &data.inputs[1];
+    let kinds = &data.inputs[1].menu;
     assert_eq!(kinds.options[0].0, "All");
     assert!(
         kinds.options.iter().any(|(label, _)| label == "Movie"),
@@ -146,7 +145,8 @@ fn the_catalog_menu_is_installed_and_then_every_catalog_the_addons_declare() {
     );
 
     // Choosing "Community" is a marketplace load, not an installed-addons one.
-    let community = data.choices[0]
+    let community = data.inputs[0]
+        .values
         .iter()
         .find(|choice| {
             matches!(

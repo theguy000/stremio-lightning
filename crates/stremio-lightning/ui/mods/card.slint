@@ -1,0 +1,252 @@
+// Plugin and theme catalogue card view for the Mods section.
+import { ClassStyles } from "../class-styles.slint";
+import { Theme } from "../theme.slint";
+import { ModCardData } from "types.slint";
+
+component ModToggle inherits Rectangle {
+    in property <bool> on;
+    in property <string> name;
+    in property <length> rem-size;
+    callback toggled();
+
+    width: 3.2 * root.rem-size;
+    height: 1.8 * root.rem-size;
+    border-radius: self.height / 2;
+    border-width: 1px;
+    border-color: ClassStyles.color-or(ClassStyles.mod-toggle, root.on ? Theme.accent-green : Theme.placeholder);
+    background: ClassStyles.background-or(ClassStyles.mod-toggle, root.on ? Theme.accent-green : transparent);
+    opacity: ClassStyles.opacity-or(ClassStyles.mod-toggle, 1.0);
+    visible: !ClassStyles.mod-toggle.hidden;
+
+    knob := Rectangle {
+        x: root.on ? parent.width - self.width - 2 * root.rem-size / 14 : 2 * root.rem-size / 14;
+        y: (parent.height - self.height) / 2;
+        width: parent.height - 4 * root.rem-size / 14;
+        height: self.width;
+        border-radius: self.width / 2;
+        background: Theme.text;
+    }
+    touch := TouchArea {
+        width: 100%;
+        height: 100%;
+        mouse-cursor: pointer;
+        accessible-role: switch;
+        accessible-label: (root.on ? "Disable " : "Enable ") + root.name;
+        accessible-checkable: true;
+        accessible-checked: root.on;
+        clicked => { root.toggled(); }
+    }
+}
+
+component ModRemoveButton inherits Rectangle {
+    in property <bool> armed;
+    in property <string> name;
+    in property <length> rem-size;
+    callback clicked();
+
+    height: 3 * root.rem-size;
+    width: remove-label.width + 2 * root.rem-size;
+    border-radius: self.height / 2;
+    border-width: 2px;
+    border-color: root.armed ? Theme.accent-red : Theme.text;
+    background: ClassStyles.background-or(ClassStyles.mod-remove-button, touch.has-hover || root.armed ? Theme.overlay : transparent);
+    opacity: ClassStyles.opacity-or(ClassStyles.mod-remove-button, touch.has-hover || root.armed ? 1.0 : 0.3);
+    visible: !ClassStyles.mod-remove-button.hidden;
+
+    remove-label := Text {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: self.preferred-width;
+        text: root.armed ? "Confirm remove" : "Remove";
+        font-size: root.rem-size;
+        font-weight: 700;
+        color: ClassStyles.color-or(ClassStyles.mod-remove-button-label, root.armed ? Theme.accent-red : Theme.text);
+        visible: !ClassStyles.mod-remove-button-label.hidden;
+    }
+    touch := TouchArea {
+        width: 100%;
+        height: 100%;
+        mouse-cursor: pointer;
+        accessible-role: button;
+        accessible-label: (root.armed ? "Confirm removing " : "Remove ") + root.name;
+        clicked => { root.clicked(); }
+    }
+}
+
+component ModSettingsButton inherits Rectangle {
+    in property <string> name;
+    in property <length> rem-size;
+    callback clicked();
+
+    width: 3 * root.rem-size;
+    height: 3 * root.rem-size;
+    border-radius: self.width / 2;
+    background: touch.has-hover ? Theme.border-medium : Theme.overlay-hover;
+
+    Image {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: 1.4 * root.rem-size;
+        height: 1.4 * root.rem-size;
+        source: @image-url("../icons/settings.svg");
+        colorize: Theme.text;
+        opacity: touch.has-hover ? 1.0 : 0.7;
+    }
+    touch := TouchArea {
+        width: 100%;
+        height: 100%;
+        mouse-cursor: pointer;
+        accessible-role: button;
+        accessible-label: "Settings for " + root.name;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component ModCardView inherits Rectangle {
+    in property <ModCardData> data;
+    in property <length> rem-size;
+    callback toggle();
+    callback remove();
+    callback settings();
+    callback dismiss();
+
+    property <length> pad: 1.5 * root.rem-size;
+    property <length> buttons-width: 3.2 * root.rem-size;
+    property <length> text-width: root.width - 2 * root.pad - root.buttons-width - root.rem-size;
+    property <length> body-height: (root.data.description == "" ? 0px : 2 * root.rem-size)
+        + (root.data.unreadable == "" ? 0px : 2 * root.rem-size)
+        + root.data.warnings.length * 1.2 * root.rem-size;
+    property <length> body-end: root.pad + 4.4 * root.rem-size + root.body-height;
+    height: Math.max(
+        10 * root.rem-size,
+        6.0 * root.rem-size + root.pad + root.body-height + (root.data.armed ? 2.6 * root.rem-size : 0px)
+    );
+
+    mod-card := Rectangle {
+        width: parent.width;
+        height: parent.height;
+        border-radius: 0.75 * root.rem-size;
+        border-width: 2 * root.rem-size / 14;
+        border-color: root.data.armed ? Theme.accent-red : transparent;
+        background: ClassStyles.background-or(ClassStyles.mod-card, Theme.overlay);
+        opacity: ClassStyles.opacity-or(ClassStyles.mod-card, 1.0);
+        visible: !ClassStyles.mod-card.hidden;
+
+        body-touch := TouchArea {
+            width: 100%;
+            height: 100%;
+            clicked => { root.dismiss(); }
+        }
+
+        mod-title := Text {
+            x: root.pad;
+            y: root.pad;
+            width: root.text-width;
+            height: 2 * root.rem-size;
+            text: root.data.name;
+            overflow: elide;
+            vertical-alignment: center;
+            font-size: 1.6 * root.rem-size;
+            color: ClassStyles.color-or(ClassStyles.mod-title, Theme.text);
+            opacity: ClassStyles.opacity-or(ClassStyles.mod-title, 1.0);
+            visible: !ClassStyles.mod-title.hidden;
+        }
+        mod-byline := Text {
+            x: root.pad;
+            y: root.pad + 2 * root.rem-size;
+            width: root.text-width;
+            height: 1.2 * root.rem-size;
+            text: root.data.byline;
+            overflow: elide;
+            vertical-alignment: center;
+            font-size: root.rem-size;
+            color: ClassStyles.color-or(ClassStyles.mod-byline, Theme.text);
+            opacity: ClassStyles.opacity-or(ClassStyles.mod-byline, 0.6);
+            visible: !ClassStyles.mod-byline.hidden;
+        }
+        mod-description := Text {
+            x: root.pad;
+            y: root.pad + 4.4 * root.rem-size;
+            width: root.text-width;
+            height: 2 * root.rem-size;
+            text: root.data.description;
+            wrap: word-wrap;
+            overflow: elide;
+            vertical-alignment: top;
+            font-size: root.rem-size;
+            color: ClassStyles.color-or(ClassStyles.mod-description, Theme.text);
+            opacity: ClassStyles.opacity-or(ClassStyles.mod-description, 1.0);
+            visible: root.data.description != "" && !ClassStyles.mod-description.hidden;
+        }
+        mod-unreadable := Text {
+            x: root.pad;
+            y: mod-description.y + (root.data.description == "" ? 0px : 2 * root.rem-size);
+            width: root.text-width;
+            height: 2 * root.rem-size;
+            text: root.data.unreadable;
+            wrap: word-wrap;
+            overflow: elide;
+            vertical-alignment: top;
+            font-size: root.rem-size;
+            color: ClassStyles.color-or(ClassStyles.mod-warning, Theme.text);
+            opacity: ClassStyles.opacity-or(ClassStyles.mod-warning, 0.7);
+            visible: root.data.unreadable != "" && !ClassStyles.mod-warning.hidden;
+        }
+        for warning[index] in root.data.warnings: mod-warning := Text {
+            x: root.pad;
+            y: mod-unreadable.y + (root.data.unreadable == "" ? 0px : 2 * root.rem-size) + index * 1.2 * root.rem-size;
+            width: root.text-width;
+            height: 1.2 * root.rem-size;
+            text: warning;
+            overflow: elide;
+            font-size: 0.9 * root.rem-size;
+            color: ClassStyles.color-or(ClassStyles.mod-warning, Theme.accent-yellow);
+            opacity: ClassStyles.opacity-or(ClassStyles.mod-warning, 1.0);
+            visible: !ClassStyles.mod-warning.hidden;
+        }
+
+        mod-toggle-container := Rectangle {
+            x: parent.width - root.pad - root.buttons-width;
+            y: root.pad;
+            width: root.buttons-width;
+            height: 1.8 * root.rem-size;
+            background: ClassStyles.background-or(ClassStyles.mod-toggle-container, transparent);
+            opacity: ClassStyles.opacity-or(ClassStyles.mod-toggle-container, 1.0);
+            visible: !ClassStyles.mod-toggle-container.hidden;
+
+            mod-toggle := ModToggle {
+                y: (parent.height - self.height) / 2;
+                rem-size: root.rem-size;
+                on: root.data.enabled;
+                name: root.data.filename;
+                toggled => { root.toggle(); }
+            }
+        }
+
+        if root.data.armed: mod-armed-note := Text {
+            x: root.pad;
+            y: root.body-end + 0.2 * root.rem-size;
+            width: root.text-width;
+            height: 2.4 * root.rem-size;
+            text: "Pressing Confirm remove deletes " + root.data.filename + " from this computer.";
+            wrap: word-wrap;
+            font-size: 0.9 * root.rem-size;
+            color: Theme.accent-red;
+        }
+        if root.data.has-settings: ModSettingsButton {
+            x: parent.width - root.pad - self.width;
+            y: parent.height - root.pad - self.height;
+            rem-size: root.rem-size;
+            name: root.data.filename;
+            clicked => { root.settings(); }
+        }
+        if root.data.removable: ModRemoveButton {
+            x: parent.width - root.pad - self.width - (root.data.has-settings ? 3.4 * root.rem-size : 0px);
+            y: parent.height - root.pad - self.height;
+            rem-size: root.rem-size;
+            armed: root.data.armed;
+            name: root.data.filename;
+            clicked => { root.remove(); }
+        }
+    }
+}

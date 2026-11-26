@@ -1,0 +1,294 @@
+// Full Logs subpage for the Mods section (keyboard, drag-select, table, and detail drawer).
+import { ClassStyles } from "../class-styles.slint";
+import { ScrollBar } from "../scroll-bar.slint";
+import { SelectOption } from "../multiselect-menu.slint";
+import { Theme } from "../theme.slint";
+import { ModsLogDetailDrawer, ModsLogHeader, ModsLogRowView } from "logs-row.slint";
+import { ModsLogsHeaderBar } from "logs-toolbar.slint";
+import { ModsLogRow } from "types.slint";
+
+export component ModsLogsPage inherits Rectangle {
+    in property <length> rem-size;
+    in property <[SelectOption]> log-source-options;
+    in property <[SelectOption]> log-level-options;
+    in property <int> log-source-index;
+    in property <int> log-level-index;
+    in property <string> log-search;
+    in property <[ModsLogRow]> log-rows;
+    in property <string> log-empty;
+    in property <string> log-detail-heading;
+    in property <[string]> log-detail;
+    in property <int> log-open-id;
+    in property <int> log-active-index;
+    in property <int> log-selected-count;
+    in property <string> log-count;
+    in property <bool> log-filtered;
+    in property <int> log-prepended;
+    in property <int> log-prepend-seq;
+    in property <bool> log-clear-armed;
+
+    callback filter-logs(string, int);
+    callback search-logs(string);
+    callback reset-logs-filter();
+    callback press-log(int, bool, bool);
+    callback drag-log(int);
+    callback release-log(int);
+    callback step-log(int, bool);
+    callback select-all-logs();
+    callback copy-log();
+    callback close-log();
+    callback clear-logs();
+
+    property <length> filter-height: 7.9 * root.rem-size;
+    property <length> row-height: 2.2 * root.rem-size;
+    property <bool> detail-open: root.log-detail.length > 0;
+    property <bool> scroll-after-detail: false;
+    property <length> watched-rows-height: log-list.height;
+    property <length> watched-content-height: log-list.content-height;
+
+    pure function log-row-at(y: length, row-h: length, count: int) -> int {
+        if (count <= 0 || row-h <= 0px) { return 0; }
+        return Math.min(count - 1, Math.max(0, Math.floor(y / row-h)));
+    }
+
+    function clamp-log-scroll() {
+        if (log-list.content-height <= log-list.height) {
+            log-list.content-y = 0px;
+        } else {
+            log-list.content-y = Math.min(0px, Math.max(log-list.height - log-list.content-height, log-list.content-y));
+        }
+    }
+
+    function ensure-row-visible(index: int) {
+        if (index < 0 || index >= root.log-rows.length) { return; }
+        if (log-list.height <= 0px || log-list.content-height <= log-list.height) {
+            log-list.content-y = 0px;
+            return;
+        }
+        if (index * self.row-height < -log-list.content-y) {
+            log-list.content-y = -(index * self.row-height);
+        } else if ((index + 1) * self.row-height > -log-list.content-y + log-list.height) {
+            log-list.content-y = Math.max(log-list.height - log-list.content-height, log-list.height - (index + 1) * self.row-height);
+        }
+    }
+
+    init => { log-keys.focus(); }
+    changed log-active-index => {
+        if (self.log-active-index >= 0) { self.ensure-row-visible(self.log-active-index); }
+    }
+    changed detail-open => { self.scroll-after-detail = self.detail-open; }
+    changed watched-rows-height => {
+        self.clamp-log-scroll();
+        if (self.scroll-after-detail) {
+            self.scroll-after-detail = false;
+            self.ensure-row-visible(root.log-active-index);
+        }
+    }
+    changed watched-content-height => { self.clamp-log-scroll(); }
+    changed log-prepend-seq => {
+        if (log-list.content-y < 0px && root.log-prepended > 0) {
+            log-list.content-y = Math.max(log-list.height - log-list.content-height, log-list.content-y - root.log-prepended * self.row-height);
+        }
+    }
+    changed log-search => { log-list.content-y = 0px; }
+    changed log-source-index => { log-list.content-y = 0px; }
+    changed log-level-index => { log-list.content-y = 0px; }
+
+    log-keys := FocusScope {
+        width: 0px;
+        height: 0px;
+        key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                if (root.log-selected-count > 0 || root.log-open-id != 0 || root.log-clear-armed) {
+                    root.close-log();
+                    return accept;
+                }
+                return reject;
+            }
+            if (event.text == Key.DownArrow && root.log-rows.length > 0) { root.step-log(1, event.modifiers.shift); return accept; }
+            if (event.text == Key.UpArrow && root.log-rows.length > 0) { root.step-log(-1, event.modifiers.shift); return accept; }
+            if ((event.modifiers.control || event.modifiers.meta) && (event.text == "c" || event.text == "C" || event.text == "\u{0003}") && root.log-selected-count > 0) { root.copy-log(); return accept; }
+            if ((event.modifiers.control || event.modifiers.meta) && (event.text == "a" || event.text == "A" || event.text == "\u{0001}") && root.log-rows.length > 0) { root.select-all-logs(); return accept; }
+            return reject;
+        }
+    }
+
+    ModsLogsHeaderBar {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        rem-size: root.rem-size;
+        log-source-options: root.log-source-options;
+        log-level-options: root.log-level-options;
+        log-source-index: root.log-source-index;
+        log-level-index: root.log-level-index;
+        log-search: root.log-search;
+        log-count: root.log-count;
+        log-filtered: root.log-filtered;
+        log-selected-count: root.log-selected-count;
+        log-rows-count: root.log-rows.length;
+        log-clear-armed: root.log-clear-armed;
+        filter-logs(part, value) => { root.filter-logs(part, value); }
+        search-logs(text) => { root.search-logs(text); }
+        reset-logs-filter => { root.reset-logs-filter(); }
+        copy-log => { root.copy-log(); }
+        clear-logs => { root.clear-logs(); }
+        focus-list => { log-keys.focus(); }
+    }
+
+    logs-body := VerticalLayout {
+        x: 0px;
+        y: root.filter-height;
+        width: parent.width;
+        height: Math.max(0px, parent.height - root.filter-height);
+        spacing: root.detail-open ? 0.8 * root.rem-size : 0px;
+
+        log-table-box := Rectangle {
+            vertical-stretch: 1;
+            min-height: 6 * root.rem-size;
+            border-radius: 0.75 * root.rem-size;
+            border-width: 1px;
+            border-color: Theme.overlay-hover;
+            background: #00000022;
+            clip: true;
+
+            property <length> header-height: 2.1 * root.rem-size;
+            property <bool> has-scroll: root.log-rows.length * root.row-height > Math.max(0px, self.height - self.header-height);
+            property <length> rows-width: Math.max(0px, self.width - (self.has-scroll ? 8px : 0px));
+            property <length> source-width: Math.min(15 * root.rem-size, Math.max(9 * root.rem-size, self.rows-width * 0.27));
+
+            ModsLogHeader {
+                x: 0px;
+                y: 0px;
+                width: parent.width;
+                rem-size: root.rem-size;
+                source-width: log-table-box.source-width;
+                rows-width: log-table-box.rows-width;
+            }
+
+            log-list := Flickable {
+                x: 0px;
+                y: log-table-box.header-height;
+                width: log-table-box.rows-width;
+                height: Math.max(0px, parent.height - log-table-box.header-height);
+                content-width: self.width;
+                content-height: root.log-rows.length * root.row-height;
+                interactive: false;
+
+                for row[index] in root.log-rows: ModsLogRowView {
+                    x: 0px;
+                    y: index * root.row-height;
+                    width: log-list.width;
+                    rem-size: root.rem-size;
+                    source-width: log-table-box.source-width;
+                    record: row;
+                    selected: row.selected;
+                    active: row.id == root.log-open-id && root.log-open-id != 0;
+                    hovered: log-drag-area.has-hover && index == log-drag-area.hover-index;
+                }
+
+                log-drag-area := TouchArea {
+                    x: 0px;
+                    y: 0px;
+                    width: log-list.content-width;
+                    height: Math.max(log-list.height, log-list.content-height);
+                    property <length> row-height: root.row-height;
+                    property <int> hover-index: (self.has-hover && root.log-rows.length > 0 && self.mouse-y >= 0px && self.mouse-y < root.log-rows.length * self.row-height)
+                        ? root.log-row-at(self.mouse-y, self.row-height, root.log-rows.length) : -1;
+                    property <bool> dragging: false;
+                    property <int> last-drag-index: -1;
+                    property <length> drag-viewport-y: 0px;
+                    mouse-cursor: self.hover-index >= 0 ? pointer : default;
+
+                    pointer-event(event) => {
+                        if (event.kind == PointerEventKind.down && event.button == PointerEventButton.left) {
+                            log-keys.focus();
+                            if (root.log-rows.length > 0 && self.mouse-y >= 0px && self.mouse-y < root.log-rows.length * self.row-height) {
+                                self.dragging = true;
+                                self.drag-viewport-y = self.mouse-y + log-list.content-y;
+                                self.last-drag-index = root.log-row-at(self.mouse-y, self.row-height, root.log-rows.length);
+                                root.press-log(root.log-rows[self.last-drag-index].id, event.modifiers.shift, event.modifiers.control);
+                            } else if (root.log-selected-count > 0 || root.log-open-id != 0 || root.log-clear-armed) {
+                                root.close-log();
+                            }
+                        } else if (event.kind == PointerEventKind.move && self.dragging && root.log-rows.length > 0) {
+                            self.drag-viewport-y = self.mouse-y + log-list.content-y;
+                            if (log-list.content-height > log-list.height) {
+                                if (self.drag-viewport-y < 2 * self.row-height) {
+                                    log-list.content-y = Math.min(0px, log-list.content-y + self.row-height * 0.5);
+                                } else if (self.drag-viewport-y > log-list.height - 2 * self.row-height) {
+                                    log-list.content-y = Math.max(log-list.height - log-list.content-height, log-list.content-y - self.row-height * 0.5);
+                                }
+                            }
+                            log-list.sync-drag-row(self.mouse-y);
+                        } else if ((event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel) && self.dragging) {
+                            self.dragging = false;
+                            if (self.last-drag-index >= 0 && self.last-drag-index < root.log-rows.length) {
+                                root.release-log(root.log-rows[self.last-drag-index].id);
+                            } else {
+                                root.release-log(0);
+                            }
+                            self.last-drag-index = -1;
+                        }
+                    }
+                }
+
+                function sync-drag-row(y: length) {
+                    if (root.log-row-at(y, root.row-height, root.log-rows.length) != log-drag-area.last-drag-index) {
+                        log-drag-area.last-drag-index = root.log-row-at(y, root.row-height, root.log-rows.length);
+                        root.drag-log(root.log-rows[log-drag-area.last-drag-index].id);
+                    }
+                }
+
+                drag-scroll-timer := Timer {
+                    interval: 50ms;
+                    running: log-drag-area.dragging && log-list.content-height > log-list.height && root.log-rows.length > 0;
+                    triggered => {
+                        if (log-drag-area.drag-viewport-y < 2 * root.row-height && log-list.content-y < 0px) {
+                            log-list.content-y = Math.min(0px, log-list.content-y + root.row-height * 0.6);
+                            log-list.sync-drag-row(log-drag-area.drag-viewport-y - log-list.content-y);
+                        } else if (log-drag-area.drag-viewport-y > log-list.height - 2 * root.row-height
+                            && log-list.content-y > log-list.height - log-list.content-height)
+                        {
+                            log-list.content-y = Math.max(log-list.height - log-list.content-height, log-list.content-y - root.row-height * 0.6);
+                            log-list.sync-drag-row(log-drag-area.drag-viewport-y - log-list.content-y);
+                        }
+                    }
+                }
+            }
+
+            if root.log-rows.length == 0: log-empty-text := Text {
+                x: 1.5 * root.rem-size;
+                y: log-table-box.header-height;
+                width: Math.max(0px, parent.width - 3 * root.rem-size);
+                height: Math.max(3 * root.rem-size, parent.height - log-table-box.header-height);
+                text: root.log-empty;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                font-size: 1.0 * root.rem-size;
+                color: ClassStyles.color-or(ClassStyles.mods-empty, Theme.placeholder);
+                opacity: ClassStyles.opacity-or(ClassStyles.mods-empty, 0.9);
+                visible: !ClassStyles.mods-empty.hidden;
+            }
+
+            ScrollBar {
+                x: parent.width - 8px;
+                y: log-table-box.header-height;
+                height: log-list.height;
+                view-height: log-list.height;
+                content-height: log-list.content-height;
+                offset <=> log-list.content-y;
+            }
+        }
+
+        if root.detail-open: ModsLogDetailDrawer {
+            vertical-stretch: 0;
+            rem-size: root.rem-size;
+            max-drawer-height: logs-body.height * 0.48;
+            open-id: root.log-open-id;
+            heading: root.log-detail-heading;
+            lines: root.log-detail;
+            close-log => { root.close-log(); }
+        }
+    }
+}

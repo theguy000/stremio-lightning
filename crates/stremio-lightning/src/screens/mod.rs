@@ -17,37 +17,36 @@ pub mod language_names;
 pub mod library;
 pub mod mods;
 pub mod player;
+mod preview;
 pub mod settings;
+pub mod videos;
 
-use stremio_core::constants::IMDB_LINK_CATEGORY;
+pub(crate) use preview::preview_of;
+pub use preview::Preview;
 use stremio_core::types::addon::ResourceRequest;
 use stremio_core::types::library::LibraryItem;
 use stremio_core::types::resource::{MetaItemPreview, PosterShape};
 use stremio_core::types::streams::StreamsItemKey;
+use url::Url;
 
-use crate::{AppModel, SelectInputData, SelectOption};
+use crate::AppModel;
 
 /// One poster tile.
-#[derive(Clone)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Card {
     pub id: String,
     pub kind: String,
     pub title: String,
     pub poster: Option<String>,
-    /// How far into the title the viewer is, as a percentage: the Continue Watching row draws it as
-    /// a bar, and every other row's cards are zero.
+    /// Watch progress percentage (0..=100) for library/Continue Watching items; 0 elsewhere.
     pub progress: f64,
-    /// Whether the account has watched the title: the Continue Watching row's cards are library
-    /// items, and the poster carries the check mark the web draws for one.
+    /// Whether the title is marked watched (Library draws the badge; Continue Watching leaves it false).
     pub watched: bool,
-    /// Whether the title can be played straight from the card: the web offers its play button and
-    /// its "Play" row only when a Stream for the title's current Video is already at hand.
+    /// Whether a Stream for the title's current Video is already cached in `ctx.streams`.
     pub playable: bool,
 }
 
-/// Web: whether a title can be played from its card. `stremio-core-web` puts a player link on a
-/// library item only when the Streams bucket already holds a Stream for the Video the title is
-/// sitting on, and `LibItem` drops both its play button and its "Play" row when there is no link.
+/// Web: whether a title can be played from its card (`ctx.streams` holds a Stream for its Video).
 pub(crate) fn can_play(model: &AppModel, item: &LibraryItem) -> bool {
     let Some(video_id) = item.state.video_id.as_ref() else {
         return false;
@@ -58,51 +57,49 @@ pub(crate) fn can_play(model: &AppModel, item: &LibraryItem) -> bool {
     })
 }
 
-/// One filter in a screen's bar (type, catalog, or an extra such as genre): the closed label,
-/// the options, and the request each option loads.
-#[derive(Clone, Default)]
-pub struct Input {
+/// Display data for one dropdown menu: closed label, selected index, and `(label, selected)` rows.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SelectMenu {
     pub title: String,
     pub selected: usize,
     pub options: Vec<(String, bool)>,
-    pub requests: Vec<ResourceRequest>,
 }
 
-impl Input {
-    fn new(title: String, options: impl Iterator<Item = (String, bool, ResourceRequest)>) -> Self {
-        let mut input = Self {
-            title,
-            ..Self::default()
-        };
-        for (index, (label, selected, request)) in options.enumerate() {
-            if selected {
-                input.selected = index;
-            }
-            input.options.push((label, selected));
-            input.requests.push(request);
+/// A dropdown menu paired with the typed value each option carries (`ResourceRequest`,
+/// `LibraryRequest`, `addons::Choice`, etc.).
+#[derive(Clone, Debug)]
+pub struct SelectInput<R> {
+    pub menu: SelectMenu,
+    pub values: Vec<R>,
+}
+
+impl<R> Default for SelectInput<R> {
+    fn default() -> Self {
+        Self {
+            menu: SelectMenu::default(),
+            values: Vec::new(),
         }
-        input
     }
 }
 
-/// What a preview panel shows for one card. `logo` and `background` are image-cache keys.
-#[derive(Clone, Default)]
-pub struct Preview {
-    /// The title's id: what the library actions are keyed by.
-    pub id: String,
-    pub title: String,
-    pub runtime: String,
-    pub release: String,
-    pub rating: String,
-    pub description: String,
-    pub groups: Vec<(String, Vec<String>)>,
-    pub has_trailer: bool,
-    pub logo: Option<String>,
-    pub background: Option<String>,
-    /// Web: `inLibrary` — the library holds the title and has not been told to forget it.
-    pub in_library: bool,
-    /// Web: `watched` — the core's own answer for the title as a whole.
-    pub watched: bool,
+impl<R> SelectInput<R> {
+    pub(crate) fn new(title: String, items: impl Iterator<Item = (String, bool, R)>) -> Self {
+        let mut out = Self {
+            menu: SelectMenu {
+                title,
+                ..SelectMenu::default()
+            },
+            values: Vec::new(),
+        };
+        for (index, (label, selected, value)) in items.enumerate() {
+            if selected {
+                out.menu.selected = index;
+            }
+            out.menu.options.push((label, selected));
+            out.values.push(value);
+        }
+        out
+    }
 }
 
 /// "Popular - Movie": the catalog's name (the addon's name when the catalog has none, as
@@ -169,97 +166,51 @@ pub(crate) fn shape_of<'a>(items: impl IntoIterator<Item = &'a MetaItemPreview>)
 /// Cinemeta writes punctuation as HTML entities in the names it returns -- a cast member comes
 /// back as `Josh O&apos;Connor` and the panel showed exactly that. Nothing in a name is markup, so
 /// undoing the entities that actually appear in them is all this has to do.
-pub(crate) fn decode_entities(text: &str) -> String {
-    if !text.contains('&') {
-        return text.to_owned();
-    }
-    const ENTITIES: [(&str, &str); 6] = [
-        ("&apos;", "'"),
-        ("&quot;", "\""),
-        ("&amp;", "&"),
-        ("&lt;", "<"),
-        ("&gt;", ">"),
-        ("&#39;", "'"),
-    ];
-    let mut out = String::with_capacity(text.len());
-    let mut rest = text;
-    while let Some(start) = rest.find('&') {
-        out.push_str(&rest[..start]);
-        let after = &rest[start..];
-        match ENTITIES
-            .iter()
-            .find(|(entity, _)| after.starts_with(entity))
-        {
-            Some((entity, replacement)) => {
-                out.push_str(replacement);
-                rest = &after[entity.len()..];
-            }
-            None => {
-                out.push('&');
-                rest = &after[1..];
-            }
-        }
-    }
-    out.push_str(rest);
-    out
+/// Display label for an optional content-type filter (`None` -> `"All"`, `Some(t)` -> capitalised).
+pub(crate) fn type_label(kind: &Option<String>) -> String {
+    kind.as_deref().map_or_else(|| "All".to_owned(), capitalise)
 }
 
-/// Builds the preview panel's content from a catalog item, like stremio-web's `MetaPreview`.
-pub(crate) fn preview_of(item: &MetaItemPreview) -> Preview {
-    let mut rating = String::new();
-    let mut groups: Vec<(String, Vec<String>)> = Vec::new();
-    for link in &item.links {
-        let name = decode_entities(&link.name);
-        match link.category.as_str() {
-            IMDB_LINK_CATEGORY => rating = name,
-            category
-                if category.eq_ignore_ascii_case("share")
-                    || category.eq_ignore_ascii_case("writers") => {}
-            category => match groups.iter_mut().find(|(label, _)| label == category) {
-                Some((_, names)) => names.push(name),
-                None => groups.push((category.to_owned(), vec![name])),
-            },
-        }
+/// Poster shape for a library item (web serializer folds Landscape into Square).
+pub(crate) fn library_poster_shape(shape: &PosterShape) -> &'static str {
+    match shape {
+        PosterShape::Square | PosterShape::Landscape => "square",
+        _ => "poster",
     }
-    for (label, _) in &mut groups {
-        *label = label.to_uppercase();
-    }
-    Preview {
+}
+
+/// Builds a poster `Card` from a `LibraryItem`. Only Library passes `include_watched = true`;
+/// Continue Watching leaves `watched = false` to match stremio-web's preview serializer.
+pub(crate) fn card_of_library_item(
+    model: &AppModel,
+    item: &LibraryItem,
+    include_watched: bool,
+) -> Card {
+    Card {
         id: item.id.clone(),
-        title: decode_entities(&item.name),
-        runtime: item.runtime.clone().unwrap_or_default(),
-        release: item
-            .release_info
-            .clone()
-            .or_else(|| item.released.map(|date| date.format("%Y").to_string()))
-            .unwrap_or_default(),
-        rating,
-        description: item
-            .description
-            .as_deref()
-            .map(decode_entities)
-            .unwrap_or_default(),
-        groups,
-        has_trailer: !item.trailer_streams.is_empty(),
-        logo: item
-            .logo
-            .as_ref()
-            .map(|url| format!("{url}{}", crate::plumbing::images::LOGO_SUFFIX)),
-        // Web: the panel's backdrop is the *poster*, blurred -- `renderMetaPreview` passes
-        // `background={selectedMetaItem.poster}` and never the wide artwork, which is what the
-        // details page paints across the screen instead.
-        background: item
-            .poster
-            .as_ref()
-            .map(|url| format!("{url}{}", crate::plumbing::images::BLUR_SUFFIX)),
-        in_library: false,
-        watched: false,
+        kind: item.r#type.clone(),
+        title: item.name.clone(),
+        poster: item.poster.as_ref().map(|url| url.to_string()),
+        progress: item.progress(),
+        watched: include_watched && item.watched(),
+        playable: can_play(model, item),
     }
 }
 
-/// The two bits the details page's action group draws, read the way stremio-core-web reads them:
-/// an item still flagged `removed` is not in the library, and `watched` is the core's answer for
-/// the title as a whole rather than for one Video.
+/// Resolves an addon's manifest display name from `profile.addons`, falling back to its host.
+pub(crate) fn addon_name(model: &AppModel, transport_url: &Url) -> String {
+    model
+        .ctx
+        .profile
+        .addons
+        .iter()
+        .find(|addon| &addon.transport_url == transport_url)
+        .map(|addon| addon.manifest.name.clone())
+        .unwrap_or_else(|| transport_url.host_str().unwrap_or_default().to_owned())
+}
+
+/// The two bits the details page's action group draws: an item flagged `removed` is not in the
+/// library, and `watched` is the core's answer for the title as a whole.
 pub fn library_state(model: &AppModel, id: &str) -> (bool, bool) {
     model
         .ctx
@@ -268,43 +219,4 @@ pub fn library_state(model: &AppModel, id: &str) -> (bool, bool) {
         .get(id)
         .map(|item| (!item.removed, item.watched()))
         .unwrap_or_default()
-}
-
-/// One filter of a screen's bar as Slint wants it.
-pub fn select_input_data(input: Input) -> SelectInputData {
-    SelectInputData {
-        title: input.title.into(),
-        selected_index: i32::try_from(input.selected).unwrap_or(0),
-        options: slint::ModelRc::new(slint::VecModel::from(
-            input
-                .options
-                .into_iter()
-                .map(|(label, selected)| SelectOption {
-                    label: label.into(),
-                    selected,
-                })
-                .collect::<Vec<_>>(),
-        )),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::decode_entities;
-
-    #[test]
-    fn entities_in_a_name_are_undone() {
-        assert_eq!(decode_entities("Josh O&apos;Connor"), "Josh O'Connor");
-        assert_eq!(
-            decode_entities("Dungeons &amp; Dragons"),
-            "Dungeons & Dragons"
-        );
-        assert_eq!(decode_entities("&quot;Weird&quot; Al"), "\"Weird\" Al");
-        // One pass, so an escaped ampersand does not become an entity.
-        assert_eq!(decode_entities("&amp;apos;"), "&apos;");
-        // Anything that is not one of these entities is left alone.
-        assert_eq!(decode_entities("Fish & Chips"), "Fish & Chips");
-        assert_eq!(decode_entities("&notanentity;"), "&notanentity;");
-        assert_eq!(decode_entities("No ampersand"), "No ampersand");
-    }
 }

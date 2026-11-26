@@ -24,7 +24,7 @@ use stremio_core::types::streams::StreamsBucket;
 use stremio_lightning::app;
 use stremio_lightning::screens;
 
-type Events = Receiver<RuntimeEvent<stremio_lightning_env::AppEnv, app::AppModel>>;
+type Events = Receiver<RuntimeEvent<stremio_lightning::AppEnv, app::AppModel>>;
 
 fn init_env() {
     static INIT: Once = Once::new();
@@ -36,7 +36,7 @@ fn init_env() {
             .enable_all()
             .build()
             .expect("a tokio runtime");
-        stremio_lightning_env::AppEnv::init(dir, tokio.handle().clone()).expect("an environment");
+        stremio_lightning::AppEnv::init(dir, tokio.handle().clone()).expect("an environment");
     });
 }
 
@@ -47,8 +47,7 @@ fn runtime() -> (Arc<app::AppRuntime>, Events) {
     let profile = Profile::default();
     let uid = profile.uid();
     let library = LibraryBucket::new(uid.clone(), vec![]);
-    let notifications =
-        NotificationsBucket::new::<stremio_lightning_env::AppEnv>(uid.clone(), vec![]);
+    let notifications = NotificationsBucket::new::<stremio_lightning::AppEnv>(uid.clone(), vec![]);
     let (continue_watching_preview, _) = ContinueWatchingPreview::new(&library, &notifications);
     let (library_with_filters, _) =
         LibraryWithFilters::<NotRemovedFilter>::new(&library, &notifications);
@@ -59,7 +58,7 @@ fn runtime() -> (Arc<app::AppRuntime>, Events) {
             profile,
             library,
             StreamsBucket::new(uid.clone()),
-            ServerUrlsBucket::new::<stremio_lightning_env::AppEnv>(uid.clone()),
+            ServerUrlsBucket::new::<stremio_lightning::AppEnv>(uid.clone()),
             notifications,
             SearchHistoryBucket::new(uid.clone()),
             DismissedEventsBucket::new(uid),

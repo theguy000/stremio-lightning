@@ -1,0 +1,236 @@
+// Row and stepper primitives for Player audio, subtitle, and options menus.
+import { Theme } from "../theme.slint";
+import { PlayerOption } from "types.slint";
+
+export component MenuHeader inherits Rectangle {
+    in property <length> rem-size;
+    in property <string> title;
+
+    height: 4.5 * root.rem-size;
+    HorizontalLayout {
+        padding: 1.5 * root.rem-size;
+        padding-left: 2 * root.rem-size;
+        padding-right: 2 * root.rem-size;
+        alignment: start;
+        Text {
+            text: root.title;
+            horizontal-stretch: 1;
+            font-size: 1 * root.rem-size;
+            font-weight: 700;
+            color: Theme.text;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+}
+
+export component LanguageRow inherits Rectangle {
+    in property <length> rem-size;
+    in property <string> label;
+    in property <bool> selected;
+    callback clicked;
+
+    height: 3.5 * root.rem-size;
+    border-radius: 0.75 * root.rem-size;
+    background: touch.has-hover || root.selected ? Theme.overlay : transparent;
+
+    HorizontalLayout {
+        width: parent.width;
+        height: parent.height;
+        padding-left: 1.5 * root.rem-size;
+        padding-right: 1.5 * root.rem-size;
+        spacing: 1 * root.rem-size;
+        alignment: space-between;
+        Text {
+            text: root.label;
+            horizontal-stretch: 1;
+            font-size: 1.1 * root.rem-size;
+            color: Theme.text;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 0.5 * root.rem-size;
+                height: 0.5 * root.rem-size;
+                border-radius: 0.25 * root.rem-size;
+                background: root.selected ? Theme.accent-green : transparent;
+            }
+        }
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component TrackRow inherits Rectangle {
+    in property <length> rem-size;
+    in property <string> primary;
+    in property <string> secondary;
+    in property <bool> selected;
+    callback clicked;
+
+    height: 4 * root.rem-size;
+    border-radius: 0.75 * root.rem-size;
+    background: touch.has-hover || root.selected ? Theme.overlay : transparent;
+
+    HorizontalLayout {
+        width: parent.width;
+        height: parent.height;
+        padding-left: 1.5 * root.rem-size;
+        padding-right: 1.5 * root.rem-size;
+        spacing: 1 * root.rem-size;
+        alignment: space-between;
+        VerticalLayout {
+            alignment: center;
+            horizontal-stretch: 1;
+            spacing: 0.25 * root.rem-size;
+            Text {
+                text: root.primary;
+                font-size: 1.1 * root.rem-size;
+                color: Theme.text;
+                overflow: elide;
+            }
+            if root.secondary != "": Text {
+                text: root.secondary;
+                font-size: 0.9 * root.rem-size;
+                color: Theme.text;
+                opacity: 0.6;
+                overflow: elide;
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 0.5 * root.rem-size;
+                height: 0.5 * root.rem-size;
+                border-radius: 0.25 * root.rem-size;
+                background: root.selected ? Theme.accent-green : transparent;
+            }
+        }
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component SettingsStepper inherits VerticalLayout {
+    in property <length> rem-size;
+    in property <string> heading;
+    in property <string> value;
+    in property <bool> enabled: true;
+    callback stepped(int);
+
+    spacing: 0.5 * root.rem-size;
+    alignment: start;
+    Text {
+        text: root.heading;
+        font-size: 1 * root.rem-size;
+        color: Theme.text;
+        opacity: 0.6;
+        overflow: elide;
+    }
+    Rectangle {
+        height: 3.5 * root.rem-size;
+        border-radius: 1.75 * root.rem-size;
+        background: Theme.overlay;
+        opacity: root.enabled ? 1 : 0.4;
+
+        HorizontalLayout {
+            spacing: 0;
+            alignment: start;
+            Rectangle {
+                width: 3.5 * root.rem-size;
+                height: 3.5 * root.rem-size;
+                border-radius: 1.75 * root.rem-size;
+                background: minus.has-hover && root.enabled ? Theme.overlay : transparent;
+                Text {
+                    text: "-";
+                    width: parent.width;
+                    height: parent.height;
+                    font-size: 1.3 * root.rem-size;
+                    color: Theme.text;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                minus := TouchArea {
+                    enabled: root.enabled;
+                    mouse-cursor: pointer;
+                    clicked => { root.stepped(-1); }
+                }
+            }
+            Text {
+                text: root.value;
+                horizontal-stretch: 1;
+                font-size: 1 * root.rem-size;
+                font-weight: 500;
+                color: Theme.text;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+            Rectangle {
+                width: 3.5 * root.rem-size;
+                height: 3.5 * root.rem-size;
+                border-radius: 1.75 * root.rem-size;
+                background: plus.has-hover && root.enabled ? Theme.overlay : transparent;
+                Text {
+                    text: "+";
+                    width: parent.width;
+                    height: parent.height;
+                    font-size: 1.3 * root.rem-size;
+                    color: Theme.text;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                plus := TouchArea {
+                    enabled: root.enabled;
+                    mouse-cursor: pointer;
+                    clicked => { root.stepped(1); }
+                }
+            }
+        }
+    }
+}
+
+export component OptionRow inherits Rectangle {
+    in property <length> rem-size;
+    in property <PlayerOption> option;
+    callback clicked;
+
+    property <image> glyph: root.option.action == "copy-magnet" ? @image-url("../icons/magnet-link.svg")
+        : (root.option.action == "copy-stream" ? @image-url("../icons/link.svg") : @image-url("../icons/download.svg"));
+    height: 3.5 * root.rem-size;
+    border-radius: 0.75 * root.rem-size;
+    background: touch.has-hover ? Theme.overlay : transparent;
+
+    HorizontalLayout {
+        padding-left: 1 * root.rem-size;
+        padding-right: 1 * root.rem-size;
+        spacing: 1 * root.rem-size;
+        alignment: start;
+        VerticalLayout {
+            alignment: center;
+            Image {
+                width: 1.4 * root.rem-size;
+                height: 1.4 * root.rem-size;
+                source: root.glyph;
+                colorize: Theme.text;
+            }
+        }
+        Text {
+            text: root.option.label;
+            font-size: 1 * root.rem-size;
+            color: Theme.text;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+            overflow: elide;
+        }
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}

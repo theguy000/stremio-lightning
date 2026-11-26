@@ -55,4 +55,18 @@ export global Theme {
     out property <color> facebook: #1877f1;
     out property <color> x: #000000;
     out property <color> reddit: #ff4500;
+
+    // Shared surface, hover, border, and shadow tokens across routes and popups.
+    out property <color> surface-subtle: #ffffff0a;
+    out property <color> overlay-hover: #ffffff14;
+    out property <color> surface-medium: #ffffff1a;
+    out property <color> border-medium: #ffffff24;
+    out property <color> option-hover: #ffffff26;
+    out property <color> scrim: #00000080;
+    out property <color> outer-glow: #7b5bf55e;
+
+    // Web: `MetaItem/styles.less` poster aspect ratios (height / width).
+    pure public function poster-ratio(shape: string) -> float {
+        return shape == "square" ? 1.0 : shape == "landscape" ? 0.5625 : 1.464;
+    }
 }

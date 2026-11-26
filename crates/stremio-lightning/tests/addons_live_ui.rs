@@ -25,8 +25,8 @@ mod support;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use slint::Model;
-use stremio_lightning::{AddonData, MainWindow, Section};
+use slint::{ComponentHandle, Model};
+use stremio_lightning::{AddonData, AddonsUi, BoardUi, DetailsUi, MainWindow, Section};
 
 use support::ui_driver::{self, Outcome, Step};
 
@@ -55,7 +55,7 @@ const ALSO_WORTH_PRESSING: [&str; 10] = [
 ];
 
 fn cards(window: &MainWindow) -> Vec<AddonData> {
-    let model = window.get_addons();
+    let model = window.global::<AddonsUi>().get_addons();
     (0..model.row_count())
         .filter_map(|row| model.row_data(row))
         .collect()
@@ -159,7 +159,7 @@ fn dialog_install_label(window: &MainWindow) -> Result<String, String> {
 /// Waits until the dialog is holding the manifest for `url` -- the window's own `pending`, not a
 /// label, because a label can flip between the moment a press lands and the moment it is read.
 fn read_for(window: &MainWindow, url: &str) -> Result<(), String> {
-    let pending = window.get_addon_pending();
+    let pending = window.global::<AddonsUi>().get_pending();
     if !pending.ready {
         return Err(format!("still reading {:?}", pending.transport_url));
     }
@@ -388,7 +388,7 @@ fn the_community_list_installs_and_every_addon_answers() {
                 what: "the catalog menu offers the Community list",
                 budget: Duration::from_secs(60),
                 check: Box::new(|window: &MainWindow| {
-                    let inputs = window.get_addon_inputs();
+                    let inputs = window.global::<AddonsUi>().get_inputs();
                     let input = inputs.row_data(0).ok_or("no catalog menu")?;
                     let options: Vec<String> = (0..input.options.row_count())
                         .filter_map(|row| input.options.row_data(row))
@@ -847,7 +847,7 @@ fn the_community_list_installs_and_every_addon_answers() {
                 check: Box::new({
                     let wanted = wanted_rows.clone();
                     move |window: &MainWindow| {
-                        let rows = window.get_rows();
+                        let rows = window.global::<BoardUi>().get_rows();
                         let titled: Vec<(String, usize)> = (0..rows.row_count())
                             .filter_map(|index| rows.row_data(index))
                             .map(|row| (row.title.to_string(), row.cards.row_count()))
@@ -879,7 +879,7 @@ fn the_community_list_installs_and_every_addon_answers() {
     // drawing. The rows the addons just added are on screen further down; what they prove is the
     // row above, which is their data arriving at the Board.
     let drawn = ui_driver::labels(window);
-    let rows = window.get_rows();
+    let rows = window.global::<BoardUi>().get_rows();
     let picked: Option<(String, String)> = (0..rows.row_count())
         .filter_map(|index| rows.row_data(index))
         .filter(|row| drawn.iter().any(|label| label == row.title.as_str()))
@@ -909,7 +909,7 @@ fn the_community_list_installs_and_every_addon_answers() {
                             if !window.get_details_open() {
                                 return Err("the Details screen is not open".to_owned());
                             }
-                            let preview = window.get_details_preview();
+                            let preview = window.global::<DetailsUi>().get_preview();
                             if preview.title.is_empty() {
                                 Err("the panel has no title yet".to_owned())
                             } else if preview.title != opened {
@@ -926,15 +926,16 @@ fn the_community_list_installs_and_every_addon_answers() {
                             if !window.get_details_open() {
                                 return Err("the Details screen closed".to_owned());
                             }
-                            if window.get_streams_loading() > 0 {
+                            let details = window.global::<DetailsUi>();
+                            if details.get_streams_loading() > 0 {
                                 return Err(format!(
                                     "{} addon(s) still answering",
-                                    window.get_streams_loading()
+                                    details.get_streams_loading()
                                 ));
                             }
                             Ok(format!(
                                 "{} stream(s) for a card of {which:?}",
-                                window.get_streams().row_count()
+                                details.get_streams().row_count()
                             ))
                         }),
                     },

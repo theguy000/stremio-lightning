@@ -1,0 +1,96 @@
+// Next-Video popup offered once playback enters the notification window.
+import { Theme } from "../theme.slint";
+import { PlayerMenu, PlayerText } from "types.slint";
+
+export component PlayerNextVideoPopup inherits Rectangle {
+    in property <length> rem-size;
+    in property <float> remaining;
+    in property <string> next-label;
+    callback dismiss();
+    callback play-next();
+
+    width: 30 * root.rem-size;
+    height: 12 * root.rem-size;
+
+    TouchArea {
+        pointer-event(event) => { EventResult.accept }
+    }
+
+    PlayerMenu {
+        width: parent.width;
+        height: parent.height;
+        rem-size: root.rem-size;
+
+        VerticalLayout {
+            padding: 1.5 * root.rem-size;
+            spacing: 1 * root.rem-size;
+            alignment: start;
+            HorizontalLayout {
+                spacing: 0.5 * root.rem-size;
+                Text {
+                    text: "Next up";
+                    font-size: 1 * root.rem-size;
+                    color: Theme.text;
+                    opacity: 0.7;
+                    horizontal-stretch: 1;
+                    vertical-alignment: center;
+                }
+                Text {
+                    text: PlayerText.clock(root.remaining);
+                    font-size: 1 * root.rem-size;
+                    color: Theme.text;
+                    opacity: 0.7;
+                    vertical-alignment: center;
+                }
+            }
+            Text {
+                text: root.next-label;
+                font-size: 1.2 * root.rem-size;
+                font-weight: 600;
+                color: Theme.text;
+                wrap: word-wrap;
+                max-height: 3.5 * root.rem-size;
+                overflow: clip;
+            }
+            HorizontalLayout {
+                spacing: 0.5 * root.rem-size;
+                alignment: end;
+                Rectangle {
+                    width: 6 * root.rem-size;
+                    height: 3 * root.rem-size;
+                    border-radius: 3 * root.rem-size;
+                    background: dismiss-touch.has-hover ? Theme.overlay : transparent;
+                    Text {
+                        text: "Dismiss";
+                        font-size: 0.9 * root.rem-size;
+                        color: Theme.text;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    dismiss-touch := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { root.dismiss(); }
+                    }
+                }
+                Rectangle {
+                    width: 7.5 * root.rem-size;
+                    height: 3 * root.rem-size;
+                    border-radius: 3 * root.rem-size;
+                    background: next-touch.has-hover ? Theme.text : Theme.accent;
+                    Text {
+                        text: "Play next";
+                        font-size: 0.9 * root.rem-size;
+                        font-weight: 600;
+                        color: next-touch.has-hover ? Theme.accent : Theme.text;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    next-touch := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { root.play-next(); }
+                    }
+                }
+            }
+        }
+    }
+}

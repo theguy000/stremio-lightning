@@ -5,13 +5,14 @@
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 
+use slint::ComponentHandle;
+
 mod support;
 
-slint::slint! {
-    import { MainWindow, LibraryCard, SettingsViewData } from "ui/main.slint";
-    import { Section } from "ui/shell.slint";
-    export { MainWindow, LibraryCard, Section, SettingsViewData }
-}
+use stremio_lightning::{
+    AuthUi, LibraryCard, LibraryUi, MainWindow, Section, SelectInputData, SettingsUi,
+    SettingsViewData,
+};
 
 fn create_default_settings(logged_in: bool, user_email: &str) -> SettingsViewData {
     let empty_select = || import_empty_select();
@@ -38,7 +39,6 @@ fn create_default_settings(logged_in: bool, user_email: &str) -> SettingsViewDat
         next_video_duration: empty_select(),
         external_player: empty_select(),
         hardware_decoding: true,
-        pause_on_minimize: false,
         caching: empty_select(),
         torrent_profile: empty_select(),
         transcoding_profile: empty_select(),
@@ -61,18 +61,21 @@ fn test_empirical_navigation_and_lifecycle_suite() {
     // ------------------------------------------------------------------------
     support::init_slint_backend();
     let window = MainWindow::new().expect("MainWindow should compile and initialize");
-    assert!(!window.get_auth_open(), "auth-open must be false initially");
+    assert!(
+        !window.global::<AuthUi>().get_open(),
+        "auth-open must be false initially"
+    );
     assert_eq!(
         window.get_section(),
         Section::Board,
         "Default section should be Board"
     );
     assert!(
-        !window.get_auth_loading(),
+        !window.global::<AuthUi>().get_loading(),
         "auth-loading must be false initially"
     );
     assert_eq!(
-        window.get_auth_error(),
+        window.global::<AuthUi>().get_error(),
         "",
         "auth-error must be empty initially"
     );
@@ -92,7 +95,7 @@ fn test_empirical_navigation_and_lifecycle_suite() {
 
     let dismissed_count = Arc::new(AtomicUsize::new(0));
     let dismissed_count_clone = dismissed_count.clone();
-    window.on_auth_dismissed(move || {
+    window.global::<AuthUi>().on_dismissed(move || {
         dismissed_count_clone.fetch_add(1, Ordering::SeqCst);
     });
 
@@ -106,17 +109,19 @@ fn test_empirical_navigation_and_lifecycle_suite() {
         );
 
         // B. Open auth overlay
-        window.set_auth_open(true);
-        window.set_auth_error("Some transient error".into());
-        window.set_auth_loading(true);
-        assert!(window.get_auth_open());
+        window.global::<AuthUi>().set_open(true);
+        window
+            .global::<AuthUi>()
+            .set_error("Some transient error".into());
+        window.global::<AuthUi>().set_loading(true);
+        assert!(window.global::<AuthUi>().get_open());
 
         // C. Trigger dismiss. This harness has no shell wiring, so all it can check is that the
         // dismissal reaches the callback and leaves the section alone. What the app clears when
         // it dismisses -- the overlay, the message and the spinner -- belongs to
         // `shell::wiring::dismiss_sign_in` and is not observable from here.
         let before = dismissed_count.load(Ordering::SeqCst);
-        window.invoke_auth_dismissed();
+        window.global::<AuthUi>().invoke_dismissed();
         assert_eq!(
             dismissed_count.load(Ordering::SeqCst),
             before + 1,
@@ -137,8 +142,8 @@ fn test_empirical_navigation_and_lifecycle_suite() {
     // ------------------------------------------------------------------------
     // Case A: When logged_in is false
     let logged_out_settings = create_default_settings(false, "");
-    window.set_settings(logged_out_settings);
-    assert!(!window.get_settings().logged_in);
+    window.global::<SettingsUi>().set_data(logged_out_settings);
+    assert!(!window.global::<SettingsUi>().get_data().logged_in);
 
     // On Library:
     window.set_section(Section::Library);
@@ -146,11 +151,11 @@ fn test_empirical_navigation_and_lifecycle_suite() {
     window.set_playing(false);
 
     let is_library_placeholder_active = window.get_section() == Section::Library
-        && !window.get_settings().logged_in
+        && !window.global::<SettingsUi>().get_data().logged_in
         && !window.get_details_open()
         && !window.get_playing();
     let is_library_authenticated_active = window.get_section() == Section::Library
-        && window.get_settings().logged_in
+        && window.global::<SettingsUi>().get_data().logged_in
         && !window.get_details_open()
         && !window.get_playing();
 
@@ -166,11 +171,11 @@ fn test_empirical_navigation_and_lifecycle_suite() {
     // On Calendar:
     window.set_section(Section::Calendar);
     let is_calendar_placeholder_active = window.get_section() == Section::Calendar
-        && !window.get_settings().logged_in
+        && !window.global::<SettingsUi>().get_data().logged_in
         && !window.get_details_open()
         && !window.get_playing();
     let is_calendar_authenticated_active = window.get_section() == Section::Calendar
-        && window.get_settings().logged_in
+        && window.global::<SettingsUi>().get_data().logged_in
         && !window.get_details_open()
         && !window.get_playing();
 
@@ -187,8 +192,8 @@ fn test_empirical_navigation_and_lifecycle_suite() {
     // The signed-in Library draws the account's own grid instead of the placeholder. The Calendar
     // route is still the placeholder, because its screen has not been built.
     let logged_in_settings = create_default_settings(true, "alice@stremio.com");
-    window.set_settings(logged_in_settings);
-    assert!(window.get_settings().logged_in);
+    window.global::<SettingsUi>().set_data(logged_in_settings);
+    assert!(window.global::<SettingsUi>().get_data().logged_in);
 
     // On Library:
     window.set_section(Section::Library);
@@ -205,22 +210,24 @@ fn test_empirical_navigation_and_lifecycle_suite() {
     // pins the other half: the signed-in route keeps the account's cards.
     use slint::Model as _;
 
-    window.set_library_cards(slint::ModelRc::new(slint::VecModel::from(vec![
-        LibraryCard {
-            item_id: "tt0111161".into(),
-            kind: "movie".into(),
-            title: "The Shawshank Redemption".into(),
-            poster: slint::Image::default(),
-            has_poster: false,
-            shape: "poster".into(),
-            progress: 0.0,
-            watched: true,
-            playable: true,
-            new_videos: 0,
-        },
-    ])));
+    window
+        .global::<LibraryUi>()
+        .set_cards(slint::ModelRc::new(slint::VecModel::from(vec![
+            LibraryCard {
+                item_id: "tt0111161".into(),
+                kind: "movie".into(),
+                title: "The Shawshank Redemption".into(),
+                poster: slint::Image::default(),
+                has_poster: false,
+                shape: "poster".into(),
+                progress: 0.0,
+                watched: true,
+                playable: true,
+                new_videos: 0,
+            },
+        ])));
     assert_eq!(
-        window.get_library_cards().row_count(),
+        window.global::<LibraryUi>().get_cards().row_count(),
         1,
         "a signed-in Library keeps the cards the shell hands it"
     );
@@ -237,19 +244,21 @@ fn test_empirical_navigation_and_lifecycle_suite() {
     // Part 4: Shell Avatar Navigation Trigger: Logged Out vs Logged In
     // ------------------------------------------------------------------------
     // Case A: Avatar click while logged out
-    window.set_settings(create_default_settings(false, ""));
+    window
+        .global::<SettingsUi>()
+        .set_data(create_default_settings(false, ""));
     window.set_section(Section::Library);
-    window.set_auth_open(false);
+    window.global::<AuthUi>().set_open(false);
 
     // Slint logic: user-avatar-clicked => if (!root.settings.logged-in) root.auth-open = true;
-    if !window.get_settings().logged_in {
-        window.set_auth_open(true);
+    if !window.global::<SettingsUi>().get_data().logged_in {
+        window.global::<AuthUi>().set_open(true);
     } else {
         window.set_details_open(false);
         window.set_section(Section::Settings);
     }
     assert!(
-        window.get_auth_open(),
+        window.global::<AuthUi>().get_open(),
         "Avatar click while logged out MUST open auth overlay"
     );
     assert_eq!(
@@ -259,20 +268,22 @@ fn test_empirical_navigation_and_lifecycle_suite() {
     );
 
     // Close overlay
-    window.set_auth_open(false);
+    window.global::<AuthUi>().set_open(false);
 
     // Case B: Avatar click while logged in
     // The logged-in header has no menu yet, so the click is inert: it must not open
     // the login overlay and must not navigate away from the current section.
-    window.set_settings(create_default_settings(true, "bob@stremio.com"));
+    window
+        .global::<SettingsUi>()
+        .set_data(create_default_settings(true, "bob@stremio.com"));
     window.set_section(Section::Library);
     window.set_details_open(true);
 
-    if !window.get_settings().logged_in {
-        window.set_auth_open(true);
+    if !window.global::<SettingsUi>().get_data().logged_in {
+        window.global::<AuthUi>().set_open(true);
     }
     assert!(
-        !window.get_auth_open(),
+        !window.global::<AuthUi>().get_open(),
         "Avatar click while logged in must NOT open auth overlay"
     );
     assert_eq!(
@@ -292,75 +303,91 @@ fn test_empirical_navigation_and_lifecycle_suite() {
     let logout_dispatched = Arc::new(AtomicBool::new(false));
 
     let ld = login_dispatched.clone();
-    window.on_submit_auth_login(move |_email, _pass| {
-        ld.store(true, Ordering::SeqCst);
-    });
+    window
+        .global::<AuthUi>()
+        .on_submit_login(move |_email, _pass| {
+            ld.store(true, Ordering::SeqCst);
+        });
 
     let lod = logout_dispatched.clone();
-    window.on_logout_user(move || {
+    window.global::<SettingsUi>().on_log_out(move || {
         lod.store(true, Ordering::SeqCst);
     });
 
     // Start logged out on Discover
-    window.set_settings(create_default_settings(false, ""));
+    window
+        .global::<SettingsUi>()
+        .set_data(create_default_settings(false, ""));
     window.set_section(Section::Discover);
 
     // Navigate to Library while logged out
     window.set_section(Section::Library);
     assert_eq!(window.get_section(), Section::Library);
-    assert!(!window.get_settings().logged_in);
+    assert!(!window.global::<SettingsUi>().get_data().logged_in);
 
     // Trigger login overlay
-    window.set_auth_open(true);
-    assert!(window.get_auth_open());
+    window.global::<AuthUi>().set_open(true);
+    assert!(window.global::<AuthUi>().get_open());
     assert_eq!(window.get_section(), Section::Library);
 
     // Submit credentials
-    window.invoke_submit_auth_login("user@stremio.com".into(), "password123".into());
+    window
+        .global::<AuthUi>()
+        .invoke_submit_login("user@stremio.com".into(), "password123".into());
     assert!(login_dispatched.load(Ordering::SeqCst));
 
     // Simulate auth success
-    window.set_settings(create_default_settings(true, "user@stremio.com"));
-    window.set_auth_open(false);
-    window.set_auth_loading(false);
-    window.set_auth_error("".into());
+    window
+        .global::<SettingsUi>()
+        .set_data(create_default_settings(true, "user@stremio.com"));
+    window.global::<AuthUi>().set_open(false);
+    window.global::<AuthUi>().set_loading(false);
+    window.global::<AuthUi>().set_error("".into());
 
     // Verify Library is unlocked and active
     assert_eq!(window.get_section(), Section::Library);
-    assert!(window.get_settings().logged_in);
-    assert_eq!(window.get_settings().user_email, "user@stremio.com");
+    assert!(window.global::<SettingsUi>().get_data().logged_in);
+    assert_eq!(
+        window.global::<SettingsUi>().get_data().user_email,
+        "user@stremio.com"
+    );
 
     // Navigate to Calendar and verify unlocked immediately
     window.set_section(Section::Calendar);
     assert_eq!(window.get_section(), Section::Calendar);
     assert!(
-        window.get_settings().logged_in,
+        window.global::<SettingsUi>().get_data().logged_in,
         "Calendar must be unlocked immediately following login"
     );
 
     // Navigate to Settings and verify account info
     window.set_section(Section::Settings);
-    assert_eq!(window.get_settings().user_email, "user@stremio.com");
+    assert_eq!(
+        window.global::<SettingsUi>().get_data().user_email,
+        "user@stremio.com"
+    );
 
     // Trigger Logout from Settings
-    window.invoke_logout_user();
+    window.global::<SettingsUi>().invoke_log_out();
     assert!(logout_dispatched.load(Ordering::SeqCst));
 
     // Simulate logout state push from core
-    window.set_settings(create_default_settings(false, ""));
-    assert!(!window.get_settings().logged_in);
-    assert_eq!(window.get_settings().user_email, "");
+    window
+        .global::<SettingsUi>()
+        .set_data(create_default_settings(false, ""));
+    assert!(!window.global::<SettingsUi>().get_data().logged_in);
+    assert_eq!(window.global::<SettingsUi>().get_data().user_email, "");
 
     // Verify both Library and Calendar are immediately re-locked
     window.set_section(Section::Library);
     assert!(
-        !window.get_settings().logged_in,
+        !window.global::<SettingsUi>().get_data().logged_in,
         "Library must be locked after logout"
     );
 
     window.set_section(Section::Calendar);
     assert!(
-        !window.get_settings().logged_in,
+        !window.global::<SettingsUi>().get_data().logged_in,
         "Calendar must be locked after logout"
     );
 }

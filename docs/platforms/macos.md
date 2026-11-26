@@ -10,27 +10,25 @@ Install the common prerequisites from the
 packaging must run on macOS with the Apple command-line tools available.
 
 The project does not currently provide a macOS dependency setup xtask. Before
-packaging, provide these runtime files:
+packaging, provide these executable runtime files:
 
 ```text
-crates/stremio-lightning-macos/binaries/stremio-runtime-macos
-crates/stremio-lightning-macos/resources/server.cjs
-crates/stremio-lightning-macos/resources/ffmpeg
-crates/stremio-lightning-macos/resources/ffprobe
+crates/stremio-lightning/resources/stream-server
+crates/stremio-lightning/resources/ffmpeg
+crates/stremio-lightning/resources/ffprobe
 ```
 
 Packaging also requires `libmpv.dylib`. The packaging command searches:
 
 - `MPV_DIR`
 - `STREMIO_LIGHTNING_MPV_DIR`
-- `crates/stremio-lightning-macos/mpv-dev`
+- `crates/stremio-lightning/mpv-dev`
 - Homebrew's `mpv` prefixes
 
 ## Run Locally
 
 ```bash
-cargo macos
+cargo run -p stremio-lightning
 ```
 
-This runs the shell from Cargo's target directory without producing an app
-bundle.
+This runs the native client from Cargo's target directory without producing an app bundle.

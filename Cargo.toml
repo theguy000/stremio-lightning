@@ -1,12 +1,13 @@
 [workspace]
 members = [
     "crates/xtask",
-    "crates/stremio-lightning-core",
-    "crates/stremio-lightning-identity",
-    "crates/stremio-lightning-env",
     "crates/stremio-lightning",
 ]
 resolver = "2"
+
+[workspace.package]
+version = "0.1.4"
+license = "GPL-3.0-only"
 
 # Dev/test builds carried full DWARF for all 780+ dependencies by default, which
 # dominated local build time (19.7 GB of .pdb files, 45 GB of target/debug).

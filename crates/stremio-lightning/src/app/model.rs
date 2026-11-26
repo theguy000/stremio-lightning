@@ -1,5 +1,7 @@
-//! The app's state: the stremio-core models the UI reads, the runtime that owns them, and the
-//! snapshot of "what the window currently shows".
+//! The app's state: `stremio-core` models, runtime alias, and structurally shared `Snapshot`.
+
+use std::sync::Arc;
+use std::time::Instant;
 
 use stremio_core::models::addon_details::AddonDetails;
 use stremio_core::models::calendar::Calendar;
@@ -15,33 +17,22 @@ use stremio_core::runtime::Runtime;
 use stremio_core::types::addon::Descriptor;
 use stremio_core::types::resource::MetaItemPreview;
 use stremio_core::Model;
-use stremio_lightning_env::AppEnv;
 
-use crate::screens::{addons, board, calendar, details, discover, library, player, settings};
+use crate::plumbing::env::AppEnv;
+use crate::screens::{addons, board, calendar, details, discover, library, mods, player, settings};
 
-/// Everything stremio-core holds for this app. One value of this type is the whole app state.
+/// Everything `stremio-core` holds for this app.
 #[derive(Model, Clone)]
 #[model(AppEnv)]
 pub struct AppModel {
     pub ctx: Ctx,
     pub board: CatalogsWithExtra,
-    /// The titles the account left unfinished, kept by the core from the library. The Board
-    /// draws them as its first row, above the addon catalogs.
     pub continue_watching_preview: ContinueWatchingPreview,
     pub discover: CatalogWithFilters<MetaItemPreview>,
-    /// The account's library, filtered and sorted by the core: the same model stremio-web's
-    /// Library route reads. Its own `selected` request is what the type and sort menus change.
     pub library: LibraryWithFilters<NotRemovedFilter>,
     pub installed_addons: InstalledAddonsWithFilters,
-    /// Web: `/addons` reads this for the marketplace list -- the addon catalogs the installed
-    /// addons declare (Cinemeta offers "Official", "Community" and "Podcasts") and the descriptors
-    /// one of them answers with. Same model the route calls `remote_addons`.
     pub remote_addons: CatalogWithFilters<Descriptor>,
-    /// The addon behind a pasted URL: what its manifest says, and whether the account already has
-    /// it. The web's `/addons` route reads the same model through its `AddonDetailsModal`.
     pub addon_details: AddonDetails,
-    /// One month of the Episodes the library's titles are releasing: the model stremio-web's
-    /// `/calendar` route reads.
     pub calendar: Calendar,
     pub meta_details: MetaDetails,
     pub player: Player,
@@ -49,18 +40,47 @@ pub struct AppModel {
 
 pub type AppRuntime = Runtime<AppEnv, AppModel>;
 
-/// What the window currently shows, built from the model whenever it changes. Every field is
-/// plain data, so a test can build one and ask what a screen would look like.
+/// The Board screen's plain-Rust state slice.
 #[derive(Clone, Default)]
-pub(crate) struct Snapshot {
-    pub(crate) status: String,
-    pub(crate) rows: Vec<board::Row>,
-    pub discover: discover::Data,
-    pub(crate) library: library::Data,
-    pub(crate) details: details::Data,
-    pub(crate) player: player::Data,
-    pub(crate) addons: addons::Data,
-    pub(crate) calendar: calendar::Data,
-    pub(crate) settings: settings::Data,
-    pub(crate) mods: crate::screens::mods::Data,
+pub struct BoardData {
+    pub status: String,
+    pub rows: Vec<board::Row>,
 }
+
+/// Complete, structurally shared plain-Rust snapshot of every screen.
+///
+/// Each screen lives behind an `Arc`, so reading or cloning `Snapshot` is O(1) and unaffected
+/// screens are never copied when one screen updates.
+#[derive(Clone, Default)]
+pub struct Snapshot {
+    pub board: Arc<BoardData>,
+    pub discover: Arc<discover::Data>,
+    pub library: Arc<library::Data>,
+    pub details: Arc<details::Data>,
+    pub player: Arc<player::Data>,
+    pub addons: Arc<addons::Data>,
+    pub calendar: Arc<calendar::Data>,
+    pub settings: Arc<settings::Data>,
+    pub mods: Arc<mods::Data>,
+}
+
+/// Last reported Discover grid scroll geometry, used to detect fast flicks and compute settled
+/// preload ranges without process-global static state.
+#[derive(Clone, Copy, Debug)]
+pub struct GridReport {
+    pub scroll: f32,
+    pub height: f32,
+    pub pitch: f32,
+    pub columns: i32,
+    pub at: Instant,
+}
+
+/// A Mods card waiting for a second Remove press on the same page.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ArmedMod {
+    pub id: String,
+    pub page: String,
+}
+
+/// Addon ids + catalog count for which Board's `LoadRange` was last dispatched.
+pub type BoardCatalogRange = (Vec<String>, usize);

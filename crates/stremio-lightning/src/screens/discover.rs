@@ -3,8 +3,9 @@
 //! (Discover.js, useSelectableInputs.js) and MetaPreview.
 
 use stremio_core::models::common::Loadable;
+use stremio_core::types::addon::ResourceRequest;
 
-use super::{capitalise, card_of, preview_of, shape_of, Card, Input, Preview};
+use super::{capitalise, card_of, preview_of, shape_of, Card, Preview, SelectInput};
 use crate::AppModel;
 
 /// What the Discover screen shows: the labels of its first three inputs and every card loaded
@@ -13,7 +14,7 @@ use crate::AppModel;
 pub struct Data {
     pub shape: &'static str,
     pub cards: Vec<Card>,
-    pub inputs: Vec<Input>,
+    pub inputs: Vec<SelectInput<ResourceRequest>>,
     pub previews: Vec<Preview>,
 }
 
@@ -33,7 +34,7 @@ pub fn data(model: &AppModel) -> Data {
             .iter()
             .find(|item| item.selected)
             .map_or_else(|| "Select type".to_owned(), |item| capitalise(&item.r#type));
-        inputs.push(Input::new(
+        inputs.push(SelectInput::new(
             title,
             selectable.types.iter().map(|item| {
                 (
@@ -50,7 +51,7 @@ pub fn data(model: &AppModel) -> Data {
             .iter()
             .find(|item| item.selected)
             .map_or_else(|| "Select catalog".to_owned(), |item| item.catalog.clone());
-        inputs.push(Input::new(
+        inputs.push(SelectInput::new(
             title,
             selectable
                 .catalogs
@@ -65,7 +66,7 @@ pub fn data(model: &AppModel) -> Data {
             .find(|option| option.selected)
             .and_then(|option| option.value.clone())
             .unwrap_or_else(|| capitalise(&extra.name));
-        inputs.push(Input::new(
+        inputs.push(SelectInput::new(
             title,
             extra.options.iter().map(|option| {
                 (

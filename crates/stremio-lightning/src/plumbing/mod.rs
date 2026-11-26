@@ -5,10 +5,18 @@
 //! properties, so a screen can use it without knowing it exists.
 
 pub mod clipboard;
+pub(crate) mod diagnostics;
+pub mod env;
 pub mod images;
 pub mod links;
+pub mod local_settings;
 pub mod logs;
+pub(crate) mod oauth;
 pub mod player;
+pub(crate) mod rotating_log;
+pub(crate) mod sanitize;
+mod server_child;
 pub mod skip;
 pub mod stream_server;
 pub mod theme;
+pub(crate) mod update;

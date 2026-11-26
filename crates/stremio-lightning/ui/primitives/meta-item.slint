@@ -1,0 +1,295 @@
+// Based on stremio-web (https://github.com/Stremio/stremio-web),
+// Copyright (C) 2017-2024 Smart code 203358507.
+// Layout numbers translated by hand from src/components/MetaItem/styles.less.
+// Licence basis: ../../THIRD_PARTY_NOTICES.md.
+import { ClassStyles } from "../class-styles.slint";
+import { Theme } from "../theme.slint";
+import { CardMenuOption, DismissOverlayButton, MenuOverlayButton, NewVideosBadge, PlayOverlayButton, PosterProgressBar, WatchedBadge } from "meta-item-overlays.slint";
+
+export struct PosterData {
+    item-id: string,
+    kind: string,
+    title: string,
+    poster: image,
+    has-poster: bool,
+    progress: float,
+    watched: bool,
+    playable: bool,
+}
+
+export component MetaItem inherits Rectangle {
+    in property <PosterData> card;
+    in property <bool> selected;
+    in property <int> new-videos: 0;
+    in property <float> poster-shape-ratio;
+    in property <length> rem-size;
+    in property <bool> hovered-by-owner: false;
+    out property <bool> is-hovered: root.hovered-by-owner || card-touch.has-hover
+        || play-button.has-hover || dismiss-button.has-hover || menu-button.has-hover;
+    callback clicked();
+    callback hovered();
+
+    in property <bool> menu-enabled: false;
+    in property <length> viewport-width;
+    in property <length> viewport-height;
+    out property <bool> menu-open: menu.is-open;
+    out property <bool> menu-active: menu-button.has-hover || root.menu-open;
+    callback item-action(string);
+    in property <bool> menu-offers-watched: false;
+    in property <bool> menu-offers-remove: false;
+    in property <bool> dismissable: false;
+    property <length> menu-width: 9 * root.rem-size;
+    property <bool> menu-at-pointer: false;
+    property <length> pointer-x: 0px;
+    property <length> pointer-y: 0px;
+
+    menu-keys := FocusScope {
+        key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                menu.close();
+                return accept;
+            }
+            return reject;
+        }
+    }
+
+    public function open-menu-at(x: length, y: length) {
+        if (root.menu-enabled) {
+            root.pointer-x = x;
+            root.pointer-y = y;
+            root.menu-at-pointer = true;
+            menu.show();
+            menu-keys.focus();
+        }
+    }
+
+    changed menu-open => { if (root.menu-open) { menu-keys.focus(); } }
+
+    meta-item-link := Rectangle {
+        x: root.rem-size;
+        y: root.rem-size;
+        width: root.width - 2 * root.rem-size;
+        height: root.height - 2 * root.rem-size;
+        background: ClassStyles.background-or(ClassStyles.meta-item-link, transparent);
+        opacity: ClassStyles.opacity-or(ClassStyles.meta-item-link, 1.0);
+        visible: !ClassStyles.meta-item-link.hidden;
+
+        selection-ring := Rectangle {
+            x: -0.2 * root.rem-size;
+            y: -0.2 * root.rem-size;
+            width: parent.width + 0.4 * root.rem-size;
+            height: poster-container.height + 0.4 * root.rem-size;
+            border-radius: 0.95 * root.rem-size;
+            border-width: 0.2 * root.rem-size;
+            border-color: white;
+            visible: root.selected || root.is-hovered;
+        }
+
+        // Portrait posters are pre-rounded in `plumbing/images` so idle cards draw directly
+        // without a FemtoVG offscreen rounded-clip FBO; only hovered/selected zoom or non-portrait
+        // shapes mount a temporary rounded clip, which frees its FBO as soon as hover leaves.
+        poster-container := Rectangle {
+            x: 0px;
+            y: 0px;
+            width: parent.width;
+            height: self.width * root.poster-shape-ratio;
+            background: ClassStyles.background-or(ClassStyles.poster-container, Theme.overlay);
+            border-radius: 0.75 * root.rem-size;
+            opacity: ClassStyles.opacity-or(ClassStyles.poster-container, 1.0);
+            visible: !ClassStyles.poster-container.hidden;
+
+            if root.card.has-poster && !(root.selected || root.is-hovered) && root.poster-shape-ratio == 1.464: poster-image := Image {
+                source: root.card.poster;
+                x: 0px;
+                y: 0px;
+                width: 100%;
+                height: 100%;
+                image-fit: cover;
+                opacity: ClassStyles.opacity-or(ClassStyles.poster-image, 0.9);
+                visible: !ClassStyles.poster-image.hidden;
+            }
+
+            if root.card.has-poster && ((root.selected || root.is-hovered) || root.poster-shape-ratio != 1.464): Rectangle {
+                x: 0px;
+                y: 0px;
+                width: parent.width;
+                height: parent.height;
+                border-radius: 0.75 * root.rem-size;
+                clip: true;
+
+                Image {
+                    source: root.card.poster;
+                    x: 0px;
+                    y: 0px;
+                    width: 100%;
+                    height: 100%;
+                    image-fit: cover;
+                    opacity: ClassStyles.opacity-or(ClassStyles.poster-image, 0.9);
+                    transform-scale: (root.selected || root.is-hovered) ? 1.05 : 1.0;
+                    visible: !ClassStyles.poster-image.hidden;
+                }
+            }
+
+            if root.card.progress > 0: progress-bar-layer := PosterProgressBar {
+                x: 1 * root.rem-size;
+                y: parent.height - self.height - 1 * root.rem-size;
+                width: parent.width - 2 * root.rem-size;
+                progress: root.card.progress;
+                rem-size: root.rem-size;
+            }
+
+            if root.card.watched: WatchedBadge {
+                x: 0.5 * root.rem-size;
+                y: 0.5 * root.rem-size;
+                rem-size: root.rem-size;
+            }
+
+            if root.new-videos > 0: NewVideosBadge {
+                x: 0px;
+                y: 0px;
+                width: parent.width;
+                height: parent.height;
+                count: root.new-videos;
+                rem-size: root.rem-size;
+            }
+        }
+
+        title-bar-container := Rectangle {
+            x: 0px;
+            y: poster-container.height;
+            width: parent.width;
+            height: 4 * root.rem-size;
+            background: ClassStyles.background-or(ClassStyles.title-bar-container, transparent);
+            opacity: ClassStyles.opacity-or(ClassStyles.title-bar-container, 1.0);
+            visible: !ClassStyles.title-bar-container.hidden;
+
+            title-measure := Text {
+                width: parent.width - root.rem-size;
+                text: root.card.title;
+                wrap: word-wrap;
+                font-size: root.rem-size;
+                font-weight: 600;
+                visible: false;
+            }
+
+            title-label := Text {
+                x: 0.5 * root.rem-size;
+                width: parent.width - root.rem-size;
+                height: Math.min(title-measure.preferred-height, 2.6 * root.rem-size);
+                y: (parent.height - self.height) / 2;
+                text: root.card.title;
+                horizontal-alignment: center;
+                vertical-alignment: top;
+                wrap: word-wrap;
+                overflow: elide;
+                font-size: root.rem-size;
+                font-weight: 600;
+                color: ClassStyles.color-or(ClassStyles.title-label, Theme.text);
+                opacity: ClassStyles.opacity-or(ClassStyles.title-label, 1.0);
+                visible: !ClassStyles.title-label.hidden;
+            }
+        }
+
+        card-touch := TouchArea {
+            mouse-cursor: pointer;
+            accessible-role: button;
+            accessible-label: root.card.title;
+            changed has-hover => { if (self.has-hover) { root.hovered(); } }
+            pointer-event(event) => {
+                if (root.menu-enabled && event.button == PointerEventButton.right && event.kind == PointerEventKind.up) {
+                    root.open-menu-at(self.mouse-x + root.rem-size, self.mouse-y + root.rem-size);
+                }
+            }
+            clicked => { root.clicked(); }
+        }
+    }
+
+    play-button := PlayOverlayButton {
+        visible: root.card.playable;
+        x: root.rem-size + (root.width - 2 * root.rem-size) / 2 - 2 * root.rem-size;
+        y: root.rem-size + (root.width - 2 * root.rem-size) * root.poster-shape-ratio / 2
+            - 2 * root.rem-size;
+        rem-size: root.rem-size;
+        card-hovered: root.is-hovered;
+        clicked => { root.item-action("play"); }
+    }
+
+    dismiss-button := DismissOverlayButton {
+        visible: root.dismissable;
+        x: root.rem-size + 0.5 * root.rem-size;
+        y: root.rem-size + 0.5 * root.rem-size;
+        rem-size: root.rem-size;
+        card-hovered: root.is-hovered;
+        clicked => { root.item-action("dismiss"); }
+    }
+
+    menu-button := MenuOverlayButton {
+        visible: root.menu-enabled;
+        x: parent.width - 1.5 * root.rem-size;
+        y: parent.height - 5 * root.rem-size;
+        rem-size: root.rem-size;
+        show-dots: root.is-hovered || root.menu-active;
+        clicked => {
+            if (root.menu-open) { menu.close(); } else { root.menu-at-pointer = false; menu.show(); }
+        }
+    }
+
+    menu := PopupWindow {
+        x: root.menu-at-pointer
+            ? Math.max(-root.absolute-position.x, Math.min(root.pointer-x,
+                root.viewport-width - root.absolute-position.x - root.menu-width))
+            : Math.max(0px, root.width - 1.5 * root.rem-size);
+        y: root.menu-at-pointer
+            ? (root.pointer-y + options-layout.preferred-height
+                    > root.viewport-height - root.absolute-position.y
+                ? Math.max(-root.absolute-position.y, root.pointer-y - options-layout.preferred-height)
+                : root.pointer-y)
+            : root.height - 1 * root.rem-size;
+        width: root.menu-width;
+        height: options-layout.preferred-height;
+        close-policy: PopupClosePolicy.close-on-click-outside;
+
+        Rectangle {
+            width: parent.width;
+            height: parent.height;
+            border-radius: 0.75 * root.rem-size;
+            background: Theme.modal-background;
+            drop-shadow-blur: 15px;
+            drop-shadow-color: Theme.outer-glow;
+            clip: true;
+
+            options-layout := VerticalLayout {
+                if root.card.playable: CardMenuOption {
+                    label: "Play";
+                    action: "play";
+                    rem-size: root.rem-size;
+                    picked(action) => { menu.close(); root.item-action(action); }
+                }
+                CardMenuOption {
+                    label: "Details";
+                    action: "details";
+                    rem-size: root.rem-size;
+                    picked(action) => { menu.close(); root.item-action(action); }
+                }
+                if root.card.progress > 0: CardMenuOption {
+                    label: "Dismiss";
+                    action: "dismiss";
+                    rem-size: root.rem-size;
+                    picked(action) => { menu.close(); root.item-action(action); }
+                }
+                if root.menu-offers-watched: CardMenuOption {
+                    label: root.card.watched ? "Mark as unwatched" : "Mark as watched";
+                    action: "watched";
+                    rem-size: root.rem-size;
+                    picked(action) => { menu.close(); root.item-action(action); }
+                }
+                if root.menu-offers-remove: CardMenuOption {
+                    label: "Remove";
+                    action: "remove";
+                    rem-size: root.rem-size;
+                    picked(action) => { menu.close(); root.item-action(action); }
+                }
+            }
+        }
+    }
+}

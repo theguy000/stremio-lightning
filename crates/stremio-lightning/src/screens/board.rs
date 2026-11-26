@@ -3,10 +3,8 @@
 
 use stremio_core::models::common::Loadable;
 use stremio_core::models::continue_watching_preview::ContinueWatchingPreview;
-use stremio_core::types::library::LibraryItem;
-use stremio_core::types::resource::PosterShape;
 
-use super::{can_play, card_of, catalog_title, shape_of, Card};
+use super::{card_of, card_of_library_item, catalog_title, library_poster_shape, shape_of, Card};
 use crate::AppModel;
 
 /// stremio-web's `CATALOG_PREVIEW_SIZE`: how many cards a Board row keeps.
@@ -80,44 +78,17 @@ fn continue_watching_row(model: &AppModel, preview: &ContinueWatchingPreview) ->
     items.first()?;
     Some(Row {
         title: CONTINUE_WATCHING_TITLE.to_owned(),
-        shape: shape_of_library_items(items.iter().copied()),
+        shape: items
+            .first()
+            .map_or("poster", |item| library_poster_shape(&item.poster_shape)),
+        // Continue Watching omits `watched` to match stremio-web's preview serializer (only
+        // Library draws the watched checkmark).
         cards: items
             .iter()
-            .map(|item| card_of_library_item(model, item))
+            .map(|item| card_of_library_item(model, item, false))
             .collect(),
         menu: true,
     })
-}
-
-/// A library item's own poster shape, with one web-ism kept: stremio-core's preview serialiser
-/// turns a Landscape poster into a Square one, because a landscape shape in a row of posters
-/// reads as a mistake (`serialize_continue_watching_preview.rs`).
-fn shape_of_library_items<'a>(items: impl IntoIterator<Item = &'a LibraryItem>) -> &'static str {
-    match items.into_iter().next().map(|item| &item.poster_shape) {
-        Some(PosterShape::Landscape | PosterShape::Square) => "square",
-        _ => "poster",
-    }
-}
-
-/// One card of the Continue Watching row. The core keeps the one watch position a title is
-/// sitting on, and `progress()` is that position as a percentage of its length.
-fn card_of_library_item(model: &AppModel, item: &LibraryItem) -> Card {
-    Card {
-        id: item.id.clone(),
-        kind: item.r#type.clone(),
-        title: item.name.clone(),
-        poster: item.poster.as_ref().map(|url| url.to_string()),
-        progress: item.progress(),
-        // No `watched` flag: the web's continue-watching serialiser sends `_id`, `name`, `type`,
-        // `poster`, `posterShape`, `progress`, `deepLinks` and `state.videoId` and nothing else, so
-        // `LibItem` there is handed `watched: undefined` -- no check mark on a Continue Watching
-        // card, and no "Mark as watched" row in its list. The core's own `watched()` is
-        // `times_watched > 0`, which stays true while a title is being re-watched, so drawing it
-        // here would check mark a title that is half way through an episode. Only the Library
-        // passes it (`serialize_library.rs`), and only the Library draws it.
-        watched: false,
-        playable: can_play(model, item),
-    }
 }
 
 /// Viewport snapshot reported by `BoardContent` whenever it scrolls or resizes.

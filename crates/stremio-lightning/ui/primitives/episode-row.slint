@@ -1,0 +1,168 @@
+// Based on stremio-web (https://github.com/Stremio/stremio-web), Copyright (C) 2017-2023 Smart code 203358507.
+// Layout numbers from src/routes/MetaDetails/VideosList/SeasonsBar/styles.less and src/components/Video/styles.less.
+// Licence basis: ../../THIRD_PARTY_NOTICES.md.
+import { ClassStyles } from "../class-styles.slint";
+import { Theme } from "../theme.slint";
+import { EpisodeProgress, WatchedChip } from "../watched-marks.slint";
+
+export struct VideoRow {
+    id: string,
+    title: string,
+    released: string,
+    has-thumbnail: bool,
+    thumbnail: image,
+    selected: bool,
+    watched: bool,
+    progress: float,
+}
+
+export component SeasonButton inherits Rectangle {
+    in property <string> label;
+    in property <image> glyph;
+    in property <bool> disabled;
+    in property <length> rem-size;
+    callback clicked;
+
+    width: 2.75 * root.rem-size;
+    height: 2.75 * root.rem-size;
+    border-radius: 1.375 * root.rem-size;
+    background: touch.has-hover && !root.disabled ? rgba(255, 255, 255, 0.12) : rgba(255, 255, 255, 0.06);
+
+    Image {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: 1.15 * root.rem-size;
+        height: 1.15 * root.rem-size;
+        source: root.glyph;
+        colorize: Theme.text;
+        opacity: root.disabled ? 0.3 : 0.9;
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            if (!root.disabled) {
+                root.clicked();
+            }
+        }
+    }
+}
+
+export component EpisodeMenuOption inherits Rectangle {
+    in property <string> label;
+    in property <length> rem-size;
+    callback picked;
+
+    height: label-text.preferred-height + 2 * root.rem-size;
+    background: touch.has-hover ? Theme.option-hover : transparent;
+
+    label-text := Text {
+        x: 1.5 * root.rem-size;
+        width: parent.width - 3 * root.rem-size;
+        y: 1 * root.rem-size;
+        height: parent.height - 2 * root.rem-size;
+        text: root.label;
+        vertical-alignment: center;
+        wrap: word-wrap;
+        font-size: 1 * root.rem-size;
+        font-weight: 500;
+        color: Theme.text;
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.picked(); }
+    }
+}
+
+export component VideoListItem inherits Rectangle {
+    in property <VideoRow> episode;
+    in property <length> rem-size;
+    callback clicked;
+    callback open-menu(length, length);
+
+    height: 6.3125 * root.rem-size;
+    border-radius: 0.75 * root.rem-size;
+    background: ClassStyles.background-or(ClassStyles.video_container, (touch.has-hover || root.episode.selected) ? Theme.overlay : transparent);
+
+    HorizontalLayout {
+        padding-top: 0.625 * root.rem-size;
+        padding-bottom: 0.625 * root.rem-size;
+        padding-left: 0.625 * root.rem-size;
+        padding-right: 0.75 * root.rem-size;
+        spacing: 1.125 * root.rem-size;
+
+        Rectangle {
+            width: 9 * root.rem-size;
+            height: 5.0625 * root.rem-size;
+            border-radius: 0.375 * root.rem-size;
+            background: Theme.overlay;
+            clip: true;
+            if root.episode.has-thumbnail: Image {
+                width: 100%;
+                height: 100%;
+                source: root.episode.thumbnail;
+                image-fit: cover;
+                opacity: root.episode.watched ? 0.5 : 0.92;
+            }
+            if root.episode.watched: Rectangle {
+                x: parent.width - self.width - 0.5 * root.rem-size;
+                y: 0.5 * root.rem-size;
+                width: 1.4 * root.rem-size;
+                height: 1.4 * root.rem-size;
+                border-radius: 0.7 * root.rem-size;
+                background: #f5c518;
+                Path {
+                    width: 0.8 * root.rem-size;
+                    height: 0.8 * root.rem-size;
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    viewbox-width: 16;
+                    viewbox-height: 16;
+                    stroke: #141414;
+                    stroke-width: 1.6px;
+                    stroke-line-cap: round;
+                    stroke-line-join: round;
+                    MoveTo { x: 3; y: 8.5; }
+                    LineTo { x: 6.5; y: 12; }
+                    LineTo { x: 13; y: 4.5; }
+                }
+            }
+            if root.episode.progress > 0: EpisodeProgress {
+                x: 0.5 * root.rem-size;
+                y: parent.height - self.height - 0.5 * root.rem-size;
+                width: parent.width - 1 * root.rem-size;
+                progress: root.episode.progress;
+                rem-size: root.rem-size;
+            }
+        }
+
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: center;
+            spacing: 0.375 * root.rem-size;
+            Text {
+                text: root.episode.title;
+                color: Theme.text;
+                font-size: 0.9375 * root.rem-size;
+                font-weight: 500;
+                wrap: word-wrap;
+                overflow: elide;
+            }
+            Text {
+                text: root.episode.released;
+                color: rgba(255, 255, 255, 0.46);
+                font-size: 0.78 * root.rem-size;
+                font-weight: 500;
+                overflow: elide;
+            }
+        }
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        pointer-event(event) => {
+            if (event.button == PointerEventButton.right && event.kind == PointerEventKind.up) {
+                root.open-menu(root.absolute-position.x + self.mouse-x, root.absolute-position.y + self.mouse-y);
+            }
+        }
+        clicked => { root.clicked(); }
+    }
+}

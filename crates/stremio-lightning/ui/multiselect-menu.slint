@@ -10,6 +10,12 @@ export struct SelectOption {
     selected: bool,
 }
 
+export struct SelectInputData {
+    title: string,
+    options: [SelectOption],
+    selected-index: int,
+}
+
 // Web: Dropdown/Option. One row, 3rem high, a dot on the selected one.
 component MultiselectOption inherits Rectangle {
     in property <string> label;
@@ -18,7 +24,7 @@ component MultiselectOption inherits Rectangle {
     callback clicked;
 
     height: 3 * root.rem-size;
-    background: touch.has-hover ? #ffffff26 : ClassStyles.background-or(ClassStyles.option, transparent);
+    background: touch.has-hover ? Theme.option-hover : ClassStyles.background-or(ClassStyles.option, transparent);
 
     label-text := Text {
         x: root.rem-size;
@@ -47,7 +53,6 @@ component MultiselectOption inherits Rectangle {
         accessible-checkable: true;
         accessible-checked: root.selected;
         clicked => {
-            debug("option pressed:", root.label);
             root.clicked();
         }
     }
@@ -123,10 +128,8 @@ export component MultiselectMenu inherits Rectangle {
             }
         }
         clicked => {
-            debug("menu pressed:", root.title, "was-open:", root.was-open);
             if (!root.was-open) {
                 popup.show();
-                debug("popup shown, open:", popup.is-open);
             }
         }
     }
@@ -145,7 +148,7 @@ export component MultiselectMenu inherits Rectangle {
             background: ClassStyles.background-or(ClassStyles.dropdown, Theme.modal-background);
             // Web: --outer-glow
             drop-shadow-blur: 15px;
-            drop-shadow-color: #7b5bf55e;
+            drop-shadow-color: Theme.outer-glow;
             clip: true;
 
             list := Flickable {

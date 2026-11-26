@@ -1,0 +1,116 @@
+// Full-window dismissible right-click context menu for Details stream rows.
+import { Theme } from "../theme.slint";
+
+export component StreamContextMenu inherits Rectangle {
+    in property <length> rem-size;
+    in property <int> stream-index: -1;
+    in property <string> stream-link;
+    in property <bool> is-magnet: false;
+    in property <length> anchor-x: 0px;
+    in property <length> anchor-y: 0px;
+
+    callback close;
+    callback play(int);
+    callback copy-link(string);
+
+    property <length> menu-width: 14.5 * root.rem-size;
+    property <length> menu-height: menu-col.preferred-height + 0.75 * root.rem-size;
+
+    TouchArea {
+        width: parent.width;
+        height: parent.height;
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down) {
+                root.close();
+            }
+        }
+    }
+
+    Rectangle {
+        x: Math.min(parent.width - root.menu-width - 1 * root.rem-size, Math.max(1 * root.rem-size, root.anchor-x));
+        y: Math.min(parent.height - root.menu-height - 1 * root.rem-size, Math.max(1 * root.rem-size, root.anchor-y));
+        width: root.menu-width;
+        height: root.menu-height;
+        border-radius: 0.75 * root.rem-size;
+        background: Theme.modal-background;
+        border-width: 1px;
+        border-color: rgba(255, 255, 255, 0.1);
+        drop-shadow-blur: 1.5 * root.rem-size;
+        drop-shadow-color: #00000080;
+
+        menu-col := VerticalLayout {
+            padding: 0.375 * root.rem-size;
+            spacing: 0.125 * root.rem-size;
+
+            Rectangle {
+                height: 2.75 * root.rem-size;
+                border-radius: 0.5 * root.rem-size;
+                background: m-play.has-hover ? Theme.overlay : transparent;
+                HorizontalLayout {
+                    padding-left: 0.9 * root.rem-size;
+                    spacing: 0.65 * root.rem-size;
+                    alignment: start;
+                    VerticalLayout {
+                        alignment: center;
+                        Image {
+                            width: 1.1 * root.rem-size;
+                            height: 1.1 * root.rem-size;
+                            source: @image-url("../icons/play.svg");
+                            colorize: Theme.text;
+                        }
+                    }
+                    Text {
+                        text: "Play";
+                        font-size: 0.9 * root.rem-size;
+                        font-weight: 500;
+                        color: Theme.text;
+                        vertical-alignment: center;
+                    }
+                }
+                m-play := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        let idx = root.stream-index;
+                        root.close();
+                        root.play(idx);
+                    }
+                }
+            }
+
+            if root.stream-link != "": Rectangle {
+                height: 2.75 * root.rem-size;
+                border-radius: 0.5 * root.rem-size;
+                background: m-copy.has-hover ? Theme.overlay : transparent;
+                HorizontalLayout {
+                    padding-left: 0.9 * root.rem-size;
+                    spacing: 0.65 * root.rem-size;
+                    alignment: start;
+                    VerticalLayout {
+                        alignment: center;
+                        Image {
+                            width: 1.1 * root.rem-size;
+                            height: 1.1 * root.rem-size;
+                            source: root.is-magnet ? @image-url("../icons/magnet-link.svg") : @image-url("../icons/link.svg");
+                            colorize: Theme.text;
+                        }
+                    }
+                    Text {
+                        text: root.is-magnet ? "Copy magnet link" : "Copy stream link";
+                        font-size: 0.9 * root.rem-size;
+                        font-weight: 500;
+                        color: Theme.text;
+                        vertical-alignment: center;
+                    }
+                }
+                m-copy := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        let link = root.stream-link;
+                        root.close();
+                        root.copy-link(link);
+                    }
+                }
+            }
+        }
+    }
+}

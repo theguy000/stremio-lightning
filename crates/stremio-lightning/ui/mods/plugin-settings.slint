@@ -1,0 +1,278 @@
+// Plugin settings subpage and field controls for the Mods section.
+import { LineEdit, Slider } from "std-widgets.slint";
+import { ScrollBar } from "../scroll-bar.slint";
+import { Theme } from "../theme.slint";
+import { SettingsButton, SettingsFieldData } from "types.slint";
+
+export component SettingsTextField inherits LineEdit {
+    in property <length> rem-size;
+    in property <string> label-text;
+    in property <string> shown;
+    callback said(string);
+
+    font-size: 1.1 * root.rem-size;
+    accessible-description: root.label-text;
+    init => { self.text = root.shown; }
+    changed shown => {
+        if (self.text != root.shown) {
+            self.text = root.shown;
+        }
+    }
+    edited(text) => { root.said(text); }
+}
+
+component SettingsFieldView inherits Rectangle {
+    in property <SettingsFieldData> field;
+    in property <length> rem-size;
+    callback toggled(bool);
+    callback typed(string);
+    callback picked(string);
+    callback slid(float);
+
+    property <length> pad: 0.8 * rem-size;
+    property <length> control-width: Math.min(Math.max(0px, root.width - 2 * root.pad), 36 * rem-size);
+    property <length> control-x: root.pad;
+    property <length> control-y: root.pad + 2.2 * rem-size;
+
+    height: 9 * rem-size;
+
+    settings-field-label := Text {
+        x: root.pad;
+        y: root.pad;
+        width: parent.width - 2 * root.pad;
+        height: 1.6 * rem-size;
+        text: root.field.label;
+        overflow: elide;
+        vertical-alignment: center;
+        font-size: 1.05 * rem-size;
+        font-weight: 600;
+        color: Theme.text;
+    }
+    settings-field-hint := Text {
+        x: root.control-x;
+        y: root.control-y + 2.8 * rem-size;
+        width: root.control-width;
+        height: 2.4 * rem-size;
+        text: root.field.hint;
+        wrap: word-wrap;
+        overflow: clip;
+        vertical-alignment: top;
+        font-size: 0.9 * rem-size;
+        color: root.field.kind == "unsupported" ? Theme.accent-yellow : Theme.placeholder;
+    }
+
+    if root.field.kind == "toggle": settings-field-toggle := Rectangle {
+        x: root.control-x;
+        y: root.control-y;
+        width: 3.2 * root.rem-size;
+        height: 1.8 * root.rem-size;
+        border-radius: self.height / 2;
+        border-width: 1px;
+        border-color: root.field.on ? Theme.accent-green : Theme.placeholder;
+        background: root.field.on ? Theme.accent-green : transparent;
+
+        knob := Rectangle {
+            x: root.field.on ? parent.width - self.width - 2 * root.rem-size / 14 : 2 * root.rem-size / 14;
+            y: (parent.height - self.height) / 2;
+            width: parent.height - 4 * root.rem-size / 14;
+            height: self.width;
+            border-radius: self.width / 2;
+            background: Theme.text;
+        }
+        touch := TouchArea {
+            width: 100%;
+            height: 100%;
+            mouse-cursor: pointer;
+            accessible-role: switch;
+            accessible-label: (root.field.on ? "Turn off " : "Turn on ") + root.field.label;
+            accessible-checkable: true;
+            accessible-checked: root.field.on;
+            clicked => { root.toggled(!root.field.on); }
+        }
+    }
+    if root.field.kind == "text": settings-field-text := SettingsTextField {
+        x: root.control-x;
+        y: root.control-y;
+        width: root.control-width;
+        height: 2.4 * root.rem-size;
+        rem-size: root.rem-size;
+        label-text: root.field.label;
+        shown: root.field.text;
+        said(text) => { root.typed(text); }
+    }
+    if root.field.kind == "select": settings-field-select := HorizontalLayout {
+        x: root.control-x;
+        y: root.control-y;
+        width: root.control-width;
+        height: 2.4 * root.rem-size;
+        spacing: 0.6 * root.rem-size;
+        alignment: start;
+
+        for option[index] in root.field.options: option-pill := Rectangle {
+            width: option-label.width + 1.6 * root.rem-size;
+            height: parent.height;
+            border-radius: self.height / 2;
+            border-width: 1px;
+            border-color: option == root.field.text ? Theme.accent-green : Theme.placeholder;
+            background: (option == root.field.text || option-touch.has-hover) ? Theme.overlay : transparent;
+
+            option-label := Text {
+                x: 0.8 * root.rem-size;
+                y: (parent.height - self.height) / 2;
+                width: self.preferred-width;
+                text: option;
+                font-size: root.rem-size;
+                color: option == root.field.text ? Theme.accent-green : Theme.text;
+            }
+            option-touch := TouchArea {
+                width: 100%;
+                height: 100%;
+                mouse-cursor: pointer;
+                accessible-role: radio-button;
+                accessible-label: root.field.label + ": " + option;
+                accessible-checkable: true;
+                accessible-checked: option == root.field.text;
+                clicked => { root.picked(option); }
+            }
+        }
+    }
+    if root.field.kind == "range": settings-field-range := Slider {
+        x: root.control-x;
+        y: root.control-y;
+        width: root.control-width - 8 * root.rem-size;
+        height: 2.4 * root.rem-size;
+        minimum: root.field.min;
+        maximum: root.field.max > root.field.min ? root.field.max : root.field.min + 1;
+        value: root.field.number;
+        accessible-description: root.field.label;
+        changed(value) => { root.slid(value); }
+    }
+    if root.field.kind == "range": settings-field-number := Text {
+        x: root.control-x + parent.width - 8 * root.rem-size;
+        y: root.control-y;
+        width: 7 * root.rem-size;
+        height: 2.4 * root.rem-size;
+        text: root.field.shown;
+        horizontal-alignment: right;
+        vertical-alignment: center;
+        font-size: root.rem-size;
+        color: Theme.text;
+    }
+}
+
+export component ModsPluginSettingsPage inherits Rectangle {
+    in property <length> rem-size;
+    in property <string> settings-plugin;
+    in property <string> settings-title;
+    in property <[SettingsFieldData]> settings-fields;
+    in property <[string]> settings-trouble;
+    in property <string> settings-empty;
+    in property <bool> settings-dirty;
+
+    callback back-to-plugins();
+    callback edit-settings-toggle(string, bool);
+    callback edit-settings-text(string, string);
+    callback edit-settings-number(string, float);
+    callback save-settings();
+
+    property <length> header-height: 3.2 * root.rem-size;
+    property <length> trouble-height: root.settings-trouble.length * 1.2 * root.rem-size;
+    property <length> fields-y: root.header-height + root.trouble-height
+        + (root.trouble-height == 0px ? 0.4 * root.rem-size : 0.8 * root.rem-size);
+    property <length> save-y: root.fields-y
+        + root.settings-fields.length * 9.8 * root.rem-size
+        + (root.settings-empty == "" ? 0px : 3.2 * root.rem-size)
+        + 0.8 * root.rem-size;
+
+    fields-flickable := Flickable {
+        width: parent.width;
+        height: parent.height;
+        content-width: self.width;
+        content-height: root.save-y + 4 * root.rem-size;
+
+        settings-header := Text {
+            x: 3.6 * root.rem-size;
+            y: 0px;
+            width: parent.width - 3.6 * root.rem-size - 8px;
+            height: root.header-height;
+            text: root.settings-title;
+            overflow: elide;
+            vertical-alignment: center;
+            font-size: 1.6 * root.rem-size;
+            font-weight: 700;
+            color: Theme.text;
+        }
+        for trouble[index] in root.settings-trouble: settings-trouble-line := Text {
+            y: root.header-height + index * 1.2 * root.rem-size;
+            width: parent.width - 8px;
+            height: 1.2 * root.rem-size;
+            text: trouble;
+            overflow: elide;
+            font-size: 0.9 * root.rem-size;
+            color: Theme.accent-red;
+        }
+        for field[index] in root.settings-fields: SettingsFieldView {
+            y: root.fields-y + index * 9.8 * root.rem-size;
+            width: parent.width - 8px;
+            rem-size: root.rem-size;
+            field: field;
+            toggled(value) => { root.edit-settings-toggle(field.key, value); }
+            typed(text) => { root.edit-settings-text(field.key, text); }
+            picked(option) => { root.edit-settings-text(field.key, option); }
+            slid(value) => { root.edit-settings-number(field.key, value); }
+        }
+        if root.settings-empty != "": settings-said := Text {
+            y: root.fields-y + root.settings-fields.length * 9.8 * root.rem-size;
+            width: parent.width - 8px;
+            height: 3 * root.rem-size;
+            text: root.settings-empty;
+            wrap: word-wrap;
+            font-size: root.rem-size;
+            color: Theme.text;
+            opacity: 0.7;
+        }
+        settings-save := SettingsButton {
+            x: 0px;
+            y: root.save-y;
+            rem-size: root.rem-size;
+            label-text: "Save";
+            name: "Save " + root.settings-plugin;
+            primary: true;
+            enabled: root.settings-dirty;
+            clicked => { root.save-settings(); }
+        }
+    }
+    ScrollBar {
+        x: parent.width - 8px;
+        height: parent.height;
+        view-height: parent.height;
+        content-height: fields-flickable.content-height;
+        offset <=> fields-flickable.content-y;
+    }
+    settings-back := Rectangle {
+        x: 0px;
+        y: 0px;
+        width: 3 * root.rem-size;
+        height: 3 * root.rem-size;
+        border-radius: 0.5 * root.rem-size;
+        background: settings-back-touch.has-hover ? Theme.border-medium : Theme.overlay-hover;
+
+        Image {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: 1.5 * root.rem-size;
+            height: 1.5 * root.rem-size;
+            source: @image-url("../icons/chevron-back.svg");
+            colorize: Theme.text;
+            opacity: settings-back-touch.has-hover ? 0.8 : 0.6;
+        }
+        settings-back-touch := TouchArea {
+            width: 100%;
+            height: 100%;
+            mouse-cursor: pointer;
+            accessible-role: button;
+            accessible-label: "Back to plugins";
+            clicked => { root.back-to-plugins(); }
+        }
+    }
+}

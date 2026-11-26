@@ -1,8 +1,7 @@
 # Packaging
 
 Packaging commands build release artifacts under `dist/`. Run them from the
-repository root after installing frontend dependencies and the target
-platform's native dependencies.
+repository root after installing the target platform's native dependencies.
 
 Use plain `cargo build` for compile checks. Use `cargo xtask package-*` when you
 need a distributable artifact.
@@ -97,7 +96,7 @@ cargo install cargo-xwin
 ```
 
 Cross-building can assemble the portable layout, but runtime validation still
-requires Windows with WebView2 and MPV DLL loading available.
+requires Windows with OpenGL and `libmpv` DLL loading available.
 
 Build the installer on Windows with Inno Setup's `iscc` compiler in `PATH`.
 Inno Setup 6.3 or newer is required: the generated script stamps an Application

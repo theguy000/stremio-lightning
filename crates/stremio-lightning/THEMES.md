@@ -67,7 +67,7 @@ descendant selectors such as `.a .b`, sizes, margins, gradients and hover states
 | `placeholder` | the whole Library or Calendar screen shown when logged out | | yes | yes | yes |
 | `title` | "Library is only available for logged in users" | yes | | yes | yes |
 | `image-container`, `image` | the picture of posters on that screen | | container only | yes | yes |
-| `overview`, `point` | the two sentences under it. `overview` is layout only; `point` is one icon and sentence | | | `point` only | `point` only |
+| `point` | one icon and sentence under the heading | | | yes | yes |
 | `text` | the sentence of one point | yes | | yes | yes |
 | `button`, `button-container` | the Log in button. Hover (outline, clear background) is not themable | yes | yes | yes | yes |
 | `label` | the name under a side nav icon (Board, Discover, ...), shown only while the tab is hovered; also the text of the Uninstall and Share addon buttons | yes | | | yes |
@@ -88,7 +88,6 @@ descendant selectors such as `.a .b`, sizes, margins, gradients and hover states
 | `message-container` | the text shown when no addon matches | yes | | yes | yes |
 | `menu` | the Settings side menu | | yes | yes | yes |
 | `version-info-label` | "App Version: ..." and "Build Version: ..." under the Settings menu | yes | | yes | yes |
-| `sections-container` | the scrolling area of Settings | | | | |
 | `section` | one Settings section (General links, Interface, ...) | | yes | yes | yes |
 | `user` | the user block at the top of General | | | | |
 | `avatar-container` | the round picture in the user block. `color` is its ring | yes | yes | yes | yes |
@@ -132,7 +131,6 @@ descendant selectors such as `.a .b`, sizes, margins, gradients and hover states
 | `videos-list-container` | the Details page's Videos list | | | | yes |
 | `video-container` | one row of that list. Hover overrides its background, as on the web | | yes | | |
 | `mods-empty` | "No plugins are installed." / "No themes are installed." | yes | | yes | yes |
-| `mods-log-filter` | one choice of the Logs page's filter | yes | | yes | yes |
 | `mods-log-time` | a record's time column | yes | | yes | yes |
 | `mods-log-source` | a record's source column | yes | | yes | yes |
 | `mods-log-level` | a record's level column, before the theme's colour | yes | | yes | yes |

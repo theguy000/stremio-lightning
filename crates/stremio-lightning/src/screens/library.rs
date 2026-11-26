@@ -1,34 +1,27 @@
-//! The Library: the account's titles, filtered by type and sorted by the core's own
-//! `LibraryWithFilters`. Based on stremio-web src/routes/Library (Library.js,
-//! useSelectableInputs.js) and src/components/MetaItem.
-//!
-//! The screen only describes what to draw. Selecting a type or sort is a request to load, and
-//! every menu action is a core action; `shell` is where both go.
+//! The Library: the account's titles, filtered by type and sorted by the core's
+//! `LibraryWithFilters`. Based on stremio-web src/routes/Library and src/components/MetaItem.
+
+use std::ops::Deref;
 
 use stremio_core::models::library_with_filters::{LibraryRequest, Sort};
-use stremio_core::types::resource::PosterShape;
 
-use super::{capitalise, AppModel};
+use super::{card_of_library_item, library_poster_shape, type_label, AppModel, SelectInput};
 
-/// One poster tile in the grid. The web's `MetaItem` draws the progress bar, the watched mark
-/// and the new-episodes badge from these same numbers.
+/// One poster tile in the Library grid: a shared `Card` plus Library-specific shape and badge count.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Card {
-    pub id: String,
-    pub kind: String,
-    pub title: String,
-    pub poster: Option<String>,
+    pub card: super::Card,
     /// Web: a Landscape poster is drawn as a Square one in the Library grid.
     pub shape: &'static str,
-    pub progress: f64,
-    pub watched: bool,
-    /// Whether the title can be played from the card: the web's library serializer adds a player
-    /// link only for a title whose current Video already has a Stream, and `LibItem` drops its
-    /// play button and "Play" row without one.
-    pub playable: bool,
-    /// How many new Videos the notifications bucket holds for this title, capped at 99 like
-    /// `LibItem.js`.
+    /// How many new Videos the notifications bucket holds for this title, capped at 99.
     pub new_videos: u32,
+}
+
+impl Deref for Card {
+    type Target = super::Card;
+    fn deref(&self) -> &Self::Target {
+        &self.card
+    }
 }
 
 /// One of the six sort chips. The web renders these as chips rather than a menu.
@@ -42,25 +35,18 @@ pub struct SortChoice {
 /// What the Library screen shows.
 #[derive(Clone, Default)]
 pub struct Data {
-    /// The type menu's closed label ("All", "Movie", "Series", ...).
-    pub type_title: String,
-    /// The type menu's options, in the core's order.
-    pub type_options: Vec<(String, bool)>,
-    /// What each type option loads, parallel to `type_options`.
-    pub type_requests: Vec<LibraryRequest>,
+    /// The type filter dropdown and the `LibraryRequest` each option loads.
+    pub types: SelectInput<LibraryRequest>,
     pub sorts: Vec<SortChoice>,
     pub cards: Vec<Card>,
     /// Web: `LIBRARY_NOT_LOADED` / `LIBRARY_EMPTY`; empty while there is something to draw.
     pub message: String,
-    /// Changes when the type or sort changes, but not when another page is appended. The grid
-    /// resets its scroll to the top on that change, as `Library.js` does when page 1 arrives.
+    /// Changes when the type or sort changes, resetting scroll to the top.
     pub grid_key: String,
     pub has_more: bool,
 }
 
-/// Web: `SORT_LAST_WATCHED`, `SORT_NAME`, ... The labels are title-cased by the chip's CSS, so
-/// these already carry the words the live client shows.
-pub(crate) fn sort_label(sort: &Sort) -> &'static str {
+fn sort_label(sort: &Sort) -> &'static str {
     match sort {
         Sort::LastWatched => "Last Watched",
         Sort::Name => "A-Z",
@@ -71,20 +57,6 @@ pub(crate) fn sort_label(sort: &Sort) -> &'static str {
     }
 }
 
-fn type_label(r#type: &Option<String>) -> String {
-    r#type
-        .as_deref()
-        .map_or_else(|| "All".to_owned(), capitalise)
-}
-
-fn shape_of(poster_shape: &PosterShape) -> &'static str {
-    match poster_shape {
-        PosterShape::Square | PosterShape::Landscape => "square",
-        _ => "poster",
-    }
-}
-
-/// The notification count the badge shows: `LibItem.js` clamps it to 0..=99.
 fn new_videos(model: &AppModel, id: &str) -> u32 {
     model
         .ctx
@@ -97,14 +69,11 @@ fn new_videos(model: &AppModel, id: &str) -> u32 {
 pub fn data(model: &AppModel) -> Data {
     let library = &model.library;
     let selectable = &library.selectable;
-    let selected_type = selectable
-        .types
-        .iter()
-        .position(|item| item.selected)
-        .unwrap_or(0);
     let type_title = selectable
         .types
-        .get(selected_type)
+        .iter()
+        .find(|item| item.selected)
+        .or_else(|| selectable.types.first())
         .map_or_else(|| "All".to_owned(), |item| type_label(&item.r#type));
     let message = if library.selected.is_none() {
         "Library not loaded!".to_owned()
@@ -118,17 +87,16 @@ pub fn data(model: &AppModel) -> Data {
         |selected| format!("{:?}|{:?}", selected.request.r#type, selected.request.sort),
     );
     Data {
-        type_title,
-        type_options: selectable
-            .types
-            .iter()
-            .map(|item| (type_label(&item.r#type), item.selected))
-            .collect(),
-        type_requests: selectable
-            .types
-            .iter()
-            .map(|item| item.request.clone())
-            .collect(),
+        types: SelectInput::new(
+            type_title,
+            selectable.types.iter().map(|item| {
+                (
+                    type_label(&item.r#type),
+                    item.selected,
+                    item.request.clone(),
+                )
+            }),
+        ),
         sorts: selectable
             .sorts
             .iter()
@@ -142,14 +110,8 @@ pub fn data(model: &AppModel) -> Data {
             .catalog
             .iter()
             .map(|item| Card {
-                id: item.id.clone(),
-                kind: item.r#type.clone(),
-                title: item.name.clone(),
-                poster: item.poster.as_ref().map(|url| url.to_string()),
-                shape: shape_of(&item.poster_shape),
-                progress: item.progress(),
-                watched: item.watched(),
-                playable: super::can_play(model, item),
+                card: card_of_library_item(model, item, true),
+                shape: library_poster_shape(&item.poster_shape),
                 new_videos: new_videos(model, &item.id),
             })
             .collect(),
@@ -164,15 +126,10 @@ pub fn card_images(data: &Data) -> impl Iterator<Item = String> + '_ {
     data.cards.iter().filter_map(|card| card.poster.clone())
 }
 
-/// The sort options' labels, parallel to the core's `selectable.sorts`. Used by the wiring to
-/// find the request for a clicked chip.
-pub fn sort_requests(data: &Data) -> Vec<LibraryRequest> {
-    data.sorts.iter().map(|sort| sort.request.clone()).collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use stremio_core::types::resource::PosterShape;
 
     #[test]
     fn sort_labels_are_the_words_the_chips_show() {
@@ -186,8 +143,8 @@ mod tests {
 
     #[test]
     fn a_landscape_poster_is_drawn_as_a_square_one_as_the_web_serializer_does() {
-        assert_eq!(shape_of(&PosterShape::Landscape), "square");
-        assert_eq!(shape_of(&PosterShape::Square), "square");
-        assert_eq!(shape_of(&PosterShape::Poster), "poster");
+        assert_eq!(library_poster_shape(&PosterShape::Landscape), "square");
+        assert_eq!(library_poster_shape(&PosterShape::Square), "square");
+        assert_eq!(library_poster_shape(&PosterShape::Poster), "poster");
     }
 }

@@ -1,0 +1,292 @@
+// Right-edge SideDrawer for title overview, Seasons bar, and Episode list during playback.
+import { PreviewData } from "../meta-preview.slint";
+import { MultiselectMenu, SelectOption } from "../multiselect-menu.slint";
+import { ScrollBar } from "../scroll-bar.slint";
+import { Theme } from "../theme.slint";
+import { EpisodeProgress, WatchedChip } from "../watched-marks.slint";
+import { PlayerEpisode } from "types.slint";
+
+component DrawerSeasonButton inherits Rectangle {
+    in property <length> rem-size;
+    in property <string> label;
+    in property <bool> forward;
+    in property <bool> enabled;
+    callback clicked;
+
+    width: 6.5 * root.rem-size;
+    height: 3 * root.rem-size;
+    border-radius: 3 * root.rem-size;
+    background: touch.has-hover && root.enabled ? Theme.overlay : transparent;
+
+    Image {
+        x: root.forward ? parent.width - self.width - 0.5 * root.rem-size : 0.5 * root.rem-size;
+        y: (parent.height - self.height) / 2;
+        width: 1.5 * root.rem-size;
+        height: 1.5 * root.rem-size;
+        source: root.forward ? @image-url("../icons/chevron-forward.svg") : @image-url("../icons/chevron-back.svg");
+        colorize: Theme.text;
+        opacity: root.enabled ? 1 : 0.5;
+    }
+    Text {
+        x: root.forward ? 0.5 * root.rem-size : 2.25 * root.rem-size;
+        y: 0;
+        width: root.forward ? 4 * root.rem-size : 3.75 * root.rem-size;
+        height: parent.height;
+        text: root.label;
+        font-size: 1 * root.rem-size;
+        font-weight: 500;
+        color: Theme.text;
+        horizontal-alignment: root.forward ? right : left;
+        vertical-alignment: center;
+        opacity: root.enabled ? 1 : 0.5;
+    }
+    touch := TouchArea {
+        mouse-cursor: root.enabled ? pointer : default;
+        clicked => { if (root.enabled) { root.clicked(); } }
+    }
+}
+
+export component PlayerSideDrawer inherits Rectangle {
+    in property <length> rem-size;
+    in property <image> logo;
+    in property <bool> has-logo;
+    in property <PreviewData> preview;
+    in property <bool> has-episodes;
+    in property <[SelectOption]> seasons;
+    in property <int> season-index;
+    in property <string> season-title;
+    in property <[PlayerEpisode]> episodes;
+
+    callback close();
+    callback select-season(int);
+    callback select-episode(string);
+
+    width: 35 * root.rem-size;
+    background: Theme.modal-background;
+    drop-shadow-blur: 2.7 * root.rem-size;
+    drop-shadow-color: Theme.scrim;
+
+    TouchArea {
+        pointer-event(event) => { EventResult.accept }
+    }
+
+    VerticalLayout {
+        padding: 1 * root.rem-size;
+        spacing: 0;
+        alignment: start;
+
+        VerticalLayout {
+            padding: 1 * root.rem-size;
+            spacing: 0;
+            alignment: start;
+
+            if root.has-logo: Image {
+                width: parent.width - 2 * root.rem-size;
+                height: 6 * root.rem-size;
+                source: root.logo;
+                image-fit: contain;
+                opacity: root.logo.width > 0 ? 1 : 0;
+            }
+
+            Rectangle {
+                width: parent.width - 2 * root.rem-size;
+                height: 3.5 * root.rem-size;
+                Text {
+                    x: 0;
+                    y: 0;
+                    width: parent.width / 2;
+                    height: parent.height;
+                    text: root.preview.runtime;
+                    font-size: 1.25 * root.rem-size;
+                    font-weight: 600;
+                    color: Theme.text;
+                    vertical-alignment: center;
+                }
+                Text {
+                    x: parent.width / 2;
+                    y: 0;
+                    width: parent.width / 2;
+                    height: parent.height;
+                    text: root.preview.release-info;
+                    font-size: 1.25 * root.rem-size;
+                    font-weight: 600;
+                    color: Theme.text;
+                    horizontal-alignment: right;
+                    vertical-alignment: center;
+                }
+            }
+
+            Text {
+                width: parent.width - 2 * root.rem-size;
+                text: root.preview.description;
+                font-size: 1 * root.rem-size;
+                color: Theme.text;
+                opacity: 0.8;
+                wrap: word-wrap;
+                max-height: 8.4 * root.rem-size;
+                overflow: elide;
+            }
+        }
+
+        VerticalLayout {
+            vertical-stretch: 1;
+            spacing: 0;
+            alignment: start;
+
+            if root.has-episodes: Rectangle {
+                width: parent.width;
+                height: 5 * root.rem-size;
+
+                DrawerSeasonButton {
+                    x: 0;
+                    y: 1 * root.rem-size;
+                    rem-size: root.rem-size;
+                    label: "Prev";
+                    forward: false;
+                    enabled: root.season-index > 0;
+                    clicked => { root.select-season(root.season-index - 1); }
+                }
+
+                MultiselectMenu {
+                    x: (parent.width - self.width) / 2;
+                    y: 1 * root.rem-size;
+                    width: 9.5 * root.rem-size;
+                    rem-size: root.rem-size;
+                    radius: 2.75 * root.rem-size;
+                    quiet: true;
+                    title: root.season-title;
+                    options: root.seasons;
+                    selected-index: root.season-index;
+                    select(index) => { root.select-season(index); }
+                }
+
+                DrawerSeasonButton {
+                    x: parent.width - self.width;
+                    y: 1 * root.rem-size;
+                    rem-size: root.rem-size;
+                    label: "Next";
+                    forward: true;
+                    enabled: root.season-index + 1 < root.seasons.length;
+                    clicked => { root.select-season(root.season-index + 1); }
+                }
+            }
+
+            drawer-flick := Flickable {
+                vertical-stretch: 1;
+                min-height: 0px;
+                interactive: true;
+
+                VerticalLayout {
+                    width: parent.width;
+                    spacing: 0.5 * root.rem-size;
+                    padding-top: 0.5 * root.rem-size;
+                    padding-bottom: 0.5 * root.rem-size;
+                    alignment: start;
+
+                    for episode in root.episodes: Rectangle {
+                        height: 6.25 * root.rem-size;
+                        border-radius: 0.75 * root.rem-size;
+                        background: ep-touch.has-hover || episode.selected ? Theme.overlay : transparent;
+
+                        Rectangle {
+                            x: 0.5 * root.rem-size;
+                            y: (parent.height - self.height) / 2;
+                            width: 8 * root.rem-size;
+                            height: 5 * root.rem-size;
+                            border-radius: 0.3 * root.rem-size;
+                            background: Theme.overlay;
+                            clip: true;
+                            if episode.thumbnail.width > 0: Image {
+                                width: parent.width;
+                                height: parent.height;
+                                source: episode.thumbnail;
+                                image-fit: cover;
+                                opacity: 0.9;
+                            }
+                            if episode.progress > 0: EpisodeProgress {
+                                x: 0.5 * root.rem-size;
+                                y: parent.height - self.height - 0.35 * root.rem-size;
+                                width: parent.width - 1 * root.rem-size;
+                                progress: episode.progress;
+                                rem-size: root.rem-size;
+                            }
+                        }
+
+                        VerticalLayout {
+                            x: 10 * root.rem-size;
+                            y: 0.5 * root.rem-size;
+                            width: parent.width - self.x - 0.5 * root.rem-size;
+                            height: parent.height - 1 * root.rem-size;
+                            alignment: center;
+                            spacing: 1 * root.rem-size;
+                            Text {
+                                text: episode.title;
+                                font-size: 1 * root.rem-size;
+                                color: Theme.text;
+                                wrap: word-wrap;
+                                max-height: 2.8 * root.rem-size;
+                                overflow: elide;
+                            }
+                            Rectangle {
+                                width: parent.width;
+                                height: 1.6 * root.rem-size;
+                                Text {
+                                    x: 0;
+                                    y: 0;
+                                    width: parent.width;
+                                    height: parent.height;
+                                    text: episode.released;
+                                    font-size: 0.8 * root.rem-size;
+                                    font-weight: 500;
+                                    color: Theme.text;
+                                    opacity: 0.44;
+                                    vertical-alignment: center;
+                                }
+                                if episode.watched: WatchedChip {
+                                    x: parent.width - self.width;
+                                    y: 0;
+                                    rem-size: root.rem-size;
+                                }
+                            }
+                        }
+                        ep-touch := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => { root.select-episode(episode.id); }
+                        }
+                    }
+                }
+
+                ScrollBar {
+                    x: parent.width - self.width;
+                    y: 0px;
+                    height: parent.height;
+                    view-height: drawer-flick.height;
+                    content-height: drawer-flick.content-height;
+                    offset <=> drawer-flick.content-y;
+                }
+            }
+        }
+    }
+
+    Rectangle {
+        x: 1.5 * root.rem-size;
+        y: 1.5 * root.rem-size;
+        width: 3.5 * root.rem-size;
+        height: 3.5 * root.rem-size;
+        border-radius: 0.75 * root.rem-size;
+        background: back-touch.has-hover ? Theme.overlay : transparent;
+        Image {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: 2 * root.rem-size;
+            height: 2 * root.rem-size;
+            source: @image-url("../icons/chevron-forward.svg");
+            colorize: Theme.text;
+            opacity: 0.7;
+        }
+        back-touch := TouchArea {
+            mouse-cursor: pointer;
+            clicked => { root.close(); }
+        }
+    }
+}

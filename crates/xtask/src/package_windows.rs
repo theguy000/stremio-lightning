@@ -1,7 +1,12 @@
 use crate::common::{
-    Result, copy_file, inno_path, package_version, program_exists, remove_dir_if_exists,
-    remove_file_if_exists, required_file, root, run_program, run_program_in, write_file,
+    Result, copy_file, package_version, program_exists, remove_dir_if_exists,
+    remove_file_if_exists, required_file, root, run_program, run_program_in, stage_runtime_bins,
+    write_file,
 };
+
+fn inno_path(path: &Path) -> String {
+    path.to_string_lossy().replace('"', "\"\"")
+}
 use crate::{
     APP_ID, APP_NAME, NATIVE_BIN, PACKAGE_ID, WINDOWS_INSTALLER, WINDOWS_TARGET, WINDOWS_ZIP,
 };
@@ -88,15 +93,12 @@ fn prepare_windows_portable_layout(root: &Path) -> Result<PathBuf> {
 
     // Engine/runtime files go into a resources/ subdirectory
     // (Packaged layout expects base_dir/resources/stream-server.exe etc.)
-    let portable_resources = portable_dir.join("resources");
-    fs::create_dir_all(&portable_resources)?;
-
-    for name in ["stream-server.exe", "ffmpeg.exe", "ffprobe.exe"] {
-        copy_file(
-            native_dir.join(format!("resources/{name}")),
-            portable_resources.join(name),
-        )?;
-    }
+    stage_runtime_bins(
+        &native_dir.join("resources"),
+        &portable_dir.join("resources"),
+        &["stream-server.exe", "ffmpeg.exe", "ffprobe.exe"],
+        false,
+    )?;
 
     Ok(portable_dir)
 }

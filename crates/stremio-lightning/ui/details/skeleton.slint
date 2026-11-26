@@ -1,0 +1,211 @@
+// Stremio Web Details/Placeholder shimmer skeletons for Hero, Episodes (videos), and Streams.
+import { Theme } from "../theme.slint";
+
+component Bone inherits Rectangle {
+    in property <length> rem-size;
+    in property <float> phase: 0;
+    in property <length> radius: 0.375 * root.rem-size;
+
+    border-radius: root.radius;
+    background: Theme.placeholder-background;
+    clip: true;
+
+    Rectangle {
+        x: (root.phase * 2.0 - 1.0) * parent.width;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+        background: @linear-gradient(90deg, rgba(255, 255, 255, 0.0) 0%, rgba(255, 255, 255, 0.06) 50%, rgba(255, 255, 255, 0.0) 100%);
+    }
+}
+
+export component StreamsSkeleton inherits VerticalLayout {
+    in property <length> rem-size;
+    property <float> phase: Math.mod(animation-tick() / 1600ms, 1.0);
+
+    alignment: start;
+    spacing: 0.25 * root.rem-size;
+    padding-top: 0.25 * root.rem-size;
+
+    HorizontalLayout {
+        padding-top: 0.875 * root.rem-size;
+        padding-bottom: 0.5 * root.rem-size;
+        padding-left: 1.125 * root.rem-size;
+        alignment: start;
+        Bone {
+            rem-size: root.rem-size;
+            phase: root.phase;
+            width: 5.5 * root.rem-size;
+            height: 0.75 * root.rem-size;
+        }
+    }
+
+    for _ in [0, 1, 2, 3, 4, 5]: HorizontalLayout {
+        padding-top: 1 * root.rem-size;
+        padding-bottom: 1 * root.rem-size;
+        padding-left: 1.125 * root.rem-size;
+        padding-right: 0.875 * root.rem-size;
+        spacing: 1.125 * root.rem-size;
+
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: center;
+            spacing: 0.625 * root.rem-size;
+            Rectangle {
+                height: 0.9375 * root.rem-size;
+                Bone {
+                    x: 0;
+                    width: parent.width * 0.6;
+                    height: parent.height;
+                    rem-size: root.rem-size;
+                    phase: root.phase;
+                }
+            }
+            Rectangle {
+                height: 0.8125 * root.rem-size;
+                Bone {
+                    x: 0;
+                    width: parent.width * 0.4;
+                    height: parent.height;
+                    rem-size: root.rem-size;
+                    phase: root.phase;
+                }
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            Bone {
+                width: 2.625 * root.rem-size;
+                height: 2.625 * root.rem-size;
+                radius: 1.3125 * root.rem-size;
+                rem-size: root.rem-size;
+                phase: root.phase;
+            }
+        }
+    }
+}
+
+export component VideosSkeleton inherits VerticalLayout {
+    in property <length> rem-size;
+    property <float> phase: Math.mod(animation-tick() / 1600ms, 1.0);
+
+    alignment: start;
+    padding-top: 1.25 * root.rem-size;
+    padding-left: 0.625 * root.rem-size;
+    padding-right: 0.625 * root.rem-size;
+    spacing: 0.25 * root.rem-size;
+
+    HorizontalLayout {
+        padding-left: 0.625 * root.rem-size;
+        padding-right: 0.625 * root.rem-size;
+        padding-bottom: 0.5 * root.rem-size;
+        Bone {
+            horizontal-stretch: 1;
+            height: 2.5 * root.rem-size;
+            radius: 1.25 * root.rem-size;
+            rem-size: root.rem-size;
+            phase: root.phase;
+        }
+    }
+
+    for _ in [0, 1, 2, 3, 4, 5]: HorizontalLayout {
+        padding-top: 0.625 * root.rem-size;
+        padding-bottom: 0.625 * root.rem-size;
+        padding-left: 0.625 * root.rem-size;
+        padding-right: 0.75 * root.rem-size;
+        spacing: 1.125 * root.rem-size;
+
+        Bone {
+            width: 9 * root.rem-size;
+            height: 5.0625 * root.rem-size;
+            radius: 0.375 * root.rem-size;
+            rem-size: root.rem-size;
+            phase: root.phase;
+        }
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: center;
+            spacing: 0.625 * root.rem-size;
+            Bone {
+                height: 0.75 * root.rem-size;
+                rem-size: root.rem-size;
+                phase: root.phase;
+            }
+            Rectangle {
+                height: 0.75 * root.rem-size;
+                Bone {
+                    x: 0;
+                    width: parent.width * 0.6;
+                    height: parent.height;
+                    rem-size: root.rem-size;
+                    phase: root.phase;
+                }
+            }
+        }
+    }
+}
+
+export component HeroSkeleton inherits VerticalLayout {
+    in property <length> rem-size;
+    property <float> phase: Math.mod(animation-tick() / 1600ms, 1.0);
+
+    spacing: 0px;
+
+    HorizontalLayout {
+        vertical-stretch: 0;
+        alignment: start;
+        Bone {
+            width: Math.min(parent.width, 22 * root.rem-size);
+            height: 9 * root.rem-size;
+            rem-size: root.rem-size;
+            phase: root.phase;
+        }
+    }
+    Rectangle { vertical-stretch: 1; min-height: 1 * root.rem-size; }
+    HorizontalLayout {
+        vertical-stretch: 0;
+        spacing: 2.5 * root.rem-size;
+        alignment: start;
+        for _ in [0, 1, 2]: Bone {
+            width: 4.25 * root.rem-size;
+            height: 1.125 * root.rem-size;
+            rem-size: root.rem-size;
+            phase: root.phase;
+        }
+    }
+    Rectangle { vertical-stretch: 0; height: 1.75 * root.rem-size; }
+    VerticalLayout {
+        vertical-stretch: 0;
+        spacing: 0.8 * root.rem-size;
+        for w in [1.0, 1.0, 0.6]: Rectangle {
+            height: 0.9375 * root.rem-size;
+            Bone {
+                x: 0;
+                width: Math.min(parent.width, 37.5 * root.rem-size) * w;
+                height: parent.height;
+                rem-size: root.rem-size;
+                phase: root.phase;
+            }
+        }
+    }
+    Rectangle { vertical-stretch: 0; height: 2 * root.rem-size; }
+    VerticalLayout {
+        vertical-stretch: 0;
+        spacing: 1.125 * root.rem-size;
+        for count in [2, 3]: HorizontalLayout {
+            spacing: 0.625 * root.rem-size;
+            alignment: start;
+            Bone { width: 3.5 * root.rem-size; height: 0.8125 * root.rem-size; y: 0.65 * root.rem-size; rem-size: root.rem-size; phase: root.phase; }
+            for _ in count: Bone { width: 6 * root.rem-size; height: 2.125 * root.rem-size; radius: 1.0625 * root.rem-size; rem-size: root.rem-size; phase: root.phase; }
+        }
+    }
+    Rectangle { vertical-stretch: 0; height: 2.5 * root.rem-size; }
+    HorizontalLayout {
+        vertical-stretch: 0;
+        spacing: 0.875 * root.rem-size;
+        alignment: start;
+        Bone { width: 8.5 * root.rem-size; height: 3.5 * root.rem-size; radius: 1.75 * root.rem-size; rem-size: root.rem-size; phase: root.phase; }
+        Bone { width: 7 * root.rem-size; height: 3.5 * root.rem-size; radius: 1.75 * root.rem-size; rem-size: root.rem-size; phase: root.phase; }
+        Bone { width: 3.5 * root.rem-size; height: 3.5 * root.rem-size; radius: 1.75 * root.rem-size; rem-size: root.rem-size; phase: root.phase; }
+    }
+}
