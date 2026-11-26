@@ -18,6 +18,8 @@ export component DetailsHero inherits VerticalLayout {
     in property <bool> picked-has-still;
     in property <image> picked-still;
     in property <bool> can-play: false;
+    in property <string> play-label: "Watch";
+    in property <string> play-sublabel: "";
 
     callback play-primary;
     callback share;
@@ -28,11 +30,13 @@ export component DetailsHero inherits VerticalLayout {
 
     spacing: 0px;
 
+    property <length> logo-h: root.has-picked-episode ? 6.5 * root.rem-size : 9 * root.rem-size;
+
     if root.has-preview && root.preview.has-logo: HorizontalLayout {
         alignment: start;
         Image {
-            height: 9 * root.rem-size;
-            width: Math.min(parent.width, self.source.height > 0 ? (9 * root.rem-size) * (self.source.width / self.source.height) : 16 * root.rem-size);
+            height: root.logo-h;
+            width: Math.min(parent.width, self.source.height > 0 ? root.logo-h * (self.source.width / self.source.height) : 16 * root.rem-size);
             source: root.preview.logo;
             image-fit: contain;
         }
@@ -144,7 +148,7 @@ export component DetailsHero inherits VerticalLayout {
     }
 
     if root.has-preview && root.has-picked-episode: VerticalLayout {
-        spacing: 1.25 * root.rem-size;
+        spacing: 0px;
         alignment: start;
 
         if root.picked-has-still: Rectangle {
@@ -161,29 +165,32 @@ export component DetailsHero inherits VerticalLayout {
                 opacity: 0.92;
             }
         }
+        if root.picked-has-still: Rectangle { height: 1.25 * root.rem-size; }
         Text {
             text: root.picked-title;
-            font-size: 1.875 * root.rem-size;
+            font-size: 1.75 * root.rem-size;
             font-weight: 600;
             color: Theme.text;
             wrap: word-wrap;
         }
+        if root.picked-released != "" || root.preview.runtime != "": Rectangle { height: 0.85 * root.rem-size; }
         if root.picked-released != "" || root.preview.runtime != "": HorizontalLayout {
             spacing: 2.5 * root.rem-size;
             alignment: start;
             if root.picked-released != "": Text {
                 text: root.picked-released;
-                font-size: 1 * root.rem-size;
+                font-size: 0.95 * root.rem-size;
                 font-weight: 600;
                 color: Theme.text;
             }
             if root.preview.runtime != "": Text {
                 text: root.preview.runtime;
-                font-size: 1 * root.rem-size;
+                font-size: 0.95 * root.rem-size;
                 font-weight: 600;
                 color: Theme.text;
             }
         }
+        if root.picked-overview != "" || root.preview.description != "": Rectangle { height: 0.85 * root.rem-size; }
         if root.picked-overview != "" || root.preview.description != "": Text {
             width: Math.min(parent.width, 37.5 * root.rem-size);
             text: root.picked-overview != "" ? root.picked-overview : root.preview.description;
@@ -205,6 +212,8 @@ export component DetailsHero inherits VerticalLayout {
         rated-liked: root.rated-liked;
         rated-loved: root.rated-loved;
         can-play: root.can-play;
+        play-label: root.play-label;
+        play-sublabel: root.play-sublabel;
         play-primary => { root.play-primary(); }
         share => { root.share(); }
         rate-like => { root.rate-like(); }

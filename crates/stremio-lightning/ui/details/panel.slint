@@ -38,14 +38,8 @@ export component DetailsPanel inherits Rectangle {
     callback toggle-episode-watched(string);
     callback toggle-season-watched();
     callback back-to-episodes();
-    property <int> menu-stream-index: -1;
-    property <string> menu-stream-link;
-    property <bool> menu-stream-magnet: false;
-    property <length> menu-x: 0px;
-    property <length> menu-y: 0px;
-
     callback play-stream(int);
-    callback copy-stream-link(string);
+    callback open-stream-menu(int, string, bool, length, length);
     callback stepped-season(int);
     callback stepped-episode(int);
     callback show-streams;
@@ -152,16 +146,19 @@ export component DetailsPanel inherits Rectangle {
 
                 if root.streams.length > 0: VerticalLayout {
                     alignment: start;
-                    padding-top: 0.75 * root.rem-size;
-                    spacing: 0.35 * root.rem-size;
+                    padding-top: 0.5 * root.rem-size;
+                    padding-bottom: 2.5 * root.rem-size;
+                    spacing: 0.25 * root.rem-size;
                     for stream[index] in root.streams: VerticalLayout {
                         spacing: 0.25 * root.rem-size;
                         if stream.addon != "" && (index == 0 || root.streams[index - 1].addon != stream.addon): HorizontalLayout {
-                            padding-left: 1 * root.rem-size;
-                            padding-top: index == 0 ? 0px : 0.75 * root.rem-size;
+                            padding-left: 1.125 * root.rem-size;
+                            padding-right: 1.125 * root.rem-size;
+                            padding-top: index == 0 ? 0.5 * root.rem-size : 1.125 * root.rem-size;
+                            padding-bottom: 0.25 * root.rem-size;
                             Text {
                                 text: stream.addon;
-                                font-size: 0.78 * root.rem-size;
+                                font-size: 0.8125 * root.rem-size;
                                 font-weight: 700;
                                 color: rgba(255, 255, 255, 0.46);
                             }
@@ -172,11 +169,7 @@ export component DetailsPanel inherits Rectangle {
                             wrap: root.wrap-streams;
                             clicked => { root.play-stream(index); }
                             open-menu(mx, my) => {
-                                root.menu-stream-index = index;
-                                root.menu-stream-link = stream.link;
-                                root.menu-stream-magnet = stream.is-magnet;
-                                root.menu-x = Math.min(root.width - 15 * root.rem-size, Math.max(0.5 * root.rem-size, mx));
-                                root.menu-y = Math.min(root.height - 9 * root.rem-size, Math.max(root.choices-bottom, my + root.choices-bottom));
+                                root.open-stream-menu(index, stream.link, stream.is-magnet, mx, my);
                             }
                         }
                     }
@@ -202,6 +195,21 @@ export component DetailsPanel inherits Rectangle {
             }
         }
 
+        Rectangle {
+            x: 0;
+            y: body.y;
+            width: parent.width;
+            height: 0.85 * root.rem-size;
+            background: @linear-gradient(180deg, rgba(12, 11, 17, 0.55) 0%, rgba(12, 11, 17, 0.0) 100%);
+        }
+        Rectangle {
+            x: 0;
+            y: parent.height - 3 * root.rem-size;
+            width: parent.width;
+            height: 3 * root.rem-size;
+            background: @linear-gradient(0deg, rgba(12, 11, 17, 0.78) 0%, rgba(12, 11, 17, 0.0) 100%);
+        }
+
         ScrollBar {
             x: parent.width - self.width;
             y: body.y;
@@ -209,82 +217,6 @@ export component DetailsPanel inherits Rectangle {
             view-height: body.height;
             content-height: body.content-height;
             offset <=> body.content-y;
-        }
-
-        if root.menu-stream-index >= 0: TouchArea {
-            width: parent.width;
-            height: parent.height;
-            clicked => { root.menu-stream-index = -1; }
-        }
-        if root.menu-stream-index >= 0: Rectangle {
-            x: root.menu-x;
-            y: root.menu-y;
-            width: 14.5 * root.rem-size;
-            height: menu-col.preferred-height + 0.75 * root.rem-size;
-            border-radius: 0.75 * root.rem-size;
-            background: Theme.modal-background;
-            border-width: 1px;
-            border-color: rgba(255, 255, 255, 0.1);
-            drop-shadow-blur: 1.5 * root.rem-size;
-            drop-shadow-color: #00000080;
-
-            menu-col := VerticalLayout {
-                padding: 0.375 * root.rem-size;
-                spacing: 0.125 * root.rem-size;
-                Rectangle {
-                    height: 2.75 * root.rem-size;
-                    border-radius: 0.5 * root.rem-size;
-                    background: m-play.has-hover ? Theme.overlay : transparent;
-                    HorizontalLayout {
-                        padding-left: 0.9 * root.rem-size;
-                        spacing: 0.65 * root.rem-size;
-                        alignment: start;
-                        VerticalLayout {
-                            alignment: center;
-                            Image { width: 1.1 * root.rem-size; height: 1.1 * root.rem-size; source: @image-url("../icons/play.svg"); colorize: Theme.text; }
-                        }
-                        Text { text: "Play"; font-size: 0.9 * root.rem-size; font-weight: 500; color: Theme.text; vertical-alignment: center; }
-                    }
-                    m-play := TouchArea {
-                        mouse-cursor: pointer;
-                        clicked => {
-                            let idx = root.menu-stream-index;
-                            root.menu-stream-index = -1;
-                            root.play-stream(idx);
-                        }
-                    }
-                }
-                if root.menu-stream-link != "": Rectangle {
-                    height: 2.75 * root.rem-size;
-                    border-radius: 0.5 * root.rem-size;
-                    background: m-copy.has-hover ? Theme.overlay : transparent;
-                    HorizontalLayout {
-                        padding-left: 0.9 * root.rem-size;
-                        spacing: 0.65 * root.rem-size;
-                        alignment: start;
-                        VerticalLayout {
-                            alignment: center;
-                            Image {
-                                width: 1.1 * root.rem-size; height: 1.1 * root.rem-size;
-                                source: root.menu-stream-magnet ? @image-url("../icons/magnet-link.svg") : @image-url("../icons/link.svg");
-                                colorize: Theme.text;
-                            }
-                        }
-                        Text {
-                            text: root.menu-stream-magnet ? "Copy magnet link" : "Copy stream link";
-                            font-size: 0.9 * root.rem-size; font-weight: 500; color: Theme.text; vertical-alignment: center;
-                        }
-                    }
-                    m-copy := TouchArea {
-                        mouse-cursor: pointer;
-                        clicked => {
-                            let link = root.menu-stream-link;
-                            root.menu-stream-index = -1;
-                            root.copy-stream-link(link);
-                        }
-                    }
-                }
-            }
         }
     }
 }

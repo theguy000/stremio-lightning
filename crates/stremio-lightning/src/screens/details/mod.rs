@@ -2,6 +2,7 @@
 
 mod actions;
 mod stepper;
+mod streams;
 
 pub use crate::screens::videos::{Episode, Season};
 pub(crate) use actions::{back_to_episodes, open, pick, rate, toggle_library, toggle_watched};
@@ -31,6 +32,7 @@ pub struct Source {
     pub addon: String,
     pub link: String,
     pub is_magnet: bool,
+    pub last_used: bool,
 }
 
 /// Metadata for the currently picked episode, shown in the Details hero.
@@ -60,6 +62,9 @@ pub struct Data {
     pub picked: Option<String>,
     pub picked_label: Option<String>,
     pub picked_episode: Option<PickedEpisode>,
+    pub resume_label: String,
+    pub resume_sublabel: String,
+    pub resume_video_id: Option<String>,
     pub next_episode: Option<String>,
     pub steps: Option<Steps>,
 }
@@ -192,10 +197,13 @@ pub fn data(
             )
         })
         .count();
-    let streams = source_rows(model, details)
+    let meta_id = item.map(|m| m.preview.id.as_str());
+    let streams = streams::source_rows(model, details, meta_id, picked)
         .into_iter()
         .take(MAX_STREAMS)
         .collect();
+    let (resume_label, resume_sublabel, resume_video_id) =
+        streams::resume_summary(details, videos, picked);
 
     Data {
         preview: item.map(|item| {
@@ -229,6 +237,9 @@ pub fn data(
                 thumbnail: v.thumbnail.as_ref().map(crate::plumbing::images::page_key),
             })
         }),
+        resume_label,
+        resume_sublabel,
+        resume_video_id,
         next_episode: picked
             .and_then(|p| item.and_then(|meta| next_episode(meta, p, chrono::Utc::now()))),
         picked: picked.map(str::to_owned),
@@ -239,48 +250,7 @@ pub fn data(
     }
 }
 
-fn source_rows(model: &AppModel, details: &MetaDetails) -> Vec<Source> {
-    details
-        .streams
-        .iter()
-        .filter_map(|page| match &page.content {
-            Some(Loadable::Ready(list)) => Some((&page.request.base, list)),
-            _ => None,
-        })
-        .flat_map(|(base, list)| {
-            let addon = addon_name(model, base);
-            list.iter().map(move |stream| {
-                let (link, is_magnet) = stream_link(&stream.source);
-                let raw_name = stream.name.as_deref().unwrap_or("").trim();
-                let name = if raw_name.is_empty() {
-                    if addon.is_empty() { "Stream".to_owned() } else { addon.clone() }
-                } else {
-                    raw_name.replace('\n', " ")
-                };
-                Source {
-                    name,
-                    description: stream.description.clone().unwrap_or_default().trim().to_owned(),
-                    addon: addon.clone(),
-                    link,
-                    is_magnet,
-                }
-            })
-        })
-        .collect()
-}
 
-fn stream_link(source: &stremio_core::types::resource::StreamSource) -> (String, bool) {
-    use stremio_core::types::resource::StreamSource;
-    match source {
-        StreamSource::Url { url } => (url.as_str().to_owned(), false),
-        StreamSource::Torrent { info_hash, .. } => {
-            let hex: String = info_hash.iter().map(|b| format!("{b:02x}")).collect();
-            (format!("magnet:?xt=urn:btih:{hex}"), true)
-        }
-        StreamSource::External { external_url: Some(url), .. } => (url.as_str().to_owned(), false),
-        _ => (String::new(), false),
-    }
-}
 
 #[cfg(test)]
 mod tests;

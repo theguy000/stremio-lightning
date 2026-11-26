@@ -3,6 +3,7 @@
 // Licence basis: ../THIRD_PARTY_NOTICES.md.
 import { DetailsHero } from "details/hero.slint";
 import { DetailsPanel } from "details/panel.slint";
+import { StreamContextMenu } from "details/stream-menu.slint";
 import { StreamData } from "details/streams-parts.slint";
 import { CoverRightImage, MetaPreview, PreviewData } from "meta-preview.slint";
 import { SelectOption } from "multiselect-menu.slint";
@@ -28,6 +29,9 @@ export global DetailsUi {
     in-out property <string> picked-released;
     in-out property <bool> picked-has-still: false;
     in-out property <image> picked-still;
+    in-out property <string> resume-label;
+    in-out property <string> resume-sublabel;
+    in-out property <string> resume-video-id;
     in-out property <[StreamData]> streams: [];
     in-out property <int> streams-loading: 0;
     in-out property <bool> waits-for-streams: false;
@@ -74,6 +78,11 @@ export component DetailsScreen inherits Rectangle {
     property <length> panel-y: root.bar-height + 1 * root.rem-size;
     property <length> panel-height: Math.max(0px, root.height - root.panel-y - root.panel-gap);
     property <length> hero-gutter: 3.5 * root.rem-size;
+    property <int> stream-menu-index: -1;
+    property <string> stream-menu-link;
+    property <bool> stream-menu-magnet: false;
+    property <length> stream-menu-x: 0px;
+    property <length> stream-menu-y: 0px;
 
     if DetailsUi.has-preview && DetailsUi.preview.has-background: CoverRightImage {
         width: 100%;
@@ -120,9 +129,13 @@ export component DetailsScreen inherits Rectangle {
             picked-has-still: DetailsUi.picked-has-still;
             picked-still: DetailsUi.picked-still;
             can-play: DetailsUi.streams.length > 0 || DetailsUi.episodes.length > 0;
+            play-label: DetailsUi.resume-label != "" ? DetailsUi.resume-label : "Watch";
+            play-sublabel: DetailsUi.resume-sublabel;
             play-primary => {
                 if (DetailsUi.streams.length > 0) {
                     DetailsUi.play-stream(0);
+                } else if (DetailsUi.resume-video-id != "") {
+                    DetailsUi.pick-video(DetailsUi.resume-video-id);
                 } else if (DetailsUi.episodes.length > 0) {
                     DetailsUi.pick-video(DetailsUi.episodes[0].id);
                 }
@@ -192,10 +205,30 @@ export component DetailsScreen inherits Rectangle {
             toggle-season-watched => { DetailsUi.toggle-season-watched(); }
             back-to-episodes => { DetailsUi.back-to-episodes(); }
             play-stream(index) => { DetailsUi.play-stream(index); }
-            copy-stream-link(link) => { DetailsUi.copy-stream-link(link); }
+            open-stream-menu(index, link, magnet, mx, my) => {
+                root.stream-menu-index = index;
+                root.stream-menu-link = link;
+                root.stream-menu-magnet = magnet;
+                root.stream-menu-x = mx - root.absolute-position.x;
+                root.stream-menu-y = my - root.absolute-position.y;
+            }
             stepped-season(delta) => { DetailsUi.step-season(delta); }
             stepped-episode(delta) => { DetailsUi.step-episode(delta); }
             show-streams => { DetailsUi.show-streams(); }
         }
+    }
+
+    if root.stream-menu-index >= 0: StreamContextMenu {
+        width: root.width;
+        height: root.height;
+        rem-size: root.rem-size;
+        stream-index: root.stream-menu-index;
+        stream-link: root.stream-menu-link;
+        is-magnet: root.stream-menu-magnet;
+        anchor-x: root.stream-menu-x;
+        anchor-y: root.stream-menu-y;
+        close => { root.stream-menu-index = -1; }
+        play(index) => { DetailsUi.play-stream(index); }
+        copy-link(link) => { DetailsUi.copy-stream-link(link); }
     }
 }

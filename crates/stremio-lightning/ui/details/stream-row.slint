@@ -1,0 +1,106 @@
+// Based on stremio-web (https://github.com/Stremio/stremio-web), Copyright (C) 2017-2024 Smart code 203358507.
+// Numbers translated by hand from src/routes/MetaDetails/StreamsList/styles.less and Stream/styles.less.
+// Licence basis: ../../THIRD_PARTY_NOTICES.md.
+import { Theme } from "../theme.slint";
+
+export struct StreamData {
+    name: string,
+    description: string,
+    addon: string,
+    link: string,
+    is-magnet: bool,
+    last-used: bool,
+}
+
+export component StreamRow inherits Rectangle {
+    in property <StreamData> source;
+    in property <length> rem-size;
+    in property <bool> wrap: false;
+    callback clicked;
+    callback open-menu(length, length);
+
+    height: Math.max(4.75 * root.rem-size, row-body.preferred-height);
+    border-radius: 0.75 * root.rem-size;
+    background: (touch.has-hover || root.source.last-used) ? Theme.overlay : transparent;
+    animate background { duration: 150ms; }
+
+    row-body := HorizontalLayout {
+        padding-top: 1 * root.rem-size;
+        padding-bottom: 1 * root.rem-size;
+        padding-left: 1.125 * root.rem-size;
+        padding-right: 0.875 * root.rem-size;
+        spacing: 1.125 * root.rem-size;
+
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: center;
+            spacing: 0.25 * root.rem-size;
+            HorizontalLayout {
+                spacing: 0.625 * root.rem-size;
+                alignment: start;
+                Text {
+                    text: root.source.name;
+                    font-size: 0.9375 * root.rem-size;
+                    font-weight: 600;
+                    color: Theme.text;
+                    wrap: word-wrap;
+                    vertical-alignment: center;
+                }
+                if root.source.last-used: Rectangle {
+                    height: 1.25 * root.rem-size;
+                    width: lu-label.preferred-width + 0.75 * root.rem-size;
+                    y: (parent.height - self.height) / 2;
+                    border-radius: 4px;
+                    background: #f5c518;
+                    lu-label := Text {
+                        width: parent.width;
+                        height: parent.height;
+                        text: "LAST USED";
+                        font-size: 0.65625 * root.rem-size;
+                        font-weight: 800;
+                        color: #141414;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+            if root.source.description != "": Text {
+                text: root.source.description;
+                font-size: 0.8125 * root.rem-size;
+                color: rgba(255, 255, 255, 0.64);
+                wrap: word-wrap;
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 2.625 * root.rem-size;
+                height: 2.625 * root.rem-size;
+                border-radius: 1.3125 * root.rem-size;
+                background: (touch.has-hover || root.source.last-used) ? Theme.accent-green : Theme.overlay;
+                animate background { duration: 150ms; }
+                Image {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    width: 1.125 * root.rem-size;
+                    height: 1.125 * root.rem-size;
+                    source: @image-url("../icons/play.svg");
+                    colorize: #ffffff;
+                }
+            }
+        }
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        accessible-role: button;
+        accessible-label: root.source.name;
+        pointer-event(event) => {
+            if (event.button == PointerEventButton.right && event.kind == PointerEventKind.up) {
+                root.open-menu(root.absolute-position.x + self.mouse-x, root.absolute-position.y + self.mouse-y);
+            }
+        }
+        clicked => { root.clicked(); }
+    }
+}
+

@@ -139,6 +139,8 @@ export component DetailsHeroActions inherits HorizontalLayout {
     in property <bool> rated-liked;
     in property <bool> rated-loved;
     in property <bool> can-play: false;
+    in property <string> play-label: "Watch";
+    in property <string> play-sublabel: "";
 
     callback play-primary;
     callback share;
@@ -171,10 +173,24 @@ export component DetailsHeroActions inherits HorizontalLayout {
                 }
             }
             Text {
-                text: "Watch";
+                text: root.play-label != "" ? root.play-label : "Watch";
                 font-size: 0.9375 * root.rem-size;
                 font-weight: 600;
                 color: #ffffff;
+                vertical-alignment: center;
+            }
+            if root.play-sublabel != "": Rectangle {
+                width: 1px;
+                height: 1.25 * root.rem-size;
+                y: (parent.height - self.height) / 2;
+                background: rgba(255, 255, 255, 0.4);
+            }
+            if root.play-sublabel != "": Text {
+                text: root.play-sublabel;
+                font-size: 0.9375 * root.rem-size;
+                font-weight: 500;
+                color: #ffffff;
+                opacity: 0.8;
                 vertical-alignment: center;
             }
         }

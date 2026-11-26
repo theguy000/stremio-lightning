@@ -70,6 +70,9 @@ pub(super) fn apply_details(
         ui.set_picked_has_still(false);
         ui.set_picked_still(Default::default());
     }
+    ui.set_resume_label(details.resume_label.clone().into());
+    ui.set_resume_sublabel(details.resume_sublabel.clone().into());
+    ui.set_resume_video_id(details.resume_video_id.clone().unwrap_or_default().into());
     ui.set_wrap_streams(wrap_streams);
     ui.set_season_title(
         details
@@ -99,6 +102,7 @@ pub(super) fn apply_details(
                 addon: src.addon.clone().into(),
                 link: src.link.clone().into(),
                 is_magnet: src.is_magnet,
+                last_used: src.last_used,
             },
         ) {
             ui.set_streams(replaced);
