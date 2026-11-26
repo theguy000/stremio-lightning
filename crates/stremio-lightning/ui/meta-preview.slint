@@ -22,6 +22,7 @@ export component MetaPreview inherits Rectangle {
     in property <bool> has-preview;
     in property <length> rem-size;
     in property <bool> on-page: false;
+    in property <bool> show-actions: true;
     in property <bool> rate-visible: false;
     in property <bool> rate-enabled: false;
     in property <bool> rated-liked: false;
@@ -170,7 +171,7 @@ export component MetaPreview inherits Rectangle {
             }
         }
 
-        if root.has-preview: action-buttons-container := HorizontalLayout {
+        if root.has-preview && root.show-actions: action-buttons-container := HorizontalLayout {
             x: root.on-page ? 0px : 2.5 * root.rem-size;
             y: root.on-page ? parent.height - 8.5 * root.rem-size : parent.height - 7 * root.rem-size;
             width: root.on-page ? parent.width : parent.width - 5 * root.rem-size;

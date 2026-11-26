@@ -54,6 +54,22 @@ pub(super) fn apply_details(
     ui.set_season_index(i32::try_from(details.season).unwrap_or_default());
     ui.set_season_watched(details.season_watched);
     ui.set_picked_label(details.picked_label.clone().unwrap_or_default().into());
+    if let Some(ep) = &details.picked_episode {
+        let still = slint_image(images, &ep.thumbnail);
+        ui.set_has_picked_episode(true);
+        ui.set_picked_title(ep.title.clone().into());
+        ui.set_picked_overview(ep.overview.clone().into());
+        ui.set_picked_released(ep.released.clone().into());
+        ui.set_picked_has_still(still.is_some());
+        ui.set_picked_still(still.unwrap_or_default());
+    } else {
+        ui.set_has_picked_episode(false);
+        ui.set_picked_title("".into());
+        ui.set_picked_overview("".into());
+        ui.set_picked_released("".into());
+        ui.set_picked_has_still(false);
+        ui.set_picked_still(Default::default());
+    }
     ui.set_wrap_streams(wrap_streams);
     ui.set_season_title(
         details

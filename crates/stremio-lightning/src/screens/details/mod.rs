@@ -31,6 +31,15 @@ pub struct Source {
     pub addon: String,
 }
 
+/// Metadata for the currently picked episode, shown in the Details hero.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PickedEpisode {
+    pub title: String,
+    pub overview: String,
+    pub released: String,
+    pub thumbnail: Option<String>,
+}
+
 /// Snapshot of the Details Screen ready for projection into the window.
 #[derive(Clone, Default)]
 pub struct Data {
@@ -48,6 +57,7 @@ pub struct Data {
     pub season_watched: bool,
     pub picked: Option<String>,
     pub picked_label: Option<String>,
+    pub picked_episode: Option<PickedEpisode>,
     pub next_episode: Option<String>,
     pub steps: Option<Steps>,
 }
@@ -209,6 +219,14 @@ pub fn data(
         rating_ready: matches!(&details.rating_info, Some(Loadable::Ready(_))),
         show_picker: shows_picker(picked, &listed),
         picked_label: picked.and_then(|p| picked_label(videos, p)),
+        picked_episode: picked.and_then(|id| {
+            videos.iter().find(|v| v.id == id).map(|v| PickedEpisode {
+                title: if v.title.is_empty() { v.id.clone() } else { v.title.clone() },
+                overview: v.overview.clone().unwrap_or_default(),
+                released: v.released.map(|d| d.format("%b %d, %Y").to_string()).unwrap_or_default(),
+                thumbnail: v.thumbnail.as_ref().map(crate::plumbing::images::page_key),
+            })
+        }),
         next_episode: picked
             .and_then(|p| item.and_then(|meta| next_episode(meta, p, chrono::Utc::now()))),
         picked: picked.map(str::to_owned),

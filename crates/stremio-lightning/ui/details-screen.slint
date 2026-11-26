@@ -1,6 +1,7 @@
 // Based on stremio-web (https://github.com/Stremio/stremio-web), Copyright (C) 2017-2024 Smart code 203358507.
 // Numbers translated by hand from src/routes/MetaDetails/styles.less.
 // Licence basis: ../THIRD_PARTY_NOTICES.md.
+import { DetailsHero } from "details/hero.slint";
 import { DetailsPanel } from "details/panel.slint";
 import { StreamData } from "details/streams-parts.slint";
 import { CoverRightImage, MetaPreview, PreviewData } from "meta-preview.slint";
@@ -21,6 +22,12 @@ export global DetailsUi {
     in-out property <bool> season-watched: false;
     in-out property <bool> show-picker: false;
     in-out property <string> picked-label;
+    in-out property <bool> has-picked-episode: false;
+    in-out property <string> picked-title;
+    in-out property <string> picked-overview;
+    in-out property <string> picked-released;
+    in-out property <bool> picked-has-still: false;
+    in-out property <image> picked-still;
     in-out property <[StreamData]> streams: [];
     in-out property <int> streams-loading: 0;
     in-out property <bool> waits-for-streams: false;
@@ -95,17 +102,22 @@ export component DetailsScreen inherits Rectangle {
         width: Math.max(0px, Math.min(50 * root.rem-size, root.panel-x - root.hero-gutter - root.panel-gap));
         height: Math.max(0px, root.height - self.y - 2 * root.rem-size);
 
-        MetaPreview {
+        DetailsHero {
             width: parent.width;
             height: parent.height;
             preview: DetailsUi.preview;
             has-preview: DetailsUi.has-preview;
             rem-size: root.rem-size;
-            on-page: true;
             rate-visible: DetailsUi.rate-visible;
             rate-enabled: DetailsUi.rate-enabled;
             rated-liked: DetailsUi.rated-liked;
             rated-loved: DetailsUi.rated-loved;
+            has-picked-episode: DetailsUi.has-picked-episode;
+            picked-title: DetailsUi.picked-title;
+            picked-overview: DetailsUi.picked-overview;
+            picked-released: DetailsUi.picked-released;
+            picked-has-still: DetailsUi.picked-has-still;
+            picked-still: DetailsUi.picked-still;
             share => { DetailsUi.share(); }
             rate-like => { DetailsUi.rate-like(); }
             rate-love => { DetailsUi.rate-love(); }
