@@ -175,22 +175,25 @@ export component DetailsHeroActions inherits HorizontalLayout {
             Text {
                 text: root.play-label != "" ? root.play-label : "Watch";
                 font-size: 0.9375 * root.rem-size;
-                font-weight: 600;
+                font-weight: 700;
                 color: #ffffff;
                 vertical-alignment: center;
             }
-            if root.play-sublabel != "": Rectangle {
-                width: 1px;
-                height: 1.25 * root.rem-size;
-                y: (parent.height - self.height) / 2;
-                background: rgba(255, 255, 255, 0.4);
+            if root.play-sublabel != "": VerticalLayout {
+                alignment: center;
+                Rectangle {
+                    width: 1px;
+                    height: 1.25 * root.rem-size;
+                    background: rgba(255, 255, 255, 0.4);
+                }
             }
             if root.play-sublabel != "": Text {
                 text: root.play-sublabel;
+                font-family: "Plus Jakarta Sans Medium";
                 font-size: 0.9375 * root.rem-size;
                 font-weight: 500;
                 color: #ffffff;
-                opacity: 0.8;
+                opacity: 0.85;
                 vertical-alignment: center;
             }
         }
@@ -223,7 +226,7 @@ export component DetailsHeroActions inherits HorizontalLayout {
             Text {
                 text: "Trailer";
                 font-size: 0.9375 * root.rem-size;
-                font-weight: 600;
+                font-weight: 700;
                 color: Theme.text;
                 vertical-alignment: center;
             }
