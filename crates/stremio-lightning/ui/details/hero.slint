@@ -127,11 +127,12 @@ export component DetailsHero inherits VerticalLayout {
                 spacing: 1.25 * root.rem-size;
                 alignment: start;
                 Text {
-                    width: 3.75 * root.rem-size;
+                    width: 4.25 * root.rem-size;
                     text: group.label;
                     font-size: 0.8125 * root.rem-size;
-                    font-weight: 700;
-                    color: rgba(255, 255, 255, 0.52);
+                    font-weight: 800;
+                    letter-spacing: 0.035 * root.rem-size;
+                    color: rgba(255, 255, 255, 0.55);
                     vertical-alignment: center;
                 }
                 HorizontalLayout {
@@ -146,6 +147,7 @@ export component DetailsHero inherits VerticalLayout {
                             width: parent.width;
                             height: parent.height;
                             text: item;
+                            font-family: "Plus Jakarta Sans SemiBold";
                             font-size: 0.875 * root.rem-size;
                             font-weight: 600;
                             color: Theme.text;
