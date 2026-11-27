@@ -1,5 +1,6 @@
 // Based on stremio-web src/routes/Board/Spotlight (Copyright Smart code 203358507).
 import { Theme } from "../theme.slint";
+import { CoverImage } from "../settings/spotlight-card.slint";
 
 export struct SpotlightSlide {
     id: string,
@@ -63,11 +64,12 @@ export component BoardSpotlight inherits Rectangle {
         }
     }
 
-    if root.current.has-background: Image {
+    if root.current.has-background: CoverImage {
         width: parent.width;
         height: parent.height;
         source: root.current.background;
-        image-fit: cover;
+        pos-x: 0.72;
+        pos-y: 0.22;
     }
 
     // Left dark horizontal scrim matching Spotlight.less
@@ -92,8 +94,9 @@ export component BoardSpotlight inherits Rectangle {
     // Left content stack
     VerticalLayout {
         x: 2.25 * root.rem-size;
-        y: parent.height - self.preferred-height - 2.25 * root.rem-size;
+        y: parent.height - self.height - 2.25 * root.rem-size;
         width: Math.min(38 * root.rem-size, parent.width - 18 * root.rem-size);
+        height: self.preferred-height;
         alignment: end;
         spacing: 1 * root.rem-size;
 
@@ -246,8 +249,10 @@ export component BoardSpotlight inherits Rectangle {
 
     // Bottom-right Pager matching Pager.less
     if root.count > 1: HorizontalLayout {
-        x: parent.width - self.preferred-width - 2 * root.rem-size;
-        y: parent.height - self.preferred-height - 2.25 * root.rem-size;
+        x: parent.width - self.width - 2 * root.rem-size;
+        y: parent.height - self.height - 2.25 * root.rem-size;
+        width: self.preferred-width;
+        height: self.preferred-height;
         spacing: 0.45 * root.rem-size;
         alignment: end;
 

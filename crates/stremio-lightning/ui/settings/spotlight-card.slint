@@ -2,6 +2,27 @@
 import { Theme } from "../theme.slint";
 import { SpotlightCatalogCardData } from "types.slint";
 
+// CSS `object-fit: cover; object-position: (pos-x*100%) (pos-y*100%)` for Slint Image.
+export component CoverImage inherits Image {
+    in property <float> pos-x: 0.5;
+    in property <float> pos-y: 0.25;
+
+    property <int> iw: Math.max(1, self.source.width);
+    property <int> ih: Math.max(1, self.source.height);
+    property <float> bw: Math.max(1.0, self.width / 1px);
+    property <float> bh: Math.max(1.0, self.height / 1px);
+    property <bool> ready: self.source.width > 0 && self.source.height > 0;
+    property <bool> wider: (iw * bh) > (ih * bw);
+    property <int> cw: ready ? (wider ? Math.max(1, Math.min(iw, Math.round(ih * bw / bh))) : iw) : 0;
+    property <int> ch: ready ? (wider ? ih : Math.max(1, Math.min(ih, Math.round(iw * bh / bw)))) : 0;
+
+    image-fit: ready ? fill : cover;
+    source-clip-x: ready ? Math.round((iw - cw) * pos-x) : 0;
+    source-clip-y: ready ? Math.round((ih - ch) * pos-y) : 0;
+    source-clip-width: cw;
+    source-clip-height: ch;
+}
+
 export component SpotlightCatalogCard inherits VerticalLayout {
     in property <SpotlightCatalogCardData> card;
     in property <bool> full: false;
@@ -21,11 +42,12 @@ export component SpotlightCatalogCard inherits VerticalLayout {
         clip: true;
         opacity: root.dimmed ? 0.35 : 1.0;
 
-        if root.card.has-bg: Image {
+        if root.card.has-bg: CoverImage {
             width: parent.width;
             height: parent.height;
             source: root.card.bg;
-            image-fit: cover;
+            pos-x: 0.5;
+            pos-y: 0.25;
         }
         Rectangle {
             width: parent.width;
@@ -65,8 +87,9 @@ export component SpotlightCatalogCard inherits VerticalLayout {
         }
         if !root.card.has-logo && root.card.fallback-title != "": Text {
             x: 0.9 * root.rem-size;
-            y: parent.height - self.preferred-height - 0.8 * root.rem-size;
+            y: parent.height - self.height - 0.8 * root.rem-size;
             width: parent.width - 1.8 * root.rem-size;
+            height: self.preferred-height;
             text: root.card.fallback-title;
             font-size: 0.95 * root.rem-size;
             font-weight: 600;
@@ -93,7 +116,6 @@ export component SpotlightCatalogCard inherits VerticalLayout {
             }
         }
 
-        // Inset outline overlay matching CatalogCard.less .art::after
         Rectangle {
             width: parent.width;
             height: parent.height;

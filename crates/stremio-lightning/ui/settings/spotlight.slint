@@ -2,6 +2,7 @@
 import { Theme } from "../theme.slint";
 import { SettingsGroup, SettingsRow } from "primitives.slint";
 import { SettingsToggle } from "scale.slint";
+import { CoverImage } from "spotlight-card.slint";
 import { SettingsUi } from "types.slint";
 
 export component SpotlightSettingsGroup inherits SettingsGroup {
@@ -111,11 +112,12 @@ export component SpotlightSettingsGroup inherits SettingsGroup {
                 }
             }
 
-            if !SettingsUi.data.spotlight-empty && SettingsUi.data.spotlight-has-preview-bg: Image {
+            if !SettingsUi.data.spotlight-empty && SettingsUi.data.spotlight-has-preview-bg: CoverImage {
                 width: parent.width;
                 height: parent.height;
                 source: SettingsUi.data.spotlight-preview-bg;
-                image-fit: cover;
+                pos-x: 0.5;
+                pos-y: 0.25;
             }
             if !SettingsUi.data.spotlight-empty: Rectangle {
                 width: parent.width;
@@ -155,8 +157,9 @@ export component SpotlightSettingsGroup inherits SettingsGroup {
 
             if !SettingsUi.data.spotlight-empty: VerticalLayout {
                 x: 1.5 * root.rem-size;
-                y: parent.height - self.preferred-height - 1.1 * root.rem-size;
+                y: parent.height - self.height - 1.1 * root.rem-size;
                 width: parent.width - 2.75 * root.rem-size;
+                height: self.preferred-height;
                 spacing: 0.6 * root.rem-size;
                 alignment: end;
 
@@ -242,6 +245,7 @@ export component SpotlightSettingsGroup inherits SettingsGroup {
         rem-size: root.rem-size;
         label: SettingsUi.data.spotlight-picks-count <= 1 ? "Show its row on the Board" : "Show their rows on the Board";
         last: true;
+        no-divider: true;
         highlighted: SettingsUi.hit-row == "spotlightRows";
         opacity: SettingsUi.data.spotlight-enabled ? 1.0 : 0.4;
         SettingsToggle {
