@@ -88,6 +88,7 @@ export component SettingsRow inherits Rectangle {
     in property <image> icon;
     in property <bool> has-icon: false;
     in property <bool> first: false;
+    in property <bool> last: false;
     in property <bool> thin: false;
     in property <bool> end-align: false;
     in property <bool> keys-row: false;
@@ -97,7 +98,10 @@ export component SettingsRow inherits Rectangle {
         : (root.end-align || root.keys-row) ? 3.75 * root.rem-size
         : 4.25 * root.rem-size;
     background: root.highlighted ? #ffffff1a : transparent;
-    border-radius: root.highlighted ? 0.85 * root.rem-size : 0px;
+    border-top-left-radius: root.first ? 1.25 * root.rem-size : 0px;
+    border-top-right-radius: root.first ? 1.25 * root.rem-size : 0px;
+    border-bottom-left-radius: root.last ? 1.25 * root.rem-size : 0px;
+    border-bottom-right-radius: root.last ? 1.25 * root.rem-size : 0px;
     animate background { duration: 250ms; }
 
     if !root.first: Rectangle {
@@ -229,10 +233,14 @@ export component SettingsLinkRow inherits Rectangle {
     in property <string> label;
     in property <length> rem-size;
     in property <bool> first: false;
+    in property <bool> last: false;
     callback clicked();
 
-    height: 3.5 * root.rem-size;
-    border-radius: 0.75 * root.rem-size;
+    min-height: 3.5 * root.rem-size;
+    border-top-left-radius: root.first ? 1.25 * root.rem-size : 0px;
+    border-top-right-radius: root.first ? 1.25 * root.rem-size : 0px;
+    border-bottom-left-radius: root.last ? 1.25 * root.rem-size : 0px;
+    border-bottom-right-radius: root.last ? 1.25 * root.rem-size : 0px;
     background: touch.has-hover ? Theme.overlay : transparent;
 
     if !root.first: Rectangle {
@@ -244,11 +252,14 @@ export component SettingsLinkRow inherits Rectangle {
     }
 
     HorizontalLayout {
+        padding-top: 0.5 * root.rem-size;
+        padding-bottom: 0.5 * root.rem-size;
         padding-left: 1.25 * root.rem-size;
         padding-right: 1.25 * root.rem-size;
-        alignment: space-between;
+        spacing: 1 * root.rem-size;
 
         Text {
+            horizontal-stretch: 1;
             text: root.label;
             vertical-alignment: center;
             font-size: root.rem-size;
@@ -256,6 +267,7 @@ export component SettingsLinkRow inherits Rectangle {
             overflow: elide;
         }
         VerticalLayout {
+            horizontal-stretch: 0;
             alignment: center;
             Image {
                 width: 1.15 * root.rem-size;

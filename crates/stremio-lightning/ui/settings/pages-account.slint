@@ -151,7 +151,7 @@ export component HelpPage inherits VerticalLayout {
     SettingsGroup {
         title: "Help";
         rem-size: root.rem-size;
-        SettingsLinkRow { label: "Contact support"; rem-size: root.rem-size; first: true; clicked => { SettingsUi.open-external-link("support"); } }
+        SettingsLinkRow { label: "Contact support"; rem-size: root.rem-size; first: true; last: true; clicked => { SettingsUi.open-external-link("support"); } }
     }
 
     SettingsGroup {
@@ -186,7 +186,7 @@ export component HelpPage inherits VerticalLayout {
         SettingsLinkRow { label: "Terms of Service"; rem-size: root.rem-size; first: true; clicked => { SettingsUi.open-external-link("tos"); } }
         SettingsLinkRow { label: "Privacy Policy"; rem-size: root.rem-size; clicked => { SettingsUi.open-external-link("privacy"); } }
         SettingsLinkRow { label: "Source code"; rem-size: root.rem-size; clicked => { SettingsUi.open-external-link("source"); } }
-        SettingsLinkRow { label: "Big Buck Bunny © 2008 Blender Foundation · CC BY 3.0"; rem-size: root.rem-size; clicked => { SettingsUi.open-external-link("bbb-credit"); } }
+        SettingsLinkRow { label: "Big Buck Bunny © 2008 Blender Foundation · CC BY 3.0"; rem-size: root.rem-size; last: true; clicked => { SettingsUi.open-external-link("bbb-credit"); } }
     }
 }
 
@@ -222,6 +222,10 @@ export component SearchResultsPage inherits VerticalLayout {
 
         for hit[i] in SettingsUi.search-results: Rectangle {
             min-height: 4.25 * root.rem-size;
+            border-top-left-radius: i == 0 ? 1.25 * root.rem-size : 0px;
+            border-top-right-radius: i == 0 ? 1.25 * root.rem-size : 0px;
+            border-bottom-left-radius: i == SettingsUi.search-results.length - 1 ? 1.25 * root.rem-size : 0px;
+            border-bottom-right-radius: i == SettingsUi.search-results.length - 1 ? 1.25 * root.rem-size : 0px;
             background: hit-t.has-hover ? Theme.overlay : transparent;
 
             if i > 0: Rectangle {
