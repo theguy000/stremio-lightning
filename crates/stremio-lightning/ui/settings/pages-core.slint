@@ -38,6 +38,8 @@ export component InterfacePage inherits VerticalLayout {
         }
     }
 
+    SpotlightSettingsGroup { rem-size: root.rem-size; }
+
     SettingsGroup {
         title: "Behavior";
         rem-size: root.rem-size;
@@ -65,8 +67,6 @@ export component InterfacePage inherits VerticalLayout {
             }
         }
     }
-
-    SpotlightSettingsGroup { rem-size: root.rem-size; }
 }
 
 export component PlayerPage inherits VerticalLayout {
