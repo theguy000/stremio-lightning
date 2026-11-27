@@ -128,19 +128,20 @@ export component MainWindow inherits Window {
         init => { self.focus-player(); }
     }
 
-    // Scrolled top-bar page-background clip matching Stremio Web Board/styles.less `.with-spotlight.scrolled::after`.
+    // Top-bar shield + scrolled page-background clip matching Web `.with-spotlight.scrolled::after`.
     if root.board-spotlight: Rectangle {
         x: 0px;
         y: 0px;
         width: parent.width;
         height: root.bar-height;
         clip: true;
-        opacity: BoardUi.scrolled-past-spotlight ? 1.0 : 0.0;
-        animate opacity { duration: 200ms; easing: ease-out; }
+        TouchArea {}
         Rectangle {
             width: root.width;
             height: root.height;
             background: Theme.page-background;
+            opacity: BoardUi.scrolled-past-spotlight ? 1.0 : 0.0;
+            animate opacity { duration: 200ms; easing: ease-out; }
         }
     }
 

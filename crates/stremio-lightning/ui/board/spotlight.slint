@@ -9,6 +9,8 @@ export { SpotlightSlide }
 export component BoardSpotlight inherits Rectangle {
     in property <[SpotlightSlide]> slides;
     in property <[string]> slide-labels;
+    in property <string> slide-key;
+    in property <bool> offscreen: false;
     in property <length> rem-size: 14px;
     in property <length> nav-width: 6 * 14px;
     in property <length> bar-height: 5.5 * 14px;
@@ -37,13 +39,29 @@ export component BoardSpotlight inherits Rectangle {
     property <float> enter-ease: 1.0 - root.enter-inv * root.enter-inv * root.enter-inv;
     property <float> cycle-progress: Math.min(1.0, root.cycle-ms / 8000.0);
     property <bool> is-hovered: hover-area.has-hover || slide-content.hovered || pager.hovered;
-    property <length> content-bottom: 6 * root.rem-size;
+    property <bool> compact-layout: (root.width - root.nav-width) < 46 * root.rem-size;
+    property <length> content-bottom: root.compact-layout ? 10 * root.rem-size : 6 * root.rem-size;
     property <length> pager-bottom: 6.6 * root.rem-size;
     property <color> fade-base: Theme.amoled ? #000000 : #121024;
     property <color> scrim-base: Theme.amoled ? #000000 : #0c0b11;
 
+    changed slide-key => {
+        root.active-index = 0;
+        root.prev-index = -1;
+        root.prev-scale = 1.0;
+        root.zoom-ms = 0;
+        root.cycle-ms = 0;
+        root.paused = false;
+    }
+
     function go(next: int, manual: bool) {
         if (root.count == 0) {
+            return;
+        }
+        if (Math.mod(next + root.count, root.count) == root.safe-idx) {
+            if (manual) {
+                root.paused = true;
+            }
             return;
         }
         root.prev-index = root.safe-idx;
@@ -60,10 +78,10 @@ export component BoardSpotlight inherits Rectangle {
     clip: true;
 
     // 60fps driver for the 14s zoom-out animation and the 8s pager fill timer.
-    // Zoom runs continuously on the active slide; cycle fill pauses on hover and manual pause.
+    // Stops automatically when scrolled offscreen; cycle fill pauses on hover and manual pause.
     anim-timer := Timer {
         interval: 16ms;
-        running: root.count > 0 && (root.zoom-ms < 14000 || (root.count > 1 && !root.paused && !root.is-hovered));
+        running: !root.offscreen && root.count > 0 && (root.zoom-ms < 14000 || (root.count > 1 && !root.paused && !root.is-hovered));
         triggered => {
             if (root.zoom-ms < 14000) {
                 root.zoom-ms = Math.min(14000, root.zoom-ms + 16);
@@ -148,7 +166,7 @@ export component BoardSpotlight inherits Rectangle {
     slide-content := SpotlightSlideContent {
         x: root.nav-width + 2 * root.rem-size;
         y: parent.height - self.height - root.content-bottom + (1.0 - root.enter-ease) * 0.75 * root.rem-size;
-        width: Math.max(18 * root.rem-size, Math.min(40 * root.rem-size, parent.width - root.nav-width - 22 * root.rem-size));
+        width: root.compact-layout ? Math.max(16 * root.rem-size, Math.min(40 * root.rem-size, parent.width - root.nav-width - 4 * root.rem-size)) : Math.max(16 * root.rem-size, Math.min(40 * root.rem-size, parent.width - root.nav-width - 30 * root.rem-size));
         opacity: root.enter-t;
         current: root.current;
         rem-size: root.rem-size;

@@ -92,6 +92,8 @@ export component SpotlightSlideContent inherits VerticalLayout {
             }
         }
         if root.current.genres != "": Text {
+            horizontal-stretch: 1;
+            min-width: 0px;
             text: root.current.genres;
             font-size: 1 * root.rem-size;
             font-weight: 500;

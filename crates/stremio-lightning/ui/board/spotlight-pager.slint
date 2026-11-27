@@ -37,7 +37,9 @@ component PagerSegment inherits Rectangle {
     in property <bool> stopped;
     in property <float> progress;
     in property <string> label;
-    out property <bool> hovered: seg-t.has-hover;
+    property <bool> is-hovered: seg-t.has-hover;
+    changed is-hovered => { root.hover-changed(self.is-hovered); }
+    callback hover-changed(bool);
     callback clicked();
 
     width: root.active ? 3.5 * root.rem-size : 1.75 * root.rem-size;
@@ -78,7 +80,9 @@ export component SpotlightPager inherits Rectangle {
     in property <bool> stopped: false;
     in property <float> progress: 0.0;
     in property <length> rem-size: 14px;
-    out property <bool> hovered: bg-t.has-hover || prev-btn.hovered || next-btn.hovered || pause-btn.hovered;
+    property <int> seg-hover-count: 0;
+    changed labels => { root.seg-hover-count = 0; }
+    out property <bool> hovered: bg-t.has-hover || prev-btn.hovered || next-btn.hovered || pause-btn.hovered || root.seg-hover-count > 0;
 
     callback select(int);
     callback previous();
@@ -116,6 +120,7 @@ export component SpotlightPager inherits Rectangle {
                 stopped: root.stopped;
                 progress: root.progress;
                 label: lbl;
+                hover-changed(h) => { root.seg-hover-count = Math.max(0, root.seg-hover-count + (h ? 1 : -1)); }
                 clicked => { root.select(i); }
             }
         }

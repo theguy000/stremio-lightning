@@ -21,6 +21,7 @@ export global BoardUi {
     in-out property <[CatalogRow]> rows: [];
     in-out property <[SpotlightSlide]> spotlight: [];
     in-out property <[string]> spotlight-labels: [];
+    in-out property <string> spotlight-key;
     in-out property <bool> spotlight-loading: false;
     in-out property <bool> scrolled-past-spotlight: false;
     callback board-visible(length, length, length, length);
@@ -162,10 +163,20 @@ export component BoardContent inherits Rectangle {
     property <length> watched-content: board-content.content-height;
     property <length> watched-y: board-content.content-y;
     changed watched-width => { root.report-bounds(); root.report-visible(); root.update-scrolled(); }
-    changed watched-height => { root.report-bounds(); root.report-visible(); root.update-scrolled(); }
-    changed watched-content => { root.report-bounds(); }
+    changed watched-height => { root.clamp-scroll(); root.report-bounds(); root.report-visible(); root.update-scrolled(); }
+    changed watched-content => { root.clamp-scroll(); root.report-bounds(); }
     changed watched-y => { root.report-visible(); root.update-scrolled(); }
-    init => { root.report-bounds(); root.report-visible(); root.update-scrolled(); }
+    changed has-spotlight => { root.clamp-scroll(); root.report-bounds(); root.report-visible(); root.update-scrolled(); }
+    changed hero-height => { root.update-scrolled(); }
+    changed bar-height => { root.update-scrolled(); }
+    init => { root.clamp-scroll(); root.report-bounds(); root.report-visible(); root.update-scrolled(); }
+
+    function clamp-scroll() {
+        board-content.content-y = Math.max(
+            Math.min(0px, board-content.height - board-content.content-height),
+            Math.min(0px, board-content.content-y),
+        );
+    }
 
     function update-scrolled() {
         BoardUi.scrolled-past-spotlight = root.has-spotlight
@@ -213,6 +224,8 @@ export component BoardContent inherits Rectangle {
             height: root.hero-height;
             slides: BoardUi.spotlight;
             slide-labels: BoardUi.spotlight-labels;
+            slide-key: BoardUi.spotlight-key;
+            offscreen: BoardUi.scrolled-past-spotlight;
             rem-size: root.rem-size;
             nav-width: root.nav-width;
             bar-height: root.bar-height;

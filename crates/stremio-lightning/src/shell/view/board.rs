@@ -1,6 +1,6 @@
 //! Board screen view projection: Spotlight hero slides and catalog rows via `ModelMirror`.
 
-use slint::{ComponentHandle, Model, ModelRc, VecModel};
+use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 
 use super::sync::{image_rev, poster_data, slint_image, with_mirrors, ModelMirror};
 use crate::plumbing::images::Images;
@@ -11,6 +11,9 @@ pub(super) fn apply_board(window: &MainWindow, board: &crate::app::BoardData, im
     sync_board_rows(window, &board.rows, images);
     let ui = window.global::<BoardUi>();
     ui.set_spotlight_loading(board.spotlight_loading);
+    if board.spotlight.is_empty() && !board.spotlight_loading {
+        ui.set_scrolled_past_spotlight(false);
+    }
     sync_spotlight(&ui, &board.spotlight, images);
 }
 
@@ -36,26 +39,45 @@ fn to_slide(s: &SpotlightItem, images: &Images) -> SpotlightSlide {
     }
 }
 
+fn slide_key(items: &[SpotlightItem]) -> SharedString {
+    items
+        .iter()
+        .map(|s| format!("{}:{}", s.kind, s.id))
+        .collect::<Vec<_>>()
+        .join("|")
+        .into()
+}
+
 /// Updates `BoardUi.spotlight` in-place when slide IDs are unchanged so arriving artwork
 /// images never rebuild the Slint repeater or reset active zoom/progress animations.
 fn sync_spotlight(ui: &BoardUi<'_>, items: &[SpotlightItem], images: &Images) {
-    let existing = ui.get_spotlight();
-    if let Some(model) = existing.as_any().downcast_ref::<VecModel<SpotlightSlide>>() {
-        if model.row_count() == items.len()
-            && items.iter().enumerate().all(|(i, s)| {
-                model
-                    .row_data(i)
-                    .is_some_and(|cur| cur.id.as_str() == s.id && cur.kind.as_str() == s.kind)
-            })
-        {
-            for (i, item) in items.iter().enumerate() {
-                model.set_row_data(i, to_slide(item, images));
+    let next_key = slide_key(items);
+    let same_ids = ui.get_spotlight_key() == next_key;
+    if same_ids {
+        let existing = ui.get_spotlight();
+        if let Some(model) = existing.as_any().downcast_ref::<VecModel<SpotlightSlide>>() {
+            if model.row_count() == items.len() {
+                let labels_rc = ui.get_spotlight_labels();
+                let labels_vec = labels_rc.as_any().downcast_ref::<VecModel<SharedString>>();
+                for (i, item) in items.iter().enumerate() {
+                    let next = to_slide(item, images);
+                    if model.row_data(i).as_ref() != Some(&next) {
+                        model.set_row_data(i, next);
+                    }
+                    if let Some(lv) = labels_vec {
+                        let lbl: SharedString = item.title.clone().into();
+                        if lv.row_data(i).as_ref() != Some(&lbl) {
+                            lv.set_row_data(i, lbl);
+                        }
+                    }
+                }
+                return;
             }
-            return;
         }
     }
     let slides: Vec<SpotlightSlide> = items.iter().map(|s| to_slide(s, images)).collect();
-    let labels: Vec<slint::SharedString> = items.iter().map(|s| s.title.clone().into()).collect();
+    let labels: Vec<SharedString> = items.iter().map(|s| s.title.clone().into()).collect();
+    ui.set_spotlight_key(next_key);
     ui.set_spotlight_labels(ModelRc::new(VecModel::from(labels)));
     ui.set_spotlight(ModelRc::new(VecModel::from(slides)));
 }

@@ -194,5 +194,16 @@ fn spotlight_reports_loading_until_catalogs_arrive_and_resolves_trailer_urls() {
         spotlight::trailer_url_of(&[yt]),
         Some("https://www.youtube.com/watch?v=dQw4w9WgXcQ".to_owned())
     );
+    let bad_yt = Stream {
+        source: StreamSource::YouTube {
+            yt_id: "abc&list=evil".into(),
+        },
+        name: None,
+        description: None,
+        thumbnail: None,
+        subtitles: vec![],
+        behavior_hints: Default::default(),
+    };
+    assert_eq!(spotlight::trailer_url_of(&[bad_yt]), None);
     assert_eq!(spotlight::trailer_url_of(&[]), None);
 }

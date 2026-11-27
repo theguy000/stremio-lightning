@@ -125,9 +125,17 @@ pub(super) fn addon_name_for(model: &AppModel, req: &ResourceRequest) -> String 
         .unwrap_or_else(|| req.base.host_str().unwrap_or("Addon").to_owned())
 }
 
+fn valid_youtube_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 64
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
 pub(crate) fn trailer_url_of(streams: &[Stream]) -> Option<String> {
     streams.iter().find_map(|s| match &s.source {
-        StreamSource::YouTube { yt_id } if !yt_id.is_empty() => {
+        StreamSource::YouTube { yt_id } if valid_youtube_id(yt_id) => {
             Some(format!("https://www.youtube.com/watch?v={yt_id}"))
         }
         StreamSource::External {

@@ -81,6 +81,14 @@ impl Wiring {
             extras.spotlight.enabled = enabled;
             extras.save(self.app.data_dir());
         }
+        if !enabled {
+            if let Some(window) = self.window.upgrade() {
+                window.set_board_scroll(0.0);
+                window
+                    .global::<BoardUi>()
+                    .set_scrolled_past_spotlight(false);
+            }
+        }
         self.refresh_spotlight();
     }
 
