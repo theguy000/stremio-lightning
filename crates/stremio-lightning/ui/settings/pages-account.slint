@@ -6,6 +6,7 @@ import { SettingsUi } from "types.slint";
 
 export component AccountPage inherits VerticalLayout {
     in property <length> rem-size;
+    alignment: start;
     callback log-in();
 
     SettingsPageHeader { title: "Account"; rem-size: root.rem-size; }
@@ -48,7 +49,6 @@ export component AccountPage inherits VerticalLayout {
                     Text {
                         text: SettingsUi.data.logged-in ? SettingsUi.data.user-email : "Anonymous user";
                         font-size: 1.15 * root.rem-size;
-                        font-family: "Plus Jakarta Sans SemiBold";
                         font-weight: 600;
                         color: Theme.text;
                         overflow: elide;
@@ -143,6 +143,7 @@ export component AccountPage inherits VerticalLayout {
 
 export component HelpPage inherits VerticalLayout {
     in property <length> rem-size;
+    alignment: start;
 
     SettingsPageHeader { title: "Help and about"; rem-size: root.rem-size; }
 
@@ -190,6 +191,7 @@ export component HelpPage inherits VerticalLayout {
 
 export component SearchResultsPage inherits VerticalLayout {
     in property <length> rem-size;
+    alignment: start;
     callback pick-hit(string, string);
 
     SettingsPageHeader {

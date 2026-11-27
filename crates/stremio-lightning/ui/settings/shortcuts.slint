@@ -21,7 +21,6 @@ component ShortcutKbd inherits Rectangle {
         horizontal-alignment: center;
         vertical-alignment: center;
         font-size: 0.875 * root.rem-size;
-        font-family: "Plus Jakarta Sans SemiBold";
         font-weight: 600;
         color: ClassStyles.color-or(ClassStyles.text, Theme.text);
     }
@@ -50,6 +49,7 @@ component ShortcutRow inherits SettingsRow {
 
 export component ShortcutsPage inherits VerticalLayout {
     in property <length> rem-size;
+    alignment: start;
 
     SettingsPageHeader { title: "Shortcuts"; rem-size: root.rem-size; }
 

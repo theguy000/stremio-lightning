@@ -92,6 +92,8 @@ export component SettingsContent inherits Rectangle {
             x: 3 * root.rem-size;
             y: 0px;
             width: Math.min(46 * root.rem-size, Math.max(20 * root.rem-size, pane.width - 6 * root.rem-size));
+            height: self.preferred-height;
+            alignment: start;
             padding-top: 1 * root.rem-size;
             padding-bottom: 5 * root.rem-size;
 

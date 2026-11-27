@@ -9,13 +9,13 @@ export component SettingsPageHeader inherits VerticalLayout {
     in property <string> scope;
     in property <length> rem-size;
 
+    alignment: start;
     spacing: 0.35 * root.rem-size;
     padding-bottom: 0.4 * root.rem-size;
 
     Text {
         text: root.title;
         font-size: 1.8 * root.rem-size;
-        font-family: "Plus Jakarta Sans Medium";
         font-weight: 500;
         color: ClassStyles.color-or(ClassStyles.label, Theme.text);
     }
@@ -34,6 +34,7 @@ export component SettingsGroup inherits VerticalLayout {
     in property <bool> padded: false;
     in property <bool> danger-space: false;
 
+    alignment: start;
     padding-top: (root.danger-space ? 2.5 : 1.75) * root.rem-size;
     spacing: 0px;
 
@@ -45,7 +46,6 @@ export component SettingsGroup inherits VerticalLayout {
             vertical-alignment: center;
             text: root.title;
             font-size: 1.05 * root.rem-size;
-            font-family: "Plus Jakarta Sans SemiBold";
             font-weight: 600;
             color: ClassStyles.color-or(ClassStyles.label, Theme.text);
         }
@@ -192,7 +192,6 @@ export component SettingsRowButton inherits Rectangle {
             text: root.label;
             vertical-alignment: center;
             font-size: 0.95 * root.rem-size;
-            font-family: "Plus Jakarta Sans Medium";
             font-weight: 500;
             color: root.variant == "danger" ? Theme.accent-red : (root.variant == "primary" ? #ffffff : Theme.text);
         }

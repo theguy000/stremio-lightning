@@ -15,7 +15,6 @@ component NavGroupLabel inherits Rectangle {
         vertical-alignment: center;
         text: root.label;
         font-size: 0.8125 * root.rem-size;
-        font-family: "Plus Jakarta Sans SemiBold";
         font-weight: 600;
         letter-spacing: 0.05 * root.rem-size;
         color: Theme.text;
@@ -57,7 +56,6 @@ component NavItem inherits Rectangle {
             overflow: elide;
             vertical-alignment: center;
             font-size: 1.02 * root.rem-size;
-            font-family: root.selected ? "Plus Jakarta Sans SemiBold" : "Plus Jakarta Sans Medium";
             font-weight: root.selected ? 600 : 500;
             color: ClassStyles.color-or(ClassStyles.button, Theme.text);
         }
@@ -85,6 +83,8 @@ export component SettingsMenu inherits Rectangle {
         content-height: nav-col.preferred-height;
 
         nav-col := VerticalLayout {
+            height: self.preferred-height;
+            alignment: start;
             padding-top: 1 * root.rem-size;
             padding-right: 1 * root.rem-size;
             padding-bottom: 2 * root.rem-size;
@@ -129,7 +129,6 @@ export component SettingsMenu inherits Rectangle {
                         Text {
                             text: SettingsUi.data.logged-in ? "Account" : "Guest";
                             font-size: root.rem-size;
-                            font-family: "Plus Jakarta Sans SemiBold";
                             font-weight: 600;
                             color: Theme.text;
                             overflow: elide;

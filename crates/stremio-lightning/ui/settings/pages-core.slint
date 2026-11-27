@@ -5,6 +5,7 @@ import { SettingsUi } from "types.slint";
 
 export component InterfacePage inherits VerticalLayout {
     in property <length> rem-size;
+    alignment: start;
 
     SettingsPageHeader { title: "Interface"; scope: "Saved on this device"; rem-size: root.rem-size; }
 
@@ -56,6 +57,7 @@ export component InterfacePage inherits VerticalLayout {
 
 export component PlayerPage inherits VerticalLayout {
     in property <length> rem-size;
+    alignment: start;
 
     SettingsPageHeader { title: "Player"; scope: "Saved on this device"; rem-size: root.rem-size; }
 
@@ -153,6 +155,7 @@ export component PlayerPage inherits VerticalLayout {
 
 export component IntegrationsPage inherits VerticalLayout {
     in property <length> rem-size;
+    alignment: start;
 
     SettingsPageHeader { title: "Integrations"; rem-size: root.rem-size; }
 
