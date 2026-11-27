@@ -29,6 +29,7 @@ component PadLine inherits HorizontalLayout {
     in property <string> action;
     in property <string> button;
     in property <string> control-id;
+    in property <string> alt-control-id: "";
     in property <string> active-control;
     in property <length> rem-size;
 
@@ -45,7 +46,8 @@ component PadLine inherits HorizontalLayout {
     }
     PadKeycap {
         label: root.button;
-        active: root.control-id != "" && root.active-control == root.control-id;
+        active: root.active-control != ""
+            && (root.active-control == root.control-id || (root.alt-control-id != "" && root.active-control == root.alt-control-id));
         rem-size: root.rem-size;
     }
 }
@@ -140,12 +142,12 @@ export component GamepadModal inherits Rectangle {
                     spacing: 0.85 * root.rem-size;
 
                     Text { text: "Navigation"; font-size: 1.05 * root.rem-size; font-weight: 600; color: Theme.text; }
-                    PadLine { rem-size: root.rem-size; active-control: root.active-control; action: "Move / Scroll"; button: "L Stick / D-Pad"; control-id: "lstick"; }
-                    PadLine { rem-size: root.rem-size; active-control: root.active-control; action: "Select"; button: root.lbl-a; control-id: "a"; }
+                    PadLine { rem-size: root.rem-size; active-control: root.active-control; action: "Scroll / Focus"; button: "L Stick / D-Pad"; control-id: "lstick"; }
+                    PadLine { rem-size: root.rem-size; active-control: root.active-control; action: "Activate Focused"; button: root.lbl-a; control-id: "a"; }
                     PadLine { rem-size: root.rem-size; active-control: root.active-control; action: "Go Back"; button: root.lbl-b; control-id: "b"; }
                     PadLine { rem-size: root.rem-size; active-control: root.active-control; action: "Gamepad Guide"; button: root.lbl-x; control-id: "x"; }
                     PadLine { rem-size: root.rem-size; active-control: root.active-control; action: "Toggle Fullscreen"; button: root.lbl-y; control-id: "y"; }
-                    PadLine { rem-size: root.rem-size; active-control: root.active-control; action: "Previous / Next Tab"; button: root.lbl-lb + " / " + root.lbl-rb; control-id: "lb"; }
+                    PadLine { rem-size: root.rem-size; active-control: root.active-control; action: "Previous / Next Tab"; button: root.lbl-lb + " / " + root.lbl-rb; control-id: "lb"; alt-control-id: "rb"; }
                 }
 
                 VerticalLayout {
@@ -154,7 +156,7 @@ export component GamepadModal inherits Rectangle {
                     spacing: 0.85 * root.rem-size;
 
                     Text { text: "Player"; font-size: 1.05 * root.rem-size; font-weight: 600; color: Theme.text; }
-                    PadLine { rem-size: root.rem-size; active-control: root.active-control; action: "Play / Pause"; button: root.lbl-x + " / " + root.lbl-a; control-id: "x"; }
+                    PadLine { rem-size: root.rem-size; active-control: root.active-control; action: "Play / Pause"; button: root.lbl-x + " / " + root.lbl-a; control-id: "x"; alt-control-id: "a"; }
                     PadLine { rem-size: root.rem-size; active-control: root.active-control; action: "Seek Backward / Forward"; button: "R Stick ←/→"; control-id: "rstick"; }
                     PadLine { rem-size: root.rem-size; active-control: root.active-control; action: "Adjust Volume"; button: "R Stick ↑/↓"; control-id: "rstick"; }
                     PadLine { rem-size: root.rem-size; active-control: root.active-control; action: "Toggle Fullscreen"; button: root.lbl-y; control-id: "y"; }

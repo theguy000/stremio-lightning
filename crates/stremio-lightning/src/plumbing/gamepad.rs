@@ -13,7 +13,7 @@ use gilrs::{Axis, Button, Event, EventType, Gilrs};
 const DEADZONE: f32 = 0.28;
 const REPEAT_INITIAL: Duration = Duration::from_millis(250);
 const REPEAT_MIN: Duration = Duration::from_millis(100);
-const WAIT_SLICE: Duration = Duration::from_millis(50);
+const WAIT_IDLE: Duration = Duration::from_millis(250);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ControllerFamily {
@@ -194,11 +194,22 @@ fn run_worker(stop: Arc<AtomicBool>, cb: Arc<dyn Fn(GamepadAction) + Send + Sync
     let Ok(mut gilrs) = Gilrs::new() else {
         return;
     };
-    let mut held_left: Option<(GamepadAction, f32, Instant)> = None;
-    let mut held_right: Option<(GamepadAction, f32, Instant)> = None;
+    if let Some((_, pad)) = gilrs.gamepads().find(|(_, g)| g.is_connected()) {
+        cb(GamepadAction::Connected(detect_family(pad.name())));
+    }
+    let mut held_left: Option<(Axis, GamepadAction, f32, Instant)> = None;
+    let mut held_right: Option<(Axis, GamepadAction, f32, Instant)> = None;
 
     while !stop.load(Ordering::Relaxed) {
-        let mut pending = gilrs.next_event_blocking(Some(WAIT_SLICE));
+        let now = Instant::now();
+        let wait = [held_left, held_right]
+            .into_iter()
+            .flatten()
+            .map(|(_, _, _, due)| due.saturating_duration_since(now))
+            .min()
+            .unwrap_or(WAIT_IDLE)
+            .min(WAIT_IDLE);
+        let mut pending = gilrs.next_event_blocking(Some(wait));
         while let Some(Event { id, event, .. }) = pending {
             match event {
                 EventType::Connected => {
@@ -228,17 +239,19 @@ fn run_worker(stop: Arc<AtomicBool>, cb: Arc<dyn Fn(GamepadAction) + Send + Sync
                     };
                     match map_axis(axis, val) {
                         Some(act) => {
-                            let is_new = slot.map(|(a, _, _)| a) != Some(act);
+                            let is_new = slot.map(|(_, a, _, _)| a) != Some(act);
                             if is_new {
                                 cb(act);
-                                *slot = Some((act, val.abs(), Instant::now() + REPEAT_INITIAL));
-                            } else if let Some((_, mag, _)) = slot.as_mut() {
+                                *slot =
+                                    Some((axis, act, val.abs(), Instant::now() + REPEAT_INITIAL));
+                            } else if let Some((_, _, mag, _)) = slot.as_mut() {
                                 *mag = val.abs();
                             }
                         }
-                        None => {
+                        None if slot.is_some_and(|(held_axis, _, _, _)| held_axis == axis) => {
                             *slot = None;
                         }
+                        None => {}
                     }
                 }
                 _ => {}
@@ -247,7 +260,7 @@ fn run_worker(stop: Arc<AtomicBool>, cb: Arc<dyn Fn(GamepadAction) + Send + Sync
         }
         let now = Instant::now();
         for slot in [&mut held_left, &mut held_right] {
-            if let Some((act, mag, due)) = slot.as_mut() {
+            if let Some((_, act, mag, due)) = slot.as_mut() {
                 if now >= *due {
                     cb(*act);
                     *due = now + repeat_interval(*mag);

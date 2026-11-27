@@ -51,12 +51,12 @@ pub(crate) fn classify(
     let no_mods = !mods.control_key() && !mods.super_key() && !mods.shift_key();
 
     // Interface zoom works everywhere (even when an input is focused), matching Stremio Web.
-    if primary && !mods.shift_key() {
+    if primary {
         if let Key::Character(c) = &logical_key {
-            match c.as_str() {
-                "-" => return Some(GlobalShortcut::ZoomOut),
-                "=" | "+" => return Some(GlobalShortcut::ZoomIn),
-                "0" => return Some(GlobalShortcut::ZoomReset),
+            match (c.as_str(), mods.shift_key()) {
+                ("+", _) | ("=", false) => return Some(GlobalShortcut::ZoomIn),
+                ("-", false) => return Some(GlobalShortcut::ZoomOut),
+                ("0", false) => return Some(GlobalShortcut::ZoomReset),
                 _ => {}
             }
         }
@@ -74,10 +74,7 @@ pub(crate) fn classify(
     }
 
     if let Key::Named(NamedKey::Escape) = logical_key {
-        if !playing {
-            return Some(GlobalShortcut::EscapeOverlay);
-        }
-        return None;
+        return Some(GlobalShortcut::EscapeOverlay);
     }
 
     if playing || text_input_focused {
@@ -124,6 +121,7 @@ pub(crate) fn close_top_modal(window: &MainWindow) -> bool {
     }
     if modals.get_gamepad_open() {
         modals.set_gamepad_open(false);
+        modals.set_gamepad_active("".into());
         return true;
     }
     if modals.get_spotlight_picker_open() {
@@ -229,6 +227,9 @@ pub(crate) fn execute(window: &MainWindow, app: &App, action: GlobalShortcut) ->
             if close_top_modal(window) {
                 return true;
             }
+            if window.get_playing() {
+                return false;
+            }
             if window.window().is_fullscreen() && app.settings().view().esc_exit_fullscreen {
                 window.window().set_fullscreen(false);
                 return true;
@@ -244,48 +245,5 @@ pub(crate) fn execute(window: &MainWindow, app: &App, action: GlobalShortcut) ->
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn classifies_navigation_zoom_and_modal_shortcuts() {
-        let none = ModifiersState::empty();
-        let ctrl = ModifiersState::CONTROL;
-        let prim = if cfg!(target_os = "macos") {
-            ModifiersState::SUPER
-        } else {
-            ctrl
-        };
-        let ch =
-            |s: &str, m, inp, play| classify(&Key::Character(s.into()), true, false, m, inp, play);
-        assert_eq!(
-            ch("1", none, false, false),
-            Some(GlobalShortcut::SwitchSection(Section::Board))
-        );
-        assert_eq!(
-            ch("6", none, false, false),
-            Some(GlobalShortcut::SwitchSection(Section::Settings))
-        );
-        assert_eq!(
-            ch("0", none, false, false),
-            Some(GlobalShortcut::FocusSearch)
-        );
-        assert_eq!(
-            ch("/", ctrl, false, false),
-            Some(GlobalShortcut::ToggleShortcutsModal)
-        );
-        assert_eq!(
-            ch("g", ctrl, false, false),
-            Some(GlobalShortcut::ToggleGamepadModal)
-        );
-        assert_eq!(ch("+", prim, true, true), Some(GlobalShortcut::ZoomIn));
-        assert_eq!(ch("1", none, true, false), None);
-        assert_eq!(ch("1", none, false, true), None);
-        let esc = Key::Named(NamedKey::Escape);
-        assert_eq!(
-            classify(&esc, true, false, none, true, false),
-            Some(GlobalShortcut::EscapeOverlay)
-        );
-        assert_eq!(classify(&esc, true, false, none, false, true), None);
-    }
-}
+#[path = "shortcuts_tests.rs"]
+mod tests;

@@ -18,13 +18,13 @@ struct TrayState {
     handle: Option<TrayHandle>,
     visible: bool,
     always_on_top: bool,
+    app: Arc<App>,
 }
 
 thread_local! {
     static ACTIVE_TRAY: RefCell<Option<Rc<RefCell<TrayState>>>> = const { RefCell::new(None) };
 }
 
-/// Decides whether closing the window should quit the process or hide to tray.
 pub(crate) fn should_quit_on_close(quit_on_close: bool, tray_available: bool) -> bool {
     quit_on_close || !tray_available
 }
@@ -47,21 +47,17 @@ pub(crate) fn install(window: &MainWindow, app: Arc<App>, video: VideoPlayer) {
             if weak.upgrade().is_some_and(|w| w.get_playing()) && settings.pause_on_minimize {
                 let _ = video_c.set_paused(true);
             }
-            ACTIVE_TRAY.with(|slot| {
-                if let Some(st) = slot.borrow().as_ref() {
-                    let mut st = st.borrow_mut();
-                    st.visible = false;
-                    if let Some(h) = st.handle.as_ref() {
-                        h.set_window_visible(false);
-                    }
+            if let Some(st) = ACTIVE_TRAY.with(|slot| slot.borrow().clone()) {
+                let mut st = st.borrow_mut();
+                st.visible = false;
+                if let Some(h) = st.handle.as_ref() {
+                    h.set_window_visible(false);
                 }
-            });
+            }
             CloseRequestResponse::HideWindow
         });
     }
 
-    // Create the real OS tray icon once the event loop starts (required by macOS AppKit).
-    // Skipped automatically under `i-slint-backend-testing` where `with_winit_window` is `None`.
     let weak = window.as_weak();
     let ready_init = tray_ready.clone();
     let _ = slint::invoke_from_event_loop(move || {
@@ -75,11 +71,12 @@ pub(crate) fn install(window: &MainWindow, app: Arc<App>, video: VideoPlayer) {
         match TrayHandle::spawn(move |cmd| {
             let w = cmd_weak.clone();
             let _ = w.upgrade_in_event_loop(move |window| {
-                ACTIVE_TRAY.with(|slot| {
-                    if let Some(st) = slot.borrow().as_ref() {
-                        handle_command(&window, st, cmd);
-                    }
-                });
+                // Clone the Rc out of ACTIVE_TRAY before handle_command so Quit can clear ACTIVE_TRAY
+                // without colliding with an active RefCell borrow.
+                let state = ACTIVE_TRAY.with(|slot| slot.borrow().clone());
+                if let Some(st) = state {
+                    handle_command(&window, &st, cmd);
+                }
             });
         }) {
             Ok(handle) => {
@@ -87,6 +84,7 @@ pub(crate) fn install(window: &MainWindow, app: Arc<App>, video: VideoPlayer) {
                     handle: Some(handle),
                     visible: true,
                     always_on_top: false,
+                    app,
                 }));
                 ACTIVE_TRAY.with(|slot| *slot.borrow_mut() = Some(state));
                 ready_init.store(true, Ordering::Relaxed);
@@ -103,6 +101,13 @@ fn handle_command(window: &MainWindow, state: &RefCell<TrayState>, cmd: TrayComm
         TrayCommand::Show => show_window(window, state),
         TrayCommand::ToggleVisible => {
             if state.borrow().visible {
+                let pause_on_min = state.borrow().app.settings().view().pause_on_minimize;
+                if window.get_playing() && pause_on_min {
+                    let p = window.global::<crate::PlayerUi>();
+                    if !p.get_paused() {
+                        p.invoke_play_pause();
+                    }
+                }
                 let _ = window.hide();
                 let mut st = state.borrow_mut();
                 st.visible = false;
@@ -115,6 +120,10 @@ fn handle_command(window: &MainWindow, state: &RefCell<TrayState>, cmd: TrayComm
         }
         TrayCommand::ToggleAlwaysOnTop => {
             if window.window().is_fullscreen() {
+                let st = state.borrow();
+                if let Some(h) = st.handle.as_ref() {
+                    h.set_always_on_top(st.always_on_top);
+                }
                 return;
             }
             let next = !state.borrow().always_on_top;

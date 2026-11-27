@@ -111,9 +111,10 @@ impl Wiring {
                         links::open(&url);
                         String::new()
                     }
-                    Ok(player::OpenResult::ExternalPlayer(launch)) => {
-                        match external_player::open(&launch) {
+                    Ok(player::OpenResult::ExternalPlayer(plan)) => {
+                        match external_player::open(&plan.launch) {
                             Ok(()) => {
+                                player::record_external_opened(self.app.runtime(), *plan);
                                 self.say("Stream opened in external player");
                                 String::new()
                             }
@@ -124,7 +125,10 @@ impl Wiring {
                         }
                     }
                     Ok(player::OpenResult::Loaded) => String::new(),
-                    Err(error) => format!("Can't play this title: {error}"),
+                    Err(error) => {
+                        self.say(&error);
+                        format!("Can't play this title: {error}")
+                    }
                 };
                 if let Some(window) = self.window.upgrade() {
                     window

@@ -85,9 +85,10 @@ impl Wiring {
                     window.global::<DetailsUi>().set_play_message("".into());
                 }
             }
-            Ok(player::VideoOpen::ExternalPlayer(launch)) => {
-                let msg = match external_player::open(&launch) {
+            Ok(player::VideoOpen::ExternalPlayer(plan)) => {
+                let msg = match external_player::open(&plan.launch) {
                     Ok(()) => {
+                        player::record_external_opened(self.app.runtime(), *plan);
                         self.say("Stream opened in external player");
                         String::new()
                     }
@@ -184,9 +185,10 @@ impl Wiring {
                 links::open(&url);
                 String::new()
             }
-            Ok(player::OpenResult::ExternalPlayer(launch)) => {
-                match external_player::open(&launch) {
+            Ok(player::OpenResult::ExternalPlayer(plan)) => {
+                match external_player::open(&plan.launch) {
                     Ok(()) => {
+                        player::record_external_opened(self.app.runtime(), *plan);
                         self.say("Stream opened in external player");
                         String::new()
                     }

@@ -50,6 +50,8 @@ pub(crate) fn settings_view(data: &SettingsData, images: &Images) -> SettingsVie
         Color::from_rgb_u8(0, 0, 0),
     );
 
+    let preview_bg = slint_image(images, &data.spotlight.preview_bg);
+
     SettingsViewData {
         user_email: data.user_email.clone().into(),
         logged_in: data.logged_in,
@@ -110,8 +112,8 @@ pub(crate) fn settings_view(data: &SettingsData, images: &Images) -> SettingsVie
         spotlight_is_default: data.spotlight.is_default,
         spotlight_picks_count: data.spotlight.picks_count as i32,
         spotlight_picks_summary: data.spotlight.picks_summary.clone().into(),
-        spotlight_has_preview_bg: slint_image(images, &data.spotlight.preview_bg).is_some(),
-        spotlight_preview_bg: slint_image(images, &data.spotlight.preview_bg).unwrap_or_default(),
+        spotlight_has_preview_bg: preview_bg.is_some(),
+        spotlight_preview_bg: preview_bg.unwrap_or_default(),
         spotlight_preview_title: data.spotlight.preview_title.clone().into(),
         spotlight_preview_count: data.spotlight.preview_count.clone().into(),
         spotlight_preview_sub: data.spotlight.preview_sub.clone().into(),

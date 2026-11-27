@@ -231,6 +231,7 @@ impl Wiring {
         let data = self.app.player().view();
         if !data.open {
             self.video.show(false);
+            self.clear_discord();
             *self.player_attempted.lock().unwrap() = None;
             return;
         }

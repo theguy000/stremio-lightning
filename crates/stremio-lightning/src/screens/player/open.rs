@@ -24,18 +24,42 @@ pub(crate) enum OpenOutcome {
 }
 
 #[derive(Debug, PartialEq)]
+pub(crate) struct ExternalPlayerPlan {
+    pub(crate) launch: ExternalLaunch,
+    pub(crate) record_stream: Option<Stream>,
+    pub(crate) mark_watched: Option<Video>,
+}
+
+#[derive(Debug, PartialEq)]
 pub(crate) enum OpenResult {
     Loaded,
     OpenBrowser(String),
-    ExternalPlayer(ExternalLaunch),
+    ExternalPlayer(Box<ExternalPlayerPlan>),
 }
 
 #[derive(Debug, PartialEq)]
 pub(crate) enum VideoOpen {
     Opened,
     OpenBrowser(String),
-    ExternalPlayer(ExternalLaunch),
+    ExternalPlayer(Box<ExternalPlayerPlan>),
     PickFromStreams,
+}
+
+/// Dispatches `ExternalPlayerStreamOpened` (for movies and episodes) and `MarkVideoAsWatched`
+/// only after the external player launch actually succeeds.
+pub(crate) fn record_external_opened(runtime: &AppRuntime, plan: ExternalPlayerPlan) {
+    if let Some(video) = plan.mark_watched {
+        runtime.dispatch(RuntimeAction {
+            field: Some(AppModelField::MetaDetails),
+            action: Action::MetaDetails(ActionMetaDetails::MarkVideoAsWatched(video, true)),
+        });
+    }
+    if let Some(stream) = plan.record_stream {
+        runtime.dispatch(RuntimeAction {
+            field: Some(AppModelField::MetaDetails),
+            action: Action::MetaDetails(ActionMetaDetails::ExternalPlayerStreamOpened(stream)),
+        });
+    }
 }
 
 fn ready_meta_request(details: &MetaDetails) -> Option<ResourceRequest> {
@@ -119,25 +143,18 @@ fn dispatch_or_external(
     selected: PlayerSelected,
     player_type: Option<&str>,
     server_base_url: Option<&Url>,
+    from_details: bool,
     details_video: Option<Video>,
 ) -> Result<OpenResult, String> {
-    let stream_for_record = selected.stream.clone();
+    let stream_for_record = from_details.then(|| selected.stream.clone());
     match classify_selected(selected, player_type, server_base_url)? {
         OpenOutcome::OpenExternal(url) => Ok(OpenResult::OpenBrowser(url)),
         OpenOutcome::ExternalPlayer(launch) => {
-            if let Some(video) = details_video {
-                runtime.dispatch(RuntimeAction {
-                    field: Some(AppModelField::MetaDetails),
-                    action: Action::MetaDetails(ActionMetaDetails::MarkVideoAsWatched(video, true)),
-                });
-                runtime.dispatch(RuntimeAction {
-                    field: Some(AppModelField::MetaDetails),
-                    action: Action::MetaDetails(ActionMetaDetails::ExternalPlayerStreamOpened(
-                        stream_for_record,
-                    )),
-                });
-            }
-            Ok(OpenResult::ExternalPlayer(launch))
+            Ok(OpenResult::ExternalPlayer(Box::new(ExternalPlayerPlan {
+                launch,
+                record_stream: stream_for_record,
+                mark_watched: details_video,
+            })))
         }
         OpenOutcome::Load(selected) => {
             runtime.dispatch(RuntimeAction {
@@ -201,6 +218,7 @@ pub(crate) fn open_for(runtime: &AppRuntime, id: &str) -> Result<OpenResult, Str
         selected,
         player_type.as_deref(),
         server_base.as_ref(),
+        false,
         None,
     )
 }
@@ -236,6 +254,7 @@ pub(crate) fn open_video(runtime: &AppRuntime, video_id: &str) -> Result<VideoOp
             selected,
             player_type.as_deref(),
             server_base.as_ref(),
+            true,
             video,
         )? {
             OpenResult::OpenBrowser(url) => VideoOpen::OpenBrowser(url),
@@ -258,6 +277,7 @@ pub(crate) fn open(runtime: &AppRuntime, index: usize) -> Result<OpenResult, Str
         selected,
         player_type.as_deref(),
         server_base.as_ref(),
+        true,
         video,
     )
 }

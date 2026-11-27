@@ -57,7 +57,7 @@ export component BoardSpotlight inherits Rectangle {
     // UI animation timer (8s per slide matching Stremio Web @fill-duration), paused on hover or manual pause.
     auto-cycle := Timer {
         interval: 8000ms;
-        running: root.count > 1 && !root.paused && !hover-area.has-hover;
+        running: root.count > 1 && !root.paused && !hover-area.has-hover && !watch-t.has-hover && !lib-t.has-hover;
         triggered => {
             root.active-index = Math.mod(root.safe-idx + 1, root.count);
         }
@@ -111,12 +111,20 @@ export component BoardSpotlight inherits Rectangle {
                 clicked => { root.open-item(root.current.id, root.current.kind, root.current.title); }
             }
         }
-        if !root.current.has-logo: Text {
-            text: root.current.title;
-            font-size: 2.25 * root.rem-size;
-            font-weight: 700;
-            color: Theme.text;
-            wrap: word-wrap;
+        if !root.current.has-logo: Rectangle {
+            height: title-lbl.preferred-height;
+            title-lbl := Text {
+                width: parent.width;
+                text: root.current.title;
+                font-size: 2.25 * root.rem-size;
+                font-weight: 700;
+                color: Theme.text;
+                wrap: word-wrap;
+            }
+            TouchArea {
+                mouse-cursor: pointer;
+                clicked => { root.open-item(root.current.id, root.current.kind, root.current.title); }
+            }
         }
 
         HorizontalLayout {

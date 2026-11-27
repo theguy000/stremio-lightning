@@ -1,6 +1,6 @@
 import { Theme } from "theme.slint";
-import { ShareModal } from "share-modal.slint";
 import { GamepadModal } from "gamepad-modal.slint";
+import { ShareModal } from "share-modal.slint";
 import { ShortcutsModal } from "shortcuts-modal.slint";
 import { SpotlightPickerModal } from "settings/spotlight-picker.slint";
 
@@ -23,28 +23,6 @@ export component ShellModals inherits Rectangle {
     callback share-to(string);
 
     background: transparent;
-
-    if root.toast != "": HorizontalLayout {
-        y: parent.height - 4 * root.rem-size;
-        height: 3 * root.rem-size;
-        alignment: center;
-        Rectangle {
-            height: 3 * root.rem-size;
-            border-radius: 0.75 * root.rem-size;
-            background: Theme.modal-background;
-            HorizontalLayout {
-                alignment: center;
-                padding-left: 1.5 * root.rem-size;
-                padding-right: 1.5 * root.rem-size;
-                Text {
-                    text: root.toast;
-                    color: Theme.text;
-                    font-size: 1 * root.rem-size;
-                    vertical-alignment: center;
-                }
-            }
-        }
-    }
 
     if root.share-open: ShareModal {
         width: 100%;
@@ -69,7 +47,10 @@ export component ShellModals inherits Rectangle {
         rem-size: root.rem-size;
         family: ShellModalsUi.gamepad-family;
         active-control: ShellModalsUi.gamepad-active;
-        closed => { ShellModalsUi.gamepad-open = false; }
+        closed => {
+            ShellModalsUi.gamepad-open = false;
+            ShellModalsUi.gamepad-active = "";
+        }
     }
 
     if ShellModalsUi.spotlight-picker-open: SpotlightPickerModal {
@@ -77,5 +58,28 @@ export component ShellModals inherits Rectangle {
         height: 100%;
         rem-size: root.rem-size;
         closed => { ShellModalsUi.spotlight-picker-open = false; }
+    }
+
+    // Toast sits last so notifications paint above open modals (e.g. Spotlight catalog limit).
+    if root.toast != "": HorizontalLayout {
+        y: parent.height - 4 * root.rem-size;
+        height: 3 * root.rem-size;
+        alignment: center;
+        Rectangle {
+            height: 3 * root.rem-size;
+            border-radius: 0.75 * root.rem-size;
+            background: Theme.modal-background;
+            HorizontalLayout {
+                alignment: center;
+                padding-left: 1.5 * root.rem-size;
+                padding-right: 1.5 * root.rem-size;
+                Text {
+                    text: root.toast;
+                    color: Theme.text;
+                    font-size: 1 * root.rem-size;
+                    vertical-alignment: center;
+                }
+            }
+        }
     }
 }

@@ -79,6 +79,12 @@ impl<'a> BoardHandle<'a> {
         self.0.materialize_if_stale(ScreenMask::BOARD);
         self.0.snapshot.lock().unwrap().board.clone()
     }
+
+    pub fn refresh(&self) -> Arc<BoardData> {
+        self.0.materialize(ScreenMask::BOARD);
+        self.0.mark_dirty(ScreenMask::BOARD);
+        self.0.snapshot.lock().unwrap().board.clone()
+    }
 }
 
 pub struct DiscoverHandle<'a>(pub(crate) &'a Arc<AppStore>);

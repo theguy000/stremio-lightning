@@ -22,6 +22,9 @@ impl Wiring {
         ) {
             return false;
         }
+        if self.app.settings().view().streaming.cache_root.updating {
+            return true;
+        }
         let Ok(model) = self.app.runtime().model() else {
             return false;
         };
@@ -175,13 +178,22 @@ impl Wiring {
             return;
         }
         if index == cr.values.len() {
-            let app = self.app.clone();
+            if self
+                .dialog_open
+                .swap(true, std::sync::atomic::Ordering::SeqCst)
+            {
+                return;
+            }
+            let w = self.clone();
             let start = (!cr.current.is_empty()).then(|| std::path::PathBuf::from(cr.current));
-            self.handle.spawn(async move {
-                if let Some(picked) =
-                    file_dialog::pick_folder("Choose cache folder", start.as_deref()).await
-                {
-                    cache_root::update_cache_root(app.runtime(), picked);
+            // Run `rfd::AsyncFileDialog` on Slint's main thread so macOS AppKit `ModalFuture` stays safe.
+            let _ = slint::spawn_local(async move {
+                let picked =
+                    file_dialog::pick_folder("Choose cache folder", start.as_deref()).await;
+                w.dialog_open
+                    .store(false, std::sync::atomic::Ordering::SeqCst);
+                if let Some(picked) = picked {
+                    cache_root::update_cache_root(w.app.runtime(), picked);
                 }
             });
         }
@@ -191,27 +203,31 @@ impl Wiring {
         let prev = self.app.local_extras().mpv_config_path.clone();
         match index {
             0 => {
+                if self
+                    .dialog_open
+                    .swap(true, std::sync::atomic::Ordering::SeqCst)
+                {
+                    return;
+                }
                 let start = file_dialog::default_mpv_dir(prev.as_deref());
-                let app = self.app.clone();
-                let weak = self.window.clone();
-                self.handle.spawn(async move {
-                    let Some(picked) = file_dialog::pick_mpv_config(start.as_deref()).await else {
+                let w = self.clone();
+                let _ = slint::spawn_local(async move {
+                    let picked = file_dialog::pick_mpv_config(start.as_deref()).await;
+                    w.dialog_open
+                        .store(false, std::sync::atomic::Ordering::SeqCst);
+                    let Some(picked) = picked else {
                         return;
                     };
                     if prev.as_deref() == Some(picked.as_str()) {
                         return;
                     }
                     {
-                        let mut extras = app.local_extras();
+                        let mut extras = w.app.local_extras();
                         extras.mpv_config_path = Some(picked);
-                        extras.save(app.data_dir());
+                        extras.save(w.app.data_dir());
                     }
-                    app.settings().refresh();
-                    let _ = weak.upgrade_in_event_loop(|window| {
-                        window.set_toast(
-                            "Stremio needs to restart for this setting to take effect.".into(),
-                        );
-                    });
+                    w.app.settings().refresh();
+                    w.say("Stremio needs to restart for this setting to take effect.");
                 });
             }
             1 => {

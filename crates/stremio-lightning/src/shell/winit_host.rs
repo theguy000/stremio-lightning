@@ -1,12 +1,5 @@
-//! Unified winit host adapter for `MainWindow`.
-//!
-//! Slint's winit backend exposes a single `on_winit_window_event` hook per window. Putting the
-//! three platform-window concerns here lets them share that hook with zero polling timers:
-//! - **Window icon**: applied once on the first winit event instead of polling every 16ms.
-//! - **Window focus**: rising-edge `WindowEvent::Focused(true)` triggers account re-sync across
-//!   Windows, Linux, and macOS instead of polling `GetForegroundWindow` every 700ms.
-//! - **Instant mouse wheel**: bypasses Slint's 180ms animated `Flickable` wheel scroll on
-//!   scrollable screens while honoring active popups and overlays.
+//! Unified winit host adapter for `MainWindow`: window icon, focus sync, minimize hook,
+//! global keyboard shortcuts, and instant mouse-wheel scrolling via one `on_winit_window_event`.
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -30,13 +23,21 @@ const LOGO: &[u8] = include_bytes!("../../../../assets/icons/128x128.png");
 const LINE_STEP: f32 = 120.0;
 
 #[derive(Clone, Copy)]
-struct Bounds {
+pub(crate) struct Bounds {
     x: f32,
     y: f32,
     width: f32,
     viewport: f32,
     content: f32,
 }
+
+impl Bounds {
+    pub(crate) fn max_scroll(self) -> f32 {
+        (self.content - self.viewport).max(0.0)
+    }
+}
+
+pub(crate) type ScrollBounds = Rc<RefCell<[Option<Bounds>; 5]>>;
 
 #[derive(Clone, Copy)]
 enum Target {
@@ -84,18 +85,16 @@ impl Target {
     }
 }
 
-/// Installs the unified winit window-event hook and scroll-bounds callback on `window`.
-///
-/// `on_focus_gain` fires on every rising `WindowEvent::Focused(true)` edge after an unfocused
-/// state (startup already performs the initial account pull, so initial focus does not double-pull).
+/// Installs the winit window-event hook and returns shared scroll bounds for wheel/gamepad clamp.
 pub(crate) fn install(
     window: &MainWindow,
     app: Arc<App>,
     focused_flag: Arc<AtomicBool>,
     on_focus_gain: impl Fn() + 'static,
     on_minimize: impl Fn() + 'static,
-) {
-    let bounds: Rc<RefCell<[Option<Bounds>; 5]>> = Rc::new(RefCell::new([None; 5]));
+) -> ScrollBounds {
+    let bounds: ScrollBounds = Rc::new(RefCell::new([None; 5]));
+    let shared_bounds = bounds.clone();
     {
         let bounds = bounds.clone();
         window.on_scroll_bounds(move |id, x, y, width, viewport, content| {
@@ -134,7 +133,9 @@ pub(crate) fn install(
             match event {
                 WindowEvent::Focused(focused) => {
                     focused_flag.store(*focused, Ordering::Relaxed);
-                    if *focused && !was_focused.get() {
+                    if !*focused {
+                        modifiers.set(ModifiersState::empty());
+                    } else if !was_focused.get() {
                         on_focus_gain();
                     }
                     was_focused.set(*focused);
@@ -191,6 +192,7 @@ pub(crate) fn install(
                 _ => EventResult::Propagate,
             }
         });
+    shared_bounds
 }
 
 fn handle_wheel(

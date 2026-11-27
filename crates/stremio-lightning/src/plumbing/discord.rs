@@ -6,7 +6,7 @@
 
 use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::sync::Mutex;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::{json, Value};
 
@@ -200,28 +200,31 @@ fn worker_loop(rx: mpsc::Receiver<Cmd>) {
     let mut conn: Option<IpcConnection> = None;
     let mut desired: Option<ActivityPayload> = None;
     let mut last_sent: Option<Option<ActivityPayload>> = None;
+    let mut next_retry: Option<Instant> = None;
 
     loop {
-        let cmd =
-            if enabled && conn.is_none() && SPY.lock().unwrap_or_else(|e| e.into_inner()).is_none()
-            {
-                match rx.recv_timeout(RECONNECT_RETRY) {
+        let cmd = match (
+            enabled && conn.is_none() && desired.is_some() && !has_spy(),
+            next_retry,
+        ) {
+            (true, Some(due)) => {
+                match rx.recv_timeout(due.saturating_duration_since(Instant::now())) {
                     Ok(c) => Some(c),
                     Err(RecvTimeoutError::Timeout) => None,
                     Err(RecvTimeoutError::Disconnected) => break,
                 }
-            } else {
-                match rx.recv() {
-                    Ok(c) => Some(c),
-                    Err(_) => break,
-                }
-            };
-
+            }
+            _ => match rx.recv() {
+                Ok(c) => Some(c),
+                Err(_) => break,
+            },
+        };
         if let Some(cmd) = cmd {
             match cmd {
                 Cmd::Shutdown => break,
                 Cmd::SetEnabled(next) => {
                     enabled = next;
+                    next_retry = None;
                     if !enabled {
                         if let Some(c) = conn.take() {
                             c.close();
@@ -234,18 +237,15 @@ fn worker_loop(rx: mpsc::Receiver<Cmd>) {
                     }
                 }
                 Cmd::Update(input) => {
-                    desired = build_activity(&input, now_secs(), desired.as_ref());
+                    desired = build_activity(&input, now_secs(), desired.as_ref())
                 }
                 Cmd::Clear => {
                     desired = None;
+                    next_retry = None;
                 }
             }
         }
-
-        if !enabled {
-            continue;
-        }
-        if last_sent.as_ref() == Some(&desired) && (conn.is_some() || has_spy()) {
+        if !enabled || (last_sent.as_ref() == Some(&desired) && (conn.is_some() || has_spy())) {
             continue;
         }
         if has_spy() {
@@ -254,8 +254,20 @@ fn worker_loop(rx: mpsc::Receiver<Cmd>) {
             continue;
         }
         if conn.is_none() {
-            conn = IpcConnection::connect(APP_ID).ok();
-            last_sent = None;
+            if desired.is_none() || next_retry.is_some_and(|due| Instant::now() < due) {
+                continue;
+            }
+            match IpcConnection::connect(APP_ID) {
+                Ok(c) => {
+                    conn = Some(c);
+                    next_retry = None;
+                    last_sent = None;
+                }
+                Err(_) => {
+                    next_retry = Some(Instant::now() + RECONNECT_RETRY);
+                    continue;
+                }
+            }
         }
         if let Some(c) = conn.as_mut() {
             let json = desired.as_ref().map(ActivityPayload::to_ipc_json);
@@ -264,6 +276,7 @@ fn worker_loop(rx: mpsc::Receiver<Cmd>) {
             } else {
                 conn = None;
                 last_sent = None;
+                next_retry = Some(Instant::now() + RECONNECT_RETRY);
             }
         }
     }

@@ -1,7 +1,9 @@
 //! Routes `GamepadAction` events onto `MainWindow` when the window has OS focus.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::cell::RefCell;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 use slint::platform::{Key, WindowEvent};
 use slint::ComponentHandle;
@@ -9,6 +11,8 @@ use slint::ComponentHandle;
 use crate::app::App;
 use crate::plumbing::gamepad::{GamepadAction, GamepadService};
 use crate::shell::shortcuts::{self, GlobalShortcut};
+use crate::shell::winit_host::ScrollBounds;
+use crate::shell::wiring::show_timed_toast;
 use crate::{MainWindow, PlayerUi, Section, ShellModalsUi};
 
 const TAB_ORDER: [Section; 7] = [
@@ -23,6 +27,14 @@ const TAB_ORDER: [Section; 7] = [
 
 const SCROLL_STEP: f32 = 160.0;
 
+thread_local! {
+    static ACTIVE_BOUNDS: RefCell<Option<ScrollBounds>> = const { RefCell::new(None) };
+}
+
+pub(crate) fn register_bounds(bounds: ScrollBounds) {
+    ACTIVE_BOUNDS.with(|slot| *slot.borrow_mut() = Some(bounds));
+}
+
 pub(crate) fn step_section(current: Section, delta: i32) -> Section {
     let idx = TAB_ORDER.iter().position(|&s| s == current).unwrap_or(0) as i32;
     let next = (idx + delta).clamp(0, (TAB_ORDER.len() - 1) as i32) as usize;
@@ -33,8 +45,11 @@ pub(crate) fn spawn(
     window: &MainWindow,
     app: Arc<App>,
     focused: Arc<AtomicBool>,
+    handle: tokio::runtime::Handle,
 ) -> Arc<GamepadService> {
     let weak = window.as_weak();
+    let said = Arc::new(AtomicU64::new(0));
+    let flash = Arc::new(AtomicU64::new(0));
     Arc::new(GamepadService::new(move |action| {
         if !matches!(
             action,
@@ -45,27 +60,55 @@ pub(crate) fn spawn(
         }
         let w = weak.clone();
         let app_run = app.clone();
+        let said_run = said.clone();
+        let flash_run = flash.clone();
+        let handle_run = handle.clone();
         let _ = w.upgrade_in_event_loop(move |window| {
-            dispatch(&window, &app_run, action);
+            dispatch(
+                &window,
+                &app_run,
+                action,
+                &said_run,
+                &flash_run,
+                &handle_run,
+            );
         });
     }))
 }
 
-pub(crate) fn dispatch(window: &MainWindow, app: &App, action: GamepadAction) {
+pub(crate) fn dispatch(
+    window: &MainWindow,
+    app: &App,
+    action: GamepadAction,
+    said: &Arc<AtomicU64>,
+    flash: &Arc<AtomicU64>,
+    handle: &tokio::runtime::Handle,
+) {
     let modals = window.global::<ShellModalsUi>();
     let cid = action.control_id();
     if !cid.is_empty() && modals.get_gamepad_open() {
         modals.set_gamepad_active(cid.into());
+        let gen_id = flash.fetch_add(1, Ordering::Relaxed) + 1;
+        let flash_c = flash.clone();
+        let weak = window.as_weak();
+        handle.spawn(async move {
+            tokio::time::sleep(Duration::from_millis(400)).await;
+            if flash_c.load(Ordering::Relaxed) == gen_id {
+                let _ = weak.upgrade_in_event_loop(|w| {
+                    w.global::<ShellModalsUi>().set_gamepad_active("".into());
+                });
+            }
+        });
     }
 
     match action {
         GamepadAction::Connected(family) => {
             modals.set_gamepad_family(family.as_str().into());
-            window.set_toast("Gamepad detected".into());
+            show_timed_toast(&window.as_weak(), said, handle, "Gamepad detected");
             return;
         }
         GamepadAction::Disconnected => {
-            window.set_toast("Gamepad disconnected".into());
+            show_timed_toast(&window.as_weak(), said, handle, "Gamepad disconnected");
             return;
         }
         _ => {}
@@ -133,13 +176,24 @@ fn dispatch_player(window: &MainWindow, app: &App, action: GamepadAction) {
             ui.invoke_seek_by(ui.get_seek_step());
         }
         GamepadAction::VolumeUp | GamepadAction::MoveUp => {
-            ui.invoke_set_volume((ui.get_volume() + 5.0).clamp(0.0, 100.0));
+            ui.invoke_set_volume((ui.get_volume() + 5.0).clamp(0.0, 200.0));
         }
         GamepadAction::VolumeDown | GamepadAction::MoveDown => {
-            ui.invoke_set_volume((ui.get_volume() - 5.0).clamp(0.0, 100.0));
+            ui.invoke_set_volume((ui.get_volume() - 5.0).clamp(0.0, 200.0));
         }
         _ => {}
     }
+}
+
+fn bound_floor(target_idx: usize) -> f32 {
+    ACTIVE_BOUNDS
+        .with(|slot| {
+            slot.borrow()
+                .as_ref()
+                .and_then(|b| b.borrow()[target_idx])
+                .map(|b| -b.max_scroll())
+        })
+        .unwrap_or(0.0)
 }
 
 fn scroll_or_key(window: &MainWindow, delta: f32, fallback_key: Key) {
@@ -148,17 +202,17 @@ fn scroll_or_key(window: &MainWindow, delta: f32, fallback_key: Key) {
         return;
     }
     match window.get_section() {
-        Section::Board => window.set_board_scroll((window.get_board_scroll() + delta).min(0.0)),
-        Section::Discover => {
-            window.set_discover_scroll((window.get_discover_scroll() + delta).min(0.0))
+        Section::Board => {
+            window.set_board_scroll((window.get_board_scroll() + delta).clamp(bound_floor(0), 0.0))
         }
-        Section::Library => {
-            window.set_library_scroll((window.get_library_scroll() + delta).min(0.0))
-        }
-        Section::Addons => window.set_addons_scroll((window.get_addons_scroll() + delta).min(0.0)),
-        Section::Settings => {
-            window.set_settings_scroll((window.get_settings_scroll() + delta).min(0.0))
-        }
+        Section::Discover => window
+            .set_discover_scroll((window.get_discover_scroll() + delta).clamp(bound_floor(1), 0.0)),
+        Section::Library => window
+            .set_library_scroll((window.get_library_scroll() + delta).clamp(bound_floor(2), 0.0)),
+        Section::Addons => window
+            .set_addons_scroll((window.get_addons_scroll() + delta).clamp(bound_floor(3), 0.0)),
+        Section::Settings => window
+            .set_settings_scroll((window.get_settings_scroll() + delta).clamp(bound_floor(4), 0.0)),
         _ => tap_key(window, fallback_key),
     }
 }

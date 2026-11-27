@@ -6,16 +6,14 @@ use stremio_core::runtime::msg::{Action, ActionCtx};
 use stremio_core::runtime::RuntimeAction;
 
 use super::Wiring;
-use crate::app::ScreenMask;
 use crate::plumbing::local_settings::SpotlightCatalogPick;
 use crate::screens::board::spotlight::MAX_CATALOGS;
 use crate::{BoardUi, MainWindow, SettingsUi, ShellModalsUi};
 
 impl Wiring {
     fn refresh_spotlight(&self) {
+        self.app.board().refresh();
         self.app.settings().refresh();
-        self.app
-            .mark_dirty(ScreenMask::BOARD.union(ScreenMask::SETTINGS));
         self.app.viewport().request_active_images();
     }
 
@@ -90,11 +88,12 @@ impl Wiring {
             r#type: target.kind.clone(),
             id: target.id.clone(),
         };
-        // Start from current effective picks so unchecking one of the defaults behaves naturally.
+        // Expand defaults in selected_rank order so unchecking one preserves ranking.
         let mut next: Vec<SpotlightCatalogPick> = if sp.is_default {
-            sp.catalogs
-                .iter()
-                .filter(|c| c.selected_rank > 0)
+            let mut ranked: Vec<_> = sp.catalogs.iter().filter(|c| c.selected_rank > 0).collect();
+            ranked.sort_by_key(|c| c.selected_rank);
+            ranked
+                .into_iter()
                 .map(|c| SpotlightCatalogPick {
                     transport_url: c.transport_url.clone(),
                     r#type: c.kind.clone(),

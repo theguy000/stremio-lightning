@@ -76,7 +76,7 @@ pub(crate) fn attach(window: &MainWindow, app: Arc<App>, tokio: tokio::runtime::
     ));
 
     let focused = Arc::new(AtomicBool::new(true));
-    let gamepad = gamepad::spawn(window, app.clone(), focused.clone());
+    let gamepad = gamepad::spawn(window, app.clone(), focused.clone(), tokio.clone());
     let wiring = Rc::new(wiring::Wiring::new(
         window.as_weak(),
         app.clone(),
@@ -141,7 +141,7 @@ pub(crate) fn attach(window: &MainWindow, app: Arc<App>, tokio: tokio::runtime::
         let app_min = app.clone();
         let video_min = video.clone();
         let win_min = window.as_weak();
-        winit_host::install(
+        let bounds = winit_host::install(
             window,
             app.clone(),
             focused,
@@ -154,6 +154,7 @@ pub(crate) fn attach(window: &MainWindow, app: Arc<App>, tokio: tokio::runtime::
                 }
             },
         );
+        gamepad::register_bounds(bounds);
     }
     {
         // Keep `Rc<Wiring>` alive inside the window-owned `VideoPlayer` listener so the

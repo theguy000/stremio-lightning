@@ -90,12 +90,6 @@ fn spawn_player(kind: ExternalPlayerKind, url: &str) -> Result<(), String> {
     })?;
     let mut cmd = Command::new(&bin);
     cmd.arg("--").arg(url);
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
-        cmd.creation_flags(CREATE_BREAKAWAY_FROM_JOB);
-    }
     cmd.spawn()
         .map(|_| ())
         .map_err(|err| format!("could not launch {}: {err}", kind.display_name()))
@@ -114,29 +108,29 @@ fn open_m3u(url: &str) -> Result<(), String> {
 
 #[cfg(target_os = "windows")]
 fn open_local_file(path: &std::path::Path) -> Result<(), String> {
-    use windows::core::{HSTRING, PCWSTR};
-    use windows::Win32::UI::Shell::ShellExecuteW;
-    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+    let target_path = path.to_path_buf();
+    std::thread::spawn(move || {
+        use windows::core::{HSTRING, PCWSTR};
+        use windows::Win32::UI::Shell::ShellExecuteW;
+        use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
-    let op = HSTRING::from("open");
-    let target = HSTRING::from(path.as_os_str());
-    // SAFETY: both HSTRING buffers remain valid for the duration of ShellExecuteW.
-    let res = unsafe {
-        ShellExecuteW(
-            None,
-            PCWSTR(op.as_ptr()),
-            PCWSTR(target.as_ptr()),
-            PCWSTR::null(),
-            PCWSTR::null(),
-            SW_SHOWNORMAL,
-        )
-    };
-    if res.0 as usize <= 32 {
-        return Err(format!(
-            "could not open playlist.m3u (code {})",
-            res.0 as usize
-        ));
-    }
+        let op = HSTRING::from("open");
+        let target = HSTRING::from(target_path.as_os_str());
+        // SAFETY: both HSTRING buffers remain valid for the duration of ShellExecuteW.
+        let res = unsafe {
+            ShellExecuteW(
+                None,
+                PCWSTR(op.as_ptr()),
+                PCWSTR(target.as_ptr()),
+                PCWSTR::null(),
+                PCWSTR::null(),
+                SW_SHOWNORMAL,
+            )
+        };
+        if res.0 as usize <= 32 {
+            eprintln!("could not open playlist.m3u (code {})", res.0 as usize);
+        }
+    });
     Ok(())
 }
 
