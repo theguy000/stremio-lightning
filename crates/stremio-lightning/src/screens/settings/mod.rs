@@ -222,6 +222,8 @@ fn data_from_profile(profile: &Profile, extras: &LocalExtras) -> Data {
 }
 
 #[cfg(test)]
+mod content_discover_tests;
+#[cfg(test)]
 mod content_tests;
 #[cfg(test)]
 mod tests;

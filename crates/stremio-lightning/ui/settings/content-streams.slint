@@ -172,6 +172,11 @@ export component StreamPresetsGroup inherits SettingsGroup {
     property <string> edit-include: "";
     property <string> edit-exclude: "";
 
+    Rectangle {
+        border-radius: 0.85 * root.rem-size;
+        background: SettingsUi.hit-row == "streamPresets" ? #ffffff14 : transparent;
+        animate background { duration: 250ms; }
+
     VerticalLayout {
         spacing: 0.65 * root.rem-size;
         alignment: start;
@@ -219,8 +224,9 @@ export component StreamPresetsGroup inherits SettingsGroup {
             include-csv <=> root.edit-include;
             exclude-csv <=> root.edit-exclude;
             save => {
-                SettingsUi.content-save-preset(root.edit-id, root.edit-name, root.edit-include, root.edit-exclude);
-                root.editing = false;
+                if (SettingsUi.content-save-preset(root.edit-id, root.edit-name, root.edit-include, root.edit-exclude)) {
+                    root.editing = false;
+                }
             }
             cancel => { root.editing = false; }
         }
@@ -271,5 +277,6 @@ export component StreamPresetsGroup inherits SettingsGroup {
                 }
             }
         }
+    }
     }
 }

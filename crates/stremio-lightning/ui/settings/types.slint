@@ -173,7 +173,7 @@ export global SettingsUi {
     callback content-toggle-discover(int);
     callback content-reset-catalogs();
     callback content-toggle-stream-addon(string, bool);
-    callback content-save-preset(string, string, string, string);
+    callback content-save-preset(string, string, string, string) -> bool;
     callback content-delete-preset(string);
     callback content-select-preset(string);
 }

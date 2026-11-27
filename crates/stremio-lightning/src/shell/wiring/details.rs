@@ -68,6 +68,7 @@ impl Wiring {
             let ui = w.global::<DetailsUi>();
             ui.set_show_picker(false);
             ui.set_streams(ModelRc::default());
+            ui.set_streams_filtered_out(false);
             ui.set_expect_streams(true);
         }
         details::pick(self.app.runtime(), &video_id);

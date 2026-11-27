@@ -10,9 +10,9 @@ component OrderBtn inherits Rectangle {
     in property <string> label;
     callback clicked();
 
-    width: 2.1 * root.rem-size;
-    height: 2.1 * root.rem-size;
-    border-radius: 1.05 * root.rem-size;
+    width: 1.85 * root.rem-size;
+    height: 1.85 * root.rem-size;
+    border-radius: 0.925 * root.rem-size;
     background: root.enabled && t.has-hover ? Theme.overlay-hover : transparent;
     opacity: root.enabled ? 1.0 : 0.25;
 
@@ -49,9 +49,9 @@ component VisibilityPill inherits Rectangle {
     border-color: root.shown ? Theme.border-medium : #ffffff18;
 
     row := HorizontalLayout {
-        padding-left: 0.7 * root.rem-size;
-        padding-right: 0.8 * root.rem-size;
-        spacing: 0.4 * root.rem-size;
+        padding-left: 0.5 * root.rem-size;
+        padding-right: 0.6 * root.rem-size;
+        spacing: 0.3 * root.rem-size;
         alignment: center;
 
         VerticalLayout {
@@ -108,7 +108,7 @@ export component ContentCatalogsGroup inherits SettingsGroup {
         highlighted: idx == 0 && SettingsUi.hit-row == "catalogs";
 
         HorizontalLayout {
-            spacing: 0.4 * root.rem-size;
+            spacing: 0.25 * root.rem-size;
             alignment: end;
 
             if cat.can-board: VerticalLayout {

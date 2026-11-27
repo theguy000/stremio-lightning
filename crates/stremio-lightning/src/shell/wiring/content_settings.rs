@@ -13,7 +13,7 @@ use crate::shell::shortcuts;
 use crate::{MainWindow, Section, SettingsUi};
 
 impl Wiring {
-    fn refresh_content_catalogs(&self) {
+    pub(super) fn ensure_visible_discover_catalog(&self) {
         let fallback = {
             let content = self.app.local_extras().content.clone();
             self.app
@@ -30,6 +30,10 @@ impl Wiring {
                 }))),
             });
         }
+    }
+
+    fn refresh_content_catalogs(&self) {
+        self.ensure_visible_discover_catalog();
         self.app.board().refresh();
         self.app.discover().refresh();
         self.app.settings().refresh();
@@ -131,7 +135,7 @@ impl Wiring {
         name: String,
         include_csv: String,
         exclude_csv: String,
-    ) {
+    ) -> bool {
         let saved = {
             let mut extras = self.app.local_extras();
             let ok = content_filter::upsert_preset(
@@ -149,6 +153,7 @@ impl Wiring {
         if saved {
             self.refresh_content_streams();
         }
+        saved
     }
 
     pub(super) fn content_delete_preset(&self, id: String) {
@@ -176,6 +181,7 @@ impl Wiring {
             set.set_search_query("".into());
             set.set_hit_row("".into());
             set.set_active_page("content".into());
+            window.set_settings_scroll(0.0);
             shortcuts::switch_section(&window, Section::Settings);
         }
     }
@@ -202,7 +208,7 @@ pub(super) fn wire(window: &MainWindow, wiring: &Wiring) {
             name.to_string(),
             inc.to_string(),
             exc.to_string(),
-        );
+        )
     });
     let w = wiring.clone();
     set.on_content_delete_preset(move |id| w.content_delete_preset(id.to_string()));
