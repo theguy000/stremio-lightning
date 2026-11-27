@@ -102,3 +102,22 @@ pub(crate) fn update_cache_root(runtime: &AppRuntime, cache_root: String) {
         }),
     });
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recognizes_only_loopback_server_hosts() {
+        assert!(is_local_server(
+            &Url::parse("http://127.0.0.1:11470/").unwrap()
+        ));
+        assert!(is_local_server(
+            &Url::parse("http://localhost:11470/").unwrap()
+        ));
+        assert!(is_local_server(&Url::parse("http://[::1]:11470/").unwrap()));
+        assert!(!is_local_server(
+            &Url::parse("https://remote.example.com:11470/").unwrap()
+        ));
+    }
+}

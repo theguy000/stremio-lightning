@@ -227,6 +227,9 @@ pub fn visible_images(rows: &[Row], viewport: Viewport) -> Vec<String> {
 }
 
 #[cfg(test)]
+mod spotlight_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
