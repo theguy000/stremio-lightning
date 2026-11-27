@@ -41,10 +41,11 @@ SOFTWARE.
 
 ## Plus Jakarta Sans (`ui/fonts/`)
 
-- Source: https://github.com/tokotype/PlusJakartaSans (the upstream project, not stremio-web).
+- Source: https://github.com/tokotype/PlusJakartaSans (variable TrueType build `PlusJakartaSans.ttf`,
+  `wght` axis 200–800, matching `stremio-web`'s `assets/fonts/PlusJakartaSans.ttf`).
 - Copyright 2020 The Plus Jakarta Sans Project Authors.
 - Licence: SIL Open Font License 1.1. The full text is in `ui/fonts/OFL.txt`.
-- The Regular, Medium, SemiBold and Bold TrueType files are unmodified.
+- The variable TrueType file is unmodified.
 
 ## stremio-web (layout, styles and assets taken into `ui/`)
 

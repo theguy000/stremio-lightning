@@ -1,8 +1,5 @@
-//! Authoritative Slint-free application state (`AppStore`).
-//!
-//! Owns the single copy of `stremio-core`'s runtime, `Snapshot` (structurally shared `Arc<Data>`
-//! per screen), dirty/stale `ScreenMask`s for incremental & lazy projection, image cache, logs,
-//! local extras, and per-screen view state. Emits `AppNotice` push notifications to its observer.
+//! Authoritative Slint-free application state (`AppStore`): owns `stremio-core` runtime,
+//! structurally shared `Snapshot`, dirty/stale `ScreenMask`s, image cache, logs, and observer.
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU16, AtomicUsize, Ordering};
@@ -150,6 +147,9 @@ impl AppStore {
 
     pub(crate) fn set_observer(&self, observer: Observer) {
         *self.observer.lock().unwrap() = Some(observer);
+        if self.dirty.load(Ordering::SeqCst) != 0 {
+            self.notify(AppNotice::Dirty);
+        }
     }
 
     pub(crate) fn notify(&self, notice: AppNotice) {
@@ -270,26 +270,25 @@ impl AppStore {
     }
 
     fn sync_board_catalogs(&self) {
-        let count = {
-            let Ok(model) = self.runtime.model() else {
-                return;
-            };
-            let ids: Vec<String> = model
-                .ctx
-                .profile
-                .addons
-                .iter()
-                .map(|a| a.manifest.id.clone())
-                .collect();
-            let count = model.board.catalogs.len();
-            let sig = (ids, count);
-            let mut known = self.board_catalogs.lock().unwrap();
-            if known.as_ref() == Some(&sig) {
-                return;
-            }
-            *known = Some(sig);
-            count
+        let Ok(model) = self.runtime.model() else {
+            return;
         };
+        let ids: Vec<String> = model
+            .ctx
+            .profile
+            .addons
+            .iter()
+            .map(|a| a.manifest.id.clone())
+            .collect();
+        let count = model.board.catalogs.len();
+        drop(model);
+        let sig = (ids, count);
+        let mut known = self.board_catalogs.lock().unwrap();
+        if known.as_ref() == Some(&sig) {
+            return;
+        }
+        *known = Some(sig);
+        drop(known);
         if count > 0 {
             self.runtime.dispatch(RuntimeAction {
                 field: None,

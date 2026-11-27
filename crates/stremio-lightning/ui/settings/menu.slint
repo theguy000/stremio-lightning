@@ -162,36 +162,38 @@ export component SettingsMenu inherits Rectangle {
             // SearchField
             Rectangle { height: 1 * root.rem-size; }
             Rectangle {
-                height: 3.1 * root.rem-size;
-                border-radius: 1.55 * root.rem-size;
+                height: 3.25 * root.rem-size;
+                border-radius: 1.625 * root.rem-size;
                 background: Theme.overlay;
                 border-width: search-in.has-focus ? 1px : 0px;
                 border-color: Theme.border-medium;
 
                 Image {
-                    x: 1.15 * root.rem-size;
+                    x: 1.25 * root.rem-size;
                     y: (parent.height - self.height) / 2;
-                    width: 1.15 * root.rem-size;
-                    height: 1.15 * root.rem-size;
+                    width: 1.25 * root.rem-size;
+                    height: 1.25 * root.rem-size;
                     source: @image-url("../icons/search.svg");
                     colorize: Theme.search-icon;
                 }
                 if root.query == "": Text {
-                    x: 3 * root.rem-size;
-                    width: parent.width - 4 * root.rem-size;
+                    x: 3.25 * root.rem-size;
+                    width: parent.width - 4.5 * root.rem-size;
                     height: parent.height;
                     vertical-alignment: center;
                     text: "Search settings";
-                    font-size: 0.95 * root.rem-size;
+                    font-size: root.rem-size;
+                    font-weight: 500;
                     color: Theme.placeholder;
                 }
                 search-in := TextInput {
-                    x: 3 * root.rem-size;
-                    width: parent.width - (root.query != "" ? 5.5 : 4.2) * root.rem-size;
+                    x: 3.25 * root.rem-size;
+                    width: parent.width - (root.query != "" ? 5.75 : 4.5) * root.rem-size;
                     height: parent.height;
                     vertical-alignment: center;
                     single-line: true;
-                    font-size: 0.95 * root.rem-size;
+                    font-size: root.rem-size;
+                    font-weight: 500;
                     color: Theme.text;
                     text <=> root.query;
                     edited => { root.query-edited(self.text); }
