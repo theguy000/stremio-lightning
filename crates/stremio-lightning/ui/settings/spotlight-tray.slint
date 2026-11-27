@@ -1,0 +1,156 @@
+// Based on stremio-web SpotlightSettings/CatalogTray + CatalogsEmpty (Copyright Smart code 203358507).
+import { Theme } from "../theme.slint";
+import { SettingsUi } from "types.slint";
+
+export component SpotlightCatalogTray inherits HorizontalLayout {
+    in property <length> rem-size: 14px;
+    in property <bool> full: false;
+
+    property <string> status-text: SettingsUi.spotlight-nudge == "keep-one"
+        ? "Keep at least one catalog"
+        : (root.full
+            ? SettingsUi.data.spotlight-picks-count + " of 3 · Remove one to add another"
+            : SettingsUi.data.spotlight-picks-count + " of 3");
+
+    padding-top: 0.25 * root.rem-size;
+    padding-bottom: 0.75 * root.rem-size;
+    spacing: 0.6 * root.rem-size;
+    alignment: space-between;
+
+    HorizontalLayout {
+        horizontal-stretch: 1;
+        spacing: 0.6 * root.rem-size;
+        alignment: start;
+
+        for pick in SettingsUi.spotlight-picks: Rectangle {
+            property <bool> solo: SettingsUi.spotlight-picks.length <= 1;
+            height: 2.75 * root.rem-size;
+            border-radius: 1.375 * root.rem-size;
+            background: Theme.overlay;
+
+            HorizontalLayout {
+                padding-left: 0.4 * root.rem-size;
+                padding-right: solo ? 1.1 * root.rem-size : 0.35 * root.rem-size;
+                spacing: 0.55 * root.rem-size;
+
+                VerticalLayout {
+                    alignment: center;
+                    Rectangle {
+                        width: 1.9 * root.rem-size;
+                        height: 1.9 * root.rem-size;
+                        border-radius: 0.95 * root.rem-size;
+                        background: Theme.accent;
+                        Text {
+                            width: parent.width;
+                            height: parent.height;
+                            text: pick.rank;
+                            font-size: 0.85 * root.rem-size;
+                            font-weight: 700;
+                            color: #ffffff;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+                Text {
+                    text: pick.title;
+                    font-size: 0.95 * root.rem-size;
+                    font-weight: 500;
+                    color: Theme.text;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+                if !solo: VerticalLayout {
+                    alignment: center;
+                    Rectangle {
+                        width: 2 * root.rem-size;
+                        height: 2 * root.rem-size;
+                        border-radius: 1 * root.rem-size;
+                        Image {
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                            width: 0.85 * root.rem-size;
+                            height: 0.85 * root.rem-size;
+                            source: @image-url("../icons/close.svg");
+                            colorize: Theme.text;
+                            opacity: rm-t.has-hover ? 1.0 : 0.6;
+                        }
+                        rm-t := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => { SettingsUi.toggle-spotlight-catalog(pick.catalog-index); }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Text {
+        horizontal-stretch: 0;
+        text: root.status-text;
+        font-size: 0.85 * root.rem-size;
+        font-weight: 500;
+        color: Theme.text;
+        opacity: SettingsUi.spotlight-nudge != "" ? 1.0 : (root.full ? 0.65 : 0.45);
+        vertical-alignment: center;
+    }
+}
+
+export component SpotlightCatalogsEmpty inherits VerticalLayout {
+    in property <length> rem-size: 14px;
+
+    alignment: center;
+    spacing: 0.75 * root.rem-size;
+    padding: 2 * root.rem-size;
+
+    HorizontalLayout {
+        alignment: center;
+        Image {
+            width: 3 * root.rem-size;
+            height: 3 * root.rem-size;
+            source: @image-url("../icons/addons-outline.svg");
+            colorize: Theme.text;
+            opacity: 0.4;
+        }
+    }
+    Text {
+        text: "No catalogs to show";
+        font-size: 1.15 * root.rem-size;
+        font-weight: 600;
+        color: Theme.text;
+        horizontal-alignment: center;
+    }
+    Text {
+        text: "Install an addon with a catalog to use Spotlight.";
+        font-size: 0.95 * root.rem-size;
+        color: Theme.text;
+        opacity: 0.6;
+        horizontal-alignment: center;
+    }
+    HorizontalLayout {
+        alignment: center;
+        padding-top: 0.5 * root.rem-size;
+        Rectangle {
+            height: 3 * root.rem-size;
+            width: go-lbl.preferred-width + 3.5 * root.rem-size;
+            border-radius: 1.5 * root.rem-size;
+            background: Theme.accent;
+            border-width: 2px;
+            border-color: go-t.has-hover ? Theme.text : transparent;
+            go-lbl := Text {
+                width: parent.width;
+                height: parent.height;
+                text: "Go to Addons";
+                font-size: 1 * root.rem-size;
+                font-weight: 600;
+                color: #ffffff;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+            go-t := TouchArea {
+                mouse-cursor: pointer;
+                clicked => { SettingsUi.spotlight-go-addons(); }
+            }
+        }
+    }
+}

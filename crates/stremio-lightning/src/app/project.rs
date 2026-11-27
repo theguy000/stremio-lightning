@@ -22,8 +22,13 @@ impl AppStore {
         let library_blank = model.ctx.library.items.is_empty() && model.ctx.profile.auth.is_some();
 
         let board = mask.contains(ScreenMask::BOARD).then(|| {
-            let (status, rows) = board::data(&model);
-            Arc::new(BoardData { status, rows })
+            let extras = self.local_extras.lock().unwrap().clone();
+            let (status, rows, spotlight) = board::data_with_extras(&model, &extras);
+            Arc::new(BoardData {
+                status,
+                rows,
+                spotlight,
+            })
         });
         let discover = mask
             .contains(ScreenMask::DISCOVER)

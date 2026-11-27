@@ -89,6 +89,7 @@ impl Wiring {
         }
 
         self.sync_skip_on_tick(&window, status.loaded, time, duration);
+        self.update_discord_playback(&status);
 
         if status.paused.is_some() && status.paused != was_paused {
             player::paused_changed(self.app.runtime(), status.paused.unwrap_or(false));
@@ -123,6 +124,7 @@ impl Wiring {
         self.app.player().set_playback_error(String::new());
         let upgraded = self.window.upgrade();
         self.clear_skip(upgraded.as_ref(), true);
+        self.clear_discord();
         if let Some(window) = upgraded {
             window.global::<PlayerUi>().set_error("".into());
             window.set_playing(false);
@@ -229,6 +231,7 @@ impl Wiring {
         let data = self.app.player().view();
         if !data.open {
             self.video.show(false);
+            self.clear_discord();
             *self.player_attempted.lock().unwrap() = None;
             return;
         }

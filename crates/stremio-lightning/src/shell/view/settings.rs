@@ -4,7 +4,8 @@ use std::sync::Mutex;
 
 use slint::{Color, ComponentHandle, ModelRc, VecModel};
 
-use super::sync::select_input_data;
+use super::sync::{select_input_data, slint_image};
+use crate::plumbing::images::Images;
 use crate::plumbing::links;
 use crate::screens::settings::Data as SettingsData;
 use crate::{MainWindow, PlayerUi, ServerUrlRow, SettingsUi, SettingsViewData, Theme};
@@ -22,7 +23,7 @@ fn parse_argb(hex: &str, fallback: Color) -> Color {
     .unwrap_or(fallback)
 }
 
-pub(crate) fn settings_view(data: &SettingsData) -> SettingsViewData {
+pub(crate) fn settings_view(data: &SettingsData, images: &Images) -> SettingsViewData {
     let server_urls = ModelRc::new(VecModel::from(
         data.streaming
             .server_urls
@@ -47,6 +48,9 @@ pub(crate) fn settings_view(data: &SettingsData) -> SettingsViewData {
         Color::from_rgb_u8(0, 0, 0),
     );
 
+    let preview_bg = slint_image(images, &data.spotlight.preview_bg);
+    let preview_logo = slint_image(images, &data.spotlight.preview_logo);
+
     SettingsViewData {
         user_email: data.user_email.clone().into(),
         logged_in: data.logged_in,
@@ -57,6 +61,7 @@ pub(crate) fn settings_view(data: &SettingsData) -> SettingsViewData {
         quit_on_close: data.quit_on_close,
         esc_exit_fullscreen: data.esc_exit_fullscreen,
         hide_spoilers: data.hide_spoilers,
+        gamepad_support: data.gamepad_support,
         subtitles_language: select_input_data(&data.subtitles_language),
         subtitles_size: select_input_data(&data.subtitles_size),
         subtitles_size_val: data.player_config.subtitles_size as i32,
@@ -93,11 +98,36 @@ pub(crate) fn settings_view(data: &SettingsData) -> SettingsViewData {
         remote_url: data.streaming.remote_url.clone().into(),
         server_urls,
         data_export_loading: data.data_export_loading,
+        has_cache_root: data.streaming.cache_root.supported,
+        cache_root: select_input_data(&data.streaming.cache_root.menu),
+        cache_root_path: data.streaming.cache_root.current.clone().into(),
+        cache_root_updating: data.streaming.cache_root.updating,
+        cache_root_error: data.streaming.cache_root.error.clone().into(),
+        mpv_config: select_input_data(&data.mpv_config_menu),
+        mpv_config_path: data.mpv_config_path.clone().into(),
+        discord_rpc_enabled: data.discord_rpc_enabled,
+        spotlight_enabled: data.spotlight.enabled,
+        spotlight_show_rows: data.spotlight.show_catalog_rows,
+        spotlight_is_default: data.spotlight.is_default,
+        spotlight_empty: data.spotlight.catalogs.is_empty(),
+        spotlight_picks_count: data.spotlight.picks_count as i32,
+        spotlight_picks_summary: data.spotlight.picks_summary.clone().into(),
+        spotlight_picks_titles: data.spotlight.picks_titles.clone().into(),
+        spotlight_picks_addon: data.spotlight.picks_addon.clone().into(),
+        spotlight_has_preview_bg: preview_bg.is_some(),
+        spotlight_preview_bg: preview_bg.unwrap_or_default(),
+        spotlight_has_preview_logo: preview_logo.is_some(),
+        spotlight_preview_logo: preview_logo.unwrap_or_default(),
+        spotlight_preview_title: data.spotlight.preview_title.clone().into(),
+        spotlight_preview_count: data.spotlight.preview_count.clone().into(),
+        spotlight_preview_slides_count: data.spotlight.preview_slides_count as i32,
     }
 }
 
-pub(crate) fn apply_settings(window: &MainWindow, data: &SettingsData) {
-    window.global::<SettingsUi>().set_data(settings_view(data));
+pub(crate) fn apply_settings(window: &MainWindow, data: &SettingsData, images: &Images) {
+    let ui = window.global::<SettingsUi>();
+    ui.set_data(settings_view(data, images));
+    super::spotlight::apply_spotlight_picker(window, &data.spotlight, images);
     let scale = (data.interface_scale as f32 / 100.0).clamp(0.75, 1.75);
     window.global::<Theme>().set_ui_scale(scale);
     let player_ui = window.global::<PlayerUi>();

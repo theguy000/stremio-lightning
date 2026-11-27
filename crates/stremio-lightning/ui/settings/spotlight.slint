@@ -1,0 +1,263 @@
+// Based on stremio-web Settings/Interface/SpotlightSettings (Copyright Smart code 203358507).
+import { Theme } from "../theme.slint";
+import { SettingsGroup, SettingsRow } from "primitives.slint";
+import { SettingsToggle } from "scale.slint";
+import { CoverImage } from "spotlight-card.slint";
+import { SettingsUi } from "types.slint";
+
+export component SpotlightSettingsGroup inherits SettingsGroup {
+    title: "Board";
+
+    SettingsRow {
+        rem-size: root.rem-size;
+        label: "Show Spotlight";
+        first: true;
+        highlighted: SettingsUi.hit-row == "spotlight";
+        SettingsToggle {
+            rem-size: root.rem-size;
+            checked: SettingsUi.data.spotlight-enabled;
+            toggled(val) => { SettingsUi.set-spotlight-enabled(val); }
+        }
+    }
+
+    SettingsRow {
+        rem-size: root.rem-size;
+        label: "Spotlight catalogs";
+        highlighted: SettingsUi.hit-row == "spotlightCatalogs";
+        opacity: SettingsUi.data.spotlight-enabled ? 1.0 : 0.4;
+
+        Rectangle {
+            width: 18 * root.rem-size;
+            height: 3 * root.rem-size;
+            border-radius: 1.5 * root.rem-size;
+            background: (pick-t.has-hover && SettingsUi.data.spotlight-enabled) ? transparent : Theme.overlay;
+            border-width: 2px;
+            border-color: (pick-t.has-hover && SettingsUi.data.spotlight-enabled) ? Theme.text : transparent;
+
+            HorizontalLayout {
+                padding-left: 1.5 * root.rem-size;
+                padding-right: 1.5 * root.rem-size;
+                spacing: 0.5 * root.rem-size;
+                alignment: space-between;
+
+                Text {
+                    horizontal-stretch: 1;
+                    text: SettingsUi.data.spotlight-picks-summary;
+                    font-size: 1 * root.rem-size;
+                    font-weight: 400;
+                    color: Theme.text;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+                VerticalLayout {
+                    horizontal-stretch: 0;
+                    alignment: center;
+                    Image {
+                        width: 1 * root.rem-size;
+                        height: 1 * root.rem-size;
+                        source: @image-url("../icons/chevron-forward.svg");
+                        colorize: Theme.text;
+                        opacity: 0.6;
+                    }
+                }
+            }
+            pick-t := TouchArea {
+                enabled: SettingsUi.data.spotlight-enabled;
+                mouse-cursor: SettingsUi.data.spotlight-enabled ? pointer : default;
+                accessible-role: button;
+                accessible-label: "Choose Spotlight catalogs";
+                clicked => { SettingsUi.open-spotlight-picker(); }
+            }
+        }
+    }
+
+    // PreviewCard matching SpotlightSettings/PreviewCard.less: aspect-ratio 16 / 6.4, margin 0 1.25rem 0.75rem
+    preview-wrap := Rectangle {
+        property <length> card-w: Math.max(1px, self.width - 2.5 * root.rem-size);
+        property <length> card-h: card-w * 6.4 / 16;
+
+        height: card-h + 0.75 * root.rem-size;
+        opacity: SettingsUi.data.spotlight-enabled ? 1.0 : 0.4;
+
+        Rectangle {
+            x: 1.25 * root.rem-size;
+            y: 0px;
+            width: preview-wrap.card-w;
+            height: preview-wrap.card-h;
+            border-radius: 1 * root.rem-size;
+            background: Theme.overlay;
+            clip: true;
+
+            if SettingsUi.data.spotlight-empty: VerticalLayout {
+                width: parent.width;
+                height: parent.height;
+                padding-left: 1.5 * root.rem-size;
+                padding-right: 1.5 * root.rem-size;
+                alignment: center;
+                spacing: 0.35 * root.rem-size;
+
+                Text {
+                    text: "Nothing to show yet";
+                    font-size: 0.95 * root.rem-size;
+                    font-weight: 600;
+                    color: Theme.text;
+                    horizontal-alignment: center;
+                }
+                Text {
+                    text: "Spotlight appears once a catalog is available.";
+                    font-size: 0.95 * root.rem-size;
+                    color: Theme.text;
+                    opacity: 0.6;
+                    horizontal-alignment: center;
+                }
+            }
+
+            if !SettingsUi.data.spotlight-empty && SettingsUi.data.spotlight-has-preview-bg: CoverImage {
+                width: parent.width;
+                height: parent.height;
+                source: SettingsUi.data.spotlight-preview-bg;
+                pos-x: 0.5;
+                pos-y: 0.25;
+            }
+            if !SettingsUi.data.spotlight-empty: Rectangle {
+                width: parent.width;
+                height: parent.height;
+                background: @linear-gradient(90deg, #0c0b11d1 0%, #0c0b1166 45%, #0c0b1100 75%);
+            }
+            if !SettingsUi.data.spotlight-empty: Rectangle {
+                width: parent.width;
+                height: parent.height;
+                background: @linear-gradient(0deg, #0c0b11b3 0%, #0c0b1100 60%);
+            }
+            // Hover brightness lift matching PreviewCard.less filter: brightness(1.08)
+            if card-t.has-hover && SettingsUi.data.spotlight-enabled: Rectangle {
+                width: parent.width;
+                height: parent.height;
+                background: #ffffff12;
+            }
+
+            if !SettingsUi.data.spotlight-empty: Rectangle {
+                x: parent.width - self.width - 1.25 * root.rem-size;
+                y: 1 * root.rem-size;
+                height: 1.7 * root.rem-size;
+                width: cnt-lbl.preferred-width + 1.4 * root.rem-size;
+                border-radius: 0.85 * root.rem-size;
+                background: #0c0b11c4;
+                border-width: 1px;
+                border-color: #ffffff22;
+                cnt-lbl := Text {
+                    width: parent.width;
+                    height: parent.height;
+                    text: SettingsUi.data.spotlight-preview-count;
+                    font-size: 0.75 * root.rem-size;
+                    font-weight: 600;
+                    color: #ffffff;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+
+            if !SettingsUi.data.spotlight-empty: VerticalLayout {
+                x: 1.5 * root.rem-size;
+                y: parent.height - self.height - 1.1 * root.rem-size;
+                width: parent.width - 2.75 * root.rem-size;
+                height: self.preferred-height;
+                spacing: 0.6 * root.rem-size;
+                alignment: end;
+
+                if SettingsUi.data.spotlight-has-preview-logo: Image {
+                    width: Math.min(11 * root.rem-size, parent.width);
+                    height: 3 * root.rem-size;
+                    source: SettingsUi.data.spotlight-preview-logo;
+                    image-fit: contain;
+                    horizontal-alignment: left;
+                    vertical-alignment: bottom;
+                }
+                if !SettingsUi.data.spotlight-has-preview-logo && SettingsUi.data.spotlight-preview-slides-count > 0: Text {
+                    width: Math.min(11 * root.rem-size, parent.width);
+                    text: SettingsUi.data.spotlight-preview-title;
+                    font-size: 1.1 * root.rem-size;
+                    font-weight: 600;
+                    color: #ffffff;
+                    overflow: elide;
+                }
+
+                HorizontalLayout {
+                    spacing: 1 * root.rem-size;
+                    alignment: space-between;
+
+                    HorizontalLayout {
+                        horizontal-stretch: 1;
+                        spacing: 0.6 * root.rem-size;
+                        alignment: start;
+
+                        Text {
+                            text: SettingsUi.data.spotlight-picks-titles;
+                            font-size: 0.95 * root.rem-size;
+                            font-weight: 600;
+                            color: #ffffff;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                        if SettingsUi.data.spotlight-picks-addon != "": VerticalLayout {
+                            alignment: center;
+                            Rectangle {
+                                width: 1px;
+                                height: 0.85 * root.rem-size;
+                                background: #ffffff66;
+                            }
+                        }
+                        if SettingsUi.data.spotlight-picks-addon != "": Text {
+                            text: SettingsUi.data.spotlight-picks-addon;
+                            font-size: 0.95 * root.rem-size;
+                            font-weight: 500;
+                            color: #ffffffcc;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                    }
+
+                    HorizontalLayout {
+                        horizontal-stretch: 0;
+                        spacing: 0.3 * root.rem-size;
+                        alignment: end;
+
+                        for idx in 6: VerticalLayout {
+                            alignment: center;
+                            if idx < SettingsUi.data.spotlight-preview-slides-count: Rectangle {
+                                width: idx == 0 ? 2.2 * root.rem-size : 1.1 * root.rem-size;
+                                height: 0.25 * root.rem-size;
+                                border-radius: 0.125 * root.rem-size;
+                                background: idx == 0 ? #ffffff : #ffffff4d;
+                            }
+                        }
+                    }
+                }
+            }
+
+            card-t := TouchArea {
+                enabled: SettingsUi.data.spotlight-enabled;
+                mouse-cursor: SettingsUi.data.spotlight-enabled ? pointer : default;
+                clicked => { SettingsUi.open-spotlight-picker(); }
+            }
+        }
+    }
+
+    SettingsRow {
+        rem-size: root.rem-size;
+        label: SettingsUi.data.spotlight-picks-count <= 1 ? "Show its row on the Board" : "Show their rows on the Board";
+        last: true;
+        no-divider: true;
+        highlighted: SettingsUi.hit-row == "spotlightRows";
+        opacity: SettingsUi.data.spotlight-enabled ? 1.0 : 0.4;
+        SettingsToggle {
+            rem-size: root.rem-size;
+            checked: SettingsUi.data.spotlight-show-rows;
+            toggled(val) => {
+                if (SettingsUi.data.spotlight-enabled) {
+                    SettingsUi.set-spotlight-show-rows(val);
+                }
+            }
+        }
+    }
+}

@@ -58,6 +58,7 @@ pub struct StreamingView {
     pub cache_size: Option<SelectMenu>,
     pub torrent_profile: Option<SelectMenu>,
     pub transcoding_profile: Option<SelectMenu>,
+    pub cache_root: super::cache_root::CacheRootView,
 }
 
 fn cache_label(size: Option<f64>) -> String {
@@ -196,6 +197,7 @@ pub(super) fn project(model: &AppModel) -> StreamingView {
         cache_size,
         torrent_profile,
         transcoding_profile,
+        cache_root: super::cache_root::project(model),
     }
 }
 

@@ -30,7 +30,8 @@ impl ScreenMask {
             | Self::DETAILS.0
             | Self::PLAYER.0
             | Self::ADDONS.0
-            | Self::CALENDAR.0,
+            | Self::CALENDAR.0
+            | Self::SETTINGS.0,
     );
     pub const ALL: Self = Self((1 << 10) - 1);
 
@@ -79,7 +80,8 @@ impl ScreenMask {
                     .union(Self::DETAILS)
                     .union(Self::PLAYER)
                     .union(Self::SETTINGS),
-                AppModelField::Board | AppModelField::ContinueWatchingPreview => Self::BOARD,
+                AppModelField::Board => Self::BOARD.union(Self::SETTINGS),
+                AppModelField::ContinueWatchingPreview => Self::BOARD,
                 AppModelField::Discover => Self::DISCOVER,
                 AppModelField::Library => Self::LIBRARY,
                 AppModelField::InstalledAddons

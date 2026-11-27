@@ -20,23 +20,11 @@ impl MpvSession {
     /// Creates mpv and its OpenGL `RenderContext` while the host OpenGL context is current.
     pub(crate) fn open(
         lookup: GlLookup<'_>,
+        mpv_config_path: Option<&str>,
+        logs: &Logs,
         on_frame: impl Fn() + Send + Sync + 'static,
     ) -> Result<Self, String> {
-        let mut mpv = Mpv::with_initializer(|init| {
-            init.set_property("vo", "libmpv")?;
-            init.set_property("video-timing-offset", "0")?;
-            init.set_property("terminal", "yes")?;
-            init.set_property("cache", "yes")?;
-            // rgba8 avoids the dotted pattern rgba16f produced on OpenGL ES (RTX 3070, Windows).
-            init.set_property("fbo-format", "rgba8")?;
-            init.set_property("hwdec", "auto-safe")?;
-            init.set_property("osc", "no")?;
-            init.set_property("input-default-bindings", "no")?;
-            init.set_property("input-vo-keyboard", "no")?;
-            init.set_property("keep-open", "no")?;
-            Ok(())
-        })
-        .map_err(|error| format!("could not start mpv: {error}"))?;
+        let mut mpv = super::mpv_config::create_mpv(mpv_config_path, logs)?;
         mpv.disable_deprecated_events().ok();
         mpv.set_property("terminal", "yes").ok();
         mpv.set_property("msg-level", "all=warn").ok();
@@ -134,51 +122,7 @@ impl MpvSession {
     }
 
     pub(crate) fn apply_config(&self, settings: &PlayerConfig) {
-        let pick = |on: bool, yes: &'static str, no: &'static str| if on { yes } else { no };
-        let _ = self.mpv.set_property(
-            "sub-scale",
-            f64::from(settings.subtitles_size).max(1.0) / 100.0,
-        );
-        let _ = self.mpv.set_property(
-            "sub-pos",
-            i64::from(100u32.saturating_sub(settings.subtitles_offset.min(100))),
-        );
-        let _ = self.mpv.set_property("sub-bold", settings.subtitles_bold);
-        for (prop, val) in [
-            ("hwdec", pick(settings.hardware_decoding, "auto-safe", "no")),
-            (
-                "sub-ass-override",
-                pick(settings.ass_subtitles_styling, "force", "no"),
-            ),
-            (
-                "audio-channels",
-                pick(settings.surround_sound, "auto-safe", "stereo"),
-            ),
-            (
-                "audio-spdif",
-                pick(settings.audio_passthrough, "ac3,eac3,dts,dts-hd,truehd", ""),
-            ),
-        ] {
-            let _ = self.mpv.set_property(prop, val);
-        }
-        if !settings.subtitles_language.is_empty() && settings.subtitles_language != "none" {
-            let _ = self
-                .mpv
-                .set_property("slang", settings.subtitles_language.as_str());
-            let _ = self.mpv.set_property("sub-visibility", "yes");
-        } else if settings.subtitles_language == "none" {
-            let _ = self.mpv.set_property("sub-visibility", "no");
-        }
-        for (prop, val) in [
-            ("alang", &settings.audio_language),
-            ("sub-color", &settings.subtitles_text_color),
-            ("sub-back-color", &settings.subtitles_background_color),
-            ("sub-border-color", &settings.subtitles_outline_color),
-        ] {
-            if !val.is_empty() {
-                let _ = self.mpv.set_property(prop, val.as_str());
-            }
-        }
+        super::mpv_config::apply_config(&self.mpv, settings);
     }
 
     /// Drains queued mpv events, reads live properties wholesale, and returns `Some(next)` iff any

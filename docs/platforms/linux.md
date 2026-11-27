@@ -9,7 +9,7 @@ artifacts.
 Install the common prerequisites from the
 [developer guide](../developer-guide.md#prerequisites), plus:
 
-- `libmpv` development/runtime libraries and OpenGL / X11 / Wayland libraries required by Slint
+- `libmpv` development/runtime libraries, `libudev-dev` (gamepad support), and OpenGL / X11 / Wayland libraries required by Slint
 - `clang` and [`mold`](https://github.com/rui314/mold)
 - `bash`, `dpkg-deb`, `curl`, and `tar` for dependency setup and packaging
 

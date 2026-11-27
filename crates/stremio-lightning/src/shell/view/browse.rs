@@ -1,84 +1,16 @@
 //! Board, Discover, Library, Addons, and Calendar view projections via `ModelMirror`.
 
-use slint::{ComponentHandle, Model, ModelRc, VecModel};
+use slint::{ComponentHandle, ModelRc, VecModel};
 
 use super::sync::{
-    image_rev, poster_data, preview_data, select_input_data, slint_image, with_mirrors, ModelMirror,
+    image_rev, poster_data, preview_data, select_input_data, slint_image, with_mirrors,
 };
 use crate::plumbing::images::Images;
-use crate::screens::{addons, board, calendar, discover, library, SelectMenu};
+use crate::screens::{addons, calendar, discover, library, SelectMenu};
 use crate::{
-    AddonData, AddonPendingData, AddonsUi, BoardUi, CalendarData, CalendarDay, CalendarSlot,
-    CatalogRow, DiscoverUi, LibraryCard, LibrarySort, LibraryUi, MainWindow, SelectOption,
+    AddonData, AddonPendingData, AddonsUi, CalendarData, CalendarDay, CalendarSlot, DiscoverUi,
+    LibraryCard, LibrarySort, LibraryUi, MainWindow, SelectOption,
 };
-
-pub(super) fn apply_board(window: &MainWindow, board: &crate::app::BoardData, images: &Images) {
-    sync_board_rows(window, &board.rows, images);
-}
-
-fn sync_board_rows(window: &MainWindow, rows: &[board::Row], images: &Images) {
-    let ui = window.global::<BoardUi>();
-    let existing = ui.get_rows();
-    let updated_in_place = with_mirrors(|mirrors| {
-        let Some(model) = existing.as_any().downcast_ref::<VecModel<CatalogRow>>() else {
-            return false;
-        };
-        if model.row_count() != rows.len()
-            || mirrors.board_rows.len() != rows.len()
-            || !rows
-                .iter()
-                .zip(mirrors.board_rows.iter())
-                .all(|(r, (t, s, m, _))| r.title == *t && r.shape == *s && r.menu == *m)
-        {
-            return false;
-        }
-        for (index, (row, (_, _, _, mirror))) in
-            rows.iter().zip(mirrors.board_rows.iter_mut()).enumerate()
-        {
-            if let Some(mut existing_row) = model.row_data(index) {
-                if let Some(replaced) = mirror.sync(
-                    &existing_row.cards,
-                    &row.cards,
-                    |_, card| (card.clone(), image_rev(images, &card.poster)),
-                    |_, card| poster_data(card, images),
-                ) {
-                    existing_row.cards = replaced;
-                    model.set_row_data(index, existing_row);
-                }
-            }
-        }
-        true
-    });
-    if updated_in_place {
-        return;
-    }
-    let catalog_rows = with_mirrors(|mirrors| {
-        mirrors.board_rows.clear();
-        rows.iter()
-            .map(|row| {
-                let mut mirror = ModelMirror::default();
-                let cards = mirror
-                    .sync(
-                        &ModelRc::default(),
-                        &row.cards,
-                        |_, card| (card.clone(), image_rev(images, &card.poster)),
-                        |_, card| poster_data(card, images),
-                    )
-                    .unwrap_or_default();
-                mirrors
-                    .board_rows
-                    .push((row.title.clone(), row.shape, row.menu, mirror));
-                CatalogRow {
-                    title: row.title.clone().into(),
-                    shape: row.shape.into(),
-                    menu: row.menu,
-                    cards,
-                }
-            })
-            .collect::<Vec<_>>()
-    });
-    ui.set_rows(ModelRc::new(VecModel::from(catalog_rows)));
-}
 
 pub(super) fn apply_discover(window: &MainWindow, discover: &discover::Data, images: &Images) {
     let ui = window.global::<DiscoverUi>();

@@ -1,0 +1,285 @@
+// Based on stremio-web src/routes/Board/Spotlight (Copyright Smart code 203358507).
+import { Theme } from "../theme.slint";
+import { CoverImage } from "../settings/spotlight-card.slint";
+
+export struct SpotlightSlide {
+    id: string,
+    kind: string,
+    title: string,
+    background: image,
+    has-background: bool,
+    logo: image,
+    has-logo: bool,
+    year: string,
+    runtime: string,
+    imdb-rating: string,
+    genres: string,
+    description: string,
+    in-library: bool,
+}
+
+component PagerBtn inherits Rectangle {
+    in property <length> rem-size;
+    in property <image> icon;
+    callback clicked();
+    width: 2.5 * root.rem-size;
+    height: 2.5 * root.rem-size;
+    border-radius: 1.25 * root.rem-size;
+    background: t.has-hover ? #ffffff29 : #ffffff14;
+    Image {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: 1.1 * root.rem-size;
+        height: 1.1 * root.rem-size;
+        source: root.icon;
+        colorize: #ffffff;
+    }
+    t := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
+}
+
+export component BoardSpotlight inherits Rectangle {
+    in property <[SpotlightSlide]> slides;
+    in property <length> rem-size: 14px;
+    in property <length> viewport-width: 1280px;
+    callback open-item(string, string, string);
+    callback toggle-library(string, string, bool);
+
+    in-out property <int> active-index: 0;
+    in-out property <bool> paused: false;
+    property <int> count: root.slides.length;
+    property <int> safe-idx: root.count == 0 ? 0 : Math.mod(root.active-index + root.count, root.count);
+    property <SpotlightSlide> current: root.slides[root.safe-idx];
+
+    height: Math.max(26 * root.rem-size, Math.min(38 * root.rem-size, root.viewport-width * 0.38));
+    border-radius: 1.25 * root.rem-size;
+    background: #0c0b11;
+    clip: true;
+
+    // UI animation timer (8s per slide matching Stremio Web @fill-duration), paused on hover or manual pause.
+    auto-cycle := Timer {
+        interval: 8000ms;
+        running: root.count > 1 && !root.paused && !hover-area.has-hover && !watch-t.has-hover && !lib-t.has-hover;
+        triggered => {
+            root.active-index = Math.mod(root.safe-idx + 1, root.count);
+        }
+    }
+
+    if root.current.has-background: CoverImage {
+        width: parent.width;
+        height: parent.height;
+        source: root.current.background;
+        pos-x: 0.72;
+        pos-y: 0.22;
+    }
+
+    // Left dark horizontal scrim matching Spotlight.less
+    Rectangle {
+        width: parent.width * 0.78;
+        height: parent.height;
+        background: @linear-gradient(90deg, #0c0b11e0 0%, #0c0b11b3 30%, #0c0b1161 58%, #0c0b1100 100%);
+    }
+    // Bottom fade into Board rows
+    Rectangle {
+        y: parent.height * 0.55;
+        width: parent.width;
+        height: parent.height * 0.45;
+        background: @linear-gradient(180deg, #0c0b1100 0%, #0c0b118c 55%, #0c0b11f2 100%);
+    }
+
+    hover-area := TouchArea {
+        width: parent.width;
+        height: parent.height;
+    }
+
+    // Left content stack
+    VerticalLayout {
+        x: 2.25 * root.rem-size;
+        y: parent.height - self.height - 2.25 * root.rem-size;
+        width: Math.min(38 * root.rem-size, parent.width - 18 * root.rem-size);
+        height: self.preferred-height;
+        alignment: end;
+        spacing: 1 * root.rem-size;
+
+        if root.current.has-logo: Rectangle {
+            height: 6.2 * root.rem-size;
+            Image {
+                height: parent.height;
+                width: Math.min(24 * root.rem-size, parent.width);
+                source: root.current.logo;
+                image-fit: contain;
+                horizontal-alignment: left;
+            }
+            TouchArea {
+                mouse-cursor: pointer;
+                clicked => { root.open-item(root.current.id, root.current.kind, root.current.title); }
+            }
+        }
+        if !root.current.has-logo: Rectangle {
+            height: title-lbl.preferred-height;
+            title-lbl := Text {
+                width: parent.width;
+                text: root.current.title;
+                font-size: 2.25 * root.rem-size;
+                font-weight: 700;
+                color: Theme.text;
+                wrap: word-wrap;
+            }
+            TouchArea {
+                mouse-cursor: pointer;
+                clicked => { root.open-item(root.current.id, root.current.kind, root.current.title); }
+            }
+        }
+
+        HorizontalLayout {
+            spacing: 0.9 * root.rem-size;
+            alignment: start;
+
+            if root.current.year != "": Text {
+                text: root.current.year;
+                font-size: 0.95 * root.rem-size;
+                font-weight: 500;
+                color: #ffffffcc;
+                vertical-alignment: center;
+            }
+            if root.current.runtime != "": Text {
+                text: root.current.runtime;
+                font-size: 0.95 * root.rem-size;
+                color: #ffffffcc;
+                vertical-alignment: center;
+            }
+            if root.current.imdb-rating != "": Rectangle {
+                height: 1.6 * root.rem-size;
+                width: imdb-lbl.preferred-width + 0.9 * root.rem-size;
+                border-radius: 0.35 * root.rem-size;
+                background: #f5c518;
+                imdb-lbl := Text {
+                    width: parent.width;
+                    height: parent.height;
+                    text: "IMDb " + root.current.imdb-rating;
+                    font-size: 0.8 * root.rem-size;
+                    font-weight: 700;
+                    color: #0c0b11;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+            if root.current.genres != "": Text {
+                text: root.current.genres;
+                font-size: 0.95 * root.rem-size;
+                color: #ffffffb3;
+                overflow: elide;
+                vertical-alignment: center;
+            }
+        }
+
+        if root.current.description != "": Text {
+            text: root.current.description;
+            font-size: 0.95 * root.rem-size;
+            color: #ffffffcc;
+            wrap: word-wrap;
+            max-height: 4.5 * root.rem-size;
+            overflow: elide;
+        }
+
+        HorizontalLayout {
+            spacing: 0.9 * root.rem-size;
+            alignment: start;
+            padding-top: 0.35 * root.rem-size;
+
+            Rectangle {
+                height: 3.4 * root.rem-size;
+                width: watch-row.preferred-width;
+                border-radius: 1.7 * root.rem-size;
+                background: watch-t.has-hover ? #8e72ff : Theme.accent;
+
+                watch-row := HorizontalLayout {
+                    padding-left: 1.5 * root.rem-size;
+                    padding-right: 1.9 * root.rem-size;
+                    spacing: 0.65 * root.rem-size;
+                    alignment: center;
+
+                    VerticalLayout {
+                        alignment: center;
+                        Image {
+                            width: 1.25 * root.rem-size;
+                            height: 1.25 * root.rem-size;
+                            source: @image-url("../icons/play.svg");
+                            colorize: #ffffff;
+                        }
+                    }
+                    Text {
+                        text: "Watch";
+                        font-size: 1.05 * root.rem-size;
+                        font-weight: 600;
+                        color: #ffffff;
+                        vertical-alignment: center;
+                    }
+                }
+                watch-t := TouchArea {
+                    mouse-cursor: pointer;
+                    accessible-role: button;
+                    accessible-label: "Watch " + root.current.title;
+                    clicked => { root.open-item(root.current.id, root.current.kind, root.current.title); }
+                }
+            }
+
+            Rectangle {
+                width: 3.4 * root.rem-size;
+                height: 3.4 * root.rem-size;
+                border-radius: 1.7 * root.rem-size;
+                background: lib-t.has-hover ? #ffffff3d : #ffffff1a;
+
+                Image {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    width: 1.4 * root.rem-size;
+                    height: 1.4 * root.rem-size;
+                    source: root.current.in-library ? @image-url("../icons/remove-from-library.svg") : @image-url("../icons/add-to-library.svg");
+                    colorize: #ffffff;
+                }
+                lib-t := TouchArea {
+                    mouse-cursor: pointer;
+                    accessible-role: button;
+                    accessible-label: root.current.in-library ? "Remove from Library" : "Add to Library";
+                    clicked => { root.toggle-library(root.current.id, root.current.kind, root.current.in-library); }
+                }
+            }
+        }
+    }
+
+    // Bottom-right Pager matching Pager.less
+    if root.count > 1: HorizontalLayout {
+        x: parent.width - self.width - 2 * root.rem-size;
+        y: parent.height - self.height - 2.25 * root.rem-size;
+        width: self.preferred-width;
+        height: self.preferred-height;
+        spacing: 0.45 * root.rem-size;
+        alignment: end;
+
+        PagerBtn {
+            rem-size: root.rem-size;
+            icon: @image-url("../icons/chevron-back.svg");
+            clicked => { root.paused = true; root.active-index = Math.mod(root.safe-idx + root.count - 1, root.count); }
+        }
+        for slide[i] in root.slides: VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: i == root.safe-idx ? 3.2 * root.rem-size : 1.5 * root.rem-size;
+                height: 0.32 * root.rem-size;
+                border-radius: 0.16 * root.rem-size;
+                background: i == root.safe-idx ? #ffffff : #ffffff4d;
+                TouchArea { mouse-cursor: pointer; clicked => { root.paused = true; root.active-index = i; } }
+            }
+        }
+        PagerBtn {
+            rem-size: root.rem-size;
+            icon: @image-url("../icons/chevron-forward.svg");
+            clicked => { root.paused = true; root.active-index = Math.mod(root.safe-idx + 1, root.count); }
+        }
+        PagerBtn {
+            rem-size: root.rem-size;
+            icon: root.paused ? @image-url("../icons/play.svg") : @image-url("../icons/pause.svg");
+            clicked => { root.paused = !root.paused; }
+        }
+    }
+}

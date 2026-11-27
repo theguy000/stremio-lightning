@@ -72,4 +72,37 @@ fn settings_search_matches_prefix_tokens_and_gates_offline_or_guest_rows() {
     assert!(!cache_offline.iter().any(|h| h.row == "cache"));
     let cache_online = search_settings("cache", true, true);
     assert!(cache_online.iter().any(|h| h.row == "cache"));
+    assert!(cache_online.iter().any(|h| h.row == "drive"));
+    assert!(!cache_offline.iter().any(|h| h.row == "drive"));
+
+    assert!(search_settings("discord", false, false)
+        .iter()
+        .any(|h| h.row == "discord"));
+    assert!(search_settings("gamepad", false, false)
+        .iter()
+        .any(|h| h.row == "gamepad"));
+    assert!(search_settings("mpv", false, false)
+        .iter()
+        .any(|h| h.row == "mpvConfig"));
+    assert!(search_settings("spotlight", false, false)
+        .iter()
+        .any(|h| h.row == "spotlight"));
+}
+
+#[test]
+fn discord_gamepad_and_mpv_config_project_into_settings_data() {
+    let profile = Profile::default();
+    let mut extras = LocalExtras::default();
+    assert!(
+        apply_toggle_option(&profile.settings, &mut extras, "discordRpcEnabled", true).is_some()
+    );
+    assert!(apply_toggle_option(&profile.settings, &mut extras, "gamepadSupport", true).is_some());
+    extras.mpv_config_path = Some("/tmp/custom-mpv.conf".into());
+    let d = data_from_profile(&profile, &extras);
+    assert!(d.discord_rpc_enabled && d.gamepad_support);
+    assert_eq!(d.mpv_config_path, "/tmp/custom-mpv.conf");
+    assert_eq!(
+        d.player_config.mpv_config_path.as_deref(),
+        Some("/tmp/custom-mpv.conf")
+    );
 }

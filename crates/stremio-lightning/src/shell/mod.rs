@@ -13,7 +13,10 @@ use crate::plumbing::stream_server::Supervisor;
 use crate::MainWindow;
 
 pub(crate) mod auth;
+pub(crate) mod gamepad;
+pub(crate) mod shortcuts;
 pub(crate) mod theme_apply;
+pub(crate) mod tray;
 pub(crate) mod video_host;
 pub(crate) mod view;
 pub(crate) mod winit_host;
@@ -38,17 +41,26 @@ fn register_shell(wiring: &Rc<wiring::Wiring>) -> u64 {
     id
 }
 
-fn dispatch_player_sync(id: u64) {
-    let target = ATTACHED.with(|map| {
+fn lookup_shell(id: u64) -> Option<Rc<wiring::Wiring>> {
+    ATTACHED.with(|map| {
         let mut map = map.borrow_mut();
         let live = map.get(&id).and_then(RcWeak::upgrade);
         if live.is_none() {
             map.remove(&id);
         }
         live
-    });
-    if let Some(wiring) = target {
+    })
+}
+
+fn dispatch_player_sync(id: u64) {
+    if let Some(wiring) = lookup_shell(id) {
         wiring.sync_player_stream();
+    }
+}
+
+fn dispatch_settings_sync(id: u64) {
+    if let Some(wiring) = lookup_shell(id) {
+        wiring.sync_live_settings();
     }
 }
 
@@ -63,12 +75,15 @@ pub(crate) fn attach(window: &MainWindow, app: Arc<App>, tokio: tokio::runtime::
         app.logs().clone(),
     ));
 
+    let focused = Arc::new(AtomicBool::new(true));
+    let gamepad = gamepad::spawn(window, app.clone(), focused.clone(), tokio.clone());
     let wiring = Rc::new(wiring::Wiring::new(
         window.as_weak(),
         app.clone(),
         video.clone(),
         server.clone(),
         tokio,
+        gamepad,
     ));
     let shell_id = register_shell(&wiring);
     wiring::wire(window, (*wiring).clone());
@@ -81,7 +96,10 @@ pub(crate) fn attach(window: &MainWindow, app: Arc<App>, tokio: tokio::runtime::
             AppNotice::Dirty => {
                 let app_run = app_obs.clone();
                 let _ = weak.upgrade_in_event_loop(move |window| {
-                    view::apply_dirty(&window, &app_run);
+                    let mask = view::apply_dirty(&window, &app_run);
+                    if mask.contains(crate::app::ScreenMask::SETTINGS) {
+                        dispatch_settings_sync(shell_id);
+                    }
                 });
             }
             AppNotice::PlayerStreamChanged => {
@@ -123,8 +141,10 @@ pub(crate) fn attach(window: &MainWindow, app: Arc<App>, tokio: tokio::runtime::
         let app_min = app.clone();
         let video_min = video.clone();
         let win_min = window.as_weak();
-        winit_host::install(
+        let bounds = winit_host::install(
             window,
+            app.clone(),
+            focused,
             move || app_focus.sync_account(),
             move || {
                 if win_min.upgrade().is_some_and(|w| w.get_playing())
@@ -134,6 +154,7 @@ pub(crate) fn attach(window: &MainWindow, app: Arc<App>, tokio: tokio::runtime::
                 }
             },
         );
+        gamepad::register_bounds(bounds);
     }
     {
         // Keep `Rc<Wiring>` alive inside the window-owned `VideoPlayer` listener so the
@@ -144,7 +165,8 @@ pub(crate) fn attach(window: &MainWindow, app: Arc<App>, tokio: tokio::runtime::
 
     let initial_settings = app.settings().view();
     video.apply_settings(&initial_settings.player_config);
-    view::apply_settings(window, &initial_settings);
+    wiring.sync_live_settings();
+    view::apply_settings(window, &initial_settings, app.images());
     let settings_ui = window.global::<crate::SettingsUi>();
     settings_ui.set_app_version(env!("CARGO_PKG_VERSION").into());
     settings_ui.set_build_version(option_env!("GITHUB_SHA").unwrap_or("dev").into());
@@ -152,6 +174,7 @@ pub(crate) fn attach(window: &MainWindow, app: Arc<App>, tokio: tokio::runtime::
         .global::<crate::DetailsUi>()
         .set_wrap_streams(initial_settings.wrap_streams);
 
+    tray::install(window, app.clone(), video.clone());
     wiring.report_server_state(server.start());
     wiring.init_mods();
 }

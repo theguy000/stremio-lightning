@@ -6,6 +6,7 @@
 mod addons;
 mod browse;
 mod details;
+mod discord;
 mod logs_about;
 mod mods;
 mod player;
@@ -15,9 +16,10 @@ mod player_tracks;
 mod settings_actions;
 mod settings_auth;
 mod share;
+mod spotlight;
 mod viewport;
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use slint::{ComponentHandle, Timer, Weak};
@@ -31,6 +33,27 @@ use crate::shell::video_host::VideoPlayer;
 use crate::{MainWindow, PlayerUi};
 
 pub(crate) use player::Playback;
+
+pub(crate) fn show_timed_toast(
+    window: &Weak<MainWindow>,
+    said: &Arc<AtomicU64>,
+    handle: &tokio::runtime::Handle,
+    text: &str,
+) {
+    let Some(win) = window.upgrade() else {
+        return;
+    };
+    win.set_toast(text.into());
+    let generation = said.fetch_add(1, Ordering::Relaxed) + 1;
+    let said = said.clone();
+    let weak = window.clone();
+    handle.spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
+        if said.load(Ordering::Relaxed) == generation {
+            let _ = weak.upgrade_in_event_loop(|w| w.set_toast("".into()));
+        }
+    });
+}
 pub(crate) use player_tracks::ShownTracks;
 
 pub(super) fn active_screen_of(window: &MainWindow) -> ActiveScreen {
@@ -63,6 +86,7 @@ pub(crate) struct Wiring {
     pub(crate) server: Arc<Supervisor>,
     pub(crate) handle: tokio::runtime::Handle,
     pub(crate) said: Arc<AtomicU64>,
+    pub(crate) dialog_open: Arc<AtomicBool>,
     pub(crate) player_loaded: Arc<Mutex<String>>,
     pub(crate) player_attempted: Arc<Mutex<Option<String>>>,
     pub(crate) playback: Arc<Mutex<Playback>>,
@@ -75,6 +99,8 @@ pub(crate) struct Wiring {
     pub(crate) skip: Arc<Mutex<SkipSession>>,
     pub(crate) skip_submit: Arc<Mutex<bool>>,
     pub(crate) mods_disarm: Arc<Timer>,
+    pub(crate) discord: Arc<crate::plumbing::discord::DiscordService>,
+    pub(crate) gamepad: Arc<crate::plumbing::gamepad::GamepadService>,
 }
 
 impl Wiring {
@@ -84,6 +110,7 @@ impl Wiring {
         video: VideoPlayer,
         server: Arc<Supervisor>,
         handle: tokio::runtime::Handle,
+        gamepad: Arc<crate::plumbing::gamepad::GamepadService>,
     ) -> Self {
         Self {
             window,
@@ -92,6 +119,7 @@ impl Wiring {
             server,
             handle,
             said: Default::default(),
+            dialog_open: Default::default(),
             player_loaded: Default::default(),
             player_attempted: Default::default(),
             playback: Default::default(),
@@ -104,6 +132,8 @@ impl Wiring {
             skip: Default::default(),
             skip_submit: Default::default(),
             mods_disarm: Default::default(),
+            discord: Arc::new(crate::plumbing::discord::DiscordService::spawn()),
+            gamepad,
         }
     }
 
@@ -132,19 +162,7 @@ impl Wiring {
 
     /// Shows a transient toast message at the bottom of the window.
     pub(super) fn say(&self, text: &str) {
-        let Some(window) = self.window.upgrade() else {
-            return;
-        };
-        window.set_toast(text.into());
-        let generation = self.said.fetch_add(1, Ordering::Relaxed) + 1;
-        let said = self.said.clone();
-        let window = self.window.clone();
-        self.handle.spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_millis(2200)).await;
-            if said.load(Ordering::Relaxed) == generation {
-                let _ = window.upgrade_in_event_loop(|window| window.set_toast("".into()));
-            }
-        });
+        show_timed_toast(&self.window, &self.said, &self.handle, text);
     }
 }
 
@@ -219,6 +237,7 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
     addons::wire(window, &wiring);
     settings_auth::wire(window, &wiring);
     settings_actions::wire(window, &wiring);
+    spotlight::wire(window, &wiring);
     mods::wire(window, &wiring);
     logs_about::wire(window, &wiring);
 }

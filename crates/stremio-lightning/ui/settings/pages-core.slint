@@ -1,6 +1,7 @@
 // Based on stremio-web Settings Interface, Player, and Integrations pages.
 import { SettingsGroup, SettingsPageHeader, SettingsRow, SettingsRowButton } from "primitives.slint";
 import { SettingsScale, SettingsSelectControl, SettingsToggle, SubtitlesPreview } from "scale.slint";
+import { SpotlightSettingsGroup } from "spotlight.slint";
 import { SettingsUi } from "types.slint";
 
 export component InterfacePage inherits VerticalLayout {
@@ -37,6 +38,8 @@ export component InterfacePage inherits VerticalLayout {
         }
     }
 
+    SpotlightSettingsGroup { rem-size: root.rem-size; }
+
     SettingsGroup {
         title: "Behavior";
         rem-size: root.rem-size;
@@ -50,6 +53,17 @@ export component InterfacePage inherits VerticalLayout {
                 rem-size: root.rem-size;
                 checked: SettingsUi.data.hide-spoilers;
                 toggled(val) => { SettingsUi.toggle-option("hideSpoilers", val); }
+            }
+        }
+        SettingsRow {
+            rem-size: root.rem-size;
+            label: "Enable gamepad support";
+            last: true;
+            highlighted: SettingsUi.hit-row == "gamepad";
+            SettingsToggle {
+                rem-size: root.rem-size;
+                checked: SettingsUi.data.gamepad-support;
+                toggled(val) => { SettingsUi.toggle-option("gamepadSupport", val); }
             }
         }
     }

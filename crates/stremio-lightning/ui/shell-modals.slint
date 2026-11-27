@@ -1,0 +1,85 @@
+import { Theme } from "theme.slint";
+import { GamepadModal } from "gamepad-modal.slint";
+import { ShareModal } from "share-modal.slint";
+import { ShortcutsModal } from "shortcuts-modal.slint";
+import { SpotlightPickerModal } from "settings/spotlight-picker.slint";
+
+export global ShellModalsUi {
+    in-out property <bool> shortcuts-open: false;
+    in-out property <bool> gamepad-open: false;
+    in-out property <bool> spotlight-picker-open: false;
+    in-out property <string> gamepad-family: "xbox";
+    in-out property <string> gamepad-active: "";
+    in-out property <int> focus-search-seq: 0;
+}
+
+export component ShellModals inherits Rectangle {
+    in property <length> rem-size: 14px;
+    in property <string> toast;
+    in property <bool> share-open: false;
+    in property <string> share-link;
+    callback share-close();
+    callback share-copy();
+    callback share-to(string);
+
+    background: transparent;
+
+    if root.share-open: ShareModal {
+        width: 100%;
+        height: 100%;
+        link: root.share-link;
+        rem-size: root.rem-size;
+        closed => { root.share-close(); }
+        copied => { root.share-copy(); }
+        opened(network) => { root.share-to(network); }
+    }
+
+    if ShellModalsUi.shortcuts-open: ShortcutsModal {
+        width: 100%;
+        height: 100%;
+        rem-size: root.rem-size;
+        closed => { ShellModalsUi.shortcuts-open = false; }
+    }
+
+    if ShellModalsUi.gamepad-open: GamepadModal {
+        width: 100%;
+        height: 100%;
+        rem-size: root.rem-size;
+        family: ShellModalsUi.gamepad-family;
+        active-control: ShellModalsUi.gamepad-active;
+        closed => {
+            ShellModalsUi.gamepad-open = false;
+            ShellModalsUi.gamepad-active = "";
+        }
+    }
+
+    if ShellModalsUi.spotlight-picker-open: SpotlightPickerModal {
+        width: 100%;
+        height: 100%;
+        rem-size: root.rem-size;
+        closed => { ShellModalsUi.spotlight-picker-open = false; }
+    }
+
+    // Toast sits last so notifications paint above open modals (e.g. Spotlight catalog limit).
+    if root.toast != "": HorizontalLayout {
+        y: parent.height - 4 * root.rem-size;
+        height: 3 * root.rem-size;
+        alignment: center;
+        Rectangle {
+            height: 3 * root.rem-size;
+            border-radius: 0.75 * root.rem-size;
+            background: Theme.modal-background;
+            HorizontalLayout {
+                alignment: center;
+                padding-left: 1.5 * root.rem-size;
+                padding-right: 1.5 * root.rem-size;
+                Text {
+                    text: root.toast;
+                    color: Theme.text;
+                    font-size: 1 * root.rem-size;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+}

@@ -35,14 +35,28 @@ pub(crate) fn shown_images(
         return player_images(snapshot).collect();
     }
     match screen {
-        ActiveScreen::Board => board::visible_images(&snapshot.board.rows, board_view),
+        ActiveScreen::Board => board::visible_images_with_spotlight(
+            &snapshot.board.rows,
+            &snapshot.board.spotlight,
+            board_view,
+        ),
         ActiveScreen::Discover => discover_images(snapshot, visible, selected).collect(),
         ActiveScreen::Library => library_images(snapshot).collect(),
         ActiveScreen::Calendar => calendar_images(snapshot).collect(),
         ActiveScreen::Addons => addon_images(snapshot).collect(),
         ActiveScreen::Details => details_images(snapshot).collect(),
         ActiveScreen::Player => player_images(snapshot).collect(),
-        ActiveScreen::Settings | ActiveScreen::Mods => Vec::new(),
+        ActiveScreen::Settings => {
+            let sp = &snapshot.settings.spotlight;
+            sp.preview_bg
+                .iter()
+                .chain(sp.preview_logo.iter())
+                .chain(sp.catalogs.iter().filter_map(|c| c.preview_bg.as_ref()))
+                .chain(sp.catalogs.iter().filter_map(|c| c.preview_logo.as_ref()))
+                .cloned()
+                .collect()
+        }
+        ActiveScreen::Mods => Vec::new(),
     }
 }
 

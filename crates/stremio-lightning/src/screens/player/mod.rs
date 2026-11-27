@@ -11,7 +11,9 @@ pub(crate) use actions::{
     ended, load_video, next, paused_changed, scale_changed, seek, time_changed, unload,
     video_params_changed,
 };
-pub(crate) use open::{open, open_for, open_video, should_open, VideoOpen};
+pub(crate) use open::{
+    open, open_for, open_video, record_external_opened, should_open, OpenResult, VideoOpen,
+};
 pub use subtitles::{auto_subtitle, Subtitle, SubtitleChoice, SubtitleTrackFacts};
 pub(crate) use subtitles::{
     browsed_language, same_language, subtitle_languages, subtitle_rows, variant_label, TrackInfo,

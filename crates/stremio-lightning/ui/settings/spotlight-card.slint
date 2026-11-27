@@ -1,0 +1,166 @@
+// Based on stremio-web SpotlightSettings/CatalogCard (Copyright Smart code 203358507).
+import { Theme } from "../theme.slint";
+import { SpotlightCatalogCardData } from "types.slint";
+
+// CSS `object-fit: cover; object-position: (pos-x*100%) (pos-y*100%)` for Slint Image.
+export component CoverImage inherits Image {
+    in property <float> pos-x: 0.5;
+    in property <float> pos-y: 0.25;
+
+    property <int> iw: Math.max(1, self.source.width);
+    property <int> ih: Math.max(1, self.source.height);
+    property <float> bw: Math.max(1.0, self.width / 1px);
+    property <float> bh: Math.max(1.0, self.height / 1px);
+    property <bool> ready: self.source.width > 0 && self.source.height > 0;
+    property <bool> wider: (iw * bh) > (ih * bw);
+    property <int> cw: ready ? (wider ? Math.max(1, Math.min(iw, Math.round(ih * bw / bh))) : iw) : 0;
+    property <int> ch: ready ? (wider ? ih : Math.max(1, Math.min(ih, Math.round(iw * bh / bw)))) : 0;
+
+    image-fit: ready ? fill : cover;
+    source-clip-x: ready ? Math.round((iw - cw) * pos-x) : 0;
+    source-clip-y: ready ? Math.round((ih - ch) * pos-y) : 0;
+    source-clip-width: cw;
+    source-clip-height: ch;
+}
+
+export component SpotlightCatalogCard inherits VerticalLayout {
+    in property <SpotlightCatalogCardData> card;
+    in property <bool> full: false;
+    in property <length> rem-size: 14px;
+    callback toggled(int);
+
+    property <bool> selected: root.card.selected-rank > 0;
+    property <bool> dimmed: root.full && !root.selected;
+
+    spacing: 0px;
+    alignment: start;
+
+    art := Rectangle {
+        height: Math.max(1px, self.width * 9 / 16);
+        border-radius: 0.75 * root.rem-size;
+        background: Theme.overlay;
+        clip: true;
+        opacity: root.dimmed ? 0.35 : 1.0;
+
+        if root.card.has-bg: CoverImage {
+            width: parent.width;
+            height: parent.height;
+            source: root.card.bg;
+            pos-x: 0.5;
+            pos-y: 0.25;
+        }
+        Rectangle {
+            width: parent.width;
+            height: parent.height;
+            background: @linear-gradient(0deg, #0c0b11bf 0%, #0c0b111a 55%, #0c0b1100 100%);
+        }
+
+        if root.card.is-default: Rectangle {
+            x: 0.6 * root.rem-size;
+            y: 0.6 * root.rem-size;
+            height: 1.5 * root.rem-size;
+            width: def-lbl.preferred-width + 1.1 * root.rem-size;
+            border-radius: 0.75 * root.rem-size;
+            background: #0c0b11c4;
+            border-width: 1px;
+            border-color: #ffffff22;
+            def-lbl := Text {
+                width: parent.width;
+                height: parent.height;
+                text: "DEFAULT";
+                font-size: 0.65 * root.rem-size;
+                font-weight: 700;
+                letter-spacing: 0.06 * root.rem-size;
+                color: #ffffff;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+
+        if root.card.has-logo: Image {
+            x: 0.9 * root.rem-size;
+            y: parent.height - self.height - 0.8 * root.rem-size;
+            width: parent.width * 0.62;
+            height: 2.1 * root.rem-size;
+            source: root.card.logo;
+            image-fit: contain;
+            horizontal-alignment: left;
+            vertical-alignment: bottom;
+        }
+        if !root.card.has-logo && root.card.fallback-title != "": Text {
+            x: 0.9 * root.rem-size;
+            y: parent.height - self.height - 0.8 * root.rem-size;
+            width: parent.width - 1.8 * root.rem-size;
+            height: self.preferred-height;
+            text: root.card.fallback-title;
+            font-size: 0.95 * root.rem-size;
+            font-weight: 600;
+            color: #ffffff;
+            overflow: elide;
+        }
+
+        if root.selected: Rectangle {
+            x: parent.width - self.width - 0.6 * root.rem-size;
+            y: 0.6 * root.rem-size;
+            width: 1.6 * root.rem-size;
+            height: 1.6 * root.rem-size;
+            border-radius: 0.8 * root.rem-size;
+            background: Theme.accent;
+            Text {
+                width: parent.width;
+                height: parent.height;
+                text: root.card.selected-rank;
+                font-size: 0.8 * root.rem-size;
+                font-weight: 700;
+                color: #ffffff;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+
+        Rectangle {
+            width: parent.width;
+            height: parent.height;
+            border-radius: 0.75 * root.rem-size;
+            background: transparent;
+            border-width: root.selected ? 0.2 * root.rem-size
+                : (card-t.has-hover && !root.dimmed ? 0.15 * root.rem-size : 0px);
+            border-color: root.selected ? Theme.accent : Theme.text;
+        }
+
+        card-t := TouchArea {
+            mouse-cursor: root.dimmed ? not-allowed : pointer;
+            accessible-role: button;
+            accessible-label: root.card.name;
+            clicked => { root.toggled(root.card.catalog-index); }
+        }
+    }
+
+    HorizontalLayout {
+        padding-top: 0.7 * root.rem-size;
+        padding-left: 0.25 * root.rem-size;
+        padding-right: 0.25 * root.rem-size;
+        spacing: 0.75 * root.rem-size;
+        alignment: space-between;
+        opacity: root.dimmed ? 0.55 : 1.0;
+
+        Text {
+            horizontal-stretch: 1;
+            text: root.card.name;
+            font-size: 1 * root.rem-size;
+            font-weight: 600;
+            color: Theme.text;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        if root.card.ready: Text {
+            horizontal-stretch: 0;
+            text: root.card.count-label;
+            font-size: 0.8 * root.rem-size;
+            font-weight: 500;
+            color: Theme.text;
+            opacity: 0.65;
+            vertical-alignment: center;
+        }
+    }
+}

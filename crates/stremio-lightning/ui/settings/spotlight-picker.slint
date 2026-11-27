@@ -1,0 +1,277 @@
+// Based on stremio-web SpotlightSettings/CatalogPicker (Copyright Smart code 203358507).
+import { Theme } from "../theme.slint";
+import { SpotlightCatalogCard } from "spotlight-card.slint";
+import { SpotlightCatalogsEmpty, SpotlightCatalogTray } from "spotlight-tray.slint";
+import { SettingsUi } from "types.slint";
+
+export component SpotlightPickerModal inherits Rectangle {
+    in property <length> rem-size: 14px;
+    callback closed();
+
+    property <bool> full: SettingsUi.data.spotlight-picks-count >= 3;
+
+    background: #00000066;
+
+    TouchArea {
+        clicked => { root.closed(); }
+    }
+
+    Rectangle {
+        width: Math.min(parent.width * 0.8, 60 * root.rem-size);
+        height: Math.min(parent.height * 0.84, 52 * root.rem-size);
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        border-radius: 1.25 * root.rem-size;
+        background: Theme.modal-background;
+        drop-shadow-blur: 15px;
+        drop-shadow-color: #7b5bf55e;
+
+        TouchArea {}
+
+        VerticalLayout {
+            padding-left: 2 * root.rem-size;
+            padding-right: 2 * root.rem-size;
+            padding-top: 0px;
+            padding-bottom: 0px;
+            spacing: 0px;
+
+            HorizontalLayout {
+                height: 4.5 * root.rem-size;
+                padding-right: 2 * root.rem-size;
+                spacing: 1 * root.rem-size;
+                alignment: space-between;
+
+                Text {
+                    horizontal-stretch: 1;
+                    text: "Spotlight catalogs";
+                    font-size: 1.2 * root.rem-size;
+                    font-weight: 500;
+                    color: Theme.text;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+                VerticalLayout {
+                    horizontal-stretch: 0;
+                    alignment: center;
+                    Rectangle {
+                        height: 2.5 * root.rem-size;
+                        width: rst-lbl.preferred-width + 2 * root.rem-size;
+                        border-radius: 1.25 * root.rem-size;
+                        background: (rst-t.has-hover && !SettingsUi.data.spotlight-is-default) ? transparent : Theme.overlay;
+                        border-width: 2px;
+                        border-color: (rst-t.has-hover && !SettingsUi.data.spotlight-is-default) ? Theme.text : transparent;
+                        opacity: SettingsUi.data.spotlight-is-default ? 0.5 : 1.0;
+
+                        rst-lbl := Text {
+                            width: parent.width;
+                            height: parent.height;
+                            text: "Use default";
+                            font-size: 0.9 * root.rem-size;
+                            font-weight: 500;
+                            color: Theme.text;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                        rst-t := TouchArea {
+                            enabled: !SettingsUi.data.spotlight-is-default;
+                            mouse-cursor: SettingsUi.data.spotlight-is-default ? default : pointer;
+                            clicked => { SettingsUi.reset-spotlight-catalogs(); }
+                        }
+                    }
+                }
+            }
+
+            if SettingsUi.data.spotlight-empty: SpotlightCatalogsEmpty {
+                vertical-stretch: 1;
+                rem-size: root.rem-size;
+            }
+
+            if !SettingsUi.data.spotlight-empty: HorizontalLayout {
+                padding-top: 0.25 * root.rem-size;
+                padding-bottom: 0.75 * root.rem-size;
+                spacing: 1.5 * root.rem-size;
+                alignment: space-between;
+
+                Text {
+                    horizontal-stretch: 1;
+                    text: "Pick up to 3 catalogs for the top of your Board. They take turns, up to 6 titles with artwork.";
+                    wrap: word-wrap;
+                    font-size: 0.95 * root.rem-size;
+                    color: Theme.text;
+                    opacity: 0.6;
+                    vertical-alignment: center;
+                }
+
+                Rectangle {
+                    horizontal-stretch: 0;
+                    width: 16 * root.rem-size;
+                    height: 3 * root.rem-size;
+                    border-radius: 1.5 * root.rem-size;
+                    background: Theme.overlay;
+                    border-width: 2px;
+                    border-color: search-in.has-focus ? Theme.text : transparent;
+
+                    HorizontalLayout {
+                        padding-left: 1.5 * root.rem-size;
+                        padding-right: 1.25 * root.rem-size;
+                        spacing: 0.75 * root.rem-size;
+
+                        Rectangle {
+                            horizontal-stretch: 1;
+                            if SettingsUi.spotlight-search-query == "": Text {
+                                width: parent.width;
+                                height: parent.height;
+                                vertical-alignment: center;
+                                text: "Search catalogs";
+                                font-size: 1 * root.rem-size;
+                                color: Theme.text;
+                                opacity: 0.6;
+                            }
+                            search-in := TextInput {
+                                width: parent.width;
+                                height: parent.height;
+                                vertical-alignment: center;
+                                single-line: true;
+                                font-size: 1 * root.rem-size;
+                                color: Theme.text;
+                                text <=> SettingsUi.spotlight-search-query;
+                                edited => { SettingsUi.spotlight-search-changed(self.text); }
+                            }
+                        }
+                        VerticalLayout {
+                            horizontal-stretch: 0;
+                            alignment: center;
+                            Image {
+                                width: 1.4 * root.rem-size;
+                                height: 1.4 * root.rem-size;
+                                source: @image-url("../icons/search.svg");
+                                colorize: Theme.text;
+                                opacity: 0.6;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if !SettingsUi.data.spotlight-empty: SpotlightCatalogTray {
+                rem-size: root.rem-size;
+                full: root.full;
+            }
+
+            if !SettingsUi.data.spotlight-empty: Flickable {
+                vertical-stretch: 1;
+                content-width: self.width;
+                content-height: groups-col.preferred-height;
+
+                groups-col := VerticalLayout {
+                    width: parent.width;
+                    height: self.preferred-height;
+                    alignment: start;
+                    padding-bottom: 2 * root.rem-size;
+                    spacing: 0px;
+
+                    if SettingsUi.spotlight-groups.length == 0: Text {
+                        height: 6 * root.rem-size;
+                        text: "No results were found";
+                        font-size: 1 * root.rem-size;
+                        color: Theme.text;
+                        opacity: 0.6;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    for grp in SettingsUi.spotlight-groups: VerticalLayout {
+                        spacing: 0px;
+
+                        HorizontalLayout {
+                            padding-top: 1.25 * root.rem-size;
+                            padding-bottom: 0.9 * root.rem-size;
+                            spacing: 0.75 * root.rem-size;
+                            alignment: start;
+
+                            VerticalLayout {
+                                alignment: center;
+                                Image {
+                                    width: 1.25 * root.rem-size;
+                                    height: 1.25 * root.rem-size;
+                                    source: @image-url("../icons/addons.svg");
+                                    colorize: Theme.text;
+                                    opacity: 0.6;
+                                }
+                            }
+                            Text {
+                                text: grp.addon-name;
+                                font-size: 0.95 * root.rem-size;
+                                font-weight: 600;
+                                color: Theme.text;
+                                vertical-alignment: center;
+                                overflow: elide;
+                            }
+                            Text {
+                                text: grp.count-label;
+                                font-size: 0.95 * root.rem-size;
+                                font-weight: 500;
+                                color: Theme.text;
+                                opacity: 0.45;
+                                vertical-alignment: center;
+                            }
+                        }
+
+                        VerticalLayout {
+                            spacing: 1.25 * root.rem-size;
+
+                            for row in grp.rows: HorizontalLayout {
+                                spacing: 1.25 * root.rem-size;
+
+                                SpotlightCatalogCard {
+                                    horizontal-stretch: 1;
+                                    card: row.c0;
+                                    full: root.full;
+                                    rem-size: root.rem-size;
+                                    toggled(i) => { SettingsUi.toggle-spotlight-catalog(i); }
+                                }
+                                if row.has-1: SpotlightCatalogCard {
+                                    horizontal-stretch: 1;
+                                    card: row.c1;
+                                    full: root.full;
+                                    rem-size: root.rem-size;
+                                    toggled(i) => { SettingsUi.toggle-spotlight-catalog(i); }
+                                }
+                                if !row.has-1: Rectangle { horizontal-stretch: 1; background: transparent; }
+                                if row.has-2: SpotlightCatalogCard {
+                                    horizontal-stretch: 1;
+                                    card: row.c2;
+                                    full: root.full;
+                                    rem-size: root.rem-size;
+                                    toggled(i) => { SettingsUi.toggle-spotlight-catalog(i); }
+                                }
+                                if !row.has-2: Rectangle { horizontal-stretch: 1; background: transparent; }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Rectangle {
+            x: parent.width - self.width - 0.5 * root.rem-size;
+            y: 0.5 * root.rem-size;
+            width: 3 * root.rem-size;
+            height: 3 * root.rem-size;
+            border-radius: 1.25 * root.rem-size;
+            Image {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                width: 1.5 * root.rem-size;
+                height: 1.5 * root.rem-size;
+                source: @image-url("../icons/close.svg");
+                colorize: Theme.text;
+                opacity: cl-t.has-hover ? 1.0 : 0.4;
+            }
+            cl-t := TouchArea {
+                mouse-cursor: pointer;
+                clicked => { root.closed(); }
+            }
+        }
+    }
+}

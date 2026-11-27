@@ -38,6 +38,7 @@ jobs:
             libgl-dev \
             libmpv-dev \
             librsvg2-dev \
+            libudev-dev \
             libwayland-dev \
             libx11-dev \
             libxkbcommon-dev \

@@ -6,7 +6,12 @@
 
 pub mod clipboard;
 pub(crate) mod diagnostics;
+pub mod discord;
+mod discord_ipc;
 pub mod env;
+pub mod external_player;
+pub mod file_dialog;
+pub mod gamepad;
 pub mod images;
 pub mod links;
 pub mod local_settings;
@@ -19,4 +24,5 @@ mod server_child;
 pub mod skip;
 pub mod stream_server;
 pub mod theme;
+pub mod tray;
 pub(crate) mod update;

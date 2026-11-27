@@ -3,11 +3,13 @@
 //! This is the only place in the app that knows both a screen's data and the window it lands in.
 //! It decides nothing: every value here was decided by the screen that produced it.
 
+mod board;
 mod browse;
 mod details_player;
 mod mods;
 mod mods_logs;
 mod settings;
+pub(crate) mod spotlight;
 pub(crate) mod sync;
 
 pub(crate) use details_player::tracks;
@@ -22,13 +24,14 @@ use crate::{CalendarUi, DetailsUi, MainWindow};
 
 /// Drains `app`'s pending dirty `ScreenMask` on the UI thread and projects only the changed
 /// screen slices onto `window`, cloning only `Arc` handles from `Snapshot`.
-pub(crate) fn apply_dirty(window: &MainWindow, app: &App) {
+pub(crate) fn apply_dirty(window: &MainWindow, app: &App) -> ScreenMask {
     let mask = app.take_dirty();
     if mask.is_empty() {
-        return;
+        return mask;
     }
     let snapshot = app.snapshot();
     apply_mask(window, &snapshot, mask, app.images());
+    mask
 }
 
 pub(crate) fn apply_mask(
@@ -40,7 +43,7 @@ pub(crate) fn apply_mask(
     sync::prune_slint_images(images);
 
     if mask.contains(ScreenMask::BOARD) {
-        browse::apply_board(window, &snapshot.board, images);
+        board::apply_board(window, &snapshot.board, images);
     }
     if mask.contains(ScreenMask::DISCOVER) {
         browse::apply_discover(window, &snapshot.discover, images);
@@ -57,7 +60,7 @@ pub(crate) fn apply_mask(
             .set_data(browse::calendar_view(&snapshot.calendar, images));
     }
     if mask.contains(ScreenMask::SETTINGS) {
-        apply_settings(window, &snapshot.settings);
+        apply_settings(window, &snapshot.settings, images);
         window
             .global::<DetailsUi>()
             .set_wrap_streams(snapshot.settings.wrap_streams);

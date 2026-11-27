@@ -89,6 +89,7 @@ export component SettingsRow inherits Rectangle {
     in property <bool> has-icon: false;
     in property <bool> first: false;
     in property <bool> last: false;
+    in property <bool> no-divider: false;
     in property <bool> thin: false;
     in property <bool> end-align: false;
     in property <bool> keys-row: false;
@@ -104,7 +105,7 @@ export component SettingsRow inherits Rectangle {
     border-bottom-right-radius: root.last ? 1.25 * root.rem-size : 0px;
     animate background { duration: 250ms; }
 
-    if !root.first: Rectangle {
+    if !root.first && !root.no-divider: Rectangle {
         x: 1.25 * root.rem-size;
         y: 0px;
         width: parent.width - 2.5 * root.rem-size;

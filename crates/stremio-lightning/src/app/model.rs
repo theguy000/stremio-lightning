@@ -49,6 +49,7 @@ pub type AppRuntime = Runtime<AppEnv, AppModel>;
 pub struct BoardData {
     pub status: String,
     pub rows: Vec<board::Row>,
+    pub spotlight: Vec<board::SpotlightItem>,
 }
 
 /// Complete, structurally shared plain-Rust snapshot of every screen.

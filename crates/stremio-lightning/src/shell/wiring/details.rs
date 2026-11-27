@@ -4,7 +4,7 @@ use slint::{ComponentHandle, ModelRc};
 
 use super::Wiring;
 use crate::app::ActiveScreen;
-use crate::plumbing::{clipboard, links};
+use crate::plumbing::{clipboard, external_player, links};
 use crate::screens::{details, player};
 use crate::{DetailsUi, MainWindow, PreviewData};
 
@@ -79,10 +79,23 @@ impl Wiring {
                     window.global::<DetailsUi>().set_play_message("".into());
                 }
             }
-            Ok(player::VideoOpen::OpenExternal(url)) => {
+            Ok(player::VideoOpen::OpenBrowser(url)) => {
                 links::open(&url);
                 if let Some(window) = self.window.upgrade() {
                     window.global::<DetailsUi>().set_play_message("".into());
+                }
+            }
+            Ok(player::VideoOpen::ExternalPlayer(plan)) => {
+                let msg = match external_player::open(&plan.launch) {
+                    Ok(()) => {
+                        player::record_external_opened(self.app.runtime(), *plan);
+                        self.say("Stream opened in external player");
+                        String::new()
+                    }
+                    Err(error) => error,
+                };
+                if let Some(window) = self.window.upgrade() {
+                    window.global::<DetailsUi>().set_play_message(msg.into());
                 }
             }
             Ok(player::VideoOpen::PickFromStreams) => self.pick_video(video_id),
@@ -168,11 +181,21 @@ impl Wiring {
     pub(super) fn play_stream(&self, index: i32) {
         let index = usize::try_from(index).unwrap_or(usize::MAX);
         let message = match player::open(self.app.runtime(), index) {
-            Ok(Some(url)) => {
+            Ok(player::OpenResult::OpenBrowser(url)) => {
                 links::open(&url);
                 String::new()
             }
-            Ok(None) => String::new(),
+            Ok(player::OpenResult::ExternalPlayer(plan)) => {
+                match external_player::open(&plan.launch) {
+                    Ok(()) => {
+                        player::record_external_opened(self.app.runtime(), *plan);
+                        self.say("Stream opened in external player");
+                        String::new()
+                    }
+                    Err(error) => error,
+                }
+            }
+            Ok(player::OpenResult::Loaded) => String::new(),
             Err(error) => format!("Can't play this stream: {error}"),
         };
         if let Some(window) = self.window.upgrade() {

@@ -30,6 +30,19 @@ export component DevicePage inherits VerticalLayout {
             rem-size: root.rem-size; label: "Pause playback when minimized"; highlighted: SettingsUi.hit-row == "pause";
             SettingsToggle { rem-size: root.rem-size; checked: SettingsUi.data.pause-on-minimize; toggled(v) => { SettingsUi.toggle-option("pauseOnMinimize", v); } }
         }
+        SettingsRow {
+            rem-size: root.rem-size;
+            label: "Custom mpv config";
+            description: SettingsUi.data.mpv-config-path;
+            last: true;
+            highlighted: SettingsUi.hit-row == "mpvConfig";
+            SettingsSelectControl {
+                rem-size: root.rem-size;
+                input: SettingsUi.data.mpv-config;
+                fallback-title: "Default";
+                select(o) => { SettingsUi.select-mpv-config(o); }
+            }
+        }
     }
 
     SettingsGroup {
@@ -43,6 +56,10 @@ export component DevicePage inherits VerticalLayout {
         SettingsRow {
             rem-size: root.rem-size; label: "Escape key exit full screen"; highlighted: SettingsUi.hit-row == "esc";
             SettingsToggle { rem-size: root.rem-size; checked: SettingsUi.data.esc-exit-fullscreen; toggled(v) => { SettingsUi.toggle-option("escExitFullscreen", v); } }
+        }
+        SettingsRow {
+            rem-size: root.rem-size; label: "Show watching activity on Discord"; last: true; highlighted: SettingsUi.hit-row == "discord";
+            SettingsToggle { rem-size: root.rem-size; checked: SettingsUi.data.discord-rpc-enabled; toggled(v) => { SettingsUi.toggle-option("discordRpcEnabled", v); } }
         }
     }
 }

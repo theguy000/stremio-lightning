@@ -1,0 +1,182 @@
+// Based on stremio-web GamepadModal (Copyright Smart code 203358507).
+import { Theme } from "theme.slint";
+
+component PadKeycap inherits Rectangle {
+    in property <string> label;
+    in property <bool> active: false;
+    in property <length> rem-size;
+
+    width: Math.max(2.6 * root.rem-size, lbl.preferred-width + 1.5 * root.rem-size);
+    height: 2.3 * root.rem-size;
+    border-radius: 0.4 * root.rem-size;
+    background: root.active ? Theme.accent : Theme.overlay;
+    border-width: root.active ? 1px : 0px;
+    border-color: #ffffff88;
+
+    lbl := Text {
+        width: parent.width;
+        height: parent.height;
+        text: root.label;
+        font-size: 0.9 * root.rem-size;
+        font-weight: 600;
+        color: #ffffff;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+component PadLine inherits HorizontalLayout {
+    in property <string> action;
+    in property <string> button;
+    in property <string> control-id;
+    in property <string> alt-control-id: "";
+    in property <string> active-control;
+    in property <length> rem-size;
+
+    spacing: 1 * root.rem-size;
+    alignment: space-between;
+
+    Text {
+        horizontal-stretch: 1;
+        text: root.action;
+        font-size: 0.95 * root.rem-size;
+        color: Theme.text;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    PadKeycap {
+        label: root.button;
+        active: root.active-control != ""
+            && (root.active-control == root.control-id || (root.alt-control-id != "" && root.active-control == root.alt-control-id));
+        rem-size: root.rem-size;
+    }
+}
+
+export component GamepadModal inherits Rectangle {
+    in property <length> rem-size: 14px;
+    in property <string> family: "xbox";
+    in property <string> active-control: "";
+    callback closed();
+
+    property <bool> is-ps: root.family == "playstation";
+    property <string> lbl-a: root.is-ps ? "✕" : "A";
+    property <string> lbl-b: root.is-ps ? "○" : "B";
+    property <string> lbl-x: root.is-ps ? "□" : "X";
+    property <string> lbl-y: root.is-ps ? "△" : "Y";
+    property <string> lbl-lb: root.is-ps ? "L1" : "LB";
+    property <string> lbl-rb: root.is-ps ? "R1" : "RB";
+
+    background: #00000088;
+
+    TouchArea {
+        clicked => { root.closed(); }
+    }
+
+    Rectangle {
+        width: Math.min(parent.width * 0.84, 54 * root.rem-size);
+        height: Math.min(parent.height * 0.8, 34 * root.rem-size);
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        border-radius: 0.75 * root.rem-size;
+        background: Theme.modal-background;
+        border-width: 1px;
+        border-color: Theme.overlay;
+        drop-shadow-blur: 15px;
+        drop-shadow-color: #7b5bf55e;
+
+        TouchArea {}
+
+        VerticalLayout {
+            padding: 0px;
+            spacing: 0px;
+
+            HorizontalLayout {
+                height: 4.5 * root.rem-size;
+                padding-left: 2.25 * root.rem-size;
+                padding-right: 1 * root.rem-size;
+                alignment: space-between;
+
+                Text {
+                    text: "Gamepad Controls";
+                    font-size: 1.5 * root.rem-size;
+                    font-weight: 500;
+                    color: Theme.text;
+                    vertical-alignment: center;
+                }
+                VerticalLayout {
+                    alignment: center;
+                    Rectangle {
+                        width: 2.75 * root.rem-size;
+                        height: 2.75 * root.rem-size;
+                        border-radius: 1.375 * root.rem-size;
+                        background: cl-t.has-hover ? Theme.overlay : transparent;
+                        Image {
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                            width: 1.15 * root.rem-size;
+                            height: 1.15 * root.rem-size;
+                            source: @image-url("icons/close.svg");
+                            colorize: Theme.text;
+                            opacity: 0.75;
+                        }
+                        cl-t := TouchArea {
+                            mouse-cursor: pointer;
+                            accessible-role: button;
+                            accessible-label: "Close gamepad guide";
+                            clicked => { root.closed(); }
+                        }
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                vertical-stretch: 1;
+                padding-left: 2.25 * root.rem-size;
+                padding-right: 2.25 * root.rem-size;
+                padding-bottom: 1.25 * root.rem-size;
+                spacing: 2.5 * root.rem-size;
+
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    alignment: start;
+                    spacing: 0.85 * root.rem-size;
+
+                    Text { text: "Navigation"; font-size: 1.05 * root.rem-size; font-weight: 600; color: Theme.text; }
+                    PadLine { rem-size: root.rem-size; active-control: root.active-control; action: "Scroll / Focus"; button: "L Stick / D-Pad"; control-id: "lstick"; }
+                    PadLine { rem-size: root.rem-size; active-control: root.active-control; action: "Activate Focused"; button: root.lbl-a; control-id: "a"; }
+                    PadLine { rem-size: root.rem-size; active-control: root.active-control; action: "Go Back"; button: root.lbl-b; control-id: "b"; }
+                    PadLine { rem-size: root.rem-size; active-control: root.active-control; action: "Gamepad Guide"; button: root.lbl-x; control-id: "x"; }
+                    PadLine { rem-size: root.rem-size; active-control: root.active-control; action: "Toggle Fullscreen"; button: root.lbl-y; control-id: "y"; }
+                    PadLine { rem-size: root.rem-size; active-control: root.active-control; action: "Previous / Next Tab"; button: root.lbl-lb + " / " + root.lbl-rb; control-id: "lb"; alt-control-id: "rb"; }
+                }
+
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    alignment: start;
+                    spacing: 0.85 * root.rem-size;
+
+                    Text { text: "Player"; font-size: 1.05 * root.rem-size; font-weight: 600; color: Theme.text; }
+                    PadLine { rem-size: root.rem-size; active-control: root.active-control; action: "Play / Pause"; button: root.lbl-x + " / " + root.lbl-a; control-id: "x"; alt-control-id: "a"; }
+                    PadLine { rem-size: root.rem-size; active-control: root.active-control; action: "Seek Backward / Forward"; button: "R Stick ←/→"; control-id: "rstick"; }
+                    PadLine { rem-size: root.rem-size; active-control: root.active-control; action: "Adjust Volume"; button: "R Stick ↑/↓"; control-id: "rstick"; }
+                    PadLine { rem-size: root.rem-size; active-control: root.active-control; action: "Toggle Fullscreen"; button: root.lbl-y; control-id: "y"; }
+                    PadLine { rem-size: root.rem-size; active-control: root.active-control; action: "Exit Fullscreen / Back"; button: root.lbl-b; control-id: "b"; }
+                }
+            }
+
+            Rectangle {
+                height: 3.25 * root.rem-size;
+                Text {
+                    width: parent.width;
+                    height: parent.height;
+                    text: "Compatible with PlayStation, Xbox, and generic controllers";
+                    font-size: 0.875 * root.rem-size;
+                    color: Theme.text;
+                    opacity: 0.55;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+}

@@ -1,13 +1,13 @@
 import { Theme } from "theme.slint";
 import { CalendarContent, CalendarData, CalendarUi } from "calendar.slint";
 import { HorizontalNavBar, ModsNavItem, Section, VerticalNavBar } from "shell.slint";
-import { BoardContent, BoardUi, CatalogRow, PosterData } from "board.slint";
+import { BoardContent, BoardUi, CatalogRow, PosterData, SpotlightSlide } from "board.slint";
 import { AddonData, AddonPendingData, AddonsContent, AddonsUi } from "addons.slint";
 import { DiscoverContent, DiscoverUi, SelectInputData } from "discover.slint";
 import { LoggedOutPlaceholder } from "logged-out-placeholder.slint";
 import { LibraryCard, LibraryContent, LibrarySort, LibraryUi } from "library.slint";
 import { ModCardData, ModsContent, ModsUi, ModsViewData } from "mods.slint";
-import { ServerUrlRow, SettingsContent, SettingsSearchHit, SettingsUi, SettingsViewData } from "settings.slint";
+import { ServerUrlRow, SettingsContent, SettingsSearchHit, SettingsUi, SettingsViewData, SpotlightCardRow3, SpotlightCatalogCardData, SpotlightCatalogGroup, SpotlightPickChip } from "settings.slint";
 import { SelectOption } from "multiselect-menu.slint";
 import { LinkGroup, PreviewData } from "meta-preview.slint";
 import { DetailsScreen, DetailsUi, StreamData } from "details-screen.slint";
@@ -15,7 +15,7 @@ import { LanguageOption, PlayerScreen, PlayerUi, PlayerEpisode, PlayerOption, Pl
 import { VideoRow } from "videos-list.slint";
 import { ClassStyle, ClassStyles } from "class-styles.slint";
 import { AuthUi, IntroContent } from "intro.slint";
-import { ShareModal } from "share-modal.slint";
+import { ShellModals, ShellModalsUi } from "shell-modals.slint";
 
 export {
     AddonData,
@@ -48,7 +48,8 @@ export {
     Section,
     SelectInputData,
     SelectOption,
-    ServerUrlRow, SettingsSearchHit, SettingsUi, SettingsViewData,
+    ServerUrlRow, SettingsSearchHit, SettingsUi, SettingsViewData, SpotlightCardRow3, SpotlightCatalogCardData, SpotlightCatalogGroup, SpotlightPickChip,
+    ShellModalsUi, SpotlightSlide,
     SkipMark,
     SkipRow,
     StreamData,
@@ -153,6 +154,7 @@ export component MainWindow inherits Window {
 
     if !root.playing: HorizontalNavBar {
         rem-size: root.rem-size;
+        focus-search-seq: ShellModalsUi.focus-search-seq;
         x: 0px;
         y: 0px;
         width: parent.width;
@@ -264,35 +266,15 @@ export component MainWindow inherits Window {
     }
 
     // Overlays declared last so they paint above every screen and take presses first.
-    if root.toast != "": HorizontalLayout {
-        y: parent.height - 4 * root.rem-size;
-        height: 3 * root.rem-size;
-        alignment: center;
-        Rectangle {
-            height: 3 * root.rem-size;
-            border-radius: 0.75 * root.rem-size;
-            background: Theme.modal-background;
-            HorizontalLayout {
-                alignment: center;
-                padding-left: 1.5 * root.rem-size;
-                padding-right: 1.5 * root.rem-size;
-                Text {
-                    text: root.toast;
-                    color: Theme.text;
-                    font-size: 1 * root.rem-size;
-                    vertical-alignment: center;
-                }
-            }
-        }
-    }
-
-    if root.share-open: ShareModal {
+    ShellModals {
         width: 100%;
         height: 100%;
-        link: root.share-link;
         rem-size: root.rem-size;
-        closed => { root.share-close(); }
-        copied => { root.share-copy(); }
-        opened(network) => { root.share-to(network); }
+        toast: root.toast;
+        share-open: root.share-open;
+        share-link: root.share-link;
+        share-close => { root.share-close(); }
+        share-copy => { root.share-copy(); }
+        share-to(network) => { root.share-to(network); }
     }
 }

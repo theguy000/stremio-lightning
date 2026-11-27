@@ -1,0 +1,224 @@
+// Based on stremio-web Settings Streaming URLsManager (Copyright Smart code 203358507).
+import { Theme } from "../theme.slint";
+import { SettingsGroup, SettingsRowButton } from "primitives.slint";
+import { SettingsUi } from "types.slint";
+
+export component ServerUrlsCard inherits SettingsGroup {
+    property <bool> add-mode: false;
+    property <string> draft-url: "";
+
+    title: "Streaming server";
+    padded: true;
+
+    VerticalLayout {
+        spacing: 0px;
+
+        // Header: URL / Status aligned with pill row content (URLsManager.less: padding 0 3rem, last padding-right 3rem)
+        HorizontalLayout {
+            padding-left: 3 * root.rem-size;
+            padding-right: 6 * root.rem-size;
+            alignment: space-between;
+            Text { text: "URL"; font-size: root.rem-size; font-weight: 400; color: Theme.text; opacity: 0.6; }
+            Text { text: "Status"; font-size: root.rem-size; font-weight: 400; color: Theme.text; opacity: 0.6; }
+        }
+
+        // Content list (URLsManager.less: padding 1.5rem 0, gap 1rem)
+        VerticalLayout {
+            padding-top: 1.5 * root.rem-size;
+            padding-bottom: 1.5 * root.rem-size;
+            spacing: 1 * root.rem-size;
+
+            for item in SettingsUi.data.server-urls: Rectangle {
+                height: 3.5 * root.rem-size;
+                border-radius: 1.75 * root.rem-size;
+                background: Theme.overlay;
+                border-width: 2px;
+                border-color: row-t.has-hover ? Theme.overlay-hover : transparent;
+
+                row-t := TouchArea {
+                    mouse-cursor: item.selected ? default : pointer;
+                    clicked => { if (!item.selected) { SettingsUi.select-server-url(item.url); } }
+                }
+
+                HorizontalLayout {
+                    padding-left: 1.5 * root.rem-size;
+                    padding-right: 5.5 * root.rem-size;
+                    spacing: 1 * root.rem-size;
+                    alignment: space-between;
+
+                    HorizontalLayout {
+                        horizontal-stretch: 1;
+                        spacing: 1 * root.rem-size;
+                        alignment: start;
+
+                        VerticalLayout {
+                            horizontal-stretch: 0;
+                            alignment: center;
+                            Rectangle {
+                                width: 1.25 * root.rem-size;
+                                height: 1.25 * root.rem-size;
+                                border-radius: 0.625 * root.rem-size;
+                                border-width: 2px;
+                                border-color: item.selected ? Theme.accent : Theme.placeholder;
+                                if item.selected: Rectangle {
+                                    x: (parent.width - self.width) / 2;
+                                    y: (parent.height - self.height) / 2;
+                                    width: 0.6 * root.rem-size;
+                                    height: 0.6 * root.rem-size;
+                                    border-radius: 0.3 * root.rem-size;
+                                    background: Theme.accent;
+                                }
+                            }
+                        }
+                        Text {
+                            horizontal-stretch: 1;
+                            text: item.url;
+                            overflow: elide;
+                            vertical-alignment: center;
+                            font-size: root.rem-size;
+                            color: Theme.text;
+                        }
+                    }
+
+                    if item.selected: HorizontalLayout {
+                        horizontal-stretch: 0;
+                        spacing: 0.5 * root.rem-size;
+                        alignment: end;
+
+                        VerticalLayout {
+                            alignment: center;
+                            Rectangle {
+                                width: 0.75 * root.rem-size;
+                                height: 0.75 * root.rem-size;
+                                border-radius: 0.375 * root.rem-size;
+                                background: SettingsUi.data.server-online ? Theme.accent-green
+                                    : SettingsUi.data.server-loading ? Theme.accent-yellow : Theme.accent-red;
+                            }
+                        }
+                        Text {
+                            text: SettingsUi.data.server-online ? "Online"
+                                : SettingsUi.data.server-loading ? "Checking..." : "Error";
+                            vertical-alignment: center;
+                            font-size: root.rem-size;
+                            color: Theme.text;
+                        }
+                    }
+                }
+
+                if item.removable: Rectangle {
+                    x: parent.width - self.width - 1.5 * root.rem-size;
+                    y: (parent.height - self.height) / 2;
+                    width: 2.5 * root.rem-size;
+                    height: 2.5 * root.rem-size;
+                    border-radius: 0.75 * root.rem-size;
+                    background: del-t.has-hover ? Theme.overlay : transparent;
+                    Image {
+                        x: (parent.width - self.width) / 2;
+                        y: (parent.height - self.height) / 2;
+                        width: 1.35 * root.rem-size;
+                        height: 1.35 * root.rem-size;
+                        source: @image-url("../icons/bin.svg");
+                        colorize: del-t.has-hover ? Theme.accent-red : Theme.text;
+                        opacity: del-t.has-hover ? 1.0 : (row-t.has-hover ? 0.6 : 0.35);
+                    }
+                    del-t := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { SettingsUi.delete-server-url(item.url); }
+                    }
+                }
+            }
+
+            if root.add-mode: Rectangle {
+                height: 3.5 * root.rem-size;
+                border-radius: 1.75 * root.rem-size;
+                background: Theme.overlay;
+                border-width: 2px;
+                border-color: transparent;
+
+                HorizontalLayout {
+                    padding-left: 1.5 * root.rem-size;
+                    padding-right: 1 * root.rem-size;
+                    spacing: 0.6 * root.rem-size;
+                    alignment: space-between;
+
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        alignment: center;
+                        Rectangle {
+                            height: 2.4 * root.rem-size;
+                            border-radius: 0.75 * root.rem-size;
+                            background: Theme.overlay;
+                            border-width: 1px;
+                            border-color: add-in.has-focus ? Theme.text : transparent;
+
+                            if root.draft-url == "": Text {
+                                x: 0.75 * root.rem-size;
+                                width: parent.width - 1.5 * root.rem-size;
+                                height: parent.height;
+                                vertical-alignment: center;
+                                text: "http://127.0.0.1:11470/";
+                                font-size: 0.95 * root.rem-size;
+                                color: Theme.placeholder;
+                            }
+                            add-in := TextInput {
+                                x: 0.75 * root.rem-size;
+                                width: parent.width - 1.5 * root.rem-size;
+                                height: parent.height;
+                                vertical-alignment: center;
+                                single-line: true;
+                                font-size: 0.95 * root.rem-size;
+                                color: Theme.text;
+                                text <=> root.draft-url;
+                                accepted => {
+                                    SettingsUi.add-server-url(root.draft-url);
+                                    root.draft-url = "";
+                                    root.add-mode = false;
+                                }
+                            }
+                        }
+                    }
+                    VerticalLayout {
+                        horizontal-stretch: 0;
+                        alignment: center;
+                        HorizontalLayout {
+                            spacing: 0.4 * root.rem-size;
+                            SettingsRowButton {
+                                rem-size: root.rem-size; label: "Add"; variant: "primary";
+                                clicked => {
+                                    SettingsUi.add-server-url(root.draft-url);
+                                    root.draft-url = "";
+                                    root.add-mode = false;
+                                }
+                            }
+                            SettingsRowButton {
+                                rem-size: root.rem-size; label: "Cancel";
+                                clicked => { root.draft-url = ""; root.add-mode = false; }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Footer: green Add URL pill + Reload pill (URLsManager.less)
+        HorizontalLayout {
+            alignment: space-between;
+
+            SettingsRowButton {
+                rem-size: root.rem-size;
+                label: "Add URL";
+                variant: "primary";
+                icon: @image-url("../icons/add.svg");
+                has-icon: true;
+                clicked => { root.add-mode = true; }
+            }
+            SettingsRowButton {
+                rem-size: root.rem-size;
+                label: "Reload";
+                icon: @image-url("../icons/reset.svg");
+                has-icon: true;
+                clicked => { SettingsUi.reload-streaming-server(); }
+            }
+        }
+    }
+}
