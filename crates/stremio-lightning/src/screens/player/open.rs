@@ -1,31 +1,40 @@
 //! Pure stream-opening resolution for Details, Library/Continue Watching, and Episode Watch.
-//! Never launches external browsers directly; returns external URLs to `shell/`.
+//! Never launches external browsers or players directly; returns launch plans to `shell/`.
 
 use stremio_core::constants::SUBTITLES_RESOURCE_NAME;
 use stremio_core::models::common::Loadable;
 use stremio_core::models::meta_details::MetaDetails;
 use stremio_core::models::player::Selected as PlayerSelected;
-use stremio_core::runtime::msg::{Action, ActionLoad};
+use stremio_core::runtime::msg::{Action, ActionLoad, ActionMetaDetails};
 use stremio_core::runtime::RuntimeAction;
 use stremio_core::types::addon::{ResourcePath, ResourceRequest};
-use stremio_core::types::resource::StreamSource;
+use stremio_core::types::resource::{Stream, StreamSource, StreamUrls, Video};
 use stremio_core::types::streams::StreamsItemKey;
+use url::Url;
 
 use crate::app::{AppModel, AppModelField, AppRuntime};
+use crate::plumbing::external_player::{ExternalLaunch, ExternalPlayerKind};
 use crate::screens::details;
 
-/// Classification of a resolved stream: load in mpv, or open an external http(s) URL in `shell/`.
 #[derive(Debug, PartialEq)]
 pub(crate) enum OpenOutcome {
     Load(Box<PlayerSelected>),
     OpenExternal(String),
+    ExternalPlayer(ExternalLaunch),
 }
 
-/// Result of clicking "Watch" on an Episode.
+#[derive(Debug, PartialEq)]
+pub(crate) enum OpenResult {
+    Loaded,
+    OpenBrowser(String),
+    ExternalPlayer(ExternalLaunch),
+}
+
 #[derive(Debug, PartialEq)]
 pub(crate) enum VideoOpen {
     Opened,
-    OpenExternal(String),
+    OpenBrowser(String),
+    ExternalPlayer(ExternalLaunch),
     PickFromStreams,
 }
 
@@ -37,7 +46,7 @@ fn ready_meta_request(details: &MetaDetails) -> Option<ResourceRequest> {
         .map(|item| item.request.clone())
 }
 
-fn picked(model: &AppModel, index: usize) -> Option<PlayerSelected> {
+fn picked(model: &AppModel, index: usize) -> Option<(PlayerSelected, Option<Video>)> {
     let (stream, request) = model
         .meta_details
         .streams
@@ -48,20 +57,31 @@ fn picked(model: &AppModel, index: usize) -> Option<PlayerSelected> {
         })
         .flatten()
         .nth(index)?;
-    Some(PlayerSelected {
-        stream: stream.clone(),
-        stream_request: Some(request.clone()),
-        meta_request: ready_meta_request(&model.meta_details),
-        subtitles_path: Some(ResourcePath::without_extra(
-            SUBTITLES_RESOURCE_NAME,
-            &request.path.r#type,
-            &request.path.id,
-        )),
-    })
+    let video = details::meta_item(&model.meta_details)
+        .and_then(|item| item.videos.iter().find(|v| v.id == request.path.id))
+        .cloned();
+    Some((
+        PlayerSelected {
+            stream: stream.clone(),
+            stream_request: Some(request.clone()),
+            meta_request: ready_meta_request(&model.meta_details),
+            subtitles_path: Some(ResourcePath::without_extra(
+                SUBTITLES_RESOURCE_NAME,
+                &request.path.r#type,
+                &request.path.id,
+            )),
+        },
+        video,
+    ))
 }
 
-/// Pure classification: external streams validate their http(s) URL; playable streams load.
-pub(crate) fn classify_selected(selected: PlayerSelected) -> Result<OpenOutcome, String> {
+/// Pure classification: external URL streams open in browser; configured `player_type` resolves
+/// a direct http(s) streaming URL for VLC/MPV/M3U; otherwise the stream loads into embedded mpv.
+pub(crate) fn classify_selected(
+    selected: PlayerSelected,
+    player_type: Option<&str>,
+    server_base_url: Option<&Url>,
+) -> Result<OpenOutcome, String> {
     if let StreamSource::External { external_url, .. } = &selected.stream.source {
         let Some(url) = external_url.as_ref() else {
             return Err("this external stream has no link to open".to_owned());
@@ -71,27 +91,65 @@ pub(crate) fn classify_selected(selected: PlayerSelected) -> Result<OpenOutcome,
         }
         return Ok(OpenOutcome::OpenExternal(url.as_str().to_owned()));
     }
+    if let Some(kind) = player_type.and_then(ExternalPlayerKind::parse) {
+        let url = resolve_external_stream_url(&selected.stream, server_base_url)?;
+        return Ok(OpenOutcome::ExternalPlayer(ExternalLaunch { kind, url }));
+    }
     Ok(OpenOutcome::Load(Box::new(selected)))
+}
+
+fn resolve_external_stream_url(
+    stream: &Stream,
+    server_base_url: Option<&Url>,
+) -> Result<String, String> {
+    if matches!(stream.source, StreamSource::Torrent { .. }) && server_base_url.is_none() {
+        return Err("Streaming server is not available.".to_owned());
+    }
+    let converted = stream
+        .convert(server_base_url)
+        .map_err(|_| "Streaming server is not available.".to_owned())?;
+    let urls = StreamUrls::new(converted, server_base_url);
+    urls.streaming_url
+        .map(|u| u.to_string())
+        .ok_or_else(|| "this stream cannot be opened in an external player".to_owned())
 }
 
 fn dispatch_or_external(
     runtime: &AppRuntime,
     selected: PlayerSelected,
-) -> Result<Option<String>, String> {
-    match classify_selected(selected)? {
-        OpenOutcome::OpenExternal(url) => Ok(Some(url)),
+    player_type: Option<&str>,
+    server_base_url: Option<&Url>,
+    details_video: Option<Video>,
+) -> Result<OpenResult, String> {
+    let stream_for_record = selected.stream.clone();
+    match classify_selected(selected, player_type, server_base_url)? {
+        OpenOutcome::OpenExternal(url) => Ok(OpenResult::OpenBrowser(url)),
+        OpenOutcome::ExternalPlayer(launch) => {
+            if let Some(video) = details_video {
+                runtime.dispatch(RuntimeAction {
+                    field: Some(AppModelField::MetaDetails),
+                    action: Action::MetaDetails(ActionMetaDetails::MarkVideoAsWatched(video, true)),
+                });
+                runtime.dispatch(RuntimeAction {
+                    field: Some(AppModelField::MetaDetails),
+                    action: Action::MetaDetails(ActionMetaDetails::ExternalPlayerStreamOpened(
+                        stream_for_record,
+                    )),
+                });
+            }
+            Ok(OpenResult::ExternalPlayer(launch))
+        }
         OpenOutcome::Load(selected) => {
             runtime.dispatch(RuntimeAction {
                 field: Some(AppModelField::Player),
                 action: Action::Load(ActionLoad::Player(selected)),
             });
-            Ok(None)
+            Ok(OpenResult::Loaded)
         }
     }
 }
 
-/// Opens a saved title from Library / Continue Watching. Returns `Some(url)` if external.
-pub(crate) fn open_for(runtime: &AppRuntime, id: &str) -> Result<Option<String>, String> {
+pub(crate) fn open_for(runtime: &AppRuntime, id: &str) -> Result<OpenResult, String> {
     let model = runtime
         .model()
         .map_err(|_| "the app state is not available".to_owned())?;
@@ -115,6 +173,8 @@ pub(crate) fn open_for(runtime: &AppRuntime, id: &str) -> Result<Option<String>,
             video_id,
         })
         .ok_or("this title has no stream to play")?;
+    let player_type = model.ctx.profile.settings.player_type.clone();
+    let server_base = model.streaming_server.base_url.clone();
     let selected = PlayerSelected {
         stream: streams_item.stream.clone(),
         stream_request: Some(ResourceRequest {
@@ -136,21 +196,31 @@ pub(crate) fn open_for(runtime: &AppRuntime, id: &str) -> Result<Option<String>,
         )),
     };
     drop(model);
-    dispatch_or_external(runtime, selected)
+    dispatch_or_external(
+        runtime,
+        selected,
+        player_type.as_deref(),
+        server_base.as_ref(),
+        None,
+    )
 }
 
-/// Plays an Episode directly if its `Video` carries an embedded stream, else `PickFromStreams`.
 pub(crate) fn open_video(runtime: &AppRuntime, video_id: &str) -> Result<VideoOpen, String> {
     let model = runtime
         .model()
         .map_err(|_| "the app state is not available".to_owned())?;
-    let stream = details::meta_item(&model.meta_details)
+    let video = details::meta_item(&model.meta_details)
         .and_then(|item| item.videos.iter().find(|v| v.id == video_id))
-        .and_then(|video| video.stream().map(|s| s.into_owned()));
-    let Some(stream) = stream else {
+        .cloned();
+    let Some(stream) = video
+        .as_ref()
+        .and_then(|v| v.stream().map(|s| s.into_owned()))
+    else {
         return Ok(VideoOpen::PickFromStreams);
     };
     let meta_request = ready_meta_request(&model.meta_details);
+    let player_type = model.ctx.profile.settings.player_type.clone();
+    let server_base = model.streaming_server.base_url.clone();
     let selected = PlayerSelected {
         stream,
         stream_request: meta_request.clone(),
@@ -160,84 +230,42 @@ pub(crate) fn open_video(runtime: &AppRuntime, video_id: &str) -> Result<VideoOp
         }),
     };
     drop(model);
-    Ok(match dispatch_or_external(runtime, selected)? {
-        Some(url) => VideoOpen::OpenExternal(url),
-        None => VideoOpen::Opened,
-    })
+    Ok(
+        match dispatch_or_external(
+            runtime,
+            selected,
+            player_type.as_deref(),
+            server_base.as_ref(),
+            video,
+        )? {
+            OpenResult::OpenBrowser(url) => VideoOpen::OpenBrowser(url),
+            OpenResult::ExternalPlayer(launch) => VideoOpen::ExternalPlayer(launch),
+            OpenResult::Loaded => VideoOpen::Opened,
+        },
+    )
 }
 
-/// Loads the Stream the Details Screen lists at `index`. Returns `Some(url)` if external.
-pub(crate) fn open(runtime: &AppRuntime, index: usize) -> Result<Option<String>, String> {
+pub(crate) fn open(runtime: &AppRuntime, index: usize) -> Result<OpenResult, String> {
     let model = runtime
         .model()
         .map_err(|_| "the app state is not available".to_owned())?;
-    let selected = picked(&model, index).ok_or("the list changed, pick it again")?;
+    let (selected, video) = picked(&model, index).ok_or("the list changed, pick it again")?;
+    let player_type = model.ctx.profile.settings.player_type.clone();
+    let server_base = model.streaming_server.base_url.clone();
     drop(model);
-    dispatch_or_external(runtime, selected)
+    dispatch_or_external(
+        runtime,
+        selected,
+        player_type.as_deref(),
+        server_base.as_ref(),
+        video,
+    )
 }
 
-/// Whether a stream still needs handing to mpv (skips already-open or already-refused keys).
 pub(crate) fn should_open(key: &str, loaded: &str, attempted: Option<&str>) -> bool {
     key != loaded && Some(key) != attempted
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use stremio_core::types::resource::Stream;
-
-    fn selected_with(source: StreamSource) -> PlayerSelected {
-        PlayerSelected {
-            stream: Stream {
-                source,
-                name: None,
-                description: None,
-                thumbnail: None,
-                subtitles: vec![],
-                behavior_hints: Default::default(),
-            },
-            stream_request: None,
-            meta_request: None,
-            subtitles_path: None,
-        }
-    }
-
-    #[test]
-    fn classify_separates_valid_external_links_invalid_external_links_and_playable_streams() {
-        let ext = selected_with(StreamSource::External {
-            external_url: Some(url::Url::parse("https://example.com/watch").unwrap()),
-            android_tv_url: None,
-            tizen_url: None,
-            webos_url: None,
-        });
-        assert_eq!(
-            classify_selected(ext),
-            Ok(OpenOutcome::OpenExternal(
-                "https://example.com/watch".into()
-            ))
-        );
-
-        let missing = selected_with(StreamSource::External {
-            external_url: None,
-            android_tv_url: None,
-            tizen_url: None,
-            webos_url: None,
-        });
-        let ftp = selected_with(StreamSource::External {
-            external_url: Some(url::Url::parse("ftp://example.com/file").unwrap()),
-            android_tv_url: None,
-            tizen_url: None,
-            webos_url: None,
-        });
-        assert!(classify_selected(missing).is_err());
-        assert!(classify_selected(ftp).is_err());
-
-        let playable = selected_with(StreamSource::Url {
-            url: url::Url::parse("https://example.com/movie.mp4").unwrap(),
-        });
-        assert!(matches!(
-            classify_selected(playable),
-            Ok(OpenOutcome::Load(_))
-        ));
-    }
-}
+#[path = "open_tests.rs"]
+mod tests;

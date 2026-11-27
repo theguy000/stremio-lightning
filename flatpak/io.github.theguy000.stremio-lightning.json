@@ -28,6 +28,8 @@
         "--share=ipc",
         "--share=network",
         "--device=dri",
+        "--device=input",
+        "--filesystem=xdg-run/app/com.discordapp.Discord:create",
         "--persist=.stremio-lightning",
         "--filesystem=xdg-download",
         "--talk-name=org.kde.StatusNotifierWatcher",

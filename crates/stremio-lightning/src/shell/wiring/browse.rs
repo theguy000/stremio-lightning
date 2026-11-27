@@ -10,7 +10,7 @@ use stremio_core::runtime::RuntimeAction;
 
 use super::{active_screen_of, Wiring};
 use crate::app::{ActiveScreen, AppModelField, ScreenMask};
-use crate::plumbing::links;
+use crate::plumbing::{external_player, links};
 use crate::screens::{discover, player};
 use crate::MainWindow;
 
@@ -107,11 +107,23 @@ impl Wiring {
         match action.as_str() {
             "play" => {
                 let message = match player::open_for(self.app.runtime(), &id) {
-                    Ok(Some(url)) => {
+                    Ok(player::OpenResult::OpenBrowser(url)) => {
                         links::open(&url);
                         String::new()
                     }
-                    Ok(None) => String::new(),
+                    Ok(player::OpenResult::ExternalPlayer(launch)) => {
+                        match external_player::open(&launch) {
+                            Ok(()) => {
+                                self.say("Stream opened in external player");
+                                String::new()
+                            }
+                            Err(error) => {
+                                self.say(&error);
+                                error
+                            }
+                        }
+                    }
+                    Ok(player::OpenResult::Loaded) => String::new(),
                     Err(error) => format!("Can't play this title: {error}"),
                 };
                 if let Some(window) = self.window.upgrade() {
