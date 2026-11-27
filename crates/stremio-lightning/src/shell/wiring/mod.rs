@@ -6,6 +6,7 @@
 mod addons;
 mod browse;
 mod details;
+mod discord;
 mod logs_about;
 mod mods;
 mod player;
@@ -75,6 +76,7 @@ pub(crate) struct Wiring {
     pub(crate) skip: Arc<Mutex<SkipSession>>,
     pub(crate) skip_submit: Arc<Mutex<bool>>,
     pub(crate) mods_disarm: Arc<Timer>,
+    pub(crate) discord: Arc<crate::plumbing::discord::DiscordService>,
 }
 
 impl Wiring {
@@ -104,6 +106,7 @@ impl Wiring {
             skip: Default::default(),
             skip_submit: Default::default(),
             mods_disarm: Default::default(),
+            discord: Arc::new(crate::plumbing::discord::DiscordService::spawn()),
         }
     }
 

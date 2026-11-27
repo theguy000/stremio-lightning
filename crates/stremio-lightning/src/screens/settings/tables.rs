@@ -245,6 +245,7 @@ pub(crate) const TOGGLES: &[&str] = &[
     "quitOnClose",
     "hideSpoilers",
     "gamepadSupport",
+    "discordRpcEnabled",
     "escExitFullscreen",
     "subtitlesBold",
     "assSubtitlesStyling",

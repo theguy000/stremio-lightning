@@ -11,6 +11,7 @@ impl Wiring {
     pub(crate) fn sync_live_settings(&self) {
         let view = self.app.settings().view();
         self.video.apply_settings(&view.player_config);
+        self.sync_discord_enabled();
     }
 
     pub(super) fn try_select_server_option(&self, key: &str, index: usize) -> bool {

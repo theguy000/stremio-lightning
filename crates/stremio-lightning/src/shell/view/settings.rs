@@ -100,6 +100,7 @@ pub(crate) fn settings_view(data: &SettingsData) -> SettingsViewData {
         cache_root_error: data.streaming.cache_root.error.clone().into(),
         mpv_config: select_input_data(&data.mpv_config_menu),
         mpv_config_path: data.mpv_config_path.clone().into(),
+        discord_rpc_enabled: data.discord_rpc_enabled,
     }
 }
 

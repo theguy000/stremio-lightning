@@ -39,6 +39,7 @@ device|pause|Pause playback when minimized|This device › Playback and app|back
 device|mpvConfig|Custom mpv config|This device › Playback and app|mpv conf file player
 device|quit|Quit on close|This device › Playback and app|tray window
 device|esc|Escape key exit full screen|This device › Playback and app|esc keyboard fullscreen
+device|discord|Show watching activity on Discord|This device › Playback and app|discord rpc rich presence activity status
 streaming||Streaming|This device|server network
 streaming|urls|Streaming server|This device › Streaming|url address reload
 streaming|remoteUrl|Remote URL|This device › Streaming|https link copy

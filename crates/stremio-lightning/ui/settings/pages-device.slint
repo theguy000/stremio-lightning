@@ -57,6 +57,10 @@ export component DevicePage inherits VerticalLayout {
             rem-size: root.rem-size; label: "Escape key exit full screen"; highlighted: SettingsUi.hit-row == "esc";
             SettingsToggle { rem-size: root.rem-size; checked: SettingsUi.data.esc-exit-fullscreen; toggled(v) => { SettingsUi.toggle-option("escExitFullscreen", v); } }
         }
+        SettingsRow {
+            rem-size: root.rem-size; label: "Show watching activity on Discord"; last: true; highlighted: SettingsUi.hit-row == "discord";
+            SettingsToggle { rem-size: root.rem-size; checked: SettingsUi.data.discord-rpc-enabled; toggled(v) => { SettingsUi.toggle-option("discordRpcEnabled", v); } }
+        }
     }
 }
 

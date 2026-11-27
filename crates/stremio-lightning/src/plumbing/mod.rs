@@ -6,6 +6,8 @@
 
 pub mod clipboard;
 pub(crate) mod diagnostics;
+pub mod discord;
+mod discord_ipc;
 pub mod env;
 pub mod external_player;
 pub mod file_dialog;

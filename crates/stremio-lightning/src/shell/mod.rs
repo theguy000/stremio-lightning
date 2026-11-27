@@ -161,6 +161,7 @@ pub(crate) fn attach(window: &MainWindow, app: Arc<App>, tokio: tokio::runtime::
 
     let initial_settings = app.settings().view();
     video.apply_settings(&initial_settings.player_config);
+    wiring.sync_live_settings();
     view::apply_settings(window, &initial_settings);
     let settings_ui = window.global::<crate::SettingsUi>();
     settings_ui.set_app_version(env!("CARGO_PKG_VERSION").into());
