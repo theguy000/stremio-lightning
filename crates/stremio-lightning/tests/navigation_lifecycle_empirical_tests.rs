@@ -10,47 +10,18 @@ use slint::ComponentHandle;
 mod support;
 
 use stremio_lightning::{
-    AuthUi, LibraryCard, LibraryUi, MainWindow, Section, SelectInputData, SettingsUi,
-    SettingsViewData,
+    AuthUi, LibraryCard, LibraryUi, MainWindow, Section, SettingsUi, SettingsViewData,
 };
 
 fn create_default_settings(logged_in: bool, user_email: &str) -> SettingsViewData {
-    let empty_select = || import_empty_select();
     SettingsViewData {
         user_email: user_email.into(),
         logged_in,
-        trakt_authenticated: false,
         streaming_server_url: "http://127.0.0.1:11470".into(),
-        ui_language: empty_select(),
-        quit_on_close: false,
         esc_exit_fullscreen: true,
-        hide_spoilers: false,
-        subtitles_language: empty_select(),
-        subtitles_size: empty_select(),
-        subtitles_text_color: empty_select(),
-        subtitles_bg_color: empty_select(),
-        subtitles_outline_color: empty_select(),
-        audio_language: empty_select(),
-        surround_sound: false,
-        seek_time: empty_select(),
-        seek_short_time: empty_select(),
-        play_in_background: false,
         binge_watching: true,
-        next_video_duration: empty_select(),
-        external_player: empty_select(),
         hardware_decoding: true,
-        caching: empty_select(),
-        torrent_profile: empty_select(),
-        transcoding_profile: empty_select(),
-    }
-}
-
-fn import_empty_select() -> SelectInputData {
-    use slint::{ModelRc, VecModel};
-    SelectInputData {
-        title: "".into(),
-        selected_index: 0,
-        options: ModelRc::new(VecModel::from(vec![])),
+        ..Default::default()
     }
 }
 

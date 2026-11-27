@@ -19,17 +19,26 @@ pub(super) struct Setting {
     pub unset: Option<&'static str>,
 }
 
-const fn entry(
+const fn text(
     key: &'static str,
-    options: Options,
-    default: DefaultVal,
+    options: &'static [(&'static str, &'static str)],
+    default: &'static str,
     unset: Option<&'static str>,
 ) -> Setting {
     Setting {
         key,
-        options,
-        default,
+        options: Options::Text(options),
+        default: DefaultVal::Text(default),
         unset,
+    }
+}
+
+const fn num(key: &'static str, options: &'static [(u32, &'static str)], default: u32) -> Setting {
+    Setting {
+        key,
+        options: Options::Number(options),
+        default: DefaultVal::Number(default),
+        unset: None,
     }
 }
 
@@ -115,6 +124,38 @@ const SEEK_DURATIONS: &[(u32, &str)] = &[
     (30000, "30 seconds"),
 ];
 
+const INTERFACE_SCALES: &[(u32, &str)] = &[
+    (75, "75%"),
+    (100, "100%"),
+    (125, "125%"),
+    (150, "150%"),
+    (175, "175%"),
+];
+
+const SUBTITLES_OFFSETS: &[(u32, &str)] = &[
+    (0, "0%"),
+    (5, "5%"),
+    (10, "10%"),
+    (15, "15%"),
+    (20, "20%"),
+    (25, "25%"),
+    (30, "30%"),
+    (35, "35%"),
+    (40, "40%"),
+    (45, "45%"),
+    (50, "50%"),
+    (55, "55%"),
+    (60, "60%"),
+    (65, "65%"),
+    (70, "70%"),
+    (75, "75%"),
+    (80, "80%"),
+    (85, "85%"),
+    (90, "90%"),
+    (95, "95%"),
+    (100, "100%"),
+];
+
 const NEXT_VIDEO_DURATIONS: &[(u32, &str)] = &[
     (0, "Disabled"),
     (5000, "5 seconds"),
@@ -129,6 +170,12 @@ const NEXT_VIDEO_DURATIONS: &[(u32, &str)] = &[
     (50000, "50 seconds"),
     (55000, "55 seconds"),
     (60000, "60 seconds"),
+    (65000, "65 seconds"),
+    (70000, "70 seconds"),
+    (75000, "75 seconds"),
+    (80000, "80 seconds"),
+    (85000, "85 seconds"),
+    (90000, "90 seconds"),
 ];
 
 const EXTERNAL_PLAYERS: &[(&str, &str)] = &[
@@ -156,97 +203,53 @@ const TORRENT_PROFILES: &[(&str, &str)] = &[
 const TRANSCODING_PROFILES: &[(&str, &str)] = &[("none", "Disabled"), ("default", "Default")];
 
 pub(super) const SETTINGS: &[Setting] = &[
-    entry(
-        "interfaceLanguage",
-        Options::Text(INTERFACE_LANGUAGES),
-        DefaultVal::Text("eng"),
-        None,
-    ),
-    entry(
+    text("interfaceLanguage", INTERFACE_LANGUAGES, "eng", None),
+    num("interfaceScale", INTERFACE_SCALES, 100),
+    num("subtitlesOffset", SUBTITLES_OFFSETS, 5),
+    text(
         "subtitlesLanguage",
-        Options::Text(SUBTITLES_LANGUAGES),
-        DefaultVal::Text("eng"),
+        SUBTITLES_LANGUAGES,
+        "eng",
         Some("none"),
     ),
-    entry(
-        "subtitlesSize",
-        Options::Number(SUBTITLES_SIZES),
-        DefaultVal::Number(100),
-        None,
-    ),
-    entry(
+    num("subtitlesSize", SUBTITLES_SIZES, 100),
+    text(
         "subtitlesTextColor",
-        Options::Text(SUBTITLES_TEXT_COLORS),
-        DefaultVal::Text("#FFFFFFFF"),
+        SUBTITLES_TEXT_COLORS,
+        "#FFFFFFFF",
         None,
     ),
-    entry(
+    text(
         "subtitlesBackgroundColor",
-        Options::Text(SUBTITLES_BG_COLORS),
-        DefaultVal::Text("#00000000"),
+        SUBTITLES_BG_COLORS,
+        "#00000000",
         None,
     ),
-    entry(
+    text(
         "subtitlesOutlineColor",
-        Options::Text(SUBTITLES_OUTLINE_COLORS),
-        DefaultVal::Text("#FF000000"),
+        SUBTITLES_OUTLINE_COLORS,
+        "#FF000000",
         None,
     ),
-    entry(
-        "audioLanguage",
-        Options::Text(AUDIO_LANGUAGES),
-        DefaultVal::Text("eng"),
-        None,
-    ),
-    entry(
-        "seekTimeDuration",
-        Options::Number(SEEK_DURATIONS),
-        DefaultVal::Number(10000),
-        None,
-    ),
-    entry(
-        "seekShortTimeDuration",
-        Options::Number(SEEK_DURATIONS),
-        DefaultVal::Number(3000),
-        None,
-    ),
-    entry(
-        "nextVideoNotificationDuration",
-        Options::Number(NEXT_VIDEO_DURATIONS),
-        DefaultVal::Number(35000),
-        None,
-    ),
-    entry(
-        "playerType",
-        Options::Text(EXTERNAL_PLAYERS),
-        DefaultVal::Text(""),
-        Some(""),
-    ),
-    entry(
-        "caching",
-        Options::Text(CACHING_OPTIONS),
-        DefaultVal::Text("2147483648"),
-        None,
-    ),
-    entry(
-        "torrentProfile",
-        Options::Text(TORRENT_PROFILES),
-        DefaultVal::Text("default"),
-        None,
-    ),
-    entry(
-        "transcodingProfile",
-        Options::Text(TRANSCODING_PROFILES),
-        DefaultVal::Text("none"),
-        None,
-    ),
+    text("audioLanguage", AUDIO_LANGUAGES, "eng", None),
+    num("seekTimeDuration", SEEK_DURATIONS, 10000),
+    num("seekShortTimeDuration", SEEK_DURATIONS, 3000),
+    num("nextVideoNotificationDuration", NEXT_VIDEO_DURATIONS, 35000),
+    text("playerType", EXTERNAL_PLAYERS, "", Some("")),
+    text("caching", CACHING_OPTIONS, "2147483648", None),
+    text("torrentProfile", TORRENT_PROFILES, "default", None),
+    text("transcodingProfile", TRANSCODING_PROFILES, "none", None),
 ];
 
 pub(crate) const TOGGLES: &[&str] = &[
     "quitOnClose",
     "hideSpoilers",
+    "gamepadSupport",
     "escExitFullscreen",
+    "subtitlesBold",
+    "assSubtitlesStyling",
     "surroundSound",
+    "audioPassthrough",
     "playInBackground",
     "bingeWatching",
     "hardwareDecoding",

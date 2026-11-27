@@ -242,6 +242,7 @@ export component PlayerScreen inherits Rectangle {
         has-episodes: PlayerUi.has-episodes; next-open: root.next-open;
         volume: PlayerUi.volume; speed: PlayerUi.speed;
         seek-step: PlayerUi.seek-step; seek-short-step: PlayerUi.seek-short-step;
+        fullscreen: PlayerUi.fullscreen; esc-exit-fullscreen: PlayerUi.esc-exit-fullscreen;
         menu <=> PlayerUi.menu; drawer-open <=> root.drawer-open;
         play-pause => { PlayerUi.play-pause(); }
         seek-by(o) => { PlayerUi.seek-by(o); }
@@ -252,6 +253,8 @@ export component PlayerScreen inherits Rectangle {
         play-next => { PlayerUi.play-next(); }
         toggle-fullscreen => { PlayerUi.toggle-fullscreen(); }
         set-speed(v) => { PlayerUi.set-speed(v); }
+        step-subtitles-size(d) => { PlayerUi.step-subtitles-size(d); }
+        step-subtitles-offset(d) => { PlayerUi.step-subtitles-offset(d); }
         close-menus => { root.close-menus(); }
         back => { PlayerUi.back(); }
     }

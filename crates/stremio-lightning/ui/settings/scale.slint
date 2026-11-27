@@ -1,0 +1,214 @@
+// Based on stremio-web Scale.tsx/less & SubtitlesPreview.tsx/less (Copyright Smart code 203358507).
+import { MultiselectMenu, SelectInputData } from "../multiselect-menu.slint";
+import { Theme } from "../theme.slint";
+
+export component SettingsScale inherits Rectangle {
+    in property <int> value: 100;
+    in property <length> rem-size;
+    callback changed-scale(int);
+
+    property <[int]> stops: [75, 100, 125, 150, 175];
+    property <int> idx: root.value <= 75 ? 0 : root.value <= 100 ? 1 : root.value <= 125 ? 2 : root.value <= 150 ? 3 : 4;
+    property <length> track-h: 1.7 * root.rem-size;
+    property <length> thumb-d: 1.2 * root.rem-size;
+    property <length> cell-w: root.width / 5;
+    property <length> track-left: root.cell-w / 2 - root.track-h / 2;
+    property <length> track-w: root.width - root.cell-w + root.track-h;
+    property <length> step-x: root.idx * (root.track-w - root.track-h) / 4;
+
+    width: 19 * root.rem-size;
+    height: 3.4 * root.rem-size;
+
+    // Track + fill + dots + thumb (bottom)
+    Rectangle {
+        x: root.track-left;
+        y: parent.height - root.track-h;
+        width: root.track-w;
+        height: root.track-h;
+        border-radius: root.track-h / 2;
+        background: Theme.overlay;
+        clip: true;
+
+        Rectangle {
+            x: 0px;
+            y: 0px;
+            width: root.step-x + root.track-h;
+            height: parent.height;
+            border-radius: root.track-h / 2;
+            background: Theme.accent;
+            animate width { duration: 100ms; }
+        }
+        for i in 5: Rectangle {
+            x: root.track-h / 2 + i * (root.track-w - root.track-h) / 4 - 0.15 * root.rem-size;
+            y: (parent.height - 0.3 * root.rem-size) / 2;
+            width: 0.3 * root.rem-size;
+            height: 0.3 * root.rem-size;
+            border-radius: 0.15 * root.rem-size;
+            background: #ffffff33;
+        }
+        Rectangle {
+            x: (root.track-h - root.thumb-d) / 2 + root.step-x;
+            y: (parent.height - root.thumb-d) / 2;
+            width: root.thumb-d;
+            height: root.thumb-d;
+            border-radius: root.thumb-d / 2;
+            background: Theme.text;
+            animate x { duration: 100ms; }
+        }
+    }
+
+    // Interactive stops + percentage labels
+    HorizontalLayout {
+        width: parent.width;
+        height: parent.height;
+        for stop[i] in root.stops: Rectangle {
+            horizontal-stretch: 1;
+            Text {
+                x: 0px;
+                y: 0px;
+                width: parent.width;
+                height: 1.2 * root.rem-size;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                text: stop + "%";
+                font-size: 0.8 * root.rem-size;
+                font-weight: i == root.idx ? 600 : 500;
+                color: Theme.text;
+                opacity: (i == root.idx || st.has-hover) ? 1.0 : 0.5;
+            }
+            st := TouchArea {
+                mouse-cursor: pointer;
+                clicked => { root.changed-scale(stop); }
+            }
+        }
+    }
+}
+
+export component SubtitlesPreview inherits Rectangle {
+    in property <length> rem-size;
+    in property <int> size-pct: 100;
+    in property <int> offset-pct: 5;
+    in property <color> text-color: #ffffff;
+    in property <color> bg-color: #00000000;
+    in property <color> outline-color: #000000;
+    in property <bool> bold: false;
+
+    height: Math.max(14 * root.rem-size, root.width * 9 / 16);
+    border-top-left-radius: 1.25 * root.rem-size;
+    border-top-right-radius: 1.25 * root.rem-size;
+    background: #0c0b11;
+    clip: true;
+
+    Image {
+        width: parent.width;
+        height: parent.height;
+        source: @image-url("../images/subtitles_preview.jpg");
+        image-fit: cover;
+    }
+
+    // Bottom subtle vignette so preview matches video contrast
+    Rectangle {
+        y: parent.height * 0.55;
+        width: parent.width;
+        height: parent.height * 0.45;
+        background: @linear-gradient(180deg, #00000000 0%, #00000066 100%);
+    }
+
+    property <length> sub-font: Math.max(0.8 * root.rem-size, (root.size-pct / 100.0) * 1.15 * root.rem-size);
+    property <length> box-h: sub-lbl.preferred-height + 0.5 * root.rem-size;
+    property <length> bottom-px: Math.min(root.height - root.box-h - 0.5 * root.rem-size, (root.offset-pct / 100.0) * (root.height - root.box-h));
+
+    Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: Math.max(0.5 * root.rem-size, parent.height - root.box-h - root.bottom-px);
+        width: sub-lbl.preferred-width + 0.8 * root.rem-size;
+        height: root.box-h;
+        border-radius: 0.25 * root.rem-size;
+        background: root.bg-color;
+
+        // 4-way outline shadow approximating CSS text-shadow
+        if root.outline-color != #00000000: Text {
+            x: 0.4 * root.rem-size - 1.5px; y: 0.25 * root.rem-size;
+            text: "I'll be there in a minute.";
+            font-size: root.sub-font;
+            font-weight: root.bold ? 700 : 400;
+            color: root.outline-color;
+        }
+        if root.outline-color != #00000000: Text {
+            x: 0.4 * root.rem-size + 1.5px; y: 0.25 * root.rem-size;
+            text: "I'll be there in a minute.";
+            font-size: root.sub-font;
+            font-weight: root.bold ? 700 : 400;
+            color: root.outline-color;
+        }
+        if root.outline-color != #00000000: Text {
+            x: 0.4 * root.rem-size; y: 0.25 * root.rem-size - 1.5px;
+            text: "I'll be there in a minute.";
+            font-size: root.sub-font;
+            font-weight: root.bold ? 700 : 400;
+            color: root.outline-color;
+        }
+        if root.outline-color != #00000000: Text {
+            x: 0.4 * root.rem-size; y: 0.25 * root.rem-size + 1.5px;
+            text: "I'll be there in a minute.";
+            font-size: root.sub-font;
+            font-weight: root.bold ? 700 : 400;
+            color: root.outline-color;
+        }
+        sub-lbl := Text {
+            x: 0.4 * root.rem-size;
+            y: 0.25 * root.rem-size;
+            text: "I'll be there in a minute.";
+            font-size: root.sub-font;
+            font-weight: root.bold ? 700 : 400;
+            color: root.text-color;
+        }
+    }
+}
+
+export component SettingsToggle inherits Rectangle {
+    in property <bool> checked;
+    in property <length> rem-size;
+    callback toggled(bool);
+
+    width: 3.2 * root.rem-size;
+    height: 1.7 * root.rem-size;
+    border-radius: 0.85 * root.rem-size;
+    border-width: touch.has-hover ? 1px : 0px;
+    border-color: Theme.text;
+    background: root.checked ? Theme.accent-green : Theme.overlay;
+    animate background { duration: 100ms; }
+
+    Rectangle {
+        x: root.checked ? parent.width - self.width - 0.25 * root.rem-size : 0.25 * root.rem-size;
+        y: (parent.height - self.height) / 2;
+        width: 1.2 * root.rem-size;
+        height: 1.2 * root.rem-size;
+        border-radius: 0.6 * root.rem-size;
+        background: Theme.text;
+        animate x { duration: 100ms; }
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.toggled(!root.checked); }
+    }
+}
+
+export component SettingsSelectControl inherits Rectangle {
+    in property <length> rem-size;
+    in property <SelectInputData> input;
+    in property <string> fallback-title;
+    callback select(int);
+
+    width: 15 * root.rem-size;
+    height: 3 * root.rem-size;
+
+    MultiselectMenu {
+        width: parent.width;
+        title: root.input.title != "" ? root.input.title : root.fallback-title;
+        options: root.input.options;
+        selected-index: root.input.selected-index;
+        rem-size: root.rem-size;
+        select(opt) => { root.select(opt); }
+    }
+}

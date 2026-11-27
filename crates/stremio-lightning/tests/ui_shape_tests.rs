@@ -72,7 +72,15 @@ fn a_sign_in_attempt_can_no_longer_speak_once_it_is_superseded_or_dismissed() {
 
 #[test]
 fn every_link_the_settings_screen_offers_resolves_to_an_address() {
-    for kind in ["support", "source", "tos", "privacy", "reset-password"] {
+    for kind in [
+        "support",
+        "source",
+        "tos",
+        "privacy",
+        "reset-password",
+        "delete-account",
+        "bbb-credit",
+    ] {
         let url = links::resolve(kind).unwrap_or_else(|| panic!("{kind} resolves"));
         assert!(url.starts_with("https://"), "{kind} is a secure address");
     }

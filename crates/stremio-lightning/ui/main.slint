@@ -7,7 +7,7 @@ import { DiscoverContent, DiscoverUi, SelectInputData } from "discover.slint";
 import { LoggedOutPlaceholder } from "logged-out-placeholder.slint";
 import { LibraryCard, LibraryContent, LibrarySort, LibraryUi } from "library.slint";
 import { ModCardData, ModsContent, ModsUi, ModsViewData } from "mods.slint";
-import { SettingsContent, SettingsUi, SettingsViewData } from "settings.slint";
+import { ServerUrlRow, SettingsContent, SettingsSearchHit, SettingsUi, SettingsViewData } from "settings.slint";
 import { SelectOption } from "multiselect-menu.slint";
 import { LinkGroup, PreviewData } from "meta-preview.slint";
 import { DetailsScreen, DetailsUi, StreamData } from "details-screen.slint";
@@ -48,8 +48,7 @@ export {
     Section,
     SelectInputData,
     SelectOption,
-    SettingsUi,
-    SettingsViewData,
+    ServerUrlRow, SettingsSearchHit, SettingsUi, SettingsViewData,
     SkipMark,
     SkipRow,
     StreamData,
@@ -60,6 +59,7 @@ export {
 export component MainWindow inherits Window {
     title: "Stremio Lightning";
     default-font-family: Theme.font-family;
+    default-font-weight: 480;
     min-width: 1000px;
     min-height: 650px;
     preferred-width: 1328px;

@@ -1,0 +1,202 @@
+// Based on stremio-web Settings Interface, Player, and Integrations pages.
+import { SettingsGroup, SettingsPageHeader, SettingsRow, SettingsRowButton } from "primitives.slint";
+import { SettingsScale, SettingsSelectControl, SettingsToggle, SubtitlesPreview } from "scale.slint";
+import { SettingsUi } from "types.slint";
+
+export component InterfacePage inherits VerticalLayout {
+    in property <length> rem-size;
+    alignment: start;
+
+    SettingsPageHeader { title: "Interface"; scope: "Saved on this device"; rem-size: root.rem-size; }
+
+    SettingsGroup {
+        title: "Language and display";
+        rem-size: root.rem-size;
+
+        SettingsRow {
+            rem-size: root.rem-size;
+            label: "UI Language";
+            first: true;
+            highlighted: SettingsUi.hit-row == "lang";
+            SettingsSelectControl {
+                rem-size: root.rem-size;
+                input: SettingsUi.data.ui-language;
+                fallback-title: "English";
+                select(opt) => { SettingsUi.select-option("interfaceLanguage", opt); }
+            }
+        }
+        SettingsRow {
+            rem-size: root.rem-size;
+            label: "Interface zoom";
+            highlighted: SettingsUi.hit-row == "zoom";
+            SettingsScale {
+                rem-size: root.rem-size;
+                value: SettingsUi.data.interface-scale;
+                changed-scale(val) => { SettingsUi.set-interface-scale(val); }
+            }
+        }
+    }
+
+    SettingsGroup {
+        title: "Behavior";
+        rem-size: root.rem-size;
+
+        SettingsRow {
+            rem-size: root.rem-size;
+            label: "Blur unwatched episodes image";
+            first: true;
+            highlighted: SettingsUi.hit-row == "blur";
+            SettingsToggle {
+                rem-size: root.rem-size;
+                checked: SettingsUi.data.hide-spoilers;
+                toggled(val) => { SettingsUi.toggle-option("hideSpoilers", val); }
+            }
+        }
+    }
+}
+
+export component PlayerPage inherits VerticalLayout {
+    in property <length> rem-size;
+    alignment: start;
+
+    SettingsPageHeader { title: "Player"; scope: "Saved on this device"; rem-size: root.rem-size; }
+
+    SettingsGroup {
+        title: "Subtitles";
+        rem-size: root.rem-size;
+
+        SubtitlesPreview {
+            rem-size: root.rem-size;
+            size-pct: SettingsUi.data.subtitles-size-val;
+            offset-pct: SettingsUi.data.subtitles-offset-val;
+            text-color: SettingsUi.data.subtitles-text-color-hex;
+            bg-color: SettingsUi.data.subtitles-bg-color-hex;
+            outline-color: SettingsUi.data.subtitles-outline-color-hex;
+            bold: SettingsUi.data.subtitles-bold;
+        }
+        SettingsRow {
+            rem-size: root.rem-size; label: "Default Subtitles Language"; first: true; highlighted: SettingsUi.hit-row == "subLang";
+            SettingsSelectControl { rem-size: root.rem-size; input: SettingsUi.data.subtitles-language; fallback-title: "English"; select(o) => { SettingsUi.select-option("subtitlesLanguage", o); } }
+        }
+        SettingsRow {
+            rem-size: root.rem-size; label: "Default Subtitles Size"; highlighted: SettingsUi.hit-row == "subSize";
+            SettingsSelectControl { rem-size: root.rem-size; input: SettingsUi.data.subtitles-size; fallback-title: "100%"; select(o) => { SettingsUi.select-option("subtitlesSize", o); } }
+        }
+        SettingsRow {
+            rem-size: root.rem-size; label: "Vertical Position"; highlighted: SettingsUi.hit-row == "subPos";
+            SettingsSelectControl { rem-size: root.rem-size; input: SettingsUi.data.subtitles-offset; fallback-title: "5%"; select(o) => { SettingsUi.select-option("subtitlesOffset", o); } }
+        }
+        SettingsRow {
+            rem-size: root.rem-size; label: "Subtitles color"; highlighted: SettingsUi.hit-row == "subColor";
+            SettingsSelectControl { rem-size: root.rem-size; input: SettingsUi.data.subtitles-text-color; fallback-title: "White"; select(o) => { SettingsUi.select-option("subtitlesTextColor", o); } }
+        }
+        SettingsRow {
+            rem-size: root.rem-size; label: "Subtitles background color"; highlighted: SettingsUi.hit-row == "subBg";
+            SettingsSelectControl { rem-size: root.rem-size; input: SettingsUi.data.subtitles-bg-color; fallback-title: "None"; select(o) => { SettingsUi.select-option("subtitlesBackgroundColor", o); } }
+        }
+        SettingsRow {
+            rem-size: root.rem-size; label: "Subtitles outline color"; highlighted: SettingsUi.hit-row == "subOutline";
+            SettingsSelectControl { rem-size: root.rem-size; input: SettingsUi.data.subtitles-outline-color; fallback-title: "Black"; select(o) => { SettingsUi.select-option("subtitlesOutlineColor", o); } }
+        }
+        SettingsRow {
+            rem-size: root.rem-size; label: "Bold"; highlighted: SettingsUi.hit-row == "subBold";
+            SettingsToggle { rem-size: root.rem-size; checked: SettingsUi.data.subtitles-bold; toggled(v) => { SettingsUi.toggle-option("subtitlesBold", v); } }
+        }
+        SettingsRow {
+            rem-size: root.rem-size; label: "Style ASS subtitles"; highlighted: SettingsUi.hit-row == "ass";
+            SettingsToggle { rem-size: root.rem-size; checked: SettingsUi.data.ass-subtitles-styling; toggled(v) => { SettingsUi.toggle-option("assSubtitlesStyling", v); } }
+        }
+    }
+
+    SettingsGroup {
+        title: "Audio";
+        rem-size: root.rem-size;
+        SettingsRow {
+            rem-size: root.rem-size; label: "Default Audio Track"; first: true; highlighted: SettingsUi.hit-row == "audio";
+            SettingsSelectControl { rem-size: root.rem-size; input: SettingsUi.data.audio-language; fallback-title: "English"; select(o) => { SettingsUi.select-option("audioLanguage", o); } }
+        }
+    }
+
+    SettingsGroup {
+        title: "Controls";
+        rem-size: root.rem-size;
+        SettingsRow {
+            rem-size: root.rem-size; label: "Arrow keys seek time"; first: true; highlighted: SettingsUi.hit-row == "seek";
+            SettingsSelectControl { rem-size: root.rem-size; input: SettingsUi.data.seek-time; fallback-title: "10 seconds"; select(o) => { SettingsUi.select-option("seekTimeDuration", o); } }
+        }
+        SettingsRow {
+            rem-size: root.rem-size; label: "Arrow keys seek time when Shift key is held"; highlighted: SettingsUi.hit-row == "seekShift";
+            SettingsSelectControl { rem-size: root.rem-size; input: SettingsUi.data.seek-short-time; fallback-title: "3 seconds"; select(o) => { SettingsUi.select-option("seekShortTimeDuration", o); } }
+        }
+    }
+
+    SettingsGroup {
+        title: "Auto-Play";
+        rem-size: root.rem-size;
+        SettingsRow {
+            rem-size: root.rem-size; label: "Auto-Play Next Episode"; first: true; highlighted: SettingsUi.hit-row == "auto";
+            SettingsToggle { rem-size: root.rem-size; checked: SettingsUi.data.binge-watching; toggled(v) => { SettingsUi.toggle-option("bingeWatching", v); } }
+        }
+        SettingsRow {
+            rem-size: root.rem-size; label: "Next video popup duration"; highlighted: SettingsUi.hit-row == "popup";
+            SettingsSelectControl { rem-size: root.rem-size; input: SettingsUi.data.next-video-duration; fallback-title: "35 seconds"; select(o) => { SettingsUi.select-option("nextVideoNotificationDuration", o); } }
+        }
+    }
+
+    SettingsGroup {
+        title: "Advanced";
+        rem-size: root.rem-size;
+        SettingsRow {
+            rem-size: root.rem-size; label: "Play in external player"; first: true; highlighted: SettingsUi.hit-row == "external";
+            SettingsSelectControl { rem-size: root.rem-size; input: SettingsUi.data.external-player; fallback-title: "Disabled"; select(o) => { SettingsUi.select-option("playerType", o); } }
+        }
+    }
+}
+
+export component IntegrationsPage inherits VerticalLayout {
+    in property <length> rem-size;
+    alignment: start;
+
+    SettingsPageHeader { title: "Integrations"; rem-size: root.rem-size; }
+
+    SettingsGroup {
+        rem-size: root.rem-size;
+
+        SettingsRow {
+            rem-size: root.rem-size;
+            label: "Trakt Scrobbling";
+            description: !SettingsUi.data.logged-in ? "Log in to connect Trakt."
+                : SettingsUi.data.trakt-authenticated ? "Connected. What you watch syncs to Trakt."
+                : "Sync what you watch to Trakt.";
+            icon: @image-url("../icons/trakt.svg");
+            has-icon: true;
+            first: true;
+            highlighted: SettingsUi.hit-row == "trakt";
+
+            SettingsRowButton {
+                rem-size: root.rem-size;
+                label: SettingsUi.data.trakt-authenticated ? "Disconnect" : "Authenticate";
+                external: !SettingsUi.data.trakt-authenticated;
+                disabled: !SettingsUi.data.logged-in;
+                clicked => { SettingsUi.toggle-trakt(); }
+            }
+        }
+        SettingsRow {
+            rem-size: root.rem-size;
+            label: "Subscribe to calendar";
+            description: SettingsUi.data.logged-in
+                ? "Add new episodes from your library to your calendar app."
+                : "Log in to subscribe.";
+            icon: @image-url("../icons/calendar.svg");
+            has-icon: true;
+            highlighted: SettingsUi.hit-row == "calendar";
+
+            SettingsRowButton {
+                rem-size: root.rem-size;
+                label: "Subscribe";
+                disabled: !SettingsUi.data.logged-in;
+                clicked => { SettingsUi.subscribe-calendar(); }
+            }
+        }
+    }
+}

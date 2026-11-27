@@ -41,10 +41,11 @@ SOFTWARE.
 
 ## Plus Jakarta Sans (`ui/fonts/`)
 
-- Source: https://github.com/tokotype/PlusJakartaSans (the upstream project, not stremio-web).
+- Source: https://github.com/tokotype/PlusJakartaSans (variable TrueType build `PlusJakartaSans.ttf`,
+  `wght` axis 200–800, matching `stremio-web`'s `assets/fonts/PlusJakartaSans.ttf`).
 - Copyright 2020 The Plus Jakarta Sans Project Authors.
 - Licence: SIL Open Font License 1.1. The full text is in `ui/fonts/OFL.txt`.
-- The Regular, Medium, SemiBold and Bold TrueType files are unmodified.
+- The variable TrueType file is unmodified.
 
 ## stremio-web (layout, styles and assets taken into `ui/`)
 
@@ -79,4 +80,11 @@ SOFTWARE.
 - Taken because stremio-web's own jigsaw icon is drawn on a 512 grid and fills in at the 2rem the
   Addons button draws it at, reading as a blob. This one is drawn on a 24 grid for that size. It is
   the only icon here that does not come from `@stremio/stremio-icons`.
+
+## Big Buck Bunny still (`ui/images/subtitles_preview.jpg`)
+
+- Source: Big Buck Bunny (2008), 00:01:25, Blender Foundation / https://peach.blender.org/
+- Copyright (c) 2008 Blender Foundation. Licence: Creative Commons Attribution 3.0 (CC BY 3.0),
+  https://creativecommons.org/licenses/by/3.0/
+- Taken from stremio-web (`assets/images/subtitles_preview.jpg`) for the Settings subtitles preview.
 

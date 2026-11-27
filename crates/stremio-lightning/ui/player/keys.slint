@@ -7,6 +7,8 @@ export component PlayerKeyHandler inherits Rectangle {
     in property <float> speed;
     in property <float> seek-step: 10;
     in property <float> seek-short-step: 3;
+    in property <bool> fullscreen: false;
+    in property <bool> esc-exit-fullscreen: true;
     in-out property <string> menu;
     in-out property <bool> drawer-open;
 
@@ -19,6 +21,8 @@ export component PlayerKeyHandler inherits Rectangle {
     callback play-next();
     callback toggle-fullscreen();
     callback set-speed(float);
+    callback step-subtitles-size(float);
+    callback step-subtitles-offset(float);
     callback close-menus();
     callback back();
 
@@ -112,6 +116,26 @@ export component PlayerKeyHandler inherits Rectangle {
             activated => { if (root.live) { root.toggle-fullscreen(); } }
         }
         KeyBinding {
+            keys: @keys(F11);
+            activated => { if (root.live) { root.toggle-fullscreen(); } }
+        }
+        KeyBinding {
+            keys: @keys("-");
+            activated => { if (root.live) { root.step-subtitles-size(-5); } }
+        }
+        KeyBinding {
+            keys: @keys("=");
+            activated => { if (root.live) { root.step-subtitles-size(5); } }
+        }
+        KeyBinding {
+            keys: @keys("g");
+            activated => { if (root.live) { root.step-subtitles-offset(-250); } }
+        }
+        KeyBinding {
+            keys: @keys("h");
+            activated => { if (root.live) { root.step-subtitles-offset(250); } }
+        }
+        KeyBinding {
             keys: @keys("]");
             activated => { if (root.live) { root.set-speed(Math.min(root.speed + 0.25, 4)); } }
         }
@@ -124,6 +148,8 @@ export component PlayerKeyHandler inherits Rectangle {
             activated => {
                 if (root.menu != "" || root.drawer-open || root.next-open) {
                     root.close-menus();
+                } else if (root.fullscreen && root.esc-exit-fullscreen) {
+                    root.toggle-fullscreen();
                 } else {
                     root.back();
                 }

@@ -2,14 +2,14 @@
 
 use slint::{ComponentHandle, ModelRc, VecModel};
 
-use super::sync::{image_rev, preview_data, select_input_data, slint_image, with_mirrors};
+use super::sync::{image_rev, preview_data, slint_image, with_mirrors};
 use crate::plumbing::images::{self, Images};
 use crate::screens::details::Data as DetailsData;
 use crate::screens::player::Data as PlayerData;
-use crate::screens::settings::Data as SettingsData;
+
 use crate::{
     DetailsUi, MainWindow, PlayerEpisode, PlayerOption, PlayerTrack, PlayerUi, PreviewData,
-    SelectOption, SettingsViewData, StreamData, VideoRow,
+    SelectOption, StreamData, VideoRow,
 };
 
 pub(super) fn apply_details(
@@ -152,36 +152,6 @@ pub(super) fn apply_details(
             ui.set_episodes(replaced);
         }
     });
-}
-
-pub(crate) fn settings_view(data: &SettingsData) -> SettingsViewData {
-    SettingsViewData {
-        user_email: data.user_email.clone().into(),
-        logged_in: data.logged_in,
-        trakt_authenticated: data.trakt_authenticated,
-        streaming_server_url: data.streaming_server_url.clone().into(),
-        ui_language: select_input_data(&data.ui_language),
-        quit_on_close: data.quit_on_close,
-        esc_exit_fullscreen: data.esc_exit_fullscreen,
-        hide_spoilers: data.hide_spoilers,
-        subtitles_language: select_input_data(&data.subtitles_language),
-        subtitles_size: select_input_data(&data.subtitles_size),
-        subtitles_text_color: select_input_data(&data.subtitles_text_color),
-        subtitles_bg_color: select_input_data(&data.subtitles_bg_color),
-        subtitles_outline_color: select_input_data(&data.subtitles_outline_color),
-        audio_language: select_input_data(&data.audio_language),
-        surround_sound: data.surround_sound,
-        seek_time: select_input_data(&data.seek_time),
-        seek_short_time: select_input_data(&data.seek_short_time),
-        play_in_background: data.play_in_background,
-        binge_watching: data.binge_watching,
-        next_video_duration: select_input_data(&data.next_video_duration),
-        external_player: select_input_data(&data.external_player),
-        hardware_decoding: data.hardware_decoding,
-        caching: select_input_data(&data.caching),
-        torrent_profile: select_input_data(&data.torrent_profile),
-        transcoding_profile: select_input_data(&data.transcoding_profile),
-    }
 }
 
 pub(super) fn player_view(window: &MainWindow, data: &PlayerData, images: &Images) {

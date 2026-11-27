@@ -14,6 +14,7 @@ use stremio_core::models::library_with_filters::{
     LibraryRequest, LibraryRequestPage, LibraryWithFilters, NotRemovedFilter,
     Selected as LibrarySelected,
 };
+use stremio_core::models::streaming_server::StreamingServer;
 use stremio_core::runtime::msg::{Action, ActionCatalogsWithExtra, ActionCtx, ActionLoad};
 use stremio_core::runtime::{RuntimeAction, RuntimeEvent};
 use stremio_core::types::addon::Descriptor;
@@ -46,6 +47,7 @@ pub fn runtime(profile: Profile) -> (AppRuntime, Receiver<RuntimeEvent<AppEnv, A
     // here, so the Library opens on the core's default request -- everything, last watched first.
     let (library_with_filters, library_effects) =
         LibraryWithFilters::<NotRemovedFilter>::new(&library, &notifications);
+    let (streaming_server, streaming_effects) = StreamingServer::new::<AppEnv>(&profile);
     let model = AppModel {
         ctx: Ctx::new(
             profile,
@@ -66,6 +68,8 @@ pub fn runtime(profile: Profile) -> (AppRuntime, Receiver<RuntimeEvent<AppEnv, A
         addon_details: Default::default(),
         meta_details: Default::default(),
         player: Default::default(),
+        streaming_server,
+        data_export: Default::default(),
     };
 
     AppRuntime::new(
@@ -75,6 +79,7 @@ pub fn runtime(profile: Profile) -> (AppRuntime, Receiver<RuntimeEvent<AppEnv, A
             .chain(installed_effects)
             .chain(remote_effects)
             .chain(library_effects)
+            .chain(streaming_effects)
             .collect(),
         1000,
     )

@@ -22,6 +22,9 @@ impl Wiring {
         let Ok(index) = usize::try_from(option) else {
             return;
         };
+        if self.try_select_server_option(&key, index) {
+            return;
+        }
         let updated = self.with_current_settings(|current, extras| {
             settings::apply_select_option(current, extras, &key, index)
         });

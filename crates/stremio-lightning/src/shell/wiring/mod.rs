@@ -12,6 +12,7 @@ mod player;
 mod player_skip;
 mod player_skip_panel;
 mod player_tracks;
+mod settings_actions;
 mod settings_auth;
 mod share;
 mod viewport;
@@ -217,6 +218,7 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
     browse::wire(window, &wiring);
     addons::wire(window, &wiring);
     settings_auth::wire(window, &wiring);
+    settings_actions::wire(window, &wiring);
     mods::wire(window, &wiring);
     logs_about::wire(window, &wiring);
 }

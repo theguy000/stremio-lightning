@@ -140,6 +140,18 @@ pub(crate) fn picked_label(videos: &[Video], picked: &str) -> Option<String> {
     })
 }
 
+/// Blurs thumbnails of unwatched Episodes when the `hide_spoilers` preference is enabled.
+pub(crate) fn apply_spoiler_blur(episodes: &mut [Episode], hide_spoilers: bool) {
+    if !hide_spoilers {
+        return;
+    }
+    for ep in episodes {
+        if !ep.watched {
+            ep.thumbnail = ep.thumbnail.as_ref().map(crate::plumbing::images::blur_key);
+        }
+    }
+}
+
 /// Whether every Video in `season` is marked watched in `watched_field`.
 pub(crate) fn season_all_watched(
     videos: &[Video],

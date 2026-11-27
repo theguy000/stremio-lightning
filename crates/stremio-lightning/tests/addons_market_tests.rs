@@ -90,6 +90,9 @@ fn model_with(addons: Vec<Descriptor>) -> app::AppModel {
         LibraryWithFilters::<NotRemovedFilter>::new(&library, &notifications);
     let (discover, _) = CatalogWithFilters::<MetaItemPreview>::new(&profile);
     let (installed_addons, _) = InstalledAddonsWithFilters::new(&profile);
+    let (streaming_server, _) = stremio_core::models::streaming_server::StreamingServer::new::<
+        stremio_lightning::AppEnv,
+    >(&profile);
     let (remote_addons, _) = CatalogWithFilters::<Descriptor>::new(&profile);
     app::AppModel {
         ctx: Ctx::new(
@@ -111,6 +114,8 @@ fn model_with(addons: Vec<Descriptor>) -> app::AppModel {
         addon_details: Default::default(),
         meta_details: Default::default(),
         player: Default::default(),
+        streaming_server,
+        data_export: Default::default(),
     }
 }
 

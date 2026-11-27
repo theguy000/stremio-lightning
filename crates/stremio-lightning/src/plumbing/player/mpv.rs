@@ -134,14 +134,33 @@ impl MpvSession {
     }
 
     pub(crate) fn apply_config(&self, settings: &PlayerConfig) {
-        let hwdec = if settings.hardware_decoding {
-            "auto-safe"
-        } else {
-            "no"
-        };
-        let _ = self.mpv.set_property("hwdec", hwdec);
-        let size = f64::from(settings.subtitles_size).max(1.0) / 100.0;
-        let _ = self.mpv.set_property("sub-scale", size);
+        let pick = |on: bool, yes: &'static str, no: &'static str| if on { yes } else { no };
+        let _ = self.mpv.set_property(
+            "sub-scale",
+            f64::from(settings.subtitles_size).max(1.0) / 100.0,
+        );
+        let _ = self.mpv.set_property(
+            "sub-pos",
+            i64::from(100u32.saturating_sub(settings.subtitles_offset.min(100))),
+        );
+        let _ = self.mpv.set_property("sub-bold", settings.subtitles_bold);
+        for (prop, val) in [
+            ("hwdec", pick(settings.hardware_decoding, "auto-safe", "no")),
+            (
+                "sub-ass-override",
+                pick(settings.ass_subtitles_styling, "force", "no"),
+            ),
+            (
+                "audio-channels",
+                pick(settings.surround_sound, "auto-safe", "stereo"),
+            ),
+            (
+                "audio-spdif",
+                pick(settings.audio_passthrough, "ac3,eac3,dts,dts-hd,truehd", ""),
+            ),
+        ] {
+            let _ = self.mpv.set_property(prop, val);
+        }
         if !settings.subtitles_language.is_empty() && settings.subtitles_language != "none" {
             let _ = self
                 .mpv
@@ -189,20 +208,16 @@ impl MpvSession {
             if self.mpv.get_property::<String>(&at("type")).ok().as_deref() != Some(kind) {
                 continue;
             }
+            let text = |f: &str| self.mpv.get_property::<String>(&at(f)).unwrap_or_default();
+            let id = self
+                .mpv
+                .get_property::<i64>(&at("id"))
+                .map(|v| v.to_string())
+                .unwrap_or_default();
             tracks.push(Track {
-                id: self
-                    .mpv
-                    .get_property::<i64>(&at("id"))
-                    .map(|id| id.to_string())
-                    .unwrap_or_default(),
-                title: self
-                    .mpv
-                    .get_property::<String>(&at("title"))
-                    .unwrap_or_default(),
-                language: self
-                    .mpv
-                    .get_property::<String>(&at("lang"))
-                    .unwrap_or_default(),
+                id,
+                title: text("title"),
+                language: text("lang"),
                 selected: self.flag(&at("selected")).unwrap_or(false),
                 external: self.flag(&at("external")).unwrap_or(false),
             });
@@ -256,22 +271,19 @@ impl MpvSession {
                     level,
                     text,
                     ..
-                } => {
-                    if matches!(level, "error" | "fatal" | "warn") {
-                        let line = format!("{prefix}{text}");
-                        eprintln!("[mpv {level}] {line}");
-                        let severity = if matches!(level, "error" | "fatal") {
-                            Level::Error
-                        } else {
-                            Level::Warn
-                        };
-                        logs.record(
-                            Source::App,
-                            "Player",
-                            severity,
-                            format!("mpv {level}: {line}"),
-                        );
-                    }
+                } if matches!(level, "error" | "fatal" | "warn") => {
+                    eprintln!("[mpv {level}] {prefix}{text}");
+                    let sev = if level == "warn" {
+                        Level::Warn
+                    } else {
+                        Level::Error
+                    };
+                    logs.record(
+                        Source::App,
+                        "Player",
+                        sev,
+                        format!("mpv {level}: {prefix}{text}"),
+                    );
                 }
                 Event::EndFile(reason) => {
                     status.loaded = false;

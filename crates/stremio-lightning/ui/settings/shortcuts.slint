@@ -1,143 +1,80 @@
-// Based on stremio-web (https://github.com/Stremio/stremio-web),
-// Copyright (C) 2017-2024 Smart code 203358507.
-// Numbers translated by hand from src/routes/Settings.
-// Licence basis: ../../THIRD_PARTY_NOTICES.md.
+// Based on stremio-web Shortcuts.tsx & Keys.less (Copyright Smart code 203358507).
 import { ClassStyles } from "../class-styles.slint";
-import { MultiselectMenu, SelectInputData } from "../multiselect-menu.slint";
 import { Theme } from "../theme.slint";
-import { SettingsOption, SettingsSection, SettingsToggle } from "controls.slint";
-
-export component SettingsSelectRow inherits Rectangle {
-    in property <length> rem-size;
-    in property <string> label-text;
-    in property <SelectInputData> input;
-    in property <string> fallback-title;
-    callback select(int);
-
-    height: 3 * root.rem-size;
-
-    opt := SettingsOption {
-        width: parent.width;
-        height: parent.height;
-        rem-size: root.rem-size;
-        label-text: root.label-text;
-
-        MultiselectMenu {
-            width: opt.content-width;
-            title: root.input.title != "" ? root.input.title : root.fallback-title;
-            options: root.input.options;
-            selected-index: root.input.selected-index;
-            rem-size: root.rem-size;
-            select(option) => { root.select(option); }
-        }
-    }
-}
-
-export component SettingsToggleRow inherits Rectangle {
-    in property <length> rem-size;
-    in property <string> label-text;
-    in property <bool> checked;
-    callback toggled(bool);
-
-    height: 3 * root.rem-size;
-
-    opt := SettingsOption {
-        width: parent.width;
-        height: parent.height;
-        rem-size: root.rem-size;
-        label-text: root.label-text;
-
-        SettingsToggle {
-            width: opt.content-width;
-            checked: root.checked;
-            rem-size: root.rem-size;
-            toggled(val) => { root.toggled(val); }
-        }
-    }
-}
+import { SettingsGroup, SettingsPageHeader, SettingsRow } from "primitives.slint";
 
 component ShortcutKbd inherits Rectangle {
     in property <string> key-text;
     in property <length> rem-size;
-    width: Math.max(2.6 * root.rem-size, key-label.preferred-width + 1.6 * root.rem-size);
-    height: 2.4 * root.rem-size;
-    border-radius: 0.5 * root.rem-size;
-    background: Theme.overlay;
-    border-width: 1px;
-    border-color: Theme.surface-medium;
 
-    key-label := Text {
+    width: Math.max(2.5 * root.rem-size, key-lbl.preferred-width + 2 * root.rem-size);
+    height: 2.5 * root.rem-size;
+    border-radius: 0.25 * root.rem-size;
+    background: Theme.overlay;
+    drop-shadow-offset-y: 4px;
+    drop-shadow-blur: 0px;
+    drop-shadow-color: #ffffff1a;
+
+    key-lbl := Text {
         width: parent.width;
         height: parent.height;
         text: root.key-text;
         horizontal-alignment: center;
         vertical-alignment: center;
-        font-size: 0.9 * root.rem-size;
-        font-weight: 600;
+        font-size: root.rem-size;
+        font-weight: 500;
         color: ClassStyles.color-or(ClassStyles.text, Theme.text);
     }
 }
 
-export component SettingsShortcutRow inherits Rectangle {
-    in property <length> rem-size;
-    in property <string> label-text;
+component ShortcutRow inherits SettingsRow {
     in property <string> first-key;
     in property <string> joiner;
     in property <string> second-key;
-    height: 3 * root.rem-size;
+    keys-row: true;
 
-    opt := SettingsOption {
-        width: parent.width;
-        height: parent.height;
-        rem-size: root.rem-size;
-        label-text: root.label-text;
+    HorizontalLayout {
+        spacing: 0.5 * root.rem-size;
+        alignment: end;
 
-        HorizontalLayout {
-            width: opt.content-width;
-            height: parent.height;
-            alignment: end;
-            spacing: 0.6 * root.rem-size;
-
-            ShortcutKbd {
-                y: (parent.height - self.height) / 2;
-                key-text: root.first-key;
-                rem-size: root.rem-size;
-            }
-            if root.joiner != "": Text {
-                text: root.joiner;
-                vertical-alignment: center;
-                font-size: 0.9 * root.rem-size;
-                color: ClassStyles.color-or(ClassStyles.text, Theme.text);
-                opacity: 0.5;
-            }
-            if root.second-key != "": ShortcutKbd {
-                y: (parent.height - self.height) / 2;
-                key-text: root.second-key;
-                rem-size: root.rem-size;
-            }
+        ShortcutKbd { key-text: root.first-key; rem-size: root.rem-size; }
+        if root.joiner != "": Text {
+            text: root.joiner;
+            vertical-alignment: center;
+            font-size: 0.9 * root.rem-size;
+            color: Theme.text;
+            opacity: 0.6;
         }
+        if root.second-key != "": ShortcutKbd { key-text: root.second-key; rem-size: root.rem-size; }
     }
 }
 
-export component SettingsShortcutsSection inherits SettingsSection {
-    rem-size: root.rem-size;
-    label-text: "Shortcuts";
-    last: true;
+export component ShortcutsPage inherits VerticalLayout {
+    in property <length> rem-size;
+    alignment: start;
 
-    SettingsShortcutRow { x: 0px; y: 8.4 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Play / Pause"; first-key: "Space"; }
-    SettingsShortcutRow { x: 0px; y: 12.4 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Seek Forward"; first-key: "→"; joiner: "or"; second-key: "Shift + →"; }
-    SettingsShortcutRow { x: 0px; y: 16.4 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Seek Backward"; first-key: "←"; joiner: "or"; second-key: "Shift + ←"; }
-    SettingsShortcutRow { x: 0px; y: 20.4 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Volume Up"; first-key: "↑"; }
-    SettingsShortcutRow { x: 0px; y: 24.4 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Volume Down"; first-key: "↓"; }
-    SettingsShortcutRow { x: 0px; y: 28.4 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Mute / Unmute"; first-key: "M"; }
-    SettingsShortcutRow { x: 0px; y: 32.4 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Subtitles Size"; first-key: "-"; joiner: "/"; second-key: "="; }
-    SettingsShortcutRow { x: 0px; y: 36.4 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Subtitles Delay"; first-key: "G"; joiner: "/"; second-key: "H"; }
-    SettingsShortcutRow { x: 0px; y: 40.4 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Toggle Fullscreen"; first-key: "F"; joiner: "or"; second-key: "F11"; }
-    SettingsShortcutRow { x: 0px; y: 44.4 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Play Next Episode"; first-key: "Shift"; joiner: "+"; second-key: "N"; }
-    SettingsShortcutRow { x: 0px; y: 48.4 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Show Controls"; first-key: "T"; }
-    SettingsShortcutRow { x: 0px; y: 52.4 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Exit / Go Back"; first-key: "Esc"; joiner: "or"; second-key: "Backspace"; }
-    SettingsShortcutRow { x: 0px; y: 56.4 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Focus Search"; first-key: "S"; joiner: "or"; second-key: "Ctrl + F"; }
-    SettingsShortcutRow { x: 0px; y: 60.4 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Navigate Between Tabs"; first-key: "1"; joiner: "to"; second-key: "6"; }
-    SettingsShortcutRow { x: 0px; y: 64.4 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Go to Settings"; first-key: "Ctrl"; joiner: "+"; second-key: ","; }
-    SettingsShortcutRow { x: 0px; y: 68.4 * root.rem-size; width: parent.width; rem-size: root.rem-size; label-text: "Reload App"; first-key: "F5"; joiner: "or"; second-key: "Ctrl + R"; }
+    SettingsPageHeader { title: "Shortcuts"; rem-size: root.rem-size; }
+
+    SettingsGroup {
+        title: "Player";
+        rem-size: root.rem-size;
+
+        ShortcutRow { rem-size: root.rem-size; label: "Play / Pause"; first-key: "Space"; first: true; }
+        ShortcutRow { rem-size: root.rem-size; label: "Seek Forward"; first-key: "→"; joiner: "or"; second-key: "Shift + →"; }
+        ShortcutRow { rem-size: root.rem-size; label: "Seek Backward"; first-key: "←"; joiner: "or"; second-key: "Shift + ←"; }
+        ShortcutRow { rem-size: root.rem-size; label: "Adjust Volume"; first-key: "↑"; joiner: "/"; second-key: "↓"; }
+        ShortcutRow { rem-size: root.rem-size; label: "Toggle Mute"; first-key: "M"; }
+        ShortcutRow { rem-size: root.rem-size; label: "Adjust Subtitles Size"; first-key: "-"; joiner: "/"; second-key: "="; }
+        ShortcutRow { rem-size: root.rem-size; label: "Adjust Subtitles Delay"; first-key: "G"; joiner: "/"; second-key: "H"; }
+        ShortcutRow { rem-size: root.rem-size; label: "Adjust Playback Speed"; first-key: "["; joiner: "/"; second-key: "]"; }
+        ShortcutRow { rem-size: root.rem-size; label: "Cycle Video Scale"; first-key: "V"; }
+        ShortcutRow { rem-size: root.rem-size; label: "Toggle Subtitles"; first-key: "C"; }
+        ShortcutRow { rem-size: root.rem-size; label: "Toggle Subtitles Menu"; first-key: "S"; }
+        ShortcutRow { rem-size: root.rem-size; label: "Toggle Audio Menu"; first-key: "A"; }
+        ShortcutRow { rem-size: root.rem-size; label: "Toggle Info / Episodes Menu"; first-key: "I"; }
+        ShortcutRow { rem-size: root.rem-size; label: "Toggle Playback Speed Menu"; first-key: "R"; }
+        ShortcutRow { rem-size: root.rem-size; label: "Play Next"; first-key: "Shift + N"; }
+        ShortcutRow { rem-size: root.rem-size; label: "Toggle Fullscreen"; first-key: "F"; joiner: "or"; second-key: "F11"; }
+        ShortcutRow { rem-size: root.rem-size; label: "Exit Fullscreen / Go Back"; first-key: "Esc"; }
+    }
 }

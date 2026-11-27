@@ -184,6 +184,8 @@ pub fn data(
             )
         })
         .unwrap_or_default();
+    let hide_spoilers = model.ctx.profile.settings.hide_spoilers;
+    crate::screens::videos::apply_spoiler_blur(&mut season_episodes, hide_spoilers);
     if !needle.is_empty() {
         season_episodes.retain(|ep| ep.title.to_lowercase().contains(&needle));
     }
@@ -241,7 +243,14 @@ pub fn data(
                     .released
                     .map(|d| d.format("%b %d, %Y").to_string())
                     .unwrap_or_default(),
-                thumbnail: v.thumbnail.as_ref().map(crate::plumbing::images::page_key),
+                thumbnail: v.thumbnail.as_ref().map(|u| {
+                    let unwatched = watched_field.is_none_or(|w| !w.get_video(&v.id));
+                    if hide_spoilers && unwatched {
+                        crate::plumbing::images::blur_key(u)
+                    } else {
+                        crate::plumbing::images::page_key(u)
+                    }
+                }),
             })
         }),
         resume_label,

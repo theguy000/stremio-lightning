@@ -120,7 +120,20 @@ pub(crate) fn attach(window: &MainWindow, app: Arc<App>, tokio: tokio::runtime::
 
     {
         let app_focus = app.clone();
-        winit_host::install(window, move || app_focus.sync_account());
+        let app_min = app.clone();
+        let video_min = video.clone();
+        let win_min = window.as_weak();
+        winit_host::install(
+            window,
+            move || app_focus.sync_account(),
+            move || {
+                if win_min.upgrade().is_some_and(|w| w.get_playing())
+                    && app_min.settings().view().pause_on_minimize
+                {
+                    let _ = video_min.set_paused(true);
+                }
+            },
+        );
     }
     {
         // Keep `Rc<Wiring>` alive inside the window-owned `VideoPlayer` listener so the
@@ -131,16 +144,13 @@ pub(crate) fn attach(window: &MainWindow, app: Arc<App>, tokio: tokio::runtime::
 
     let initial_settings = app.settings().view();
     video.apply_settings(&initial_settings.player_config);
+    view::apply_settings(window, &initial_settings);
     let settings_ui = window.global::<crate::SettingsUi>();
-    settings_ui.set_data(view::settings_view(&initial_settings));
     settings_ui.set_app_version(env!("CARGO_PKG_VERSION").into());
     settings_ui.set_build_version(option_env!("GITHUB_SHA").unwrap_or("dev").into());
     window
         .global::<crate::DetailsUi>()
         .set_wrap_streams(initial_settings.wrap_streams);
-    let player_ui = window.global::<crate::PlayerUi>();
-    player_ui.set_seek_step(initial_settings.seek_time_secs);
-    player_ui.set_seek_short_step(initial_settings.seek_short_time_secs);
 
     wiring.report_server_state(server.start());
     wiring.init_mods();

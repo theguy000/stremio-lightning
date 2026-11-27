@@ -1,0 +1,270 @@
+// Based on stremio-web Settings Account, Help, and Search Results pages.
+import { ClassStyles } from "../class-styles.slint";
+import { Theme } from "../theme.slint";
+import { SettingsGroup, SettingsLinkRow, SettingsPageHeader, SettingsRow, SettingsRowButton } from "primitives.slint";
+import { SettingsUi } from "types.slint";
+
+export component AccountPage inherits VerticalLayout {
+    in property <length> rem-size;
+    alignment: start;
+    callback log-in();
+
+    SettingsPageHeader { title: "Account"; rem-size: root.rem-size; }
+
+    SettingsGroup {
+        rem-size: root.rem-size;
+        padded: true;
+
+        HorizontalLayout {
+            spacing: 1.25 * root.rem-size;
+            alignment: space-between;
+
+            HorizontalLayout {
+                horizontal-stretch: 1;
+                spacing: 1.25 * root.rem-size;
+                alignment: start;
+
+                Rectangle {
+                    width: 5 * root.rem-size;
+                    height: 5 * root.rem-size;
+                    border-radius: 2.5 * root.rem-size;
+                    border-width: 2px;
+                    border-color: ClassStyles.color-or(ClassStyles.avatar-container, Theme.accent);
+                    background: Theme.text;
+                    clip: true;
+
+                    Image {
+                        source: @image-url("../images/anonymous.png");
+                        x: 2px; y: 2px;
+                        width: parent.width - 4px;
+                        height: parent.height - 4px;
+                        image-fit: cover;
+                    }
+                }
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    alignment: center;
+                    spacing: 0.35 * root.rem-size;
+
+                    Text {
+                        text: SettingsUi.data.logged-in ? SettingsUi.data.user-email : "Anonymous user";
+                        font-size: 1.15 * root.rem-size;
+                        font-weight: 600;
+                        color: Theme.text;
+                        overflow: elide;
+                    }
+                    if !SettingsUi.data.logged-in: Text {
+                        text: "Log in to sync your library and addons.";
+                        wrap: word-wrap;
+                        font-size: 0.9 * root.rem-size;
+                        color: Theme.text;
+                        opacity: 0.6;
+                    }
+                }
+            }
+
+            VerticalLayout {
+                horizontal-stretch: 0;
+                alignment: center;
+                if SettingsUi.data.logged-in: SettingsRowButton {
+                    rem-size: root.rem-size;
+                    label: "Log out";
+                    icon: @image-url("../icons/exit.svg");
+                    has-icon: true;
+                    clicked => { SettingsUi.log-out(); }
+                }
+                if !SettingsUi.data.logged-in: SettingsRowButton {
+                    rem-size: root.rem-size;
+                    label: "Log in / Sign up";
+                    variant: "primary";
+                    clicked => { root.log-in(); }
+                }
+            }
+        }
+    }
+
+    if SettingsUi.data.logged-in: SettingsGroup {
+        title: "Security";
+        rem-size: root.rem-size;
+
+        SettingsRow {
+            rem-size: root.rem-size;
+            label: "Password";
+            description: "Opens the password reset page.";
+            first: true;
+            highlighted: SettingsUi.hit-row == "password";
+            SettingsRowButton {
+                rem-size: root.rem-size;
+                label: "Change password";
+                external: true;
+                clicked => { SettingsUi.change-password(); }
+            }
+        }
+    }
+
+    if SettingsUi.data.logged-in: SettingsGroup {
+        title: "Your data";
+        rem-size: root.rem-size;
+
+        SettingsRow {
+            rem-size: root.rem-size;
+            label: "Export user data";
+            description: "Export a copy of the personal data associated with your Stremio account.";
+            first: true;
+            highlighted: SettingsUi.hit-row == "export";
+            SettingsRowButton {
+                rem-size: root.rem-size;
+                label: SettingsUi.data.data-export-loading ? "Exporting..." : "Export";
+                disabled: SettingsUi.data.data-export-loading;
+                clicked => { SettingsUi.export-user-data(); }
+            }
+        }
+    }
+
+    if SettingsUi.data.logged-in: SettingsGroup {
+        rem-size: root.rem-size;
+        danger-space: true;
+
+        SettingsRow {
+            rem-size: root.rem-size;
+            label: "Account deletion";
+            description: "Permanently deletes your account. You confirm on stremio.com.";
+            first: true;
+            highlighted: SettingsUi.hit-row == "deletion";
+            SettingsRowButton {
+                rem-size: root.rem-size;
+                label: "Delete account";
+                variant: "danger";
+                external: true;
+                clicked => { SettingsUi.open-external-link("delete-account"); }
+            }
+        }
+    }
+}
+
+export component HelpPage inherits VerticalLayout {
+    in property <length> rem-size;
+    alignment: start;
+
+    SettingsPageHeader { title: "Help and about"; rem-size: root.rem-size; }
+
+    SettingsGroup {
+        title: "Help";
+        rem-size: root.rem-size;
+        SettingsLinkRow { label: "Contact support"; rem-size: root.rem-size; first: true; last: true; clicked => { SettingsUi.open-external-link("support"); } }
+    }
+
+    SettingsGroup {
+        title: "About Stremio";
+        rem-size: root.rem-size;
+
+        SettingsRow {
+            rem-size: root.rem-size; label: "App Version"; first: true; thin: true; highlighted: SettingsUi.hit-row == "vApp";
+            Text { text: SettingsUi.app-version; vertical-alignment: center; font-size: 0.95 * root.rem-size; color: Theme.text; opacity: 0.6; }
+        }
+        SettingsRow {
+            rem-size: root.rem-size; label: "Build Version"; thin: true;
+            Text { text: SettingsUi.build-version; vertical-alignment: center; font-size: 0.95 * root.rem-size; color: Theme.text; opacity: 0.6; }
+        }
+        if SettingsUi.data.server-version != "": SettingsRow {
+            rem-size: root.rem-size; label: "Server Version"; thin: true;
+            Text { text: SettingsUi.data.server-version; vertical-alignment: center; font-size: 0.95 * root.rem-size; color: Theme.text; opacity: 0.6; }
+        }
+        SettingsRow {
+            rem-size: root.rem-size; end-align: true;
+            SettingsRowButton {
+                rem-size: root.rem-size;
+                label: "Copy details";
+                clicked => { SettingsUi.copy-version-details(); }
+            }
+        }
+    }
+
+    SettingsGroup {
+        title: "Legal and source";
+        rem-size: root.rem-size;
+        SettingsLinkRow { label: "Terms of Service"; rem-size: root.rem-size; first: true; clicked => { SettingsUi.open-external-link("tos"); } }
+        SettingsLinkRow { label: "Privacy Policy"; rem-size: root.rem-size; clicked => { SettingsUi.open-external-link("privacy"); } }
+        SettingsLinkRow { label: "Source code"; rem-size: root.rem-size; clicked => { SettingsUi.open-external-link("source"); } }
+        SettingsLinkRow { label: "Big Buck Bunny © 2008 Blender Foundation · CC BY 3.0"; rem-size: root.rem-size; last: true; clicked => { SettingsUi.open-external-link("bbb-credit"); } }
+    }
+}
+
+export component SearchResultsPage inherits VerticalLayout {
+    in property <length> rem-size;
+    alignment: start;
+    callback pick-hit(string, string);
+
+    SettingsPageHeader {
+        title: "Search results";
+        scope: SettingsUi.search-results.length == 1
+            ? "1 result for “" + SettingsUi.search-query + "”"
+            : SettingsUi.search-results.length + " results for “" + SettingsUi.search-query + "”";
+        rem-size: root.rem-size;
+    }
+
+    SettingsGroup {
+        rem-size: root.rem-size;
+
+        if SettingsUi.search-results.length == 0: Rectangle {
+            height: 7 * root.rem-size;
+            Text {
+                width: parent.width;
+                height: parent.height;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                text: "No settings match “" + SettingsUi.search-query + "”.";
+                font-size: root.rem-size;
+                color: Theme.text;
+                opacity: 0.6;
+            }
+        }
+
+        for hit[i] in SettingsUi.search-results: Rectangle {
+            min-height: 4.25 * root.rem-size;
+            border-top-left-radius: i == 0 ? 1.25 * root.rem-size : 0px;
+            border-top-right-radius: i == 0 ? 1.25 * root.rem-size : 0px;
+            border-bottom-left-radius: i == SettingsUi.search-results.length - 1 ? 1.25 * root.rem-size : 0px;
+            border-bottom-right-radius: i == SettingsUi.search-results.length - 1 ? 1.25 * root.rem-size : 0px;
+            background: hit-t.has-hover ? Theme.overlay : transparent;
+
+            if i > 0: Rectangle {
+                x: 1.25 * root.rem-size;
+                y: 0px;
+                width: parent.width - 2.5 * root.rem-size;
+                height: 1px;
+                background: Theme.overlay;
+            }
+            HorizontalLayout {
+                padding-left: 1.25 * root.rem-size;
+                padding-right: 1.25 * root.rem-size;
+                padding-top: 0.7 * root.rem-size;
+                padding-bottom: 0.7 * root.rem-size;
+                alignment: space-between;
+
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    alignment: center;
+                    spacing: 0.1 * root.rem-size;
+                    Text { text: hit.label; font-size: root.rem-size; color: Theme.text; }
+                    Text { text: hit.crumb; font-size: 0.875 * root.rem-size; color: Theme.text; opacity: 0.6; }
+                }
+                Rectangle {
+                    width: 1 * root.rem-size;
+                    Image {
+                        y: (parent.height - self.height) / 2;
+                        width: 1 * root.rem-size;
+                        height: 1 * root.rem-size;
+                        source: @image-url("../icons/chevron-forward.svg");
+                        colorize: Theme.text;
+                        opacity: 0.6;
+                    }
+                }
+            }
+            hit-t := TouchArea {
+                mouse-cursor: pointer;
+                clicked => { root.pick-hit(hit.page, hit.row); }
+            }
+        }
+    }
+}

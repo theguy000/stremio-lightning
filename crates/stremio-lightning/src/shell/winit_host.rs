@@ -84,7 +84,11 @@ impl Target {
 ///
 /// `on_focus_gain` fires on every rising `WindowEvent::Focused(true)` edge after an unfocused
 /// state (startup already performs the initial account pull, so initial focus does not double-pull).
-pub(crate) fn install(window: &MainWindow, on_focus_gain: impl Fn() + 'static) {
+pub(crate) fn install(
+    window: &MainWindow,
+    on_focus_gain: impl Fn() + 'static,
+    on_minimize: impl Fn() + 'static,
+) {
     let bounds: Rc<RefCell<[Option<Bounds>; 5]>> = Rc::new(RefCell::new([None; 5]));
     {
         let bounds = bounds.clone();
@@ -126,6 +130,17 @@ pub(crate) fn install(window: &MainWindow, on_focus_gain: impl Fn() + 'static) {
                         on_focus_gain();
                     }
                     was_focused.set(*focused);
+                    EventResult::Propagate
+                }
+                WindowEvent::Resized(size) => {
+                    let minimized = size.width == 0
+                        || size.height == 0
+                        || slint_window
+                            .with_winit_window(|w: &Window| w.is_minimized().unwrap_or(false))
+                            .unwrap_or(false);
+                    if minimized {
+                        on_minimize();
+                    }
                     EventResult::Propagate
                 }
                 WindowEvent::CursorMoved { position, .. } => {

@@ -9,6 +9,8 @@ pub fn resolve(kind: &str) -> Option<String> {
         "tos" => Some("https://www.stremio.com/tos".to_string()),
         "privacy" => Some("https://www.stremio.com/privacy".to_string()),
         "reset-password" => Some("https://www.strem.io/reset-password/".to_string()),
+        "delete-account" => Some("https://www.stremio.com/acc-settings".to_string()),
+        "bbb-credit" => Some("https://peach.blender.org/about/".to_string()),
         s if s.starts_with("http://") || s.starts_with("https://") => Some(s.to_string()),
         _ => None,
     }
