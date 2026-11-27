@@ -13,6 +13,9 @@ const INDEX: &str = "interface||Interface|Preferences|ui display
 interface|lang|UI Language|Preferences › Interface|language translation locale
 interface|zoom|Interface zoom|Preferences › Interface|scale size bigger smaller
 interface|blur|Blur unwatched episodes image|Preferences › Interface|spoilers hide
+interface|spotlight|Show Spotlight|Preferences › Interface|board hero carousel banner featured
+interface|spotlightCatalogs|Spotlight catalogs|Preferences › Interface|board hero pick catalogs
+interface|spotlightRows|Show Spotlight rows on the Board|Preferences › Interface|board hide rows
 player||Player|Preferences|video playback
 player|subLang|Default Subtitles Language|Preferences › Player|captions
 player|subSize|Default Subtitles Size|Preferences › Player|captions font

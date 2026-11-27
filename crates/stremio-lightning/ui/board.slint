@@ -4,9 +4,10 @@
 // Licence basis: ../THIRD_PARTY_NOTICES.md.
 import { ClassStyles } from "class-styles.slint";
 import { MetaItem, PosterData } from "primitives/meta-item.slint";
+import { BoardSpotlight, SpotlightSlide } from "board/spotlight.slint";
 import { Theme } from "theme.slint";
 
-export { MetaItem, PosterData }
+export { MetaItem, PosterData, SpotlightSlide }
 
 export struct CatalogRow {
     title: string,
@@ -17,8 +18,10 @@ export struct CatalogRow {
 
 export global BoardUi {
     in-out property <[CatalogRow]> rows: [];
+    in-out property <[SpotlightSlide]> spotlight: [];
     callback board-visible(length, length, length, length);
     callback item-action(string, string);
+    callback spotlight-library(string, string, bool);
 }
 
 component MetaRow inherits Rectangle {
@@ -192,6 +195,14 @@ export component BoardContent inherits Rectangle {
             padding-top: root.rem-size;
             padding-bottom: 2 * root.rem-size;
             spacing: 2 * root.rem-size;
+
+            if BoardUi.spotlight.length > 0: BoardSpotlight {
+                slides: BoardUi.spotlight;
+                rem-size: root.rem-size;
+                viewport-width: root.viewport-width;
+                open-item(id, kind, title) => { root.open-item(id, kind, title); }
+                toggle-library(id, kind, in-lib) => { BoardUi.spotlight-library(id, kind, in-lib); }
+            }
 
             for entry in BoardUi.rows: board-row := MetaRow {
                 catalog: entry;

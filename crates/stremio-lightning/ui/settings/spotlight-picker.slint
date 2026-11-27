@@ -1,0 +1,225 @@
+// Based on stremio-web SpotlightSettings/CatalogPicker (Copyright Smart code 203358507).
+import { Theme } from "../theme.slint";
+import { SettingsRowButton } from "primitives.slint";
+import { SettingsUi } from "types.slint";
+
+export component SpotlightPickerModal inherits Rectangle {
+    in property <length> rem-size: 14px;
+    callback closed();
+
+    background: #00000088;
+
+    TouchArea {
+        clicked => { root.closed(); }
+    }
+
+    Rectangle {
+        width: Math.min(parent.width * 0.82, 56 * root.rem-size);
+        height: Math.min(parent.height * 0.84, 44 * root.rem-size);
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        border-radius: 1 * root.rem-size;
+        background: Theme.modal-background;
+        border-width: 1px;
+        border-color: Theme.overlay;
+        drop-shadow-blur: 15px;
+        drop-shadow-color: #7b5bf55e;
+
+        TouchArea {}
+
+        VerticalLayout {
+            padding: 0px;
+            spacing: 0px;
+
+            HorizontalLayout {
+                height: 4.5 * root.rem-size;
+                padding-left: 2 * root.rem-size;
+                padding-right: 1.25 * root.rem-size;
+                alignment: space-between;
+
+                Text {
+                    text: "Spotlight catalogs";
+                    font-size: 1.45 * root.rem-size;
+                    font-weight: 500;
+                    color: Theme.text;
+                    vertical-alignment: center;
+                }
+                HorizontalLayout {
+                    spacing: 0.75 * root.rem-size;
+                    alignment: end;
+
+                    VerticalLayout {
+                        alignment: center;
+                        SettingsRowButton {
+                            rem-size: root.rem-size;
+                            label: "Use default";
+                            disabled: SettingsUi.data.spotlight-is-default;
+                            clicked => { SettingsUi.reset-spotlight-catalogs(); }
+                        }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        Rectangle {
+                            width: 2.75 * root.rem-size;
+                            height: 2.75 * root.rem-size;
+                            border-radius: 1.375 * root.rem-size;
+                            background: cl-t.has-hover ? Theme.overlay : transparent;
+                            Image {
+                                x: (parent.width - self.width) / 2;
+                                y: (parent.height - self.height) / 2;
+                                width: 1.15 * root.rem-size;
+                                height: 1.15 * root.rem-size;
+                                source: @image-url("../icons/close.svg");
+                                colorize: Theme.text;
+                            }
+                            cl-t := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => { root.closed(); }
+                            }
+                        }
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                padding-left: 2 * root.rem-size;
+                padding-right: 2 * root.rem-size;
+                padding-bottom: 1 * root.rem-size;
+                spacing: 1 * root.rem-size;
+                alignment: space-between;
+
+                Text {
+                    horizontal-stretch: 1;
+                    text: "Pick up to 3 catalogs for the top of your Board. They take turns, up to 6 titles with artwork.";
+                    wrap: word-wrap;
+                    font-size: 0.9 * root.rem-size;
+                    color: Theme.text;
+                    opacity: 0.65;
+                    vertical-alignment: center;
+                }
+                Text {
+                    text: SettingsUi.data.spotlight-picks-count >= 3
+                        ? SettingsUi.data.spotlight-picks-count + " of 3 · Remove one to add another"
+                        : SettingsUi.data.spotlight-picks-count + " of 3";
+                    font-size: 0.85 * root.rem-size;
+                    font-weight: 500;
+                    color: Theme.text;
+                    opacity: 0.75;
+                    vertical-alignment: center;
+                }
+            }
+
+            Flickable {
+                vertical-stretch: 1;
+                content-width: self.width;
+                content-height: list-col.preferred-height;
+
+                list-col := VerticalLayout {
+                    width: parent.width;
+                    height: self.preferred-height;
+                    alignment: start;
+                    padding-left: 2 * root.rem-size;
+                    padding-right: 2 * root.rem-size;
+                    padding-bottom: 2 * root.rem-size;
+                    spacing: 0.6 * root.rem-size;
+
+                    if SettingsUi.spotlight-catalogs.length == 0: Rectangle {
+                        height: 8 * root.rem-size;
+                        Text {
+                            width: parent.width;
+                            height: parent.height;
+                            text: "No catalogs to show. Install an addon with a catalog to use Spotlight.";
+                            font-size: root.rem-size;
+                            color: Theme.text;
+                            opacity: 0.6;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    for cat[idx] in SettingsUi.spotlight-catalogs: Rectangle {
+                        height: 4.5 * root.rem-size;
+                        border-radius: 0.85 * root.rem-size;
+                        background: cat.selected-rank > 0 ? #7b5bf526 : (ct.has-hover ? Theme.overlay-hover : Theme.overlay);
+                        border-width: cat.selected-rank > 0 ? 2px : 0px;
+                        border-color: Theme.accent;
+                        opacity: (cat.selected-rank == 0 && SettingsUi.data.spotlight-picks-count >= 3) ? 0.4 : 1.0;
+
+                        HorizontalLayout {
+                            padding-left: 1 * root.rem-size;
+                            padding-right: 1.25 * root.rem-size;
+                            spacing: 1 * root.rem-size;
+                            alignment: space-between;
+
+                            VerticalLayout {
+                                horizontal-stretch: 0;
+                                alignment: center;
+                                Rectangle {
+                                    width: 5.2 * root.rem-size;
+                                    height: 3 * root.rem-size;
+                                    border-radius: 0.45 * root.rem-size;
+                                    background: #0c0b11;
+                                    clip: true;
+                                    if cat.has-bg: Image {
+                                        width: parent.width;
+                                        height: parent.height;
+                                        source: cat.bg;
+                                        image-fit: cover;
+                                    }
+                                }
+                            }
+                            VerticalLayout {
+                                horizontal-stretch: 1;
+                                alignment: center;
+                                spacing: 0.15 * root.rem-size;
+                                HorizontalLayout {
+                                    spacing: 0.5 * root.rem-size;
+                                    alignment: start;
+                                    Text { text: cat.name; font-size: root.rem-size; font-weight: 500; color: Theme.text; overflow: elide; }
+                                    if cat.is-default: Rectangle {
+                                        height: 1.35 * root.rem-size;
+                                        width: def-lbl.preferred-width + 0.7 * root.rem-size;
+                                        border-radius: 0.675 * root.rem-size;
+                                        background: Theme.overlay;
+                                        def-lbl := Text {
+                                            width: parent.width; height: parent.height;
+                                            text: "Default"; font-size: 0.75 * root.rem-size; color: Theme.text; opacity: 0.75;
+                                            horizontal-alignment: center; vertical-alignment: center;
+                                        }
+                                    }
+                                }
+                                Text {
+                                    text: cat.addon-name + " · " + cat.item-count + " titles with artwork";
+                                    font-size: 0.85 * root.rem-size;
+                                    color: Theme.text;
+                                    opacity: 0.6;
+                                    overflow: elide;
+                                }
+                            }
+                            if cat.selected-rank > 0: VerticalLayout {
+                                horizontal-stretch: 0;
+                                alignment: center;
+                                Rectangle {
+                                    width: 1.8 * root.rem-size;
+                                    height: 1.8 * root.rem-size;
+                                    border-radius: 0.9 * root.rem-size;
+                                    background: Theme.accent;
+                                    Text {
+                                        width: parent.width; height: parent.height;
+                                        text: cat.selected-rank;
+                                        font-size: 0.9 * root.rem-size; font-weight: 700; color: #ffffff;
+                                        horizontal-alignment: center; vertical-alignment: center;
+                                    }
+                                }
+                            }
+                        }
+                        ct := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => { SettingsUi.toggle-spotlight-catalog(idx); }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

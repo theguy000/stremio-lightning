@@ -16,6 +16,7 @@ mod player_tracks;
 mod settings_actions;
 mod settings_auth;
 mod share;
+mod spotlight;
 mod viewport;
 
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -222,6 +223,7 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
     addons::wire(window, &wiring);
     settings_auth::wire(window, &wiring);
     settings_actions::wire(window, &wiring);
+    spotlight::wire(window, &wiring);
     mods::wire(window, &wiring);
     logs_about::wire(window, &wiring);
 }

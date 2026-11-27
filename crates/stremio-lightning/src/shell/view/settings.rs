@@ -4,10 +4,13 @@ use std::sync::Mutex;
 
 use slint::{Color, ComponentHandle, ModelRc, VecModel};
 
-use super::sync::select_input_data;
+use super::sync::{select_input_data, slint_image};
+use crate::plumbing::images::Images;
 use crate::plumbing::links;
 use crate::screens::settings::Data as SettingsData;
-use crate::{MainWindow, PlayerUi, ServerUrlRow, SettingsUi, SettingsViewData, Theme};
+use crate::{
+    MainWindow, PlayerUi, ServerUrlRow, SettingsUi, SettingsViewData, SpotlightCatalogRow, Theme,
+};
 
 static LAST_EXPORT_URL: Mutex<String> = Mutex::new(String::new());
 
@@ -22,7 +25,7 @@ fn parse_argb(hex: &str, fallback: Color) -> Color {
     .unwrap_or(fallback)
 }
 
-pub(crate) fn settings_view(data: &SettingsData) -> SettingsViewData {
+pub(crate) fn settings_view(data: &SettingsData, images: &Images) -> SettingsViewData {
     let server_urls = ModelRc::new(VecModel::from(
         data.streaming
             .server_urls
@@ -101,11 +104,40 @@ pub(crate) fn settings_view(data: &SettingsData) -> SettingsViewData {
         mpv_config: select_input_data(&data.mpv_config_menu),
         mpv_config_path: data.mpv_config_path.clone().into(),
         discord_rpc_enabled: data.discord_rpc_enabled,
+        spotlight_enabled: data.spotlight.enabled,
+        spotlight_show_rows: data.spotlight.show_catalog_rows,
+        spotlight_is_default: data.spotlight.is_default,
+        spotlight_picks_count: data.spotlight.picks_count as i32,
+        spotlight_picks_summary: data.spotlight.picks_summary.clone().into(),
+        spotlight_has_preview_bg: slint_image(images, &data.spotlight.preview_bg).is_some(),
+        spotlight_preview_bg: slint_image(images, &data.spotlight.preview_bg).unwrap_or_default(),
+        spotlight_preview_title: data.spotlight.preview_title.clone().into(),
+        spotlight_preview_count: data.spotlight.preview_count.clone().into(),
+        spotlight_preview_sub: data.spotlight.preview_sub.clone().into(),
     }
 }
 
-pub(crate) fn apply_settings(window: &MainWindow, data: &SettingsData) {
-    window.global::<SettingsUi>().set_data(settings_view(data));
+pub(crate) fn apply_settings(window: &MainWindow, data: &SettingsData, images: &Images) {
+    let ui = window.global::<SettingsUi>();
+    ui.set_data(settings_view(data, images));
+    let cats: Vec<SpotlightCatalogRow> = data
+        .spotlight
+        .catalogs
+        .iter()
+        .map(|c| {
+            let bg = slint_image(images, &c.preview_bg);
+            SpotlightCatalogRow {
+                name: c.name.clone().into(),
+                addon_name: c.addon_name.clone().into(),
+                selected_rank: c.selected_rank as i32,
+                is_default: c.is_default,
+                has_bg: bg.is_some(),
+                bg: bg.unwrap_or_default(),
+                item_count: c.item_count as i32,
+            }
+        })
+        .collect();
+    ui.set_spotlight_catalogs(ModelRc::new(VecModel::from(cats)));
     let scale = (data.interface_scale as f32 / 100.0).clamp(0.75, 1.75);
     window.global::<Theme>().set_ui_scale(scale);
     let player_ui = window.global::<PlayerUi>();

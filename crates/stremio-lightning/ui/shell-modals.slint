@@ -1,6 +1,7 @@
 import { Theme } from "theme.slint";
 import { ShareModal } from "share-modal.slint";
 import { ShortcutsModal } from "shortcuts-modal.slint";
+import { SpotlightPickerModal } from "settings/spotlight-picker.slint";
 
 export global ShellModalsUi {
     in-out property <bool> shortcuts-open: false;
@@ -59,5 +60,12 @@ export component ShellModals inherits Rectangle {
         height: 100%;
         rem-size: root.rem-size;
         closed => { ShellModalsUi.shortcuts-open = false; }
+    }
+
+    if ShellModalsUi.spotlight-picker-open: SpotlightPickerModal {
+        width: 100%;
+        height: 100%;
+        rem-size: root.rem-size;
+        closed => { ShellModalsUi.spotlight-picker-open = false; }
     }
 }

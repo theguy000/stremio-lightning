@@ -1,0 +1,157 @@
+// Based on stremio-web Settings/Interface/SpotlightSettings (Copyright Smart code 203358507).
+import { Theme } from "../theme.slint";
+import { SettingsGroup, SettingsRow } from "primitives.slint";
+import { SettingsToggle } from "scale.slint";
+import { SettingsUi } from "types.slint";
+
+export component SpotlightSettingsGroup inherits SettingsGroup {
+    title: "Board";
+
+    SettingsRow {
+        rem-size: root.rem-size;
+        label: "Show Spotlight";
+        first: true;
+        highlighted: SettingsUi.hit-row == "spotlight";
+        SettingsToggle {
+            rem-size: root.rem-size;
+            checked: SettingsUi.data.spotlight-enabled;
+            toggled(val) => { SettingsUi.set-spotlight-enabled(val); }
+        }
+    }
+
+    SettingsRow {
+        rem-size: root.rem-size;
+        label: "Spotlight catalogs";
+        highlighted: SettingsUi.hit-row == "spotlightCatalogs";
+        opacity: SettingsUi.data.spotlight-enabled ? 1.0 : 0.4;
+
+        Rectangle {
+            height: 3 * root.rem-size;
+            width: Math.max(10 * root.rem-size, pick-row.preferred-width);
+            border-radius: 1.5 * root.rem-size;
+            background: (pick-t.has-hover && SettingsUi.data.spotlight-enabled) ? Theme.surface-medium : Theme.overlay;
+
+            pick-row := HorizontalLayout {
+                padding-left: 1.25 * root.rem-size;
+                padding-right: 1 * root.rem-size;
+                spacing: 0.6 * root.rem-size;
+                alignment: space-between;
+
+                Text {
+                    text: SettingsUi.data.spotlight-picks-summary;
+                    font-size: 0.95 * root.rem-size;
+                    font-weight: 500;
+                    color: Theme.text;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+                VerticalLayout {
+                    alignment: center;
+                    Image {
+                        width: 1 * root.rem-size;
+                        height: 1 * root.rem-size;
+                        source: @image-url("../icons/chevron-forward.svg");
+                        colorize: Theme.text;
+                        opacity: 0.65;
+                    }
+                }
+            }
+            pick-t := TouchArea {
+                enabled: SettingsUi.data.spotlight-enabled;
+                mouse-cursor: SettingsUi.data.spotlight-enabled ? pointer : default;
+                accessible-role: button;
+                accessible-label: "Choose Spotlight catalogs";
+                clicked => { SettingsUi.open-spotlight-picker(); }
+            }
+        }
+    }
+
+    // PreviewCard matching SpotlightSettings/PreviewCard.less
+    Rectangle {
+        height: 11.5 * root.rem-size;
+        opacity: SettingsUi.data.spotlight-enabled ? 1.0 : 0.4;
+
+        Rectangle {
+            x: 1.25 * root.rem-size;
+            y: 0.25 * root.rem-size;
+            width: parent.width - 2.5 * root.rem-size;
+            height: parent.height - 1 * root.rem-size;
+            border-radius: 1 * root.rem-size;
+            background: #0c0b11;
+            clip: true;
+
+            if SettingsUi.data.spotlight-has-preview-bg: Image {
+                width: parent.width;
+                height: parent.height;
+                source: SettingsUi.data.spotlight-preview-bg;
+                image-fit: cover;
+            }
+            Rectangle {
+                width: parent.width;
+                height: parent.height;
+                background: @linear-gradient(90deg, #0c0b11d9 0%, #0c0b1188 55%, #0c0b1140 100%);
+            }
+            Rectangle {
+                x: parent.width - self.width - 0.85 * root.rem-size;
+                y: 0.75 * root.rem-size;
+                height: 1.75 * root.rem-size;
+                width: cnt-lbl.preferred-width + 1.1 * root.rem-size;
+                border-radius: 0.875 * root.rem-size;
+                background: #0c0b11b3;
+                cnt-lbl := Text {
+                    width: parent.width;
+                    height: parent.height;
+                    text: SettingsUi.data.spotlight-preview-count;
+                    font-size: 0.8 * root.rem-size;
+                    font-weight: 500;
+                    color: Theme.text;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+            VerticalLayout {
+                x: 1.25 * root.rem-size;
+                y: parent.height - self.preferred-height - 1 * root.rem-size;
+                width: parent.width - 2.5 * root.rem-size;
+                spacing: 0.25 * root.rem-size;
+
+                Text {
+                    text: SettingsUi.data.spotlight-preview-title;
+                    font-size: 1.15 * root.rem-size;
+                    font-weight: 600;
+                    color: Theme.text;
+                    overflow: elide;
+                }
+                Text {
+                    text: SettingsUi.data.spotlight-preview-sub;
+                    font-size: 0.85 * root.rem-size;
+                    color: Theme.text;
+                    opacity: 0.7;
+                    overflow: elide;
+                }
+            }
+            TouchArea {
+                enabled: SettingsUi.data.spotlight-enabled;
+                mouse-cursor: SettingsUi.data.spotlight-enabled ? pointer : default;
+                clicked => { SettingsUi.open-spotlight-picker(); }
+            }
+        }
+    }
+
+    SettingsRow {
+        rem-size: root.rem-size;
+        label: SettingsUi.data.spotlight-picks-count <= 1 ? "Show its row on the Board" : "Show their rows on the Board";
+        last: true;
+        highlighted: SettingsUi.hit-row == "spotlightRows";
+        opacity: SettingsUi.data.spotlight-enabled ? 1.0 : 0.4;
+        SettingsToggle {
+            rem-size: root.rem-size;
+            checked: SettingsUi.data.spotlight-show-rows;
+            toggled(val) => {
+                if (SettingsUi.data.spotlight-enabled) {
+                    SettingsUi.set-spotlight-show-rows(val);
+                }
+            }
+        }
+    }
+}

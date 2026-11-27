@@ -70,6 +70,7 @@ pub struct Data {
     pub player_config: PlayerConfig,
     pub mpv_config_menu: SelectMenu,
     pub mpv_config_path: String,
+    pub spotlight: crate::screens::board::SpotlightSettingsView,
     pub wrap_streams: bool,
 }
 
@@ -100,6 +101,7 @@ pub fn data(model: &AppModel, extras: &LocalExtras) -> Data {
         out.transcoding_profile = transcode;
     }
     out.streaming = ss;
+    out.spotlight = crate::screens::board::spotlight::settings_view(model, extras);
     if let Some((_, loadable)) = &model.data_export.export_url {
         out.data_export_loading = matches!(loadable, Loadable::Loading);
         if let Loadable::Ready(url) = loadable {
@@ -208,6 +210,7 @@ fn data_from_profile(profile: &Profile, extras: &LocalExtras) -> Data {
         player_config,
         mpv_config_menu,
         mpv_config_path,
+        spotlight: Default::default(),
         wrap_streams: extras.wrap_streams,
     }
 }

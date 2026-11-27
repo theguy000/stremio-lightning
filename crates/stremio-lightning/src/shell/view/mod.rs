@@ -3,6 +3,7 @@
 //! This is the only place in the app that knows both a screen's data and the window it lands in.
 //! It decides nothing: every value here was decided by the screen that produced it.
 
+mod board;
 mod browse;
 mod details_player;
 mod mods;
@@ -41,7 +42,7 @@ pub(crate) fn apply_mask(
     sync::prune_slint_images(images);
 
     if mask.contains(ScreenMask::BOARD) {
-        browse::apply_board(window, &snapshot.board, images);
+        board::apply_board(window, &snapshot.board, images);
     }
     if mask.contains(ScreenMask::DISCOVER) {
         browse::apply_discover(window, &snapshot.discover, images);
@@ -58,7 +59,7 @@ pub(crate) fn apply_mask(
             .set_data(browse::calendar_view(&snapshot.calendar, images));
     }
     if mask.contains(ScreenMask::SETTINGS) {
-        apply_settings(window, &snapshot.settings);
+        apply_settings(window, &snapshot.settings, images);
         window
             .global::<DetailsUi>()
             .set_wrap_streams(snapshot.settings.wrap_streams);

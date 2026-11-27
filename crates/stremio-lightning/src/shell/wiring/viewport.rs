@@ -25,8 +25,8 @@ impl Wiring {
         };
         let prev = self.app.viewport().board_viewport();
         let board = self.app.board().view();
-        let prev_urls = board::visible_images(&board.rows, prev);
-        let next_urls = board::visible_images(&board.rows, next);
+        let prev_urls = board::visible_images_with_spotlight(&board.rows, &board.spotlight, prev);
+        let next_urls = board::visible_images_with_spotlight(&board.rows, &board.spotlight, next);
         self.app.viewport().set_board_viewport(next);
         if prev_urls != next_urls {
             self.app.viewport().sync_images();

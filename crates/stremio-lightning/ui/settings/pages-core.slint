@@ -1,6 +1,7 @@
 // Based on stremio-web Settings Interface, Player, and Integrations pages.
 import { SettingsGroup, SettingsPageHeader, SettingsRow, SettingsRowButton } from "primitives.slint";
 import { SettingsScale, SettingsSelectControl, SettingsToggle, SubtitlesPreview } from "scale.slint";
+import { SpotlightSettingsGroup } from "spotlight.slint";
 import { SettingsUi } from "types.slint";
 
 export component InterfacePage inherits VerticalLayout {
@@ -53,6 +54,8 @@ export component InterfacePage inherits VerticalLayout {
             }
         }
     }
+
+    SpotlightSettingsGroup { rem-size: root.rem-size; }
 }
 
 export component PlayerPage inherits VerticalLayout {

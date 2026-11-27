@@ -8,6 +8,16 @@ export struct ServerUrlRow {
     removable: bool,
 }
 
+export struct SpotlightCatalogRow {
+    name: string,
+    addon-name: string,
+    selected-rank: int,
+    is-default: bool,
+    bg: image,
+    has-bg: bool,
+    item-count: int,
+}
+
 export struct SettingsSearchHit {
     label: string,
     crumb: string,
@@ -69,6 +79,16 @@ export struct SettingsViewData {
     mpv-config: SelectInputData,
     mpv-config-path: string,
     discord-rpc-enabled: bool,
+    spotlight-enabled: bool,
+    spotlight-show-rows: bool,
+    spotlight-is-default: bool,
+    spotlight-picks-count: int,
+    spotlight-picks-summary: string,
+    spotlight-preview-bg: image,
+    spotlight-has-preview-bg: bool,
+    spotlight-preview-title: string,
+    spotlight-preview-count: string,
+    spotlight-preview-sub: string,
 }
 
 export global SettingsUi {
@@ -79,6 +99,7 @@ export global SettingsUi {
     in-out property <string> active-page: "interface";
     in-out property <string> search-query: "";
     in-out property <[SettingsSearchHit]> search-results;
+    in-out property <[SpotlightCatalogRow]> spotlight-catalogs;
     in-out property <string> hit-row: "";
 
     callback log-out();
@@ -99,4 +120,9 @@ export global SettingsUi {
     callback search-changed(string);
     callback select-cache-root(int);
     callback select-mpv-config(int);
+    callback set-spotlight-enabled(bool);
+    callback set-spotlight-show-rows(bool);
+    callback open-spotlight-picker();
+    callback toggle-spotlight-catalog(int);
+    callback reset-spotlight-catalogs();
 }
