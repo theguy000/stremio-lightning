@@ -10,13 +10,17 @@
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use i_slint_backend_winit::{EventResult, WinitWindowAccessor};
 use i_slint_core::window::WindowInner;
 use slint::{ComponentHandle, LogicalPosition, Weak};
-use winit::event::{MouseScrollDelta, WindowEvent};
+use winit::event::{ElementState, MouseScrollDelta, WindowEvent};
+use winit::keyboard::ModifiersState;
 use winit::window::{Icon, Window};
 
+use crate::app::App;
 use crate::{MainWindow, Section};
 
 /// Embedded 128x128 RGBA application icon shared with Linux packaging and top bar.
@@ -86,6 +90,8 @@ impl Target {
 /// state (startup already performs the initial account pull, so initial focus does not double-pull).
 pub(crate) fn install(
     window: &MainWindow,
+    app: Arc<App>,
+    focused_flag: Arc<AtomicBool>,
     on_focus_gain: impl Fn() + 'static,
     on_minimize: impl Fn() + 'static,
 ) {
@@ -109,6 +115,7 @@ pub(crate) fn install(
     let cursor = Rc::new(Cell::new(LogicalPosition::new(0.0, 0.0)));
     let icon_installed = Rc::new(Cell::new(false));
     let was_focused = Rc::new(Cell::new(true));
+    let modifiers = Rc::new(Cell::new(ModifiersState::empty()));
 
     window
         .window()
@@ -126,10 +133,37 @@ pub(crate) fn install(
 
             match event {
                 WindowEvent::Focused(focused) => {
+                    focused_flag.store(*focused, Ordering::Relaxed);
                     if *focused && !was_focused.get() {
                         on_focus_gain();
                     }
                     was_focused.set(*focused);
+                    EventResult::Propagate
+                }
+                WindowEvent::ModifiersChanged(next) => {
+                    modifiers.set(next.state());
+                    EventResult::Propagate
+                }
+                WindowEvent::KeyboardInput { event, .. } => {
+                    let Some(w) = weak.upgrade() else {
+                        return EventResult::Propagate;
+                    };
+                    let inner = WindowInner::from_pub(slint_window);
+                    if !inner.active_popups().is_empty() {
+                        return EventResult::Propagate;
+                    }
+                    if let Some(action) = super::shortcuts::classify(
+                        &event.logical_key,
+                        event.state == ElementState::Pressed,
+                        event.repeat,
+                        modifiers.get(),
+                        inner.text_input_focused(),
+                        w.get_playing(),
+                    ) {
+                        if super::shortcuts::execute(&w, &app, action) {
+                            return EventResult::PreventDefault;
+                        }
+                    }
                     EventResult::Propagate
                 }
                 WindowEvent::Resized(size) => {
@@ -174,9 +208,7 @@ fn handle_wheel(
         .is_empty()
         || window.get_details_open()
         || window.get_playing()
-        || window.global::<crate::AuthUi>().get_open()
-        || window.global::<crate::AddonsUi>().get_add_open()
-        || window.get_share_open()
+        || super::shortcuts::any_modal_open(&window)
     {
         return EventResult::Propagate;
     }

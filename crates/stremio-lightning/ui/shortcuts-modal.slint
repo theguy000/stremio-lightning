@@ -1,0 +1,160 @@
+// Based on stremio-web ShortcutsModal (Copyright Smart code 203358507).
+import { Theme } from "theme.slint";
+import { ShortcutKbd } from "settings/shortcuts.slint";
+
+component ModalShortcutLine inherits HorizontalLayout {
+    in property <string> label;
+    in property <string> first-key;
+    in property <string> joiner;
+    in property <string> second-key;
+    in property <length> rem-size;
+
+    spacing: 1 * root.rem-size;
+    alignment: space-between;
+
+    Text {
+        horizontal-stretch: 1;
+        text: root.label;
+        font-size: 0.95 * root.rem-size;
+        color: Theme.text;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    HorizontalLayout {
+        horizontal-stretch: 0;
+        spacing: 0.45 * root.rem-size;
+        alignment: end;
+
+        ShortcutKbd { key-text: root.first-key; rem-size: root.rem-size * 0.85; }
+        if root.joiner != "": Text {
+            text: root.joiner;
+            font-size: 0.85 * root.rem-size;
+            color: Theme.text;
+            opacity: 0.6;
+            vertical-alignment: center;
+        }
+        if root.second-key != "": ShortcutKbd { key-text: root.second-key; rem-size: root.rem-size * 0.85; }
+    }
+}
+
+export component ShortcutsModal inherits Rectangle {
+    in property <length> rem-size: 14px;
+    callback closed();
+
+    background: #00000088;
+
+    TouchArea {
+        clicked => { root.closed(); }
+    }
+
+    Rectangle {
+        width: Math.min(parent.width * 0.84, 62 * root.rem-size);
+        height: Math.min(parent.height * 0.82, 42 * root.rem-size);
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        border-radius: 0.75 * root.rem-size;
+        background: Theme.modal-background;
+        border-width: 1px;
+        border-color: Theme.overlay;
+        drop-shadow-blur: 15px;
+        drop-shadow-color: #7b5bf55e;
+
+        TouchArea {}
+
+        VerticalLayout {
+            padding: 0px;
+            spacing: 0px;
+
+            HorizontalLayout {
+                height: 4.5 * root.rem-size;
+                padding-left: 2.25 * root.rem-size;
+                padding-right: 1 * root.rem-size;
+                alignment: space-between;
+
+                Text {
+                    text: "Shortcuts";
+                    font-size: 1.5 * root.rem-size;
+                    font-weight: 500;
+                    color: Theme.text;
+                    vertical-alignment: center;
+                }
+                VerticalLayout {
+                    alignment: center;
+                    Rectangle {
+                        width: 2.75 * root.rem-size;
+                        height: 2.75 * root.rem-size;
+                        border-radius: 1.375 * root.rem-size;
+                        background: close-t.has-hover ? Theme.overlay : transparent;
+
+                        Image {
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                            width: 1.15 * root.rem-size;
+                            height: 1.15 * root.rem-size;
+                            source: @image-url("icons/close.svg");
+                            colorize: Theme.text;
+                            opacity: 0.75;
+                        }
+                        close-t := TouchArea {
+                            mouse-cursor: pointer;
+                            accessible-role: button;
+                            accessible-label: "Close shortcuts";
+                            clicked => { root.closed(); }
+                        }
+                    }
+                }
+            }
+
+            Flickable {
+                vertical-stretch: 1;
+                content-width: self.width;
+                content-height: cols.preferred-height;
+
+                cols := HorizontalLayout {
+                    width: parent.width;
+                    height: self.preferred-height;
+                    padding-left: 2.25 * root.rem-size;
+                    padding-right: 2.25 * root.rem-size;
+                    padding-bottom: 2 * root.rem-size;
+                    spacing: 2.5 * root.rem-size;
+
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        alignment: start;
+                        spacing: 0.85 * root.rem-size;
+
+                        Text { text: "General"; font-size: 1.05 * root.rem-size; font-weight: 600; color: Theme.text; }
+                        ModalShortcutLine { rem-size: root.rem-size; label: "Interface zoom"; first-key: "Ctrl + -"; joiner: "/"; second-key: "Ctrl + +"; }
+                        ModalShortcutLine { rem-size: root.rem-size; label: "Reset zoom"; first-key: "Ctrl + 0"; }
+                        ModalShortcutLine { rem-size: root.rem-size; label: "Navigate Between Menus"; first-key: "1"; joiner: "to"; second-key: "6"; }
+                        ModalShortcutLine { rem-size: root.rem-size; label: "Go to Search"; first-key: "0"; }
+                        ModalShortcutLine { rem-size: root.rem-size; label: "Navigate Back"; first-key: "Backspace"; }
+                        ModalShortcutLine { rem-size: root.rem-size; label: "Toggle Fullscreen"; first-key: "F"; joiner: "or"; second-key: "F11"; }
+                        ModalShortcutLine { rem-size: root.rem-size; label: "Show Shortcuts"; first-key: "Ctrl + /"; }
+                        ModalShortcutLine { rem-size: root.rem-size; label: "Gamepad Guide"; first-key: "Ctrl + G"; }
+                    }
+
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        alignment: start;
+                        spacing: 0.85 * root.rem-size;
+
+                        Text { text: "Player"; font-size: 1.05 * root.rem-size; font-weight: 600; color: Theme.text; }
+                        ModalShortcutLine { rem-size: root.rem-size; label: "Play / Pause"; first-key: "Space"; }
+                        ModalShortcutLine { rem-size: root.rem-size; label: "Seek Forward"; first-key: "→"; joiner: "or"; second-key: "Shift + →"; }
+                        ModalShortcutLine { rem-size: root.rem-size; label: "Seek Backward"; first-key: "←"; joiner: "or"; second-key: "Shift + ←"; }
+                        ModalShortcutLine { rem-size: root.rem-size; label: "Adjust Volume"; first-key: "↑"; joiner: "/"; second-key: "↓"; }
+                        ModalShortcutLine { rem-size: root.rem-size; label: "Toggle Mute"; first-key: "M"; }
+                        ModalShortcutLine { rem-size: root.rem-size; label: "Subtitles Size"; first-key: "-"; joiner: "/"; second-key: "="; }
+                        ModalShortcutLine { rem-size: root.rem-size; label: "Subtitles Delay"; first-key: "G"; joiner: "/"; second-key: "H"; }
+                        ModalShortcutLine { rem-size: root.rem-size; label: "Playback Speed"; first-key: "["; joiner: "/"; second-key: "]"; }
+                        ModalShortcutLine { rem-size: root.rem-size; label: "Cycle Video Scale"; first-key: "V"; }
+                        ModalShortcutLine { rem-size: root.rem-size; label: "Subtitles / Audio / Info / Speed"; first-key: "S / A"; joiner: "/"; second-key: "I / R"; }
+                        ModalShortcutLine { rem-size: root.rem-size; label: "Play Next"; first-key: "Shift + N"; }
+                        ModalShortcutLine { rem-size: root.rem-size; label: "Exit Fullscreen / Go Back"; first-key: "Esc"; }
+                    }
+                }
+            }
+        }
+    }
+}

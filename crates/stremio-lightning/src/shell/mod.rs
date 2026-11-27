@@ -13,6 +13,7 @@ use crate::plumbing::stream_server::Supervisor;
 use crate::MainWindow;
 
 pub(crate) mod auth;
+pub(crate) mod shortcuts;
 pub(crate) mod theme_apply;
 pub(crate) mod video_host;
 pub(crate) mod view;
@@ -123,8 +124,11 @@ pub(crate) fn attach(window: &MainWindow, app: Arc<App>, tokio: tokio::runtime::
         let app_min = app.clone();
         let video_min = video.clone();
         let win_min = window.as_weak();
+        let focused = Arc::new(AtomicBool::new(true));
         winit_host::install(
             window,
+            app.clone(),
+            focused,
             move || app_focus.sync_account(),
             move || {
                 if win_min.upgrade().is_some_and(|w| w.get_playing())

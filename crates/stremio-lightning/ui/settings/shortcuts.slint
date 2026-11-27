@@ -1,9 +1,9 @@
-// Based on stremio-web Shortcuts.tsx & Keys.less (Copyright Smart code 203358507).
+// Based on stremio-web Shortcuts.tsx, shortcuts.json & Keys.less (Copyright Smart code 203358507).
 import { ClassStyles } from "../class-styles.slint";
 import { Theme } from "../theme.slint";
 import { SettingsGroup, SettingsPageHeader, SettingsRow } from "primitives.slint";
 
-component ShortcutKbd inherits Rectangle {
+export component ShortcutKbd inherits Rectangle {
     in property <string> key-text;
     in property <length> rem-size;
 
@@ -31,6 +31,8 @@ component ShortcutRow inherits SettingsRow {
     in property <string> first-key;
     in property <string> joiner;
     in property <string> second-key;
+    in property <string> joiner2;
+    in property <string> third-key;
     keys-row: true;
 
     HorizontalLayout {
@@ -46,6 +48,14 @@ component ShortcutRow inherits SettingsRow {
             opacity: 0.6;
         }
         if root.second-key != "": ShortcutKbd { key-text: root.second-key; rem-size: root.rem-size; }
+        if root.joiner2 != "": Text {
+            text: root.joiner2;
+            vertical-alignment: center;
+            font-size: 0.9 * root.rem-size;
+            color: Theme.text;
+            opacity: 0.6;
+        }
+        if root.third-key != "": ShortcutKbd { key-text: root.third-key; rem-size: root.rem-size; }
     }
 }
 
@@ -54,6 +64,19 @@ export component ShortcutsPage inherits VerticalLayout {
     alignment: start;
 
     SettingsPageHeader { title: "Shortcuts"; rem-size: root.rem-size; }
+
+    SettingsGroup {
+        title: "General";
+        rem-size: root.rem-size;
+
+        ShortcutRow { rem-size: root.rem-size; label: "Interface zoom"; first-key: "Ctrl + -"; joiner: "or"; second-key: "Ctrl + +"; joiner2: "or"; third-key: "Ctrl + 0"; first: true; }
+        ShortcutRow { rem-size: root.rem-size; label: "Navigate Between Menus"; first-key: "1"; joiner: "to"; second-key: "6"; }
+        ShortcutRow { rem-size: root.rem-size; label: "Go to Search"; first-key: "0"; }
+        ShortcutRow { rem-size: root.rem-size; label: "Navigate Back"; first-key: "Backspace"; }
+        ShortcutRow { rem-size: root.rem-size; label: "Toggle Fullscreen"; first-key: "F"; joiner: "or"; second-key: "F11"; }
+        ShortcutRow { rem-size: root.rem-size; label: "Show Shortcuts"; first-key: "Ctrl + /"; }
+        ShortcutRow { rem-size: root.rem-size; label: "Gamepad Guide"; first-key: "Ctrl + G"; last: true; }
+    }
 
     SettingsGroup {
         title: "Player";
@@ -75,6 +98,6 @@ export component ShortcutsPage inherits VerticalLayout {
         ShortcutRow { rem-size: root.rem-size; label: "Toggle Playback Speed Menu"; first-key: "R"; }
         ShortcutRow { rem-size: root.rem-size; label: "Play Next"; first-key: "Shift + N"; }
         ShortcutRow { rem-size: root.rem-size; label: "Toggle Fullscreen"; first-key: "F"; joiner: "or"; second-key: "F11"; }
-        ShortcutRow { rem-size: root.rem-size; label: "Exit Fullscreen / Go Back"; first-key: "Esc"; }
+        ShortcutRow { rem-size: root.rem-size; label: "Exit Fullscreen / Go Back"; first-key: "Esc"; last: true; }
     }
 }

@@ -10,6 +10,9 @@ component SearchBar inherits Rectangle {
     property <length> px: root.rem-size / 14;
     width: 420 * root.px;
     height: 46 * root.px;
+    public function focus-search() {
+        search-input.focus();
+    }
 
     search-bar-container := Rectangle {
         width: parent.width;
@@ -107,6 +110,12 @@ export component HorizontalNavBar inherits Rectangle {
     callback user-avatar-clicked();
     callback toggle-wrap();
     callback back-clicked();
+    in property <int> focus-search-seq: 0;
+    changed focus-search-seq => {
+        if (root.show-search) {
+            search-bar.focus-search();
+        }
+    }
 
     property <length> px: root.rem-size / 14;
     height: 5.5 * root.rem-size;
