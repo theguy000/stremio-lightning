@@ -11,6 +11,7 @@ use super::{AppModel, SelectMenu};
 use crate::app::AppModelField;
 use crate::AppRuntime;
 
+pub mod cache_root;
 mod options;
 pub mod search;
 pub mod streaming;
@@ -18,6 +19,7 @@ mod tables;
 
 pub use crate::plumbing::local_settings::LocalExtras;
 pub use crate::plumbing::player::PlayerConfig;
+pub use cache_root::CacheRootView;
 pub use search::{search as search_settings, SearchHit};
 pub use streaming::{ServerUrlEntry, StreamingView};
 pub(crate) use tables::TOGGLES;
@@ -64,6 +66,8 @@ pub struct Data {
     pub data_export_loading: bool,
     pub data_export_url: String,
     pub player_config: PlayerConfig,
+    pub mpv_config_menu: SelectMenu,
+    pub mpv_config_path: String,
     pub wrap_streams: bool,
 }
 
@@ -140,6 +144,21 @@ fn data_from_profile(profile: &Profile, extras: &LocalExtras) -> Data {
         audio_language: options::code_at("audioLanguage", &settings_val),
         surround_sound,
         audio_passthrough,
+        mpv_config_path: extras.mpv_config_path.clone(),
+    };
+    let mpv_config_path = extras.mpv_config_path.clone().unwrap_or_default();
+    let mpv_is_default = mpv_config_path.is_empty();
+    let mpv_config_menu = SelectMenu {
+        title: if mpv_is_default {
+            "Default".to_owned()
+        } else {
+            mpv_config_path.clone()
+        },
+        selected: usize::from(mpv_is_default),
+        options: vec![
+            ("Select...".to_owned(), false),
+            ("Default".to_owned(), mpv_is_default),
+        ],
     };
 
     Data {
@@ -184,6 +203,8 @@ fn data_from_profile(profile: &Profile, extras: &LocalExtras) -> Data {
         data_export_loading: false,
         data_export_url: String::new(),
         player_config,
+        mpv_config_menu,
+        mpv_config_path,
         wrap_streams: extras.wrap_streams,
     }
 }

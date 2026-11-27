@@ -2,202 +2,16 @@
 import { Theme } from "../theme.slint";
 import { SettingsGroup, SettingsPageHeader, SettingsRow, SettingsRowButton } from "primitives.slint";
 import { SettingsSelectControl } from "scale.slint";
+import { ServerUrlsCard } from "streaming-urls.slint";
 import { SettingsUi } from "types.slint";
 
 export component StreamingPage inherits VerticalLayout {
     in property <length> rem-size;
     alignment: start;
-    property <bool> add-mode: false;
-    property <string> draft-url: "";
 
     SettingsPageHeader { title: "Streaming"; rem-size: root.rem-size; }
 
-    SettingsGroup {
-        title: "Streaming server";
-        rem-size: root.rem-size;
-        padded: true;
-
-        VerticalLayout {
-            spacing: 0.75 * root.rem-size;
-
-            // Table header: URL / STATUS
-            HorizontalLayout {
-                padding-left: 0.75 * root.rem-size;
-                padding-right: 0.75 * root.rem-size;
-                alignment: space-between;
-                Text { text: "URL"; font-size: 0.8 * root.rem-size; font-weight: 600; color: Theme.text; opacity: 0.5; }
-                Text { text: "STATUS"; font-size: 0.8 * root.rem-size; font-weight: 600; color: Theme.text; opacity: 0.5; }
-            }
-
-            // Server URL items
-            for item in SettingsUi.data.server-urls: Rectangle {
-                height: 3.4 * root.rem-size;
-                border-radius: 0.85 * root.rem-size;
-                background: item.selected ? Theme.surface-medium : (row-t.has-hover ? Theme.overlay : transparent);
-
-                row-t := TouchArea {
-                    mouse-cursor: pointer;
-                    clicked => { if (!item.selected) { SettingsUi.select-server-url(item.url); } }
-                }
-
-                HorizontalLayout {
-                    padding-left: 0.9 * root.rem-size;
-                    padding-right: 0.9 * root.rem-size;
-                    spacing: 0.75 * root.rem-size;
-                    alignment: space-between;
-
-                    HorizontalLayout {
-                        horizontal-stretch: 1;
-                        spacing: 0.75 * root.rem-size;
-                        alignment: start;
-
-                        // Radio dot
-                        Rectangle {
-                            y: (parent.height - self.height) / 2;
-                            width: 1.15 * root.rem-size;
-                            height: 1.15 * root.rem-size;
-                            border-radius: 0.575 * root.rem-size;
-                            border-width: 2px;
-                            border-color: item.selected ? Theme.accent : Theme.placeholder;
-                            if item.selected: Rectangle {
-                                x: (parent.width - self.width) / 2;
-                                y: (parent.height - self.height) / 2;
-                                width: 0.55 * root.rem-size;
-                                height: 0.55 * root.rem-size;
-                                border-radius: 0.275 * root.rem-size;
-                                background: Theme.accent;
-                            }
-                        }
-                        Text {
-                            horizontal-stretch: 1;
-                            text: item.url;
-                            overflow: elide;
-                            vertical-alignment: center;
-                            font-size: 0.95 * root.rem-size;
-                            color: Theme.text;
-                        }
-                    }
-
-                    HorizontalLayout {
-                        spacing: 0.65 * root.rem-size;
-                        alignment: end;
-
-                        if item.selected: HorizontalLayout {
-                            spacing: 0.4 * root.rem-size;
-                            alignment: center;
-                            Rectangle {
-                                y: (parent.height - self.height) / 2;
-                                width: 0.55 * root.rem-size;
-                                height: 0.55 * root.rem-size;
-                                border-radius: 0.275 * root.rem-size;
-                                background: SettingsUi.data.server-online ? Theme.accent-green
-                                    : SettingsUi.data.server-loading ? Theme.accent-yellow : Theme.accent-red;
-                            }
-                            Text {
-                                text: SettingsUi.data.server-online ? "Online"
-                                    : SettingsUi.data.server-loading ? "Checking..." : "Error";
-                                vertical-alignment: center;
-                                font-size: 0.9 * root.rem-size;
-                                color: SettingsUi.data.server-online ? Theme.accent-green
-                                    : SettingsUi.data.server-loading ? Theme.text : Theme.accent-red;
-                            }
-                        }
-
-                        if item.removable: Rectangle {
-                            y: (parent.height - self.height) / 2;
-                            width: 2 * root.rem-size;
-                            height: 2 * root.rem-size;
-                            border-radius: 1 * root.rem-size;
-                            background: del-t.has-hover ? Theme.overlay-hover : transparent;
-                            Image {
-                                x: (parent.width - self.width) / 2;
-                                y: (parent.height - self.height) / 2;
-                                width: 1.05 * root.rem-size;
-                                height: 1.05 * root.rem-size;
-                                source: @image-url("../icons/bin.svg");
-                                colorize: Theme.accent-red;
-                            }
-                            del-t := TouchArea {
-                                mouse-cursor: pointer;
-                                clicked => { SettingsUi.delete-server-url(item.url); }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Inline Add URL editor
-            if root.add-mode: HorizontalLayout {
-                spacing: 0.6 * root.rem-size;
-                Rectangle {
-                    horizontal-stretch: 1;
-                    height: 2.75 * root.rem-size;
-                    border-radius: 1.375 * root.rem-size;
-                    background: Theme.surface-medium;
-                    border-width: 1px;
-                    border-color: Theme.border-medium;
-
-                    if root.draft-url == "": Text {
-                        x: 1 * root.rem-size;
-                        width: parent.width - 2 * root.rem-size;
-                        height: parent.height;
-                        vertical-alignment: center;
-                        text: "http://127.0.0.1:11470/";
-                        font-size: 0.95 * root.rem-size;
-                        color: Theme.placeholder;
-                    }
-                    TextInput {
-                        x: 1 * root.rem-size;
-                        width: parent.width - 2 * root.rem-size;
-                        height: parent.height;
-                        vertical-alignment: center;
-                        single-line: true;
-                        font-size: 0.95 * root.rem-size;
-                        color: Theme.text;
-                        text <=> root.draft-url;
-                        accepted => {
-                            SettingsUi.add-server-url(root.draft-url);
-                            root.draft-url = "";
-                            root.add-mode = false;
-                        }
-                    }
-                }
-                SettingsRowButton {
-                    rem-size: root.rem-size; label: "Add"; variant: "primary";
-                    clicked => {
-                        SettingsUi.add-server-url(root.draft-url);
-                        root.draft-url = "";
-                        root.add-mode = false;
-                    }
-                }
-                SettingsRowButton {
-                    rem-size: root.rem-size; label: "Cancel";
-                    clicked => { root.draft-url = ""; root.add-mode = false; }
-                }
-            }
-
-            // Footer actions: Add URL + Reload
-            HorizontalLayout {
-                padding-top: 0.25 * root.rem-size;
-                alignment: space-between;
-
-                SettingsRowButton {
-                    rem-size: root.rem-size;
-                    label: "Add URL";
-                    icon: @image-url("../icons/add.svg");
-                    has-icon: true;
-                    clicked => { root.add-mode = true; }
-                }
-                SettingsRowButton {
-                    rem-size: root.rem-size;
-                    label: "Reload";
-                    icon: @image-url("../icons/reset.svg");
-                    has-icon: true;
-                    clicked => { SettingsUi.reload-streaming-server(); }
-                }
-            }
-        }
-    }
+    ServerUrlsCard { rem-size: root.rem-size; }
 
     if SettingsUi.data.remote-url != "": SettingsGroup {
         rem-size: root.rem-size;
@@ -206,6 +20,7 @@ export component StreamingPage inherits VerticalLayout {
             label: "Remote URL";
             description: SettingsUi.data.remote-url;
             first: true;
+            last: true;
             highlighted: SettingsUi.hit-row == "remoteUrl";
             SettingsRowButton {
                 rem-size: root.rem-size;
@@ -222,19 +37,48 @@ export component StreamingPage inherits VerticalLayout {
 
         if SettingsUi.data.has-https-endpoint: SettingsRow {
             rem-size: root.rem-size; label: "Streaming HTTPS endpoint"; first: true; highlighted: SettingsUi.hit-row == "https";
-            SettingsSelectControl { rem-size: root.rem-size; input: SettingsUi.data.https-endpoint; fallback-title: "Disabled"; select(o) => { SettingsUi.select-option("remoteHttps", o); } }
+            SettingsSelectControl {
+                rem-size: root.rem-size; input: SettingsUi.data.https-endpoint; fallback-title: "Disabled";
+                opacity: SettingsUi.data.cache-root-updating ? 0.5 : 1.0;
+                select(o) => { if (!SettingsUi.data.cache-root-updating) { SettingsUi.select-option("remoteHttps", o); } }
+            }
         }
         SettingsRow {
             rem-size: root.rem-size; label: "Cache size"; first: !SettingsUi.data.has-https-endpoint; highlighted: SettingsUi.hit-row == "cache";
-            SettingsSelectControl { rem-size: root.rem-size; input: SettingsUi.data.caching; fallback-title: "2 GiB"; select(o) => { SettingsUi.select-option("caching", o); } }
+            SettingsSelectControl {
+                rem-size: root.rem-size; input: SettingsUi.data.caching; fallback-title: "2 GiB";
+                opacity: SettingsUi.data.cache-root-updating ? 0.5 : 1.0;
+                select(o) => { if (!SettingsUi.data.cache-root-updating) { SettingsUi.select-option("caching", o); } }
+            }
+        }
+        if SettingsUi.data.has-cache-root: SettingsRow {
+            rem-size: root.rem-size;
+            label: "Caching drive";
+            description: SettingsUi.data.cache-root-error != "" ? SettingsUi.data.cache-root-error : SettingsUi.data.cache-root-path;
+            highlighted: SettingsUi.hit-row == "drive";
+            SettingsSelectControl {
+                rem-size: root.rem-size;
+                input: SettingsUi.data.cache-root;
+                fallback-title: "Default";
+                opacity: SettingsUi.data.cache-root-updating ? 0.5 : 1.0;
+                select(o) => { if (!SettingsUi.data.cache-root-updating) { SettingsUi.select-cache-root(o); } }
+            }
         }
         SettingsRow {
             rem-size: root.rem-size; label: "Torrent profile"; highlighted: SettingsUi.hit-row == "torrent";
-            SettingsSelectControl { rem-size: root.rem-size; input: SettingsUi.data.torrent-profile; fallback-title: "Default"; select(o) => { SettingsUi.select-option("torrentProfile", o); } }
+            SettingsSelectControl {
+                rem-size: root.rem-size; input: SettingsUi.data.torrent-profile; fallback-title: "Default";
+                opacity: SettingsUi.data.cache-root-updating ? 0.5 : 1.0;
+                select(o) => { if (!SettingsUi.data.cache-root-updating) { SettingsUi.select-option("torrentProfile", o); } }
+            }
         }
         if SettingsUi.data.has-transcoding-profile: SettingsRow {
-            rem-size: root.rem-size; label: "Transcode profile"; highlighted: SettingsUi.hit-row == "transcode";
-            SettingsSelectControl { rem-size: root.rem-size; input: SettingsUi.data.transcoding-profile; fallback-title: "Disabled"; select(o) => { SettingsUi.select-option("transcodingProfile", o); } }
+            rem-size: root.rem-size; label: "Transcode profile"; last: true; highlighted: SettingsUi.hit-row == "transcode";
+            SettingsSelectControl {
+                rem-size: root.rem-size; input: SettingsUi.data.transcoding-profile; fallback-title: "Disabled";
+                opacity: SettingsUi.data.cache-root-updating ? 0.5 : 1.0;
+                select(o) => { if (!SettingsUi.data.cache-root-updating) { SettingsUi.select-option("transcodingProfile", o); } }
+            }
         }
     }
 

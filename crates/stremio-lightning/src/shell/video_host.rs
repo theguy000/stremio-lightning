@@ -70,7 +70,11 @@ impl HostState {
             return Some(UNAVAILABLE.to_owned());
         };
         let frame_weak = weak.clone();
-        match MpvSession::open(get_proc_address, move || {
+        let cfg_path = self
+            .config
+            .as_ref()
+            .and_then(|c| c.mpv_config_path.as_deref());
+        match MpvSession::open(get_proc_address, cfg_path, logs, move || {
             let _ = frame_weak.upgrade_in_event_loop(|w| w.window().request_redraw());
         }) {
             Ok(mut created) => {

@@ -61,6 +61,13 @@ export struct SettingsViewData {
     remote-url: string,
     server-urls: [ServerUrlRow],
     data-export-loading: bool,
+    has-cache-root: bool,
+    cache-root: SelectInputData,
+    cache-root-path: string,
+    cache-root-updating: bool,
+    cache-root-error: string,
+    mpv-config: SelectInputData,
+    mpv-config-path: string,
 }
 
 export global SettingsUi {
@@ -89,4 +96,6 @@ export global SettingsUi {
     callback export-user-data();
     callback copy-version-details();
     callback search-changed(string);
+    callback select-cache-root(int);
+    callback select-mpv-config(int);
 }

@@ -1,7 +1,5 @@
 use super::*;
 
-use super::*;
-
 fn selected_with(source: StreamSource) -> PlayerSelected {
     PlayerSelected {
         stream: Stream {

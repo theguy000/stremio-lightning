@@ -6,6 +6,34 @@ use std::path::Path;
 
 use serde_json::Value;
 
+/// Persisted catalog pick for Board Spotlight (mirrors `stremio-core` `ResourceRequest` identity).
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpotlightCatalogPick {
+    pub transport_url: String,
+    pub r#type: String,
+    pub id: String,
+}
+
+/// Board Spotlight settings kept in `<data_dir>/settings.json` (mirrors upstream `BoardSpotlight`).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SpotlightConfig {
+    pub enabled: bool,
+    pub catalogs: Vec<SpotlightCatalogPick>,
+    pub show_catalog_rows: bool,
+}
+
+impl Default for SpotlightConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            catalogs: Vec::new(),
+            show_catalog_rows: true,
+        }
+    }
+}
+
 /// Settings kept beside the stremio-core profile (`<data_dir>/settings.json`).
 /// Unknown keys are ignored on load so a file from another build never resets active choices.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -20,6 +48,10 @@ pub struct LocalExtras {
     pub enabled_themes: Vec<String>,
     #[serde(default)]
     pub builtin_settings: HashMap<String, HashMap<String, Value>>,
+    #[serde(default)]
+    pub mpv_config_path: Option<String>,
+    #[serde(default)]
+    pub spotlight: SpotlightConfig,
 }
 
 fn yes() -> bool {
@@ -34,6 +66,8 @@ impl Default for LocalExtras {
             skip_intros: true,
             enabled_themes: Vec::new(),
             builtin_settings: HashMap::new(),
+            mpv_config_path: None,
+            spotlight: SpotlightConfig::default(),
         }
     }
 }

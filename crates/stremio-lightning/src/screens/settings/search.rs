@@ -36,6 +36,7 @@ device|surround|Surround sound|This device › Playback and app|audio 5.1 channe
 device|passthrough|Audio passthrough|This device › Playback and app|audio spdif dolby dts truehd receiver
 device|hwdec|Hardware-accelerated decoding|This device › Playback and app|gpu hwdec
 device|pause|Pause playback when minimized|This device › Playback and app|background window
+device|mpvConfig|Custom mpv config|This device › Playback and app|mpv conf file player
 device|quit|Quit on close|This device › Playback and app|tray window
 device|esc|Escape key exit full screen|This device › Playback and app|esc keyboard fullscreen
 streaming||Streaming|This device|server network
@@ -43,6 +44,7 @@ streaming|urls|Streaming server|This device › Streaming|url address reload
 streaming|remoteUrl|Remote URL|This device › Streaming|https link copy
 streaming|https|Streaming HTTPS endpoint|This device › Streaming|ssl
 streaming|cache|Cache size|This device › Streaming|disk storage caching
+streaming|drive|Caching drive|This device › Streaming|cache folder location disk directory
 streaming|torrent|Torrent profile|This device › Streaming|peers speed
 streaming|transcode|Transcode profile|This device › Streaming|video convert
 account||Account|Account|profile email login logout sign out
@@ -85,7 +87,7 @@ pub fn search(query: &str, logged_in: bool, server_online: bool) -> Vec<SearchHi
             if !server_online
                 && matches!(
                     row,
-                    "https" | "cache" | "torrent" | "transcode" | "remoteUrl"
+                    "https" | "cache" | "drive" | "torrent" | "transcode" | "remoteUrl"
                 )
             {
                 return false;

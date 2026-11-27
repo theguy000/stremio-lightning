@@ -8,6 +8,7 @@ pub mod clipboard;
 pub(crate) mod diagnostics;
 pub mod env;
 pub mod external_player;
+pub mod file_dialog;
 pub mod images;
 pub mod links;
 pub mod local_settings;

@@ -39,17 +39,26 @@ fn register_shell(wiring: &Rc<wiring::Wiring>) -> u64 {
     id
 }
 
-fn dispatch_player_sync(id: u64) {
-    let target = ATTACHED.with(|map| {
+fn lookup_shell(id: u64) -> Option<Rc<wiring::Wiring>> {
+    ATTACHED.with(|map| {
         let mut map = map.borrow_mut();
         let live = map.get(&id).and_then(RcWeak::upgrade);
         if live.is_none() {
             map.remove(&id);
         }
         live
-    });
-    if let Some(wiring) = target {
+    })
+}
+
+fn dispatch_player_sync(id: u64) {
+    if let Some(wiring) = lookup_shell(id) {
         wiring.sync_player_stream();
+    }
+}
+
+fn dispatch_settings_sync(id: u64) {
+    if let Some(wiring) = lookup_shell(id) {
+        wiring.sync_live_settings();
     }
 }
 
@@ -82,7 +91,10 @@ pub(crate) fn attach(window: &MainWindow, app: Arc<App>, tokio: tokio::runtime::
             AppNotice::Dirty => {
                 let app_run = app_obs.clone();
                 let _ = weak.upgrade_in_event_loop(move |window| {
-                    view::apply_dirty(&window, &app_run);
+                    let mask = view::apply_dirty(&window, &app_run);
+                    if mask.contains(crate::app::ScreenMask::SETTINGS) {
+                        dispatch_settings_sync(shell_id);
+                    }
                 });
             }
             AppNotice::PlayerStreamChanged => {

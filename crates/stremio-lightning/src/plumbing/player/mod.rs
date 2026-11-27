@@ -5,6 +5,7 @@ use crate::plumbing::logs::{Level, Logs, Source};
 
 mod gl;
 mod mpv;
+mod mpv_config;
 
 pub(crate) use mpv::MpvSession;
 
@@ -42,6 +43,7 @@ pub struct PlayerConfig {
     pub audio_language: String,
     pub surround_sound: bool,
     pub audio_passthrough: bool,
+    pub mpv_config_path: Option<String>,
 }
 
 impl Default for PlayerConfig {
@@ -59,6 +61,7 @@ impl Default for PlayerConfig {
             audio_language: "eng".to_owned(),
             surround_sound: false,
             audio_passthrough: false,
+            mpv_config_path: None,
         }
     }
 }

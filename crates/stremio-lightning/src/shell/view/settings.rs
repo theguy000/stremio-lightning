@@ -93,6 +93,13 @@ pub(crate) fn settings_view(data: &SettingsData) -> SettingsViewData {
         remote_url: data.streaming.remote_url.clone().into(),
         server_urls,
         data_export_loading: data.data_export_loading,
+        has_cache_root: data.streaming.cache_root.supported,
+        cache_root: select_input_data(&data.streaming.cache_root.menu),
+        cache_root_path: data.streaming.cache_root.current.clone().into(),
+        cache_root_updating: data.streaming.cache_root.updating,
+        cache_root_error: data.streaming.cache_root.error.clone().into(),
+        mpv_config: select_input_data(&data.mpv_config_menu),
+        mpv_config_path: data.mpv_config_path.clone().into(),
     }
 }
 

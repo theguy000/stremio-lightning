@@ -3,11 +3,16 @@
 use slint::{ComponentHandle, ModelRc, VecModel};
 
 use super::Wiring;
-use crate::plumbing::{clipboard, links};
-use crate::screens::settings::{self, streaming};
+use crate::plumbing::{clipboard, file_dialog, links};
+use crate::screens::settings::{self, cache_root, streaming};
 use crate::{MainWindow, SettingsSearchHit, SettingsUi};
 
 impl Wiring {
+    pub(crate) fn sync_live_settings(&self) {
+        let view = self.app.settings().view();
+        self.video.apply_settings(&view.player_config);
+    }
+
     pub(super) fn try_select_server_option(&self, key: &str, index: usize) -> bool {
         if !matches!(
             key,
@@ -152,6 +157,78 @@ impl Wiring {
             .global::<SettingsUi>()
             .set_search_results(ModelRc::new(VecModel::from(rows)));
     }
+
+    pub(super) fn select_cache_root(&self, index: i32) {
+        let Ok(index) = usize::try_from(index) else {
+            return;
+        };
+        let cr = self.app.settings().view().streaming.cache_root.clone();
+        if !cr.supported || cr.updating {
+            return;
+        }
+        if let Some(chosen) = cr.values.get(index) {
+            if chosen != &cr.current {
+                cache_root::update_cache_root(self.app.runtime(), chosen.clone());
+            }
+            return;
+        }
+        if index == cr.values.len() {
+            let app = self.app.clone();
+            let start = (!cr.current.is_empty()).then(|| std::path::PathBuf::from(cr.current));
+            self.handle.spawn(async move {
+                if let Some(picked) =
+                    file_dialog::pick_folder("Choose cache folder", start.as_deref()).await
+                {
+                    cache_root::update_cache_root(app.runtime(), picked);
+                }
+            });
+        }
+    }
+
+    pub(super) fn select_mpv_config(&self, index: i32) {
+        let prev = self.app.local_extras().mpv_config_path.clone();
+        match index {
+            0 => {
+                let start = file_dialog::default_mpv_dir(prev.as_deref());
+                let app = self.app.clone();
+                let weak = self.window.clone();
+                self.handle.spawn(async move {
+                    let Some(picked) = file_dialog::pick_mpv_config(start.as_deref()).await else {
+                        return;
+                    };
+                    if prev.as_deref() == Some(picked.as_str()) {
+                        return;
+                    }
+                    {
+                        let mut extras = app.local_extras();
+                        extras.mpv_config_path = Some(picked);
+                        extras.save(app.data_dir());
+                    }
+                    app.settings().refresh();
+                    let _ = weak.upgrade_in_event_loop(|window| {
+                        window.set_toast(
+                            "Stremio needs to restart for this setting to take effect.".into(),
+                        );
+                    });
+                });
+            }
+            1 => {
+                if prev.is_none() {
+                    return;
+                }
+                {
+                    let mut extras = self.app.local_extras();
+                    extras.mpv_config_path = None;
+                    extras.save(self.app.data_dir());
+                }
+                self.app.settings().refresh();
+                self.video
+                    .apply_settings(&self.app.settings().view().player_config);
+                self.say("Stremio needs to restart for this setting to take effect.");
+            }
+            _ => {}
+        }
+    }
 }
 
 pub(super) fn wire(window: &MainWindow, wiring: &Wiring) {
@@ -178,4 +255,8 @@ pub(super) fn wire(window: &MainWindow, wiring: &Wiring) {
     set.on_copy_version_details(move || w.copy_version_details());
     let w = wiring.clone();
     set.on_search_changed(move |q| w.search_settings(q.to_string()));
+    let w = wiring.clone();
+    set.on_select_cache_root(move |i| w.select_cache_root(i));
+    let w = wiring.clone();
+    set.on_select_mpv_config(move |i| w.select_mpv_config(i));
 }

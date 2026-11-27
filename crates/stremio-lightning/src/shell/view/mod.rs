@@ -22,13 +22,14 @@ use crate::{CalendarUi, DetailsUi, MainWindow};
 
 /// Drains `app`'s pending dirty `ScreenMask` on the UI thread and projects only the changed
 /// screen slices onto `window`, cloning only `Arc` handles from `Snapshot`.
-pub(crate) fn apply_dirty(window: &MainWindow, app: &App) {
+pub(crate) fn apply_dirty(window: &MainWindow, app: &App) -> ScreenMask {
     let mask = app.take_dirty();
     if mask.is_empty() {
-        return;
+        return mask;
     }
     let snapshot = app.snapshot();
     apply_mask(window, &snapshot, mask, app.images());
+    mask
 }
 
 pub(crate) fn apply_mask(
