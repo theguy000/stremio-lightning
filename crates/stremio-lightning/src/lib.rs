@@ -45,7 +45,8 @@ pub struct Booted {
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let data_dir = app_data_dir().ok_or("no data directory")?;
     let booted = boot(data_dir)?;
-    booted.window.run()?;
+    booted.window.show()?;
+    slint::run_event_loop_until_quit()?;
     Ok(())
 }
 

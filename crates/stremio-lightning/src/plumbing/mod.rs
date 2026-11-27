@@ -21,4 +21,5 @@ mod server_child;
 pub mod skip;
 pub mod stream_server;
 pub mod theme;
+pub mod tray;
 pub(crate) mod update;

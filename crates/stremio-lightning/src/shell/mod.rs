@@ -15,6 +15,7 @@ use crate::MainWindow;
 pub(crate) mod auth;
 pub(crate) mod shortcuts;
 pub(crate) mod theme_apply;
+pub(crate) mod tray;
 pub(crate) mod video_host;
 pub(crate) mod view;
 pub(crate) mod winit_host;
@@ -168,6 +169,7 @@ pub(crate) fn attach(window: &MainWindow, app: Arc<App>, tokio: tokio::runtime::
         .global::<crate::DetailsUi>()
         .set_wrap_streams(initial_settings.wrap_streams);
 
+    tray::install(window, app.clone(), video.clone());
     wiring.report_server_state(server.start());
     wiring.init_mods();
 }
