@@ -78,6 +78,7 @@ pub(crate) struct Wiring {
     pub(crate) skip_submit: Arc<Mutex<bool>>,
     pub(crate) mods_disarm: Arc<Timer>,
     pub(crate) discord: Arc<crate::plumbing::discord::DiscordService>,
+    pub(crate) gamepad: Arc<crate::plumbing::gamepad::GamepadService>,
 }
 
 impl Wiring {
@@ -87,6 +88,7 @@ impl Wiring {
         video: VideoPlayer,
         server: Arc<Supervisor>,
         handle: tokio::runtime::Handle,
+        gamepad: Arc<crate::plumbing::gamepad::GamepadService>,
     ) -> Self {
         Self {
             window,
@@ -108,6 +110,7 @@ impl Wiring {
             skip_submit: Default::default(),
             mods_disarm: Default::default(),
             discord: Arc::new(crate::plumbing::discord::DiscordService::spawn()),
+            gamepad,
         }
     }
 

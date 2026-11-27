@@ -60,6 +60,7 @@ pub(crate) fn settings_view(data: &SettingsData, images: &Images) -> SettingsVie
         quit_on_close: data.quit_on_close,
         esc_exit_fullscreen: data.esc_exit_fullscreen,
         hide_spoilers: data.hide_spoilers,
+        gamepad_support: data.gamepad_support,
         subtitles_language: select_input_data(&data.subtitles_language),
         subtitles_size: select_input_data(&data.subtitles_size),
         subtitles_size_val: data.player_config.subtitles_size as i32,

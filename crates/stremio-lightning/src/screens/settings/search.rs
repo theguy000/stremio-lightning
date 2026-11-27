@@ -13,6 +13,7 @@ const INDEX: &str = "interface||Interface|Preferences|ui display
 interface|lang|UI Language|Preferences › Interface|language translation locale
 interface|zoom|Interface zoom|Preferences › Interface|scale size bigger smaller
 interface|blur|Blur unwatched episodes image|Preferences › Interface|spoilers hide
+interface|gamepad|Enable gamepad support|Preferences › Interface|controller xbox playstation dualsense
 interface|spotlight|Show Spotlight|Preferences › Interface|board hero carousel banner featured
 interface|spotlightCatalogs|Spotlight catalogs|Preferences › Interface|board hero pick catalogs
 interface|spotlightRows|Show Spotlight rows on the Board|Preferences › Interface|board hide rows

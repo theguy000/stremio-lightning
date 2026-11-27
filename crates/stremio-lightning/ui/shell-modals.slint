@@ -1,5 +1,6 @@
 import { Theme } from "theme.slint";
 import { ShareModal } from "share-modal.slint";
+import { GamepadModal } from "gamepad-modal.slint";
 import { ShortcutsModal } from "shortcuts-modal.slint";
 import { SpotlightPickerModal } from "settings/spotlight-picker.slint";
 
@@ -60,6 +61,15 @@ export component ShellModals inherits Rectangle {
         height: 100%;
         rem-size: root.rem-size;
         closed => { ShellModalsUi.shortcuts-open = false; }
+    }
+
+    if ShellModalsUi.gamepad-open: GamepadModal {
+        width: 100%;
+        height: 100%;
+        rem-size: root.rem-size;
+        family: ShellModalsUi.gamepad-family;
+        active-control: ShellModalsUi.gamepad-active;
+        closed => { ShellModalsUi.gamepad-open = false; }
     }
 
     if ShellModalsUi.spotlight-picker-open: SpotlightPickerModal {

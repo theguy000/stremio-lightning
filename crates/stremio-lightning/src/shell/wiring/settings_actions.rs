@@ -12,6 +12,7 @@ impl Wiring {
         let view = self.app.settings().view();
         self.video.apply_settings(&view.player_config);
         self.sync_discord_enabled();
+        self.gamepad.set_enabled(view.gamepad_support);
     }
 
     pub(super) fn try_select_server_option(&self, key: &str, index: usize) -> bool {

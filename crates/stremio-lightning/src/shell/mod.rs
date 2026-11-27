@@ -13,6 +13,7 @@ use crate::plumbing::stream_server::Supervisor;
 use crate::MainWindow;
 
 pub(crate) mod auth;
+pub(crate) mod gamepad;
 pub(crate) mod shortcuts;
 pub(crate) mod theme_apply;
 pub(crate) mod tray;
@@ -74,12 +75,15 @@ pub(crate) fn attach(window: &MainWindow, app: Arc<App>, tokio: tokio::runtime::
         app.logs().clone(),
     ));
 
+    let focused = Arc::new(AtomicBool::new(true));
+    let gamepad = gamepad::spawn(window, app.clone(), focused.clone());
     let wiring = Rc::new(wiring::Wiring::new(
         window.as_weak(),
         app.clone(),
         video.clone(),
         server.clone(),
         tokio,
+        gamepad,
     ));
     let shell_id = register_shell(&wiring);
     wiring::wire(window, (*wiring).clone());
@@ -137,7 +141,6 @@ pub(crate) fn attach(window: &MainWindow, app: Arc<App>, tokio: tokio::runtime::
         let app_min = app.clone();
         let video_min = video.clone();
         let win_min = window.as_weak();
-        let focused = Arc::new(AtomicBool::new(true));
         winit_host::install(
             window,
             app.clone(),

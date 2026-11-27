@@ -53,6 +53,17 @@ export component InterfacePage inherits VerticalLayout {
                 toggled(val) => { SettingsUi.toggle-option("hideSpoilers", val); }
             }
         }
+        SettingsRow {
+            rem-size: root.rem-size;
+            label: "Enable gamepad support";
+            last: true;
+            highlighted: SettingsUi.hit-row == "gamepad";
+            SettingsToggle {
+                rem-size: root.rem-size;
+                checked: SettingsUi.data.gamepad-support;
+                toggled(val) => { SettingsUi.toggle-option("gamepadSupport", val); }
+            }
+        }
     }
 
     SpotlightSettingsGroup { rem-size: root.rem-size; }

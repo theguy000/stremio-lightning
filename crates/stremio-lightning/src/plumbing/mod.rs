@@ -11,6 +11,7 @@ mod discord_ipc;
 pub mod env;
 pub mod external_player;
 pub mod file_dialog;
+pub mod gamepad;
 pub mod images;
 pub mod links;
 pub mod local_settings;
