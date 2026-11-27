@@ -32,11 +32,16 @@ impl Default for DesiredSettings {
 pub struct PlayerConfig {
     pub hardware_decoding: bool,
     pub subtitles_size: u32,
+    pub subtitles_offset: u32,
+    pub subtitles_bold: bool,
+    pub ass_subtitles_styling: bool,
     pub subtitles_language: String,
     pub subtitles_text_color: String,
     pub subtitles_background_color: String,
     pub subtitles_outline_color: String,
     pub audio_language: String,
+    pub surround_sound: bool,
+    pub audio_passthrough: bool,
 }
 
 impl Default for PlayerConfig {
@@ -44,11 +49,16 @@ impl Default for PlayerConfig {
         Self {
             hardware_decoding: true,
             subtitles_size: 100,
+            subtitles_offset: 5,
+            subtitles_bold: false,
+            ass_subtitles_styling: false,
             subtitles_language: "eng".to_owned(),
             subtitles_text_color: "#FFFFFFFF".to_owned(),
             subtitles_background_color: "#00000000".to_owned(),
             subtitles_outline_color: "#FF000000".to_owned(),
             audio_language: "eng".to_owned(),
+            surround_sound: false,
+            audio_passthrough: false,
         }
     }
 }

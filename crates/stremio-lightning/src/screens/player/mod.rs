@@ -134,15 +134,24 @@ pub fn data(model: &AppModel, wanted_season: Option<usize>) -> Data {
     let seasons = meta.map(|m| videos::seasons(&m.videos)).unwrap_or_default();
     let season = season_index(&seasons, wanted_season, playing_season);
     let number = seasons.get(season).map_or(playing_season, |s| s.number);
+    let hide_spoilers = model.ctx.profile.settings.hide_spoilers;
     let every_thumbnail = meta
         .map(|m| {
             m.videos
                 .iter()
-                .filter_map(|v| v.thumbnail.clone())
+                .filter_map(|v| {
+                    let url = v.thumbnail.as_ref()?;
+                    let unwatched = player.watched.as_ref().is_none_or(|w| !w.get_video(&v.id));
+                    Some(if hide_spoilers && unwatched {
+                        crate::plumbing::images::blur_key(url)
+                    } else {
+                        url.clone()
+                    })
+                })
                 .collect()
         })
         .unwrap_or_default();
-    let episodes = meta
+    let mut episodes = meta
         .map(|m| {
             videos::episodes_for_season(
                 &m.videos,
@@ -153,6 +162,7 @@ pub fn data(model: &AppModel, wanted_season: Option<usize>) -> Data {
             )
         })
         .unwrap_or_default();
+    videos::apply_spoiler_blur(&mut episodes, model.ctx.profile.settings.hide_spoilers);
     let next_label = player
         .next_video
         .as_ref()

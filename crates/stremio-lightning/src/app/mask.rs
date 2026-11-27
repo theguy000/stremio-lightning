@@ -88,6 +88,7 @@ impl ScreenMask {
                 AppModelField::Calendar => Self::CALENDAR,
                 AppModelField::MetaDetails => Self::DETAILS,
                 AppModelField::Player => Self::PLAYER,
+                AppModelField::StreamingServer | AppModelField::DataExport => Self::SETTINGS,
             };
             mask = mask.union(bits);
         }

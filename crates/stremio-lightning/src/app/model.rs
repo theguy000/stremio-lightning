@@ -9,10 +9,12 @@ use stremio_core::models::catalog_with_filters::CatalogWithFilters;
 use stremio_core::models::catalogs_with_extra::CatalogsWithExtra;
 use stremio_core::models::continue_watching_preview::ContinueWatchingPreview;
 use stremio_core::models::ctx::Ctx;
+use stremio_core::models::data_export::DataExport;
 use stremio_core::models::installed_addons_with_filters::InstalledAddonsWithFilters;
 use stremio_core::models::library_with_filters::{LibraryWithFilters, NotRemovedFilter};
 use stremio_core::models::meta_details::MetaDetails;
 use stremio_core::models::player::Player;
+use stremio_core::models::streaming_server::StreamingServer;
 use stremio_core::runtime::Runtime;
 use stremio_core::types::addon::Descriptor;
 use stremio_core::types::resource::MetaItemPreview;
@@ -36,6 +38,8 @@ pub struct AppModel {
     pub calendar: Calendar,
     pub meta_details: MetaDetails,
     pub player: Player,
+    pub streaming_server: StreamingServer,
+    pub data_export: DataExport,
 }
 
 pub type AppRuntime = Runtime<AppEnv, AppModel>;

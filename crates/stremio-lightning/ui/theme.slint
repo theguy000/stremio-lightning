@@ -7,13 +7,14 @@ import "./fonts/PlusJakartaSans-Bold.ttf";
 
 export global Theme {
     in-out property <bool> amoled: false;
+    in-out property <float> ui-scale: 1.0;
     out property <string> font-family: "Plus Jakarta Sans";
 
-    // Web: the root font size steps up with the viewport width (src/App/styles.less).
+    // Web: the root font size steps up with the viewport width (src/App/styles.less), scaled by interfaceScale.
     pure public function rem-size(viewport-width: length) -> length {
-        return viewport-width > 2800px ? 18px
+        return (viewport-width > 2800px ? 18px
             : viewport-width <= 1600px ? 14px
-            : viewport-width <= 2200px ? 15px : 16px;
+            : viewport-width <= 2200px ? 15px : 16px) * root.ui-scale;
     }
 
     out property <color> background: root.amoled ? #000000 : #2a2843;

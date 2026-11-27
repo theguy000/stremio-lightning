@@ -1,0 +1,265 @@
+// Based on stremio-web (https://github.com/Stremio/stremio-web),
+// Copyright (C) 2017-2026 Smart code 203358507.
+// Numbers translated from src/routes/Settings/components/*, Toggle.less, and Scale.less.
+import { ClassStyles } from "../class-styles.slint";
+import { Theme } from "../theme.slint";
+
+export component SettingsPageHeader inherits VerticalLayout {
+    in property <string> title;
+    in property <string> scope;
+    in property <length> rem-size;
+
+    spacing: 0.35 * root.rem-size;
+    padding-bottom: 0.4 * root.rem-size;
+
+    Text {
+        text: root.title;
+        font-size: 1.8 * root.rem-size;
+        font-family: "Plus Jakarta Sans Medium";
+        font-weight: 500;
+        color: ClassStyles.color-or(ClassStyles.label, Theme.text);
+    }
+    if root.scope != "": Text {
+        text: root.scope;
+        font-size: 0.95 * root.rem-size;
+        color: Theme.text;
+        opacity: 0.6;
+    }
+}
+
+export component SettingsGroup inherits VerticalLayout {
+    in property <string> title;
+    in property <string> description;
+    in property <length> rem-size;
+    in property <bool> padded: false;
+    in property <bool> danger-space: false;
+
+    padding-top: (root.danger-space ? 2.5 : 1.75) * root.rem-size;
+    spacing: 0px;
+
+    if root.title != "": Rectangle {
+        height: 2.2 * root.rem-size;
+        Text {
+            width: parent.width;
+            height: parent.height;
+            vertical-alignment: center;
+            text: root.title;
+            font-size: 1.05 * root.rem-size;
+            font-family: "Plus Jakarta Sans SemiBold";
+            font-weight: 600;
+            color: ClassStyles.color-or(ClassStyles.label, Theme.text);
+        }
+    }
+    if root.description != "": Rectangle {
+        height: desc.preferred-height + 0.65 * root.rem-size;
+        desc := Text {
+            x: 0px;
+            y: 0px;
+            width: parent.width;
+            text: root.description;
+            wrap: word-wrap;
+            font-size: 0.9 * root.rem-size;
+            color: Theme.text;
+            opacity: 0.6;
+        }
+    }
+    Rectangle {
+        border-radius: 1.25 * root.rem-size;
+        background: ClassStyles.background-or(ClassStyles.section, Theme.overlay);
+
+        VerticalLayout {
+            padding: root.padded ? 1.25 * root.rem-size : 0px;
+            spacing: 0px;
+            @children
+        }
+    }
+}
+
+export component SettingsRow inherits Rectangle {
+    in property <length> rem-size;
+    in property <string> label;
+    in property <string> description;
+    in property <image> icon;
+    in property <bool> has-icon: false;
+    in property <bool> first: false;
+    in property <bool> thin: false;
+    in property <bool> highlighted: false;
+
+    min-height: (root.thin ? 3.25 : 4.25) * root.rem-size;
+    background: root.highlighted ? #ffffff1a : transparent;
+    border-radius: root.highlighted ? 0.85 * root.rem-size : 0px;
+    animate background { duration: 250ms; }
+
+    if !root.first: Rectangle {
+        x: 1.25 * root.rem-size;
+        y: 0px;
+        width: parent.width - 2.5 * root.rem-size;
+        height: 1px;
+        background: Theme.overlay;
+    }
+
+    HorizontalLayout {
+        padding-left: 1.25 * root.rem-size;
+        padding-right: 1.25 * root.rem-size;
+        padding-top: (root.thin ? 0.45 : 0.75) * root.rem-size;
+        padding-bottom: (root.thin ? 0.45 : 0.75) * root.rem-size;
+        spacing: 1.25 * root.rem-size;
+        alignment: space-between;
+
+        if root.label != "": HorizontalLayout {
+            horizontal-stretch: 1;
+            spacing: 0.9 * root.rem-size;
+            alignment: start;
+
+            if root.has-icon: Rectangle {
+                width: 1.75 * root.rem-size;
+                Image {
+                    y: (parent.height - self.height) / 2;
+                    width: 1.75 * root.rem-size;
+                    height: 1.75 * root.rem-size;
+                    source: root.icon;
+                    colorize: Theme.text;
+                }
+            }
+
+            VerticalLayout {
+                horizontal-stretch: 1;
+                alignment: center;
+                spacing: 0.15 * root.rem-size;
+
+                Text {
+                    text: root.label;
+                    wrap: word-wrap;
+                    font-size: root.rem-size;
+                    color: ClassStyles.color-or(ClassStyles.label, Theme.text);
+                }
+                if root.description != "": Text {
+                    text: root.description;
+                    wrap: word-wrap;
+                    font-size: 0.875 * root.rem-size;
+                    color: Theme.text;
+                    opacity: 0.6;
+                }
+            }
+        }
+
+        HorizontalLayout {
+            horizontal-stretch: 0;
+            alignment: end;
+            spacing: 0.5 * root.rem-size;
+            @children
+        }
+    }
+}
+
+export component SettingsRowButton inherits Rectangle {
+    in property <string> label;
+    in property <length> rem-size;
+    in property <image> icon;
+    in property <bool> has-icon: false;
+    in property <bool> external: false;
+    in property <string> variant: "";
+    in property <bool> disabled: false;
+    callback clicked();
+
+    height: 2.75 * root.rem-size;
+    min-width: row-btn-content.preferred-width + 2.5 * root.rem-size;
+    border-radius: 1.375 * root.rem-size;
+    border-width: (touch.has-hover && !root.disabled) ? 2px : 0px;
+    border-color: Theme.text;
+    background: (touch.has-hover && !root.disabled) ? transparent
+        : root.variant == "primary" ? Theme.accent-green
+        : ClassStyles.background-or(ClassStyles.button, Theme.overlay);
+    opacity: root.disabled ? 0.5 : 1.0;
+
+    row-btn-content := HorizontalLayout {
+        padding-left: 1.25 * root.rem-size;
+        padding-right: 1.25 * root.rem-size;
+        spacing: 0.5 * root.rem-size;
+        alignment: center;
+
+        if root.has-icon: Rectangle {
+            width: 1.15 * root.rem-size;
+            Image {
+                y: (parent.height - self.height) / 2;
+                width: 1.15 * root.rem-size;
+                height: 1.15 * root.rem-size;
+                source: root.icon;
+                colorize: root.variant == "danger" ? Theme.accent-red : (root.variant == "primary" ? #ffffff : Theme.text);
+            }
+        }
+        Text {
+            text: root.label;
+            vertical-alignment: center;
+            font-size: 0.95 * root.rem-size;
+            font-family: "Plus Jakarta Sans Medium";
+            font-weight: 500;
+            color: root.variant == "danger" ? Theme.accent-red : (root.variant == "primary" ? #ffffff : Theme.text);
+        }
+        if root.external: Rectangle {
+            width: 1.1 * root.rem-size;
+            Image {
+                y: (parent.height - self.height) / 2;
+                width: 1.1 * root.rem-size;
+                height: 1.1 * root.rem-size;
+                source: @image-url("../icons/open-in-browser.svg");
+                colorize: root.variant == "danger" ? Theme.accent-red : Theme.text;
+                opacity: root.variant == "danger" ? 1.0 : 0.7;
+            }
+        }
+    }
+    touch := TouchArea {
+        enabled: !root.disabled;
+        mouse-cursor: root.disabled ? default : pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component SettingsLinkRow inherits Rectangle {
+    in property <string> label;
+    in property <length> rem-size;
+    in property <bool> first: false;
+    callback clicked();
+
+    height: 3.5 * root.rem-size;
+    border-radius: 0.75 * root.rem-size;
+    background: touch.has-hover ? Theme.overlay : transparent;
+
+    if !root.first: Rectangle {
+        x: 1.25 * root.rem-size;
+        y: 0px;
+        width: parent.width - 2.5 * root.rem-size;
+        height: 1px;
+        background: Theme.overlay;
+    }
+
+    HorizontalLayout {
+        padding-left: 1.25 * root.rem-size;
+        padding-right: 1.25 * root.rem-size;
+        alignment: space-between;
+
+        Text {
+            text: root.label;
+            vertical-alignment: center;
+            font-size: root.rem-size;
+            color: Theme.text;
+            overflow: elide;
+        }
+        Rectangle {
+            width: 1.15 * root.rem-size;
+            Image {
+                y: (parent.height - self.height) / 2;
+                width: 1.15 * root.rem-size;
+                height: 1.15 * root.rem-size;
+                source: @image-url("../icons/open-in-browser.svg");
+                colorize: Theme.text;
+                opacity: 0.6;
+            }
+        }
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+

@@ -80,3 +80,10 @@ SOFTWARE.
   Addons button draws it at, reading as a blob. This one is drawn on a 24 grid for that size. It is
   the only icon here that does not come from `@stremio/stremio-icons`.
 
+## Big Buck Bunny still (`ui/images/subtitles_preview.jpg`)
+
+- Source: Big Buck Bunny (2008), 00:01:25, Blender Foundation / https://peach.blender.org/
+- Copyright (c) 2008 Blender Foundation. Licence: Creative Commons Attribution 3.0 (CC BY 3.0),
+  https://creativecommons.org/licenses/by/3.0/
+- Taken from stremio-web (`assets/images/subtitles_preview.jpg`) for the Settings subtitles preview.
+

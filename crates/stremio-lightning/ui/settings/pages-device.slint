@@ -1,0 +1,48 @@
+// Based on stremio-web Settings Device & Streaming pages (URLsManager + Server options).
+import { Theme } from "../theme.slint";
+import { SettingsGroup, SettingsPageHeader, SettingsRow, SettingsRowButton } from "primitives.slint";
+import { SettingsSelectControl, SettingsToggle } from "scale.slint";
+import { SettingsUi } from "types.slint";
+
+export component DevicePage inherits VerticalLayout {
+    in property <length> rem-size;
+
+    SettingsPageHeader { title: "Playback and app"; rem-size: root.rem-size; }
+
+    SettingsGroup {
+        title: "Playback";
+        rem-size: root.rem-size;
+
+        SettingsRow {
+            rem-size: root.rem-size; label: "Surround sound"; first: true; highlighted: SettingsUi.hit-row == "surround";
+            SettingsToggle { rem-size: root.rem-size; checked: SettingsUi.data.surround-sound; toggled(v) => { SettingsUi.toggle-option("surroundSound", v); } }
+        }
+        SettingsRow {
+            rem-size: root.rem-size; label: "Audio passthrough"; highlighted: SettingsUi.hit-row == "passthrough";
+            SettingsToggle { rem-size: root.rem-size; checked: SettingsUi.data.audio-passthrough; toggled(v) => { SettingsUi.toggle-option("audioPassthrough", v); } }
+        }
+        SettingsRow {
+            rem-size: root.rem-size; label: "Hardware-accelerated decoding"; highlighted: SettingsUi.hit-row == "hwdec";
+            SettingsToggle { rem-size: root.rem-size; checked: SettingsUi.data.hardware-decoding; toggled(v) => { SettingsUi.toggle-option("hardwareDecoding", v); } }
+        }
+        SettingsRow {
+            rem-size: root.rem-size; label: "Pause playback when minimized"; highlighted: SettingsUi.hit-row == "pause";
+            SettingsToggle { rem-size: root.rem-size; checked: SettingsUi.data.pause-on-minimize; toggled(v) => { SettingsUi.toggle-option("pauseOnMinimize", v); } }
+        }
+    }
+
+    SettingsGroup {
+        title: "Desktop app";
+        rem-size: root.rem-size;
+
+        SettingsRow {
+            rem-size: root.rem-size; label: "Quit on close"; first: true; highlighted: SettingsUi.hit-row == "quit";
+            SettingsToggle { rem-size: root.rem-size; checked: SettingsUi.data.quit-on-close; toggled(v) => { SettingsUi.toggle-option("quitOnClose", v); } }
+        }
+        SettingsRow {
+            rem-size: root.rem-size; label: "Escape key exit full screen"; highlighted: SettingsUi.hit-row == "esc";
+            SettingsToggle { rem-size: root.rem-size; checked: SettingsUi.data.esc-exit-fullscreen; toggled(v) => { SettingsUi.toggle-option("escExitFullscreen", v); } }
+        }
+    }
+}
+

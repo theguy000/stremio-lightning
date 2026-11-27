@@ -7,16 +7,18 @@ mod browse;
 mod details_player;
 mod mods;
 mod mods_logs;
+mod settings;
 pub(crate) mod sync;
 
-pub(crate) use details_player::{settings_view, tracks};
+pub(crate) use details_player::tracks;
 pub(crate) use mods_logs::{apply_logs_data, show_mods};
+pub(crate) use settings::apply_settings;
 
 use slint::ComponentHandle;
 
 use crate::app::{App, ScreenMask, Snapshot};
 use crate::plumbing::images::Images;
-use crate::{CalendarUi, DetailsUi, MainWindow, PlayerUi, SettingsUi};
+use crate::{CalendarUi, DetailsUi, MainWindow};
 
 /// Drains `app`'s pending dirty `ScreenMask` on the UI thread and projects only the changed
 /// screen slices onto `window`, cloning only `Arc` handles from `Snapshot`.
@@ -55,15 +57,10 @@ pub(crate) fn apply_mask(
             .set_data(browse::calendar_view(&snapshot.calendar, images));
     }
     if mask.contains(ScreenMask::SETTINGS) {
-        window
-            .global::<SettingsUi>()
-            .set_data(settings_view(&snapshot.settings));
+        apply_settings(window, &snapshot.settings);
         window
             .global::<DetailsUi>()
             .set_wrap_streams(snapshot.settings.wrap_streams);
-        let player_ui = window.global::<PlayerUi>();
-        player_ui.set_seek_step(snapshot.settings.seek_time_secs);
-        player_ui.set_seek_short_step(snapshot.settings.seek_short_time_secs);
     }
     if mask.contains(ScreenMask::MODS) {
         show_mods(window, &snapshot.mods);

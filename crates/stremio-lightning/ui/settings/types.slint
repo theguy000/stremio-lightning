@@ -1,0 +1,92 @@
+// Based on stremio-web (https://github.com/Stremio/stremio-web),
+// Copyright (C) 2017-2026 Smart code 203358507.
+import { SelectInputData } from "../multiselect-menu.slint";
+
+export struct ServerUrlRow {
+    url: string,
+    selected: bool,
+    removable: bool,
+}
+
+export struct SettingsSearchHit {
+    label: string,
+    crumb: string,
+    page: string,
+    row: string,
+}
+
+export struct SettingsViewData {
+    user-email: string,
+    logged-in: bool,
+    trakt-authenticated: bool,
+    streaming-server-url: string,
+    ui-language: SelectInputData,
+    interface-scale: int,
+    quit-on-close: bool,
+    esc-exit-fullscreen: bool,
+    hide-spoilers: bool,
+    subtitles-language: SelectInputData,
+    subtitles-size: SelectInputData,
+    subtitles-size-val: int,
+    subtitles-offset: SelectInputData,
+    subtitles-offset-val: int,
+    subtitles-text-color: SelectInputData,
+    subtitles-text-color-hex: color,
+    subtitles-bg-color: SelectInputData,
+    subtitles-bg-color-hex: color,
+    subtitles-outline-color: SelectInputData,
+    subtitles-outline-color-hex: color,
+    subtitles-bold: bool,
+    ass-subtitles-styling: bool,
+    audio-language: SelectInputData,
+    surround-sound: bool,
+    audio-passthrough: bool,
+    seek-time: SelectInputData,
+    seek-short-time: SelectInputData,
+    play-in-background: bool,
+    pause-on-minimize: bool,
+    binge-watching: bool,
+    next-video-duration: SelectInputData,
+    external-player: SelectInputData,
+    hardware-decoding: bool,
+    caching: SelectInputData,
+    torrent-profile: SelectInputData,
+    transcoding-profile: SelectInputData,
+    has-https-endpoint: bool,
+    https-endpoint: SelectInputData,
+    has-transcoding-profile: bool,
+    server-online: bool,
+    server-loading: bool,
+    server-version: string,
+    remote-url: string,
+    server-urls: [ServerUrlRow],
+    data-export-loading: bool,
+}
+
+export global SettingsUi {
+    in-out property <SettingsViewData> data;
+    in-out property <string> app-version;
+    in-out property <string> build-version;
+    in-out property <string> server-status: "Stream server: starting...";
+    in-out property <string> active-page: "interface";
+    in-out property <string> search-query: "";
+    in-out property <[SettingsSearchHit]> search-results;
+    in-out property <string> hit-row: "";
+
+    callback log-out();
+    callback open-external-link(string);
+    callback select-option(string, int);
+    callback toggle-option(string, bool);
+    callback set-interface-scale(int);
+    callback reload-streaming-server();
+    callback add-server-url(string);
+    callback select-server-url(string);
+    callback delete-server-url(string);
+    callback copy-remote-url();
+    callback toggle-trakt();
+    callback subscribe-calendar();
+    callback change-password();
+    callback export-user-data();
+    callback copy-version-details();
+    callback search-changed(string);
+}

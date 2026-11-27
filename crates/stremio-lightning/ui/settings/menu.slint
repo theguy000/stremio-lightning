@@ -1,0 +1,243 @@
+// Based on stremio-web Menu.tsx/less, AccountRow.tsx/less, and SearchField.tsx/less.
+import { ClassStyles } from "../class-styles.slint";
+import { Theme } from "../theme.slint";
+import { SettingsUi } from "types.slint";
+
+component NavGroupLabel inherits Rectangle {
+    in property <string> label;
+    in property <length> rem-size;
+    height: 2 * root.rem-size;
+
+    Text {
+        x: 1.25 * root.rem-size;
+        width: parent.width - 2.5 * root.rem-size;
+        height: parent.height;
+        vertical-alignment: center;
+        text: root.label;
+        font-size: 0.8125 * root.rem-size;
+        font-family: "Plus Jakarta Sans SemiBold";
+        font-weight: 600;
+        letter-spacing: 0.05 * root.rem-size;
+        color: Theme.text;
+        opacity: 0.6;
+    }
+}
+
+component NavItem inherits Rectangle {
+    in property <string> label;
+    in property <image> icon;
+    in property <bool> selected;
+    in property <length> rem-size;
+    callback clicked();
+
+    height: 3.1 * root.rem-size;
+    border-radius: 1.55 * root.rem-size;
+    background: (root.selected || touch.has-hover) ? ClassStyles.background-or(ClassStyles.button, Theme.overlay) : transparent;
+    opacity: root.selected ? 1.0 : (touch.has-hover ? 0.85 : 0.45);
+
+    HorizontalLayout {
+        padding-left: 1.25 * root.rem-size;
+        padding-right: 1.25 * root.rem-size;
+        spacing: 1 * root.rem-size;
+        alignment: start;
+
+        Rectangle {
+            width: 1.35 * root.rem-size;
+            Image {
+                y: (parent.height - self.height) / 2;
+                width: 1.35 * root.rem-size;
+                height: 1.35 * root.rem-size;
+                source: root.icon;
+                colorize: ClassStyles.color-or(ClassStyles.button, Theme.text);
+            }
+        }
+        Text {
+            horizontal-stretch: 1;
+            text: root.label;
+            overflow: elide;
+            vertical-alignment: center;
+            font-size: 1.02 * root.rem-size;
+            font-family: root.selected ? "Plus Jakarta Sans SemiBold" : "Plus Jakarta Sans Medium";
+            font-weight: root.selected ? 600 : 500;
+            color: ClassStyles.color-or(ClassStyles.button, Theme.text);
+        }
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component SettingsMenu inherits Rectangle {
+    in property <length> rem-size;
+    in property <string> selected;
+    in-out property <string> query;
+    callback navigate(string);
+    callback open-account();
+    callback query-edited(string);
+
+    background: ClassStyles.background-or(ClassStyles.menu, transparent);
+
+    Flickable {
+        width: parent.width;
+        height: parent.height;
+        content-width: parent.width;
+        content-height: nav-col.preferred-height;
+
+        nav-col := VerticalLayout {
+            padding-top: 1 * root.rem-size;
+            padding-right: 1 * root.rem-size;
+            padding-bottom: 2 * root.rem-size;
+            padding-left: 1.5 * root.rem-size;
+            spacing: 0px;
+
+            // AccountRow (top of sidebar)
+            acct := Rectangle {
+                height: 3.7 * root.rem-size;
+                border-radius: 1.85 * root.rem-size;
+                background: (root.selected == "account" || acct-touch.has-hover) ? Theme.overlay : transparent;
+
+                HorizontalLayout {
+                    padding-left: 0.5 * root.rem-size;
+                    padding-right: 1 * root.rem-size;
+                    spacing: 0.75 * root.rem-size;
+                    alignment: space-between;
+
+                    Rectangle {
+                        y: (parent.height - self.height) / 2;
+                        width: 2.5 * root.rem-size;
+                        height: 2.5 * root.rem-size;
+                        border-radius: 1.25 * root.rem-size;
+                        border-width: 2px;
+                        border-color: ClassStyles.color-or(ClassStyles.avatar-container, Theme.accent);
+                        background: Theme.text;
+                        clip: true;
+
+                        Image {
+                            source: @image-url("../images/anonymous.png");
+                            x: 2px; y: 2px;
+                            width: parent.width - 4px;
+                            height: parent.height - 4px;
+                            image-fit: cover;
+                        }
+                    }
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        alignment: center;
+                        spacing: 0.1 * root.rem-size;
+
+                        Text {
+                            text: SettingsUi.data.logged-in ? "Account" : "Guest";
+                            font-size: root.rem-size;
+                            font-family: "Plus Jakarta Sans SemiBold";
+                            font-weight: 600;
+                            color: Theme.text;
+                            overflow: elide;
+                        }
+                        Text {
+                            text: SettingsUi.data.logged-in ? SettingsUi.data.user-email : "Log in or Sign up";
+                            font-size: 0.8 * root.rem-size;
+                            color: Theme.text;
+                            opacity: 0.6;
+                            overflow: elide;
+                        }
+                    }
+                    Rectangle {
+                        width: 1 * root.rem-size;
+                        Image {
+                            y: (parent.height - self.height) / 2;
+                            width: 1 * root.rem-size;
+                            height: 1 * root.rem-size;
+                            source: @image-url("../icons/chevron-forward.svg");
+                            colorize: Theme.text;
+                            opacity: 0.6;
+                        }
+                    }
+                }
+                acct-touch := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { root.open-account(); }
+                }
+            }
+
+            // SearchField
+            Rectangle { height: 1 * root.rem-size; }
+            Rectangle {
+                height: 3.1 * root.rem-size;
+                border-radius: 1.55 * root.rem-size;
+                background: Theme.overlay;
+                border-width: search-in.has-focus ? 1px : 0px;
+                border-color: Theme.border-medium;
+
+                Image {
+                    x: 1.15 * root.rem-size;
+                    y: (parent.height - self.height) / 2;
+                    width: 1.15 * root.rem-size;
+                    height: 1.15 * root.rem-size;
+                    source: @image-url("../icons/search.svg");
+                    colorize: Theme.search-icon;
+                }
+                if root.query == "": Text {
+                    x: 3 * root.rem-size;
+                    width: parent.width - 4 * root.rem-size;
+                    height: parent.height;
+                    vertical-alignment: center;
+                    text: "Search settings";
+                    font-size: 0.95 * root.rem-size;
+                    color: Theme.placeholder;
+                }
+                search-in := TextInput {
+                    x: 3 * root.rem-size;
+                    width: parent.width - (root.query != "" ? 5.5 : 4.2) * root.rem-size;
+                    height: parent.height;
+                    vertical-alignment: center;
+                    single-line: true;
+                    font-size: 0.95 * root.rem-size;
+                    color: Theme.text;
+                    text <=> root.query;
+                    edited => { root.query-edited(self.text); }
+                }
+                if root.query != "": Rectangle {
+                    x: parent.width - 2.4 * root.rem-size;
+                    y: (parent.height - 1.8 * root.rem-size) / 2;
+                    width: 1.8 * root.rem-size;
+                    height: 1.8 * root.rem-size;
+                    border-radius: 0.9 * root.rem-size;
+                    background: clr-t.has-hover ? Theme.overlay-hover : transparent;
+                    Image {
+                        x: (parent.width - self.width) / 2;
+                        y: (parent.height - self.height) / 2;
+                        width: 0.9 * root.rem-size;
+                        height: 0.9 * root.rem-size;
+                        source: @image-url("../icons/close.svg");
+                        colorize: Theme.text;
+                        opacity: 0.7;
+                    }
+                    clr-t := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { root.query = ""; root.query-edited(""); }
+                    }
+                }
+            }
+
+            // Group 1: Preferences
+            Rectangle { height: 1.4 * root.rem-size; }
+            NavGroupLabel { label: "PREFERENCES"; rem-size: root.rem-size; }
+            NavItem { label: "Interface"; icon: @image-url("../icons/grid.svg"); selected: root.selected == "interface"; rem-size: root.rem-size; clicked => { root.navigate("interface"); } }
+            NavItem { label: "Player"; icon: @image-url("../icons/movies-outline.svg"); selected: root.selected == "player"; rem-size: root.rem-size; clicked => { root.navigate("player"); } }
+            NavItem { label: "Integrations"; icon: @image-url("../icons/link.svg"); selected: root.selected == "integrations"; rem-size: root.rem-size; clicked => { root.navigate("integrations"); } }
+
+            // Group 2: This device
+            Rectangle { height: 1.4 * root.rem-size; }
+            NavGroupLabel { label: "THIS DEVICE"; rem-size: root.rem-size; }
+            NavItem { label: "Playback and app"; icon: @image-url("../icons/channels-outline.svg"); selected: root.selected == "device"; rem-size: root.rem-size; clicked => { root.navigate("device"); } }
+            NavItem { label: "Streaming"; icon: @image-url("../icons/network.svg"); selected: root.selected == "streaming"; rem-size: root.rem-size; clicked => { root.navigate("streaming"); } }
+
+            // Group 3: Help
+            Rectangle { height: 1.4 * root.rem-size; }
+            NavGroupLabel { label: "HELP"; rem-size: root.rem-size; }
+            NavItem { label: "Shortcuts"; icon: @image-url("../icons/keyboard.svg"); selected: root.selected == "shortcuts"; rem-size: root.rem-size; clicked => { root.navigate("shortcuts"); } }
+            NavItem { label: "Help and about"; icon: @image-url("../icons/help.svg"); selected: root.selected == "help"; rem-size: root.rem-size; clicked => { root.navigate("help"); } }
+        }
+    }
+}
