@@ -23,6 +23,7 @@ export component DetailsPanel inherits Rectangle {
     in property <[StreamData]> streams;
     in property <int> streams-loading: 0;
     in property <bool> waits-for-streams: false;
+    in property <bool> streams-filtered-out: false;
     in property <bool> expect-streams: false;
     in property <bool> has-title: false;
     in property <string> play-message;
@@ -45,6 +46,7 @@ export component DetailsPanel inherits Rectangle {
     callback stepped-season(int);
     callback stepped-episode(int);
     callback show-streams;
+    callback open-content-settings;
 
     background: transparent;
     border-radius: 1.5 * root.rem-size;
@@ -142,9 +144,11 @@ export component DetailsPanel inherits Rectangle {
                     season: root.season-number;
                     episode: root.episode-number;
                     can-show-streams: root.can-show-streams;
+                    filtered-out: root.streams-filtered-out;
                     step-season(delta) => { root.stepped-season(delta); }
                     step-episode(delta) => { root.stepped-episode(delta); }
                     show-streams => { root.show-streams(); }
+                    open-content-settings => { root.open-content-settings(); }
                 }
 
                 if root.streams.length > 0: VerticalLayout {

@@ -93,6 +93,12 @@ impl<'a> DiscoverHandle<'a> {
         self.0.materialize_if_stale(ScreenMask::DISCOVER);
         self.0.snapshot.lock().unwrap().discover.clone()
     }
+
+    pub fn refresh(&self) -> Arc<discover::Data> {
+        self.0.materialize(ScreenMask::DISCOVER);
+        self.0.mark_dirty(ScreenMask::DISCOVER);
+        self.0.snapshot.lock().unwrap().discover.clone()
+    }
 }
 
 pub struct LibraryHandle<'a>(pub(crate) &'a Arc<AppStore>);

@@ -235,6 +235,7 @@ export component SettingsMenu inherits Rectangle {
                 spacing: 0.15 * root.rem-size;
                 NavGroupLabel { label: "PREFERENCES"; rem-size: root.rem-size; }
                 NavItem { label: "Interface"; icon: @image-url("../icons/grid.svg"); selected: root.selected == "interface"; rem-size: root.rem-size; clicked => { root.navigate("interface"); } }
+                NavItem { label: "Content"; icon: @image-url("../icons/filters-outline.svg"); selected: root.selected == "content"; rem-size: root.rem-size; clicked => { root.navigate("content"); } }
                 NavItem { label: "Player"; icon: @image-url("../icons/movies-outline.svg"); selected: root.selected == "player"; rem-size: root.rem-size; clicked => { root.navigate("player"); } }
                 NavItem { label: "Integrations"; icon: @image-url("../icons/link.svg"); selected: root.selected == "integrations"; rem-size: root.rem-size; clicked => { root.navigate("integrations"); } }
             }

@@ -5,6 +5,7 @@
 
 mod board;
 mod browse;
+mod content_settings;
 mod details_player;
 mod mods;
 mod mods_logs;

@@ -5,11 +5,13 @@ import { ScrollBar } from "scroll-bar.slint";
 import { Theme } from "theme.slint";
 import { SettingsMenu } from "settings/menu.slint";
 import { AccountPage, HelpPage, SearchResultsPage } from "settings/pages-account.slint";
+import { ContentPage } from "settings/content.slint";
 import { IntegrationsPage, InterfacePage, PlayerPage } from "settings/pages-core.slint";
 import { StreamingPage } from "settings/page-streaming.slint";
 import { DevicePage } from "settings/pages-device.slint";
 import { ShortcutsPage } from "settings/shortcuts.slint";
 import {
+    ContentCatalogRow,
     ServerUrlRow,
     SettingsSearchHit,
     SettingsUi,
@@ -18,9 +20,12 @@ import {
     SpotlightCatalogCardData,
     SpotlightCatalogGroup,
     SpotlightPickChip,
+    StreamAddonRow,
+    StreamPresetRow,
 } from "settings/types.slint";
 
 export {
+    ContentCatalogRow,
     ServerUrlRow,
     SettingsSearchHit,
     SettingsUi,
@@ -29,6 +34,8 @@ export {
     SpotlightCatalogCardData,
     SpotlightCatalogGroup,
     SpotlightPickChip,
+    StreamAddonRow,
+    StreamPresetRow,
 }
 
 export component SettingsContent inherits Rectangle {
@@ -123,6 +130,7 @@ export component SettingsContent inherits Rectangle {
                 }
             }
             if !root.searching && SettingsUi.active-page == "interface": InterfacePage { rem-size: root.rem-size; }
+            if !root.searching && SettingsUi.active-page == "content": ContentPage { rem-size: root.rem-size; }
             if !root.searching && SettingsUi.active-page == "player": PlayerPage { rem-size: root.rem-size; }
             if !root.searching && SettingsUi.active-page == "integrations": IntegrationsPage { rem-size: root.rem-size; }
             if !root.searching && SettingsUi.active-page == "device": DevicePage { rem-size: root.rem-size; }

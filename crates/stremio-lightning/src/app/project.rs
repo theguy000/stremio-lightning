@@ -30,9 +30,10 @@ impl AppStore {
                 spotlight,
             })
         });
-        let discover = mask
-            .contains(ScreenMask::DISCOVER)
-            .then(|| Arc::new(discover::data(&model)));
+        let discover = mask.contains(ScreenMask::DISCOVER).then(|| {
+            let extras = self.local_extras.lock().unwrap().clone();
+            Arc::new(discover::data_with_extras(&model, &extras))
+        });
         let library = mask
             .contains(ScreenMask::LIBRARY)
             .then(|| Arc::new(library::data(&model)));
@@ -43,8 +44,10 @@ impl AppStore {
             .contains(ScreenMask::CALENDAR)
             .then(|| Arc::new(calendar::data(&model)));
         let details_data = mask.contains(ScreenMask::DETAILS).then(|| {
-            Arc::new(details::data(
+            let extras = self.local_extras.lock().unwrap().clone();
+            Arc::new(details::data_with_extras(
                 &model,
+                &extras,
                 details::chosen_season(self.details_season.load(Ordering::Relaxed)),
                 self.details_picked.lock().unwrap().as_deref(),
                 *self.details_moved.lock().unwrap(),

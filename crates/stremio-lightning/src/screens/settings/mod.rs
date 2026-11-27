@@ -9,6 +9,8 @@ use super::{AppModel, SelectMenu};
 
 mod actions;
 pub mod cache_root;
+pub mod content;
+pub mod content_filter;
 mod options;
 pub mod search;
 pub mod streaming;
@@ -22,6 +24,7 @@ pub(crate) use actions::{
 pub use crate::plumbing::local_settings::LocalExtras;
 pub use crate::plumbing::player::PlayerConfig;
 pub use cache_root::CacheRootView;
+pub use content::ContentSettingsView;
 pub use search::{search as search_settings, SearchHit};
 pub use streaming::{ServerUrlEntry, StreamingView};
 
@@ -71,6 +74,7 @@ pub struct Data {
     pub mpv_config_menu: SelectMenu,
     pub mpv_config_path: String,
     pub spotlight: crate::screens::board::SpotlightSettingsView,
+    pub content: ContentSettingsView,
     pub wrap_streams: bool,
 }
 
@@ -102,6 +106,7 @@ pub fn data(model: &AppModel, extras: &LocalExtras) -> Data {
     }
     out.streaming = ss;
     out.spotlight = crate::screens::board::spotlight::settings_view(model, extras);
+    out.content = content::project(model, extras);
     if let Some((_, loadable)) = &model.data_export.export_url {
         out.data_export_loading = matches!(loadable, Loadable::Loading);
         if let Loadable::Ready(url) = loadable {
@@ -211,9 +216,12 @@ fn data_from_profile(profile: &Profile, extras: &LocalExtras) -> Data {
         mpv_config_menu,
         mpv_config_path,
         spotlight: Default::default(),
+        content: Default::default(),
         wrap_streams: extras.wrap_streams,
     }
 }
 
+#[cfg(test)]
+mod content_tests;
 #[cfg(test)]
 mod tests;

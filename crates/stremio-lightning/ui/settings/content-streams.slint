@@ -1,0 +1,275 @@
+// Settings -> Content: Stream sources addon toggles and Stream Filter Presets.
+import { Theme } from "../theme.slint";
+import { SettingsGroup, SettingsRow, SettingsRowButton } from "primitives.slint";
+import { SettingsToggle } from "scale.slint";
+import { StreamPresetEditor } from "content-preset-editor.slint";
+import { SettingsUi } from "types.slint";
+
+export component StreamSourcesGroup inherits SettingsGroup {
+    title: "Stream sources";
+    description: "Choose which installed addons provide streams on the title details page.";
+
+    if SettingsUi.content-stream-addons.length == 0: SettingsRow {
+        rem-size: root.rem-size;
+        label: "No stream addons installed";
+        description: "Install stream addons to see sources on title details.";
+        first: true;
+        last: true;
+        highlighted: SettingsUi.hit-row == "streamAddons";
+
+        SettingsRowButton {
+            label: "Go to Addons";
+            rem-size: root.rem-size;
+            clicked => { SettingsUi.spotlight-go-addons(); }
+        }
+    }
+
+    for addon[idx] in SettingsUi.content-stream-addons: SettingsRow {
+        rem-size: root.rem-size;
+        label: addon.name;
+        description: addon.types-label;
+        first: idx == 0;
+        last: idx + 1 == SettingsUi.content-stream-addons.length;
+        highlighted: idx == 0 && SettingsUi.hit-row == "streamAddons";
+
+        SettingsToggle {
+            checked: addon.enabled;
+            rem-size: root.rem-size;
+            toggled(v) => { SettingsUi.content-toggle-stream-addon(addon.transport-url, v); }
+        }
+    }
+}
+
+component PresetRadioRow inherits Rectangle {
+    in property <length> rem-size;
+    in property <string> name;
+    in property <string> summary;
+    in property <bool> selected: false;
+    in property <bool> editable: false;
+    callback select();
+    callback edit();
+    callback remove();
+
+    min-height: 3.5 * root.rem-size;
+    border-radius: 1.75 * root.rem-size;
+    background: row-t.has-hover ? Theme.overlay-hover : Theme.overlay;
+
+    row-t := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.select(); }
+    }
+
+    HorizontalLayout {
+        padding-left: 1.15 * root.rem-size;
+        padding-right: 0.75 * root.rem-size;
+        padding-top: 0.55 * root.rem-size;
+        padding-bottom: 0.55 * root.rem-size;
+        spacing: 0.85 * root.rem-size;
+        alignment: space-between;
+
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 1.1 * root.rem-size;
+                height: 1.1 * root.rem-size;
+                border-radius: 0.55 * root.rem-size;
+                border-width: 2px;
+                border-color: root.selected ? Theme.accent : Theme.placeholder;
+                if root.selected: Rectangle {
+                    x: 3px;
+                    y: 3px;
+                    width: parent.width - 6px;
+                    height: parent.height - 6px;
+                    border-radius: (parent.width - 6px) / 2;
+                    background: Theme.accent;
+                }
+            }
+        }
+
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: center;
+            spacing: 0.15 * root.rem-size;
+
+            Text {
+                text: root.name;
+                font-size: 0.98 * root.rem-size;
+                font-weight: root.selected ? 600 : 500;
+                color: Theme.text;
+                overflow: elide;
+            }
+            if root.summary != "": Text {
+                text: root.summary;
+                font-size: 0.8 * root.rem-size;
+                color: Theme.text;
+                opacity: 0.6;
+                overflow: elide;
+            }
+        }
+
+        if root.editable: HorizontalLayout {
+            spacing: 0.35 * root.rem-size;
+            alignment: end;
+
+            VerticalLayout {
+                alignment: center;
+                Rectangle {
+                    height: 2.1 * root.rem-size;
+                    width: edit-lbl.preferred-width + 1.2 * root.rem-size;
+                    border-radius: 1.05 * root.rem-size;
+                    background: edit-t.has-hover ? Theme.overlay-hover : transparent;
+                    edit-lbl := Text {
+                        width: parent.width;
+                        height: parent.height;
+                        text: "Edit";
+                        font-size: 0.82 * root.rem-size;
+                        font-weight: 500;
+                        color: Theme.text;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    edit-t := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { root.edit(); }
+                    }
+                }
+            }
+            VerticalLayout {
+                alignment: center;
+                Rectangle {
+                    width: 2.2 * root.rem-size;
+                    height: 2.2 * root.rem-size;
+                    border-radius: 1.1 * root.rem-size;
+                    background: del-t.has-hover ? #ff707033 : transparent;
+                    Image {
+                        x: (parent.width - self.width) / 2;
+                        y: (parent.height - self.height) / 2;
+                        width: 1 * root.rem-size;
+                        height: 1 * root.rem-size;
+                        source: @image-url("../icons/bin.svg");
+                        colorize: del-t.has-hover ? Theme.accent-red : Theme.placeholder;
+                    }
+                    del-t := TouchArea {
+                        mouse-cursor: pointer;
+                        accessible-role: button;
+                        accessible-label: "Delete " + root.name;
+                        clicked => { root.remove(); }
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component StreamPresetsGroup inherits SettingsGroup {
+    title: "Stream Filter Presets";
+    description: "You can add multiple filter presets for your streams and activate one for this device. You can activate different presets for each device.";
+    padded: true;
+
+    property <bool> editing: false;
+    property <string> edit-id: "";
+    property <string> edit-name: "";
+    property <string> edit-include: "";
+    property <string> edit-exclude: "";
+
+    VerticalLayout {
+        spacing: 0.65 * root.rem-size;
+        alignment: start;
+
+        if SettingsUi.content-presets.length == 0 && !root.editing: Text {
+            text: "No Presets";
+            font-size: 0.95 * root.rem-size;
+            color: Theme.text;
+            opacity: 0.6;
+        }
+
+        if SettingsUi.content-presets.length > 0: PresetRadioRow {
+            rem-size: root.rem-size;
+            name: "None (show all streams)";
+            selected: SettingsUi.content-active-preset-id == "";
+            select => { SettingsUi.content-select-preset(""); }
+        }
+
+        for preset in SettingsUi.content-presets: PresetRadioRow {
+            rem-size: root.rem-size;
+            name: preset.name;
+            summary: preset.summary;
+            selected: preset.active;
+            editable: true;
+            select => { SettingsUi.content-select-preset(preset.id); }
+            edit => {
+                root.edit-id = preset.id;
+                root.edit-name = preset.name;
+                root.edit-include = preset.include-csv;
+                root.edit-exclude = preset.exclude-csv;
+                root.editing = true;
+            }
+            remove => {
+                if (root.editing && root.edit-id == preset.id) {
+                    root.editing = false;
+                }
+                SettingsUi.content-delete-preset(preset.id);
+            }
+        }
+
+        if root.editing: StreamPresetEditor {
+            rem-size: root.rem-size;
+            is-edit: root.edit-id != "";
+            name <=> root.edit-name;
+            include-csv <=> root.edit-include;
+            exclude-csv <=> root.edit-exclude;
+            save => {
+                SettingsUi.content-save-preset(root.edit-id, root.edit-name, root.edit-include, root.edit-exclude);
+                root.editing = false;
+            }
+            cancel => { root.editing = false; }
+        }
+
+        if !root.editing: HorizontalLayout {
+            padding-top: 0.25 * root.rem-size;
+            alignment: start;
+
+            Rectangle {
+                height: 3.1 * root.rem-size;
+                width: add-row.preferred-width;
+                border-radius: 1.55 * root.rem-size;
+                background: Theme.accent-green;
+                opacity: add-t.has-hover ? 0.9 : 1.0;
+
+                add-row := HorizontalLayout {
+                    padding-left: 1.35 * root.rem-size;
+                    padding-right: 1.5 * root.rem-size;
+                    spacing: 0.55 * root.rem-size;
+                    alignment: center;
+
+                    VerticalLayout {
+                        alignment: center;
+                        Image {
+                            width: 1.15 * root.rem-size;
+                            height: 1.15 * root.rem-size;
+                            source: @image-url("../icons/add.svg");
+                            colorize: #ffffff;
+                        }
+                    }
+                    Text {
+                        text: "Create New Preset";
+                        font-size: 0.95 * root.rem-size;
+                        font-weight: 600;
+                        color: #ffffff;
+                        vertical-alignment: center;
+                    }
+                }
+                add-t := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.edit-id = "";
+                        root.edit-name = "";
+                        root.edit-include = "";
+                        root.edit-exclude = "";
+                        root.editing = true;
+                    }
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,28 @@
+// Settings -> Content page: Catalogs, Stream sources, and Stream Filter Presets.
+import { SettingsPageHeader } from "primitives.slint";
+import { ContentCatalogsGroup } from "content-catalogs.slint";
+import { StreamPresetsGroup, StreamSourcesGroup } from "content-streams.slint";
+
+export component ContentPage inherits VerticalLayout {
+    in property <length> rem-size;
+    alignment: start;
+    spacing: 0px;
+
+    SettingsPageHeader {
+        title: "Content";
+        scope: "Saved on this device";
+        rem-size: root.rem-size;
+    }
+
+    ContentCatalogsGroup {
+        rem-size: root.rem-size;
+    }
+
+    StreamSourcesGroup {
+        rem-size: root.rem-size;
+    }
+
+    StreamPresetsGroup {
+        rem-size: root.rem-size;
+    }
+}

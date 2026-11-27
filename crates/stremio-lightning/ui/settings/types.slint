@@ -1,6 +1,9 @@
 // Based on stremio-web (https://github.com/Stremio/stremio-web),
 // Copyright (C) 2017-2026 Smart code 203358507.
 import { SelectInputData } from "../multiselect-menu.slint";
+import { ContentCatalogRow, StreamAddonRow, StreamPresetRow } from "content-types.slint";
+
+export { ContentCatalogRow, StreamAddonRow, StreamPresetRow }
 
 export struct ServerUrlRow {
     url: string,
@@ -134,6 +137,11 @@ export global SettingsUi {
     in-out property <string> spotlight-search-query: "";
     in-out property <string> spotlight-nudge: "";
     in-out property <string> hit-row: "";
+    in-out property <[ContentCatalogRow]> content-catalogs;
+    in-out property <bool> content-has-custom-catalogs: false;
+    in-out property <[StreamAddonRow]> content-stream-addons;
+    in-out property <[StreamPresetRow]> content-presets;
+    in-out property <string> content-active-preset-id: "";
 
     callback log-out();
     callback open-external-link(string);
@@ -160,4 +168,12 @@ export global SettingsUi {
     callback reset-spotlight-catalogs();
     callback spotlight-search-changed(string);
     callback spotlight-go-addons();
+    callback content-move-catalog(int, int);
+    callback content-toggle-board(int);
+    callback content-toggle-discover(int);
+    callback content-reset-catalogs();
+    callback content-toggle-stream-addon(string, bool);
+    callback content-save-preset(string, string, string, string);
+    callback content-delete-preset(string);
+    callback content-select-preset(string);
 }

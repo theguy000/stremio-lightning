@@ -37,34 +37,44 @@ pub fn data_with_extras(
     extras: &LocalExtras,
 ) -> (String, Vec<Row>, Vec<SpotlightItem>) {
     let (slides, hidden_picks) = spotlight::project_board(model, &extras.spotlight);
-    let mut catalogs = Vec::new();
+    let mut ranked_catalogs: Vec<(usize, Row)> = Vec::new();
     let (mut ready, mut loading, mut failed) = (0, 0, 0);
     for catalog in &model.board.catalogs {
         let Some(page) = catalog.first() else {
             continue;
         };
         let pick = spotlight::pick_from_request(&page.request);
-        let hidden = hidden_picks.iter().any(|h| h == &pick);
+        let hidden =
+            hidden_picks.contains(&pick) || extras.content.hidden_board_catalogs.contains(&pick);
         match &page.content {
             Some(Loadable::Ready(items)) => {
                 ready += 1;
                 if !hidden {
-                    catalogs.push(Row {
-                        title: catalog_title(model, &page.request),
-                        shape: shape_of(items),
-                        cards: items
-                            .iter()
-                            .take(CATALOG_PREVIEW_SIZE)
-                            .map(card_of)
-                            .collect(),
-                        menu: false,
-                    });
+                    let rank = crate::screens::settings::content::catalog_rank(
+                        &extras.content.catalog_order,
+                        &pick,
+                    );
+                    ranked_catalogs.push((
+                        rank,
+                        Row {
+                            title: catalog_title(model, &page.request),
+                            shape: shape_of(items),
+                            cards: items
+                                .iter()
+                                .take(CATALOG_PREVIEW_SIZE)
+                                .map(card_of)
+                                .collect(),
+                            menu: false,
+                        },
+                    ));
                 }
             }
             Some(Loadable::Err(_)) => failed += 1,
             _ => loading += 1,
         }
     }
+    ranked_catalogs.sort_by_key(|(rank, _)| *rank);
+    let mut catalogs: Vec<Row> = ranked_catalogs.into_iter().map(|(_, row)| row).collect();
     let status = format!(
         "{} addons, {} catalogs ready, {} loading, {} failed",
         model.ctx.profile.addons.len(),

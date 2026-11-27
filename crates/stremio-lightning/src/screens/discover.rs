@@ -5,7 +5,9 @@
 use stremio_core::models::common::Loadable;
 use stremio_core::types::addon::ResourceRequest;
 
+use super::settings::content::{catalog_key, catalog_rank};
 use super::{capitalise, card_of, preview_of, shape_of, Card, Preview, SelectInput};
+use crate::plumbing::local_settings::{ContentSettings, LocalExtras};
 use crate::AppModel;
 
 /// What the Discover screen shows: the labels of its first three inputs and every card loaded
@@ -19,7 +21,38 @@ pub struct Data {
 }
 
 pub fn data(model: &AppModel) -> Data {
+    data_with_extras(model, &LocalExtras::default())
+}
+
+/// Returns the first visible Discover catalog request if the currently selected catalog is hidden.
+pub fn fallback_request_if_hidden(
+    model: &AppModel,
+    content: &ContentSettings,
+) -> Option<ResourceRequest> {
+    let catalogs = &model.discover.selectable.catalogs;
+    let selected_hidden = catalogs.iter().find(|c| c.selected).is_some_and(|c| {
+        content
+            .hidden_discover_catalogs
+            .contains(&catalog_key(&c.request))
+    });
+    if !selected_hidden {
+        return None;
+    }
+    let mut visible: Vec<_> = catalogs
+        .iter()
+        .filter(|c| {
+            !content
+                .hidden_discover_catalogs
+                .contains(&catalog_key(&c.request))
+        })
+        .collect();
+    visible.sort_by_key(|c| catalog_rank(&content.catalog_order, &catalog_key(&c.request)));
+    visible.first().map(|c| c.request.clone())
+}
+
+pub fn data_with_extras(model: &AppModel, extras: &LocalExtras) -> Data {
     let discover = &model.discover;
+    let content = &extras.content;
     let mut items: Vec<&stremio_core::types::resource::MetaItemPreview> = Vec::new();
     for page in &discover.catalog {
         if let Some(Loadable::Ready(page_items)) = &page.content {
@@ -46,16 +79,25 @@ pub fn data(model: &AppModel) -> Data {
         ));
     }
     if !selectable.catalogs.is_empty() {
-        let title = selectable
+        let mut visible: Vec<_> = selectable
             .catalogs
+            .iter()
+            .filter(|item| {
+                !content
+                    .hidden_discover_catalogs
+                    .contains(&catalog_key(&item.request))
+            })
+            .collect();
+        visible
+            .sort_by_key(|item| catalog_rank(&content.catalog_order, &catalog_key(&item.request)));
+        let title = visible
             .iter()
             .find(|item| item.selected)
             .map_or_else(|| "Select catalog".to_owned(), |item| item.catalog.clone());
         inputs.push(SelectInput::new(
             title,
-            selectable
-                .catalogs
-                .iter()
+            visible
+                .into_iter()
                 .map(|item| (item.catalog.clone(), item.selected, item.request.clone())),
         ));
     }

@@ -1,0 +1,169 @@
+// Settings -> Content: Catalog reordering and Board / Discover visibility toggles.
+import { Theme } from "../theme.slint";
+import { SettingsGroup, SettingsRow, SettingsRowButton } from "primitives.slint";
+import { SettingsUi } from "types.slint";
+
+component OrderBtn inherits Rectangle {
+    in property <length> rem-size;
+    in property <image> icon;
+    in property <bool> enabled: true;
+    in property <string> label;
+    callback clicked();
+
+    width: 2.1 * root.rem-size;
+    height: 2.1 * root.rem-size;
+    border-radius: 1.05 * root.rem-size;
+    background: root.enabled && t.has-hover ? Theme.overlay-hover : transparent;
+    opacity: root.enabled ? 1.0 : 0.25;
+
+    Image {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: 1 * root.rem-size;
+        height: 1 * root.rem-size;
+        source: root.icon;
+        colorize: Theme.text;
+    }
+    t := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        accessible-role: button;
+        accessible-label: root.label;
+        clicked => { root.clicked(); }
+    }
+}
+
+component VisibilityPill inherits Rectangle {
+    in property <length> rem-size;
+    in property <string> label;
+    in property <bool> shown: true;
+    callback clicked();
+
+    height: 2.1 * root.rem-size;
+    width: row.preferred-width;
+    border-radius: 1.05 * root.rem-size;
+    background: root.shown
+        ? (t.has-hover ? Theme.overlay-hover : Theme.overlay)
+        : (t.has-hover ? #ffffff10 : transparent);
+    border-width: 1px;
+    border-color: root.shown ? Theme.border-medium : #ffffff18;
+
+    row := HorizontalLayout {
+        padding-left: 0.7 * root.rem-size;
+        padding-right: 0.8 * root.rem-size;
+        spacing: 0.4 * root.rem-size;
+        alignment: center;
+
+        VerticalLayout {
+            alignment: center;
+            Image {
+                width: 0.95 * root.rem-size;
+                height: 0.95 * root.rem-size;
+                source: root.shown ? @image-url("../icons/eye.svg") : @image-url("../icons/eye-off.svg");
+                colorize: root.shown ? Theme.text : Theme.placeholder;
+            }
+        }
+        Text {
+            text: root.label;
+            font-size: 0.82 * root.rem-size;
+            font-weight: 500;
+            color: root.shown ? Theme.text : Theme.placeholder;
+            vertical-alignment: center;
+        }
+    }
+    t := TouchArea {
+        mouse-cursor: pointer;
+        accessible-role: button;
+        accessible-label: (root.shown ? "Hide on " : "Show on ") + root.label;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component ContentCatalogsGroup inherits SettingsGroup {
+    title: "Catalogs";
+    description: "Reorder catalogs and hide or show any of them on Board and Discover.";
+
+    if SettingsUi.content-catalogs.length == 0: SettingsRow {
+        rem-size: root.rem-size;
+        label: "No catalogs available";
+        description: "Install addons to organize catalogs on Board and Discover.";
+        first: true;
+        last: true;
+        highlighted: SettingsUi.hit-row == "catalogs";
+
+        SettingsRowButton {
+            label: "Go to Addons";
+            rem-size: root.rem-size;
+            clicked => { SettingsUi.spotlight-go-addons(); }
+        }
+    }
+
+    for cat[idx] in SettingsUi.content-catalogs: SettingsRow {
+        rem-size: root.rem-size;
+        label: cat.title;
+        description: cat.addon-name;
+        first: idx == 0;
+        last: false;
+        thin: true;
+        highlighted: idx == 0 && SettingsUi.hit-row == "catalogs";
+
+        HorizontalLayout {
+            spacing: 0.4 * root.rem-size;
+            alignment: end;
+
+            if cat.can-board: VerticalLayout {
+                alignment: center;
+                VisibilityPill {
+                    rem-size: root.rem-size;
+                    label: "Board";
+                    shown: cat.show-on-board;
+                    clicked => { SettingsUi.content-toggle-board(idx); }
+                }
+            }
+            if cat.can-discover: VerticalLayout {
+                alignment: center;
+                VisibilityPill {
+                    rem-size: root.rem-size;
+                    label: "Discover";
+                    shown: cat.show-on-discover;
+                    clicked => { SettingsUi.content-toggle-discover(idx); }
+                }
+            }
+            VerticalLayout {
+                alignment: center;
+                OrderBtn {
+                    rem-size: root.rem-size;
+                    icon: @image-url("../icons/caret-up.svg");
+                    enabled: cat.can-move-up;
+                    label: "Move " + cat.title + " up";
+                    clicked => { SettingsUi.content-move-catalog(idx, -1); }
+                }
+            }
+            VerticalLayout {
+                alignment: center;
+                OrderBtn {
+                    rem-size: root.rem-size;
+                    icon: @image-url("../icons/caret-down.svg");
+                    enabled: cat.can-move-down;
+                    label: "Move " + cat.title + " down";
+                    clicked => { SettingsUi.content-move-catalog(idx, 1); }
+                }
+            }
+        }
+    }
+
+    if SettingsUi.content-catalogs.length > 0: SettingsRow {
+        rem-size: root.rem-size;
+        end-align: true;
+        last: true;
+
+        SettingsRowButton {
+            label: "Reset defaults";
+            icon: @image-url("../icons/reset.svg");
+            has-icon: true;
+            disabled: !SettingsUi.content-has-custom-catalogs;
+            rem-size: root.rem-size;
+            clicked => { SettingsUi.content-reset-catalogs(); }
+        }
+    }
+}

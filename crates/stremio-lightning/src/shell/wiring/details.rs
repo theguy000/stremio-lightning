@@ -16,6 +16,7 @@ impl Wiring {
         ui.set_play_message("".into());
         ui.set_streams(ModelRc::default());
         ui.set_streams_loading(0);
+        ui.set_streams_filtered_out(false);
         ui.set_seasons(ModelRc::default());
         ui.set_episodes(ModelRc::default());
         ui.set_season_watched(false);
@@ -180,7 +181,8 @@ impl Wiring {
 
     pub(super) fn play_stream(&self, index: i32) {
         let index = usize::try_from(index).unwrap_or(usize::MAX);
-        let message = match player::open(self.app.runtime(), index) {
+        let content = self.app.local_extras().content.clone();
+        let message = match player::open(self.app.runtime(), &content, index) {
             Ok(player::OpenResult::OpenBrowser(url)) => {
                 links::open(&url);
                 String::new()
@@ -245,4 +247,6 @@ pub(super) fn wire(window: &MainWindow, wiring: &Wiring) {
     ui.on_step_episode(move |step| w.step(0, step));
     let w = wiring.clone();
     ui.on_show_streams(move || w.show_streams());
+    let w = wiring.clone();
+    ui.on_open_content_settings(move || w.open_content_settings_page());
 }

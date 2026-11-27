@@ -14,6 +14,7 @@ use url::Url;
 
 use crate::app::{AppModel, AppModelField, AppRuntime};
 use crate::plumbing::external_player::{ExternalLaunch, ExternalPlayerKind};
+use crate::plumbing::local_settings::ContentSettings;
 use crate::screens::details;
 
 #[derive(Debug, PartialEq)]
@@ -70,17 +71,12 @@ fn ready_meta_request(details: &MetaDetails) -> Option<ResourceRequest> {
         .map(|item| item.request.clone())
 }
 
-fn picked(model: &AppModel, index: usize) -> Option<(PlayerSelected, Option<Video>)> {
-    let (stream, request) = model
-        .meta_details
-        .streams
-        .iter()
-        .filter_map(|page| match page.content.as_ref() {
-            Some(Loadable::Ready(list)) => Some(list.iter().map(move |s| (s, &page.request))),
-            _ => None,
-        })
-        .flatten()
-        .nth(index)?;
+fn picked(
+    model: &AppModel,
+    content: &ContentSettings,
+    index: usize,
+) -> Option<(PlayerSelected, Option<Video>)> {
+    let (request, stream) = details::visible_streams(model, content).nth(index)?;
     let video = details::meta_item(&model.meta_details)
         .and_then(|item| item.videos.iter().find(|v| v.id == request.path.id))
         .cloned();
@@ -264,11 +260,16 @@ pub(crate) fn open_video(runtime: &AppRuntime, video_id: &str) -> Result<VideoOp
     )
 }
 
-pub(crate) fn open(runtime: &AppRuntime, index: usize) -> Result<OpenResult, String> {
+pub(crate) fn open(
+    runtime: &AppRuntime,
+    content: &ContentSettings,
+    index: usize,
+) -> Result<OpenResult, String> {
     let model = runtime
         .model()
         .map_err(|_| "the app state is not available".to_owned())?;
-    let (selected, video) = picked(&model, index).ok_or("the list changed, pick it again")?;
+    let (selected, video) =
+        picked(&model, content, index).ok_or("the list changed, pick it again")?;
     let player_type = model.ctx.profile.settings.player_type.clone();
     let server_base = model.streaming_server.base_url.clone();
     drop(model);

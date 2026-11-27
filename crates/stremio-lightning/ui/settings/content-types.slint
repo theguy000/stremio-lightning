@@ -1,0 +1,28 @@
+// Content Settings data structs shared between Rust and Slint.
+
+export struct ContentCatalogRow {
+    title: string,
+    addon-name: string,
+    can-board: bool,
+    show-on-board: bool,
+    can-discover: bool,
+    show-on-discover: bool,
+    can-move-up: bool,
+    can-move-down: bool,
+}
+
+export struct StreamAddonRow {
+    transport-url: string,
+    name: string,
+    types-label: string,
+    enabled: bool,
+}
+
+export struct StreamPresetRow {
+    id: string,
+    name: string,
+    include-csv: string,
+    exclude-csv: string,
+    summary: string,
+    active: bool,
+}

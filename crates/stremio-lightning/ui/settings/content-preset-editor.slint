@@ -1,0 +1,194 @@
+// Inline Create / Edit Stream Filter Preset form matching Stremio Web Settings styling.
+import { Theme } from "../theme.slint";
+
+component TagQuickChip inherits Rectangle {
+    in property <length> rem-size;
+    in property <string> tag;
+    callback clicked();
+
+    height: 1.9 * root.rem-size;
+    width: lbl.preferred-width + 1.1 * root.rem-size;
+    border-radius: 0.95 * root.rem-size;
+    background: t.has-hover ? Theme.overlay-hover : Theme.overlay;
+    border-width: 1px;
+    border-color: Theme.border-medium;
+
+    lbl := Text {
+        width: parent.width;
+        height: parent.height;
+        text: "+ " + root.tag;
+        font-size: 0.78 * root.rem-size;
+        font-weight: 500;
+        color: Theme.text;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    t := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+component PresetField inherits VerticalLayout {
+    in property <length> rem-size;
+    in property <string> label;
+    in property <string> placeholder;
+    in-out property <string> value;
+    callback accepted();
+
+    spacing: 0.45 * root.rem-size;
+    alignment: start;
+
+    Text {
+        text: root.label;
+        font-size: 0.85 * root.rem-size;
+        font-weight: 600;
+        color: Theme.text;
+        opacity: 0.8;
+    }
+    Rectangle {
+        height: 3.1 * root.rem-size;
+        border-radius: 1.55 * root.rem-size;
+        background: Theme.overlay;
+        border-width: 1px;
+        border-color: ti.has-focus ? Theme.accent : Theme.border-medium;
+
+        if root.value == "": Text {
+            x: 1.15 * root.rem-size;
+            width: parent.width - 2.3 * root.rem-size;
+            height: parent.height;
+            vertical-alignment: center;
+            text: root.placeholder;
+            font-size: 0.95 * root.rem-size;
+            color: Theme.placeholder;
+        }
+        ti := TextInput {
+            x: 1.15 * root.rem-size;
+            width: parent.width - 2.3 * root.rem-size;
+            height: parent.height;
+            vertical-alignment: center;
+            single-line: true;
+            font-size: 0.95 * root.rem-size;
+            color: Theme.text;
+            text <=> root.value;
+            accepted => { root.accepted(); }
+        }
+    }
+}
+
+export component StreamPresetEditor inherits Rectangle {
+    in property <length> rem-size;
+    in property <bool> is-edit: false;
+    in-out property <string> name;
+    in-out property <string> include-csv;
+    in-out property <string> exclude-csv;
+    callback save();
+    callback cancel();
+
+    border-radius: 1 * root.rem-size;
+    background: #ffffff08;
+    border-width: 1px;
+    border-color: Theme.border-medium;
+
+    VerticalLayout {
+        padding: 1.15 * root.rem-size;
+        spacing: 0.9 * root.rem-size;
+        alignment: start;
+
+        PresetField {
+            rem-size: root.rem-size;
+            label: "Preset Name";
+            placeholder: "Input Preset Name";
+            value <=> root.name;
+            accepted => { if (root.name != "") { root.save(); } }
+        }
+
+        PresetField {
+            rem-size: root.rem-size;
+            label: "Include (comma-separated tags, matches any)";
+            placeholder: "e.g. 4K, 2160p, HDR";
+            value <=> root.include-csv;
+            accepted => { if (root.name != "") { root.save(); } }
+        }
+        HorizontalLayout {
+            spacing: 0.4 * root.rem-size;
+            alignment: start;
+            for tag in ["4K", "2160p", "1080p", "HDR", "DV", "REMUX", "English"]: TagQuickChip {
+                rem-size: root.rem-size;
+                tag: tag;
+                clicked => {
+                    root.include-csv = root.include-csv == "" ? tag : root.include-csv + ", " + tag;
+                }
+            }
+        }
+
+        PresetField {
+            rem-size: root.rem-size;
+            label: "Exclude (comma-separated tags, hides any match)";
+            placeholder: "e.g. CAM, TS, 3D";
+            value <=> root.exclude-csv;
+            accepted => { if (root.name != "") { root.save(); } }
+        }
+        HorizontalLayout {
+            spacing: 0.4 * root.rem-size;
+            alignment: start;
+            for tag in ["CAM", "TS", "3D", "720p", "480p", "HEVC"]: TagQuickChip {
+                rem-size: root.rem-size;
+                tag: tag;
+                clicked => {
+                    root.exclude-csv = root.exclude-csv == "" ? tag : root.exclude-csv + ", " + tag;
+                }
+            }
+        }
+
+        HorizontalLayout {
+            padding-top: 0.25 * root.rem-size;
+            spacing: 0.65 * root.rem-size;
+            alignment: end;
+
+            Rectangle {
+                height: 2.9 * root.rem-size;
+                width: cancel-lbl.preferred-width + 2.2 * root.rem-size;
+                border-radius: 1.45 * root.rem-size;
+                background: cancel-t.has-hover ? Theme.overlay-hover : Theme.overlay;
+                cancel-lbl := Text {
+                    width: parent.width;
+                    height: parent.height;
+                    text: "Cancel";
+                    font-size: 0.92 * root.rem-size;
+                    font-weight: 500;
+                    color: Theme.text;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                cancel-t := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { root.cancel(); }
+                }
+            }
+
+            Rectangle {
+                height: 2.9 * root.rem-size;
+                width: save-lbl.preferred-width + 2.4 * root.rem-size;
+                border-radius: 1.45 * root.rem-size;
+                background: Theme.accent-green;
+                opacity: root.name != "" ? (save-t.has-hover ? 0.9 : 1.0) : 0.4;
+                save-lbl := Text {
+                    width: parent.width;
+                    height: parent.height;
+                    text: root.is-edit ? "Save Preset" : "Create";
+                    font-size: 0.92 * root.rem-size;
+                    font-weight: 600;
+                    color: #ffffff;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                save-t := TouchArea {
+                    enabled: root.name != "";
+                    mouse-cursor: pointer;
+                    clicked => { root.save(); }
+                }
+            }
+        }
+    }
+}

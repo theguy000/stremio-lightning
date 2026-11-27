@@ -32,6 +32,7 @@ pub(super) fn apply_details(
     }
     ui.set_streams_loading(i32::try_from(details.sources_loading).unwrap_or_default());
     ui.set_waits_for_streams(details.waits_for_streams);
+    ui.set_streams_filtered_out(details.streams_filtered_out);
     ui.set_expect_streams(
         details.picked.is_some()
             || (!details.show_picker
