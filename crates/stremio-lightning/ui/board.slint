@@ -5,6 +5,7 @@
 import { ClassStyles } from "class-styles.slint";
 import { MetaItem, PosterData } from "primitives/meta-item.slint";
 import { BoardSpotlight, SpotlightSlide } from "board/spotlight.slint";
+import { BoardSpotlightPlaceholder } from "board/spotlight-placeholder.slint";
 import { Theme } from "theme.slint";
 
 export { MetaItem, PosterData, SpotlightSlide }
@@ -19,9 +20,13 @@ export struct CatalogRow {
 export global BoardUi {
     in-out property <[CatalogRow]> rows: [];
     in-out property <[SpotlightSlide]> spotlight: [];
+    in-out property <[string]> spotlight-labels: [];
+    in-out property <bool> spotlight-loading: false;
+    in-out property <bool> scrolled-past-spotlight: false;
     callback board-visible(length, length, length, length);
     callback item-action(string, string);
     callback spotlight-library(string, string, bool);
+    callback spotlight-trailer(string);
 }
 
 component MetaRow inherits Rectangle {
@@ -138,21 +143,34 @@ component MetaRow inherits Rectangle {
 
 export component BoardContent inherits Rectangle {
     in property <length> viewport-width;
+    in property <length> nav-width: 0px;
+    in property <length> bar-height: 0px;
     in-out property <length> scroll-offset <=> board-content.content-y;
     callback scroll-bounds(length, length, length, length, length);
     callback open-item(string, string, string);
     callback item-action(string, string);
 
     property <length> rem-size: Theme.rem-size(root.viewport-width);
+    property <bool> has-spotlight: BoardUi.spotlight.length > 0 || BoardUi.spotlight-loading;
+    property <length> hero-height: root.height <= 520px
+        ? Math.max(24 * root.rem-size, root.height - 0.5 * root.rem-size)
+        : Math.max(38 * root.rem-size, Math.min(56 * root.rem-size, Math.min(root.height * 0.62, root.viewport-width * 0.56)));
+    property <length> rows-top: root.has-spotlight ? Math.max(0px, root.hero-height - 3.5 * root.rem-size) : 0px;
+    property <color> fade-base: Theme.amoled ? #000000 : #121024;
     property <length> watched-width: board-content.width;
     property <length> watched-height: board-content.height;
     property <length> watched-content: board-content.content-height;
     property <length> watched-y: board-content.content-y;
-    changed watched-width => { root.report-bounds(); root.report-visible(); }
-    changed watched-height => { root.report-bounds(); root.report-visible(); }
+    changed watched-width => { root.report-bounds(); root.report-visible(); root.update-scrolled(); }
+    changed watched-height => { root.report-bounds(); root.report-visible(); root.update-scrolled(); }
     changed watched-content => { root.report-bounds(); }
-    changed watched-y => { root.report-visible(); }
-    init => { root.report-bounds(); root.report-visible(); }
+    changed watched-y => { root.report-visible(); root.update-scrolled(); }
+    init => { root.report-bounds(); root.report-visible(); root.update-scrolled(); }
+
+    function update-scrolled() {
+        BoardUi.scrolled-past-spotlight = root.has-spotlight
+            && (-board-content.content-y >= root.hero-height - root.bar-height);
+    }
 
     function report-bounds() {
         root.scroll-bounds(
@@ -168,7 +186,7 @@ export component BoardContent inherits Rectangle {
         BoardUi.board-visible(
             -board-content.content-y,
             board-content.height,
-            board-content.width,
+            board-content.width - (root.has-spotlight ? root.nav-width : 0px),
             root.viewport-width,
         );
     }
@@ -186,23 +204,52 @@ export component BoardContent inherits Rectangle {
         width: parent.width;
         height: parent.height;
         content-width: self.width;
-        content-height: board-rows.preferred-height;
+        content-height: Math.max(root.has-spotlight ? root.hero-height : 0px, root.rows-top + board-rows.preferred-height);
+
+        if BoardUi.spotlight.length > 0: BoardSpotlight {
+            x: 0px;
+            y: 0px;
+            width: parent.width;
+            height: root.hero-height;
+            slides: BoardUi.spotlight;
+            slide-labels: BoardUi.spotlight-labels;
+            rem-size: root.rem-size;
+            nav-width: root.nav-width;
+            bar-height: root.bar-height;
+            open-item(id, kind, title) => { root.open-item(id, kind, title); }
+            toggle-library(id, kind, in-lib) => { BoardUi.spotlight-library(id, kind, in-lib); }
+            open-trailer(url) => { BoardUi.spotlight-trailer(url); }
+        }
+
+        if BoardUi.spotlight.length == 0 && BoardUi.spotlight-loading: BoardSpotlightPlaceholder {
+            x: 0px;
+            y: 0px;
+            width: parent.width;
+            height: root.hero-height;
+            rem-size: root.rem-size;
+            nav-width: root.nav-width;
+        }
+
+        // Seamless dissolve below hero-height behind Continue Watching into Theme.page-background.
+        if BoardUi.spotlight.length > 0: Rectangle {
+            x: 0px;
+            y: root.hero-height;
+            width: parent.width;
+            height: 3.5 * root.rem-size;
+            background: @linear-gradient(180deg, root.fade-base 0%, root.fade-base.with-alpha(0.0) 100%);
+        }
 
         board-rows := VerticalLayout {
+            x: root.has-spotlight ? root.nav-width : 0px;
+            y: root.rows-top;
+            width: parent.width - self.x;
+            height: self.preferred-height;
             alignment: start;
             padding-left: root.rem-size;
             padding-right: root.rem-size;
-            padding-top: root.rem-size;
+            padding-top: root.has-spotlight ? 0px : root.rem-size;
             padding-bottom: 2 * root.rem-size;
             spacing: 2 * root.rem-size;
-
-            if BoardUi.spotlight.length > 0: BoardSpotlight {
-                slides: BoardUi.spotlight;
-                rem-size: root.rem-size;
-                viewport-width: root.viewport-width;
-                open-item(id, kind, title) => { root.open-item(id, kind, title); }
-                toggle-library(id, kind, in-lib) => { BoardUi.spotlight-library(id, kind, in-lib); }
-            }
 
             for entry in BoardUi.rows: board-row := MetaRow {
                 catalog: entry;
@@ -211,8 +258,8 @@ export component BoardContent inherits Rectangle {
                 visible: !ClassStyles.board-row.hidden;
                 rem-size: root.rem-size;
                 row-visible: board-content.height <= 0px
-                    || (self.y + self.height >= -board-content.content-y - self.height
-                        && self.y <= -board-content.content-y + board-content.height + self.height);
+                    || (root.rows-top + self.y + self.height >= -board-content.content-y - self.height
+                        && root.rows-top + self.y <= -board-content.content-y + board-content.height + self.height);
                 visible-items: entry.shape == "landscape" && root.poster-items < 10
                     ? root.poster-items - 1 : root.poster-items;
                 viewport-width: root.viewport-width;

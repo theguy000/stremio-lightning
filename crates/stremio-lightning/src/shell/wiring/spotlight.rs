@@ -10,6 +10,7 @@ use stremio_core::runtime::msg::{Action, ActionCtx};
 use stremio_core::runtime::RuntimeAction;
 
 use super::Wiring;
+use crate::plumbing::links;
 use crate::plumbing::local_settings::SpotlightCatalogPick;
 use crate::screens::board::spotlight::MAX_CATALOGS;
 use crate::shell::{shortcuts, view};
@@ -194,6 +195,9 @@ pub(super) fn wire(window: &MainWindow, wiring: &Wiring) {
     let w = wiring.clone();
     board.on_spotlight_library(move |id, kind, in_lib| {
         w.spotlight_toggle_library(id.to_string(), kind.to_string(), in_lib);
+    });
+    board.on_spotlight_trailer(move |url| {
+        links::open(url.as_str());
     });
 
     let set = window.global::<SettingsUi>();

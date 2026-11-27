@@ -50,6 +50,7 @@ pub struct BoardData {
     pub status: String,
     pub rows: Vec<board::Row>,
     pub spotlight: Vec<board::SpotlightItem>,
+    pub spotlight_loading: bool,
 }
 
 /// Complete, structurally shared plain-Rust snapshot of every screen.

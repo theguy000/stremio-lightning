@@ -36,6 +36,7 @@ fn snapshot() -> Snapshot {
         board: Arc::new(BoardData {
             status: String::new(),
             spotlight: Vec::new(),
+            spotlight_loading: false,
             rows: vec![board::Row {
                 title: "Popular - Movie".to_owned(),
                 shape: "poster",

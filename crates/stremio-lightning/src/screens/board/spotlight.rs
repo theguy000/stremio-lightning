@@ -8,7 +8,7 @@ use std::collections::HashSet;
 
 use stremio_core::models::common::Loadable;
 use stremio_core::types::addon::ResourceRequest;
-use stremio_core::types::resource::MetaItemPreview;
+use stremio_core::types::resource::{MetaItemPreview, Stream, StreamSource};
 
 use crate::app::AppModel;
 use crate::plumbing::images::{logo_key, page_key};
@@ -30,6 +30,7 @@ pub struct SpotlightItem {
     pub genres: String,
     pub description: String,
     pub in_library: bool,
+    pub trailer_url: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -124,6 +125,22 @@ pub(super) fn addon_name_for(model: &AppModel, req: &ResourceRequest) -> String 
         .unwrap_or_else(|| req.base.host_str().unwrap_or("Addon").to_owned())
 }
 
+pub(crate) fn trailer_url_of(streams: &[Stream]) -> Option<String> {
+    streams.iter().find_map(|s| match &s.source {
+        StreamSource::YouTube { yt_id } if !yt_id.is_empty() => {
+            Some(format!("https://www.youtube.com/watch?v={yt_id}"))
+        }
+        StreamSource::External {
+            external_url: Some(url),
+            ..
+        } if matches!(url.scheme(), "http" | "https") => Some(url.to_string()),
+        StreamSource::Url { url } if matches!(url.scheme(), "http" | "https") => {
+            Some(url.to_string())
+        }
+        _ => None,
+    })
+}
+
 fn item_from_preview(model: &AppModel, m: &MetaItemPreview) -> SpotlightItem {
     let year = m
         .release_info
@@ -143,7 +160,7 @@ fn item_from_preview(model: &AppModel, m: &MetaItemPreview) -> SpotlightItem {
         .take(3)
         .map(|l| l.name.as_str())
         .collect::<Vec<_>>()
-        .join(" · ");
+        .join(", ");
     let in_library = model
         .ctx
         .library
@@ -162,17 +179,18 @@ fn item_from_preview(model: &AppModel, m: &MetaItemPreview) -> SpotlightItem {
         genres,
         description: m.description.clone().unwrap_or_default(),
         in_library,
+        trailer_url: trailer_url_of(&m.trailer_streams),
     }
 }
 
 /// Round-robin interleaves items with backgrounds from selected catalogs (max 6 unique IDs),
-/// returning `(spotlight_items, hidden_catalog_picks)`.
+/// returning `(spotlight_items, loading, hidden_catalog_picks)`.
 pub(crate) fn project_board(
     model: &AppModel,
     cfg: &SpotlightConfig,
-) -> (Vec<SpotlightItem>, Vec<SpotlightCatalogPick>) {
+) -> (Vec<SpotlightItem>, bool, Vec<SpotlightCatalogPick>) {
     if !cfg.enabled {
-        return (Vec::new(), Vec::new());
+        return (Vec::new(), false, Vec::new());
     }
     let pages: Vec<_> = model
         .board
@@ -183,7 +201,7 @@ pub(crate) fn project_board(
     let requests: Vec<&ResourceRequest> = pages.iter().map(|p| &p.request).collect();
     let (picks, _) = effective_picks(&requests, cfg);
     if picks.is_empty() {
-        return (Vec::new(), Vec::new());
+        return (Vec::new(), false, Vec::new());
     }
 
     let mut buckets: Vec<(SpotlightCatalogPick, Vec<&MetaItemPreview>, bool)> = picks
@@ -227,17 +245,18 @@ pub(crate) fn project_board(
         }
     }
 
+    let loading = out.is_empty() && buckets.iter().any(|(_, _, is_loading)| *is_loading);
     let hidden = if !cfg.show_catalog_rows {
         buckets
             .drain(..)
             .enumerate()
-            .filter(|(i, (_, _, loading))| *loading || contributed[*i])
+            .filter(|(i, (_, _, is_loading))| *is_loading || contributed[*i])
             .map(|(_, (pick, _, _))| pick)
             .collect()
     } else {
         Vec::new()
     };
-    (out, hidden)
+    (out, loading, hidden)
 }
 
 pub use super::spotlight_settings::settings_view;
