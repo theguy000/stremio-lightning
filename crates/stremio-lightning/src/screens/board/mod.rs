@@ -8,6 +8,7 @@ use stremio_core::models::common::Loadable;
 use stremio_core::models::continue_watching_preview::ContinueWatchingPreview;
 
 pub use spotlight::{SpotlightCatalogOption, SpotlightItem, SpotlightSettingsView};
+pub use spotlight_settings::group_catalogs;
 
 use super::{card_of, card_of_library_item, catalog_title, library_poster_shape, shape_of, Card};
 use crate::plumbing::local_settings::LocalExtras;

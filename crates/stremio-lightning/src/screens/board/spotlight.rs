@@ -41,7 +41,10 @@ pub struct SpotlightCatalogOption {
     pub addon_name: String,
     pub selected_rank: usize,
     pub is_default: bool,
+    pub ready: bool,
     pub preview_bg: Option<String>,
+    pub preview_logo: Option<String>,
+    pub preview_title: String,
     pub item_count: usize,
 }
 
@@ -52,10 +55,13 @@ pub struct SpotlightSettingsView {
     pub is_default: bool,
     pub picks_count: usize,
     pub picks_summary: String,
+    pub picks_titles: String,
+    pub picks_addon: String,
     pub preview_bg: Option<String>,
     pub preview_logo: Option<String>,
     pub preview_title: String,
     pub preview_count: String,
+    pub preview_slides_count: usize,
     pub preview_sub: String,
     pub catalogs: Vec<SpotlightCatalogOption>,
 }

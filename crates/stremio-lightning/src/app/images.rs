@@ -52,6 +52,7 @@ pub(crate) fn shown_images(
                 .iter()
                 .chain(sp.preview_logo.iter())
                 .chain(sp.catalogs.iter().filter_map(|c| c.preview_bg.as_ref()))
+                .chain(sp.catalogs.iter().filter_map(|c| c.preview_logo.as_ref()))
                 .cloned()
                 .collect()
         }

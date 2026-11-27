@@ -8,14 +8,38 @@ export struct ServerUrlRow {
     removable: bool,
 }
 
-export struct SpotlightCatalogRow {
+export struct SpotlightPickChip {
+    rank: int,
+    title: string,
+    catalog-index: int,
+}
+
+export struct SpotlightCatalogCardData {
+    catalog-index: int,
     name: string,
-    addon-name: string,
+    count-label: string,
+    ready: bool,
     selected-rank: int,
     is-default: bool,
     bg: image,
     has-bg: bool,
-    item-count: int,
+    logo: image,
+    has-logo: bool,
+    fallback-title: string,
+}
+
+export struct SpotlightCardRow3 {
+    c0: SpotlightCatalogCardData,
+    has-1: bool,
+    c1: SpotlightCatalogCardData,
+    has-2: bool,
+    c2: SpotlightCatalogCardData,
+}
+
+export struct SpotlightCatalogGroup {
+    addon-name: string,
+    count-label: string,
+    rows: [SpotlightCardRow3],
 }
 
 export struct SettingsSearchHit {
@@ -83,13 +107,18 @@ export struct SettingsViewData {
     spotlight-enabled: bool,
     spotlight-show-rows: bool,
     spotlight-is-default: bool,
+    spotlight-empty: bool,
     spotlight-picks-count: int,
     spotlight-picks-summary: string,
+    spotlight-picks-titles: string,
+    spotlight-picks-addon: string,
     spotlight-preview-bg: image,
     spotlight-has-preview-bg: bool,
+    spotlight-preview-logo: image,
+    spotlight-has-preview-logo: bool,
     spotlight-preview-title: string,
     spotlight-preview-count: string,
-    spotlight-preview-sub: string,
+    spotlight-preview-slides-count: int,
 }
 
 export global SettingsUi {
@@ -100,7 +129,10 @@ export global SettingsUi {
     in-out property <string> active-page: "interface";
     in-out property <string> search-query: "";
     in-out property <[SettingsSearchHit]> search-results;
-    in-out property <[SpotlightCatalogRow]> spotlight-catalogs;
+    in-out property <[SpotlightPickChip]> spotlight-picks;
+    in-out property <[SpotlightCatalogGroup]> spotlight-groups;
+    in-out property <string> spotlight-search-query: "";
+    in-out property <string> spotlight-nudge: "";
     in-out property <string> hit-row: "";
 
     callback log-out();
@@ -126,4 +158,6 @@ export global SettingsUi {
     callback open-spotlight-picker();
     callback toggle-spotlight-catalog(int);
     callback reset-spotlight-catalogs();
+    callback spotlight-search-changed(string);
+    callback spotlight-go-addons();
 }

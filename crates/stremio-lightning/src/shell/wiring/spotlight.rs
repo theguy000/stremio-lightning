@@ -1,5 +1,9 @@
 //! Board Spotlight carousel & Settings Spotlight picker callbacks.
 
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
+
 use slint::ComponentHandle;
 use stremio_core::models::common::Loadable;
 use stremio_core::runtime::msg::{Action, ActionCtx};
@@ -8,13 +12,35 @@ use stremio_core::runtime::RuntimeAction;
 use super::Wiring;
 use crate::plumbing::local_settings::SpotlightCatalogPick;
 use crate::screens::board::spotlight::MAX_CATALOGS;
-use crate::{BoardUi, MainWindow, SettingsUi, ShellModalsUi};
+use crate::shell::{shortcuts, view};
+use crate::{BoardUi, MainWindow, Section, SettingsUi, ShellModalsUi};
+
+const NUDGE_DURATION: Duration = Duration::from_millis(2400);
 
 impl Wiring {
     fn refresh_spotlight(&self) {
         self.app.board().refresh();
         self.app.settings().refresh();
         self.app.viewport().request_active_images();
+    }
+
+    fn set_spotlight_nudge(&self, nudge: &'static str, seq: &Arc<AtomicU64>) {
+        let gen_id = seq.fetch_add(1, Ordering::Relaxed) + 1;
+        if let Some(window) = self.window.upgrade() {
+            window
+                .global::<SettingsUi>()
+                .set_spotlight_nudge(nudge.into());
+        }
+        let weak = self.window.clone();
+        let seq_c = seq.clone();
+        self.handle.spawn(async move {
+            tokio::time::sleep(NUDGE_DURATION).await;
+            if seq_c.load(Ordering::Relaxed) == gen_id {
+                let _ = weak.upgrade_in_event_loop(|w| {
+                    w.global::<SettingsUi>().set_spotlight_nudge("".into());
+                });
+            }
+        });
     }
 
     pub(super) fn spotlight_toggle_library(&self, id: String, kind: String, in_library: bool) {
@@ -68,6 +94,11 @@ impl Wiring {
 
     pub(super) fn open_spotlight_picker(&self) {
         if let Some(window) = self.window.upgrade() {
+            let set = window.global::<SettingsUi>();
+            set.set_spotlight_search_query("".into());
+            set.set_spotlight_nudge("".into());
+            let sp = self.app.settings().view().spotlight.clone();
+            view::spotlight::apply_spotlight_picker(&window, &sp, self.app.images());
             window
                 .global::<ShellModalsUi>()
                 .set_spotlight_picker_open(true);
@@ -75,7 +106,23 @@ impl Wiring {
         self.app.viewport().request_active_images();
     }
 
-    pub(super) fn toggle_spotlight_catalog(&self, index: i32) {
+    pub(super) fn spotlight_search_changed(&self) {
+        if let Some(window) = self.window.upgrade() {
+            let sp = self.app.settings().view().spotlight.clone();
+            view::spotlight::apply_spotlight_picker(&window, &sp, self.app.images());
+        }
+    }
+
+    pub(super) fn spotlight_go_addons(&self) {
+        if let Some(window) = self.window.upgrade() {
+            window
+                .global::<ShellModalsUi>()
+                .set_spotlight_picker_open(false);
+            shortcuts::switch_section(&window, Section::Addons);
+        }
+    }
+
+    pub(super) fn toggle_spotlight_catalog(&self, index: i32, nudge_seq: &Arc<AtomicU64>) {
         let Ok(index) = usize::try_from(index) else {
             return;
         };
@@ -106,18 +153,21 @@ impl Wiring {
 
         if let Some(pos) = next.iter().position(|p| p == &pick) {
             if next.len() <= 1 {
-                self.say("Keep at least one catalog");
+                self.set_spotlight_nudge("keep-one", nudge_seq);
                 return;
             }
             next.remove(pos);
         } else {
             if next.len() >= MAX_CATALOGS {
-                self.say("Remove one catalog to add another");
+                self.set_spotlight_nudge("max", nudge_seq);
                 return;
             }
             next.push(pick);
         }
 
+        if let Some(window) = self.window.upgrade() {
+            window.global::<SettingsUi>().set_spotlight_nudge("".into());
+        }
         {
             let mut extras = self.app.local_extras();
             extras.spotlight.catalogs = next;
@@ -127,6 +177,9 @@ impl Wiring {
     }
 
     pub(super) fn reset_spotlight_catalogs(&self) {
+        if let Some(window) = self.window.upgrade() {
+            window.global::<SettingsUi>().set_spotlight_nudge("".into());
+        }
         {
             let mut extras = self.app.local_extras();
             extras.spotlight.catalogs.clear();
@@ -144,6 +197,7 @@ pub(super) fn wire(window: &MainWindow, wiring: &Wiring) {
     });
 
     let set = window.global::<SettingsUi>();
+    let nudge_seq = Arc::new(AtomicU64::new(0));
     let w = wiring.clone();
     set.on_set_spotlight_enabled(move |v| w.set_spotlight_enabled(v));
     let w = wiring.clone();
@@ -151,7 +205,12 @@ pub(super) fn wire(window: &MainWindow, wiring: &Wiring) {
     let w = wiring.clone();
     set.on_open_spotlight_picker(move || w.open_spotlight_picker());
     let w = wiring.clone();
-    set.on_toggle_spotlight_catalog(move |i| w.toggle_spotlight_catalog(i));
+    let seq = nudge_seq.clone();
+    set.on_toggle_spotlight_catalog(move |i| w.toggle_spotlight_catalog(i, &seq));
     let w = wiring.clone();
     set.on_reset_spotlight_catalogs(move || w.reset_spotlight_catalogs());
+    let w = wiring.clone();
+    set.on_spotlight_search_changed(move |_| w.spotlight_search_changed());
+    let w = wiring.clone();
+    set.on_spotlight_go_addons(move || w.spotlight_go_addons());
 }

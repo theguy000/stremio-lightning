@@ -1,224 +1,276 @@
 // Based on stremio-web SpotlightSettings/CatalogPicker (Copyright Smart code 203358507).
 import { Theme } from "../theme.slint";
-import { SettingsRowButton } from "primitives.slint";
+import { SpotlightCatalogCard } from "spotlight-card.slint";
+import { SpotlightCatalogsEmpty, SpotlightCatalogTray } from "spotlight-tray.slint";
 import { SettingsUi } from "types.slint";
 
 export component SpotlightPickerModal inherits Rectangle {
     in property <length> rem-size: 14px;
     callback closed();
 
-    background: #00000088;
+    property <bool> full: SettingsUi.data.spotlight-picks-count >= 3;
+
+    background: #00000066;
 
     TouchArea {
         clicked => { root.closed(); }
     }
 
     Rectangle {
-        width: Math.min(parent.width * 0.82, 56 * root.rem-size);
-        height: Math.min(parent.height * 0.84, 44 * root.rem-size);
+        width: Math.min(parent.width * 0.8, 60 * root.rem-size);
+        height: Math.min(parent.height * 0.84, 52 * root.rem-size);
         x: (parent.width - self.width) / 2;
         y: (parent.height - self.height) / 2;
-        border-radius: 1 * root.rem-size;
+        border-radius: 1.25 * root.rem-size;
         background: Theme.modal-background;
-        border-width: 1px;
-        border-color: Theme.overlay;
         drop-shadow-blur: 15px;
         drop-shadow-color: #7b5bf55e;
 
         TouchArea {}
 
         VerticalLayout {
-            padding: 0px;
+            padding-left: 2 * root.rem-size;
+            padding-right: 2 * root.rem-size;
+            padding-top: 0px;
+            padding-bottom: 0px;
             spacing: 0px;
 
             HorizontalLayout {
                 height: 4.5 * root.rem-size;
-                padding-left: 2 * root.rem-size;
-                padding-right: 1.25 * root.rem-size;
+                padding-right: 2 * root.rem-size;
+                spacing: 1 * root.rem-size;
                 alignment: space-between;
 
                 Text {
+                    horizontal-stretch: 1;
                     text: "Spotlight catalogs";
-                    font-size: 1.45 * root.rem-size;
+                    font-size: 1.2 * root.rem-size;
                     font-weight: 500;
                     color: Theme.text;
                     vertical-alignment: center;
+                    overflow: elide;
                 }
-                HorizontalLayout {
-                    spacing: 0.75 * root.rem-size;
-                    alignment: end;
+                VerticalLayout {
+                    horizontal-stretch: 0;
+                    alignment: center;
+                    Rectangle {
+                        height: 2.5 * root.rem-size;
+                        width: rst-lbl.preferred-width + 2 * root.rem-size;
+                        border-radius: 1.25 * root.rem-size;
+                        background: (rst-t.has-hover && !SettingsUi.data.spotlight-is-default) ? transparent : Theme.overlay;
+                        border-width: 2px;
+                        border-color: (rst-t.has-hover && !SettingsUi.data.spotlight-is-default) ? Theme.text : transparent;
+                        opacity: SettingsUi.data.spotlight-is-default ? 0.5 : 1.0;
 
-                    VerticalLayout {
-                        alignment: center;
-                        SettingsRowButton {
-                            rem-size: root.rem-size;
-                            label: "Use default";
-                            disabled: SettingsUi.data.spotlight-is-default;
-                            clicked => { SettingsUi.reset-spotlight-catalogs(); }
+                        rst-lbl := Text {
+                            width: parent.width;
+                            height: parent.height;
+                            text: "Use default";
+                            font-size: 0.9 * root.rem-size;
+                            font-weight: 500;
+                            color: Theme.text;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
                         }
-                    }
-                    VerticalLayout {
-                        alignment: center;
-                        Rectangle {
-                            width: 2.75 * root.rem-size;
-                            height: 2.75 * root.rem-size;
-                            border-radius: 1.375 * root.rem-size;
-                            background: cl-t.has-hover ? Theme.overlay : transparent;
-                            Image {
-                                x: (parent.width - self.width) / 2;
-                                y: (parent.height - self.height) / 2;
-                                width: 1.15 * root.rem-size;
-                                height: 1.15 * root.rem-size;
-                                source: @image-url("../icons/close.svg");
-                                colorize: Theme.text;
-                            }
-                            cl-t := TouchArea {
-                                mouse-cursor: pointer;
-                                clicked => { root.closed(); }
-                            }
+                        rst-t := TouchArea {
+                            enabled: !SettingsUi.data.spotlight-is-default;
+                            mouse-cursor: SettingsUi.data.spotlight-is-default ? default : pointer;
+                            clicked => { SettingsUi.reset-spotlight-catalogs(); }
                         }
                     }
                 }
             }
 
-            HorizontalLayout {
-                padding-left: 2 * root.rem-size;
-                padding-right: 2 * root.rem-size;
-                padding-bottom: 1 * root.rem-size;
-                spacing: 1 * root.rem-size;
+            if SettingsUi.data.spotlight-empty: SpotlightCatalogsEmpty {
+                vertical-stretch: 1;
+                rem-size: root.rem-size;
+            }
+
+            if !SettingsUi.data.spotlight-empty: HorizontalLayout {
+                padding-top: 0.25 * root.rem-size;
+                padding-bottom: 0.75 * root.rem-size;
+                spacing: 1.5 * root.rem-size;
                 alignment: space-between;
 
                 Text {
                     horizontal-stretch: 1;
                     text: "Pick up to 3 catalogs for the top of your Board. They take turns, up to 6 titles with artwork.";
                     wrap: word-wrap;
-                    font-size: 0.9 * root.rem-size;
+                    font-size: 0.95 * root.rem-size;
                     color: Theme.text;
-                    opacity: 0.65;
+                    opacity: 0.6;
                     vertical-alignment: center;
                 }
-                Text {
-                    text: SettingsUi.data.spotlight-picks-count >= 3
-                        ? SettingsUi.data.spotlight-picks-count + " of 3 · Remove one to add another"
-                        : SettingsUi.data.spotlight-picks-count + " of 3";
-                    font-size: 0.85 * root.rem-size;
-                    font-weight: 500;
-                    color: Theme.text;
-                    opacity: 0.75;
-                    vertical-alignment: center;
+
+                Rectangle {
+                    horizontal-stretch: 0;
+                    width: 16 * root.rem-size;
+                    height: 3 * root.rem-size;
+                    border-radius: 1.5 * root.rem-size;
+                    background: Theme.overlay;
+                    border-width: 2px;
+                    border-color: search-in.has-focus ? Theme.text : transparent;
+
+                    HorizontalLayout {
+                        padding-left: 1.5 * root.rem-size;
+                        padding-right: 1.25 * root.rem-size;
+                        spacing: 0.75 * root.rem-size;
+
+                        Rectangle {
+                            horizontal-stretch: 1;
+                            if SettingsUi.spotlight-search-query == "": Text {
+                                width: parent.width;
+                                height: parent.height;
+                                vertical-alignment: center;
+                                text: "Search catalogs";
+                                font-size: 1 * root.rem-size;
+                                color: Theme.text;
+                                opacity: 0.6;
+                            }
+                            search-in := TextInput {
+                                width: parent.width;
+                                height: parent.height;
+                                vertical-alignment: center;
+                                single-line: true;
+                                font-size: 1 * root.rem-size;
+                                color: Theme.text;
+                                text <=> SettingsUi.spotlight-search-query;
+                                edited => { SettingsUi.spotlight-search-changed(self.text); }
+                            }
+                        }
+                        VerticalLayout {
+                            horizontal-stretch: 0;
+                            alignment: center;
+                            Image {
+                                width: 1.4 * root.rem-size;
+                                height: 1.4 * root.rem-size;
+                                source: @image-url("../icons/search.svg");
+                                colorize: Theme.text;
+                                opacity: 0.6;
+                            }
+                        }
+                    }
                 }
             }
 
-            Flickable {
+            if !SettingsUi.data.spotlight-empty: SpotlightCatalogTray {
+                rem-size: root.rem-size;
+                full: root.full;
+            }
+
+            if !SettingsUi.data.spotlight-empty: Flickable {
                 vertical-stretch: 1;
                 content-width: self.width;
-                content-height: list-col.preferred-height;
+                content-height: groups-col.preferred-height;
 
-                list-col := VerticalLayout {
+                groups-col := VerticalLayout {
                     width: parent.width;
                     height: self.preferred-height;
                     alignment: start;
-                    padding-left: 2 * root.rem-size;
-                    padding-right: 2 * root.rem-size;
                     padding-bottom: 2 * root.rem-size;
-                    spacing: 0.6 * root.rem-size;
+                    spacing: 0px;
 
-                    if SettingsUi.spotlight-catalogs.length == 0: Rectangle {
-                        height: 8 * root.rem-size;
-                        Text {
-                            width: parent.width;
-                            height: parent.height;
-                            text: "No catalogs to show. Install an addon with a catalog to use Spotlight.";
-                            font-size: root.rem-size;
-                            color: Theme.text;
-                            opacity: 0.6;
-                            horizontal-alignment: center;
-                            vertical-alignment: center;
-                        }
+                    if SettingsUi.spotlight-groups.length == 0: Text {
+                        height: 6 * root.rem-size;
+                        text: "No results were found";
+                        font-size: 1 * root.rem-size;
+                        color: Theme.text;
+                        opacity: 0.6;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
                     }
 
-                    for cat[idx] in SettingsUi.spotlight-catalogs: Rectangle {
-                        height: 4.5 * root.rem-size;
-                        border-radius: 0.85 * root.rem-size;
-                        background: cat.selected-rank > 0 ? #7b5bf526 : (ct.has-hover ? Theme.overlay-hover : Theme.overlay);
-                        border-width: cat.selected-rank > 0 ? 2px : 0px;
-                        border-color: Theme.accent;
-                        opacity: (cat.selected-rank == 0 && SettingsUi.data.spotlight-picks-count >= 3) ? 0.4 : 1.0;
+                    for grp in SettingsUi.spotlight-groups: VerticalLayout {
+                        spacing: 0px;
 
                         HorizontalLayout {
-                            padding-left: 1 * root.rem-size;
-                            padding-right: 1.25 * root.rem-size;
-                            spacing: 1 * root.rem-size;
-                            alignment: space-between;
+                            padding-top: 1.25 * root.rem-size;
+                            padding-bottom: 0.9 * root.rem-size;
+                            spacing: 0.75 * root.rem-size;
+                            alignment: start;
 
                             VerticalLayout {
-                                horizontal-stretch: 0;
                                 alignment: center;
-                                Rectangle {
-                                    width: 5.2 * root.rem-size;
-                                    height: 3 * root.rem-size;
-                                    border-radius: 0.45 * root.rem-size;
-                                    background: #0c0b11;
-                                    clip: true;
-                                    if cat.has-bg: Image {
-                                        width: parent.width;
-                                        height: parent.height;
-                                        source: cat.bg;
-                                        image-fit: cover;
-                                    }
-                                }
-                            }
-                            VerticalLayout {
-                                horizontal-stretch: 1;
-                                alignment: center;
-                                spacing: 0.15 * root.rem-size;
-                                HorizontalLayout {
-                                    spacing: 0.5 * root.rem-size;
-                                    alignment: start;
-                                    Text { text: cat.name; font-size: root.rem-size; font-weight: 500; color: Theme.text; overflow: elide; }
-                                    if cat.is-default: Rectangle {
-                                        height: 1.35 * root.rem-size;
-                                        width: def-lbl.preferred-width + 0.7 * root.rem-size;
-                                        border-radius: 0.675 * root.rem-size;
-                                        background: Theme.overlay;
-                                        def-lbl := Text {
-                                            width: parent.width; height: parent.height;
-                                            text: "Default"; font-size: 0.75 * root.rem-size; color: Theme.text; opacity: 0.75;
-                                            horizontal-alignment: center; vertical-alignment: center;
-                                        }
-                                    }
-                                }
-                                Text {
-                                    text: cat.addon-name + " · " + cat.item-count + " titles with artwork";
-                                    font-size: 0.85 * root.rem-size;
-                                    color: Theme.text;
+                                Image {
+                                    width: 1.25 * root.rem-size;
+                                    height: 1.25 * root.rem-size;
+                                    source: @image-url("../icons/addons.svg");
+                                    colorize: Theme.text;
                                     opacity: 0.6;
-                                    overflow: elide;
                                 }
                             }
-                            if cat.selected-rank > 0: VerticalLayout {
-                                horizontal-stretch: 0;
-                                alignment: center;
-                                Rectangle {
-                                    width: 1.8 * root.rem-size;
-                                    height: 1.8 * root.rem-size;
-                                    border-radius: 0.9 * root.rem-size;
-                                    background: Theme.accent;
-                                    Text {
-                                        width: parent.width; height: parent.height;
-                                        text: cat.selected-rank;
-                                        font-size: 0.9 * root.rem-size; font-weight: 700; color: #ffffff;
-                                        horizontal-alignment: center; vertical-alignment: center;
-                                    }
-                                }
+                            Text {
+                                text: grp.addon-name;
+                                font-size: 0.95 * root.rem-size;
+                                font-weight: 600;
+                                color: Theme.text;
+                                vertical-alignment: center;
+                                overflow: elide;
+                            }
+                            Text {
+                                text: grp.count-label;
+                                font-size: 0.95 * root.rem-size;
+                                font-weight: 500;
+                                color: Theme.text;
+                                opacity: 0.45;
+                                vertical-alignment: center;
                             }
                         }
-                        ct := TouchArea {
-                            mouse-cursor: pointer;
-                            clicked => { SettingsUi.toggle-spotlight-catalog(idx); }
+
+                        VerticalLayout {
+                            spacing: 1.25 * root.rem-size;
+
+                            for row in grp.rows: HorizontalLayout {
+                                spacing: 1.25 * root.rem-size;
+
+                                SpotlightCatalogCard {
+                                    horizontal-stretch: 1;
+                                    card: row.c0;
+                                    full: root.full;
+                                    rem-size: root.rem-size;
+                                    toggled(i) => { SettingsUi.toggle-spotlight-catalog(i); }
+                                }
+                                if row.has-1: SpotlightCatalogCard {
+                                    horizontal-stretch: 1;
+                                    card: row.c1;
+                                    full: root.full;
+                                    rem-size: root.rem-size;
+                                    toggled(i) => { SettingsUi.toggle-spotlight-catalog(i); }
+                                }
+                                if !row.has-1: Rectangle { horizontal-stretch: 1; background: transparent; }
+                                if row.has-2: SpotlightCatalogCard {
+                                    horizontal-stretch: 1;
+                                    card: row.c2;
+                                    full: root.full;
+                                    rem-size: root.rem-size;
+                                    toggled(i) => { SettingsUi.toggle-spotlight-catalog(i); }
+                                }
+                                if !row.has-2: Rectangle { horizontal-stretch: 1; background: transparent; }
+                            }
                         }
                     }
                 }
+            }
+        }
+
+        Rectangle {
+            x: parent.width - self.width - 0.5 * root.rem-size;
+            y: 0.5 * root.rem-size;
+            width: 3 * root.rem-size;
+            height: 3 * root.rem-size;
+            border-radius: 1.25 * root.rem-size;
+            Image {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                width: 1.5 * root.rem-size;
+                height: 1.5 * root.rem-size;
+                source: @image-url("../icons/close.svg");
+                colorize: Theme.text;
+                opacity: cl-t.has-hover ? 1.0 : 0.4;
+            }
+            cl-t := TouchArea {
+                mouse-cursor: pointer;
+                clicked => { root.closed(); }
             }
         }
     }

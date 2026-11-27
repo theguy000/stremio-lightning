@@ -9,6 +9,7 @@ mod details_player;
 mod mods;
 mod mods_logs;
 mod settings;
+pub(crate) mod spotlight;
 pub(crate) mod sync;
 
 pub(crate) use details_player::tracks;

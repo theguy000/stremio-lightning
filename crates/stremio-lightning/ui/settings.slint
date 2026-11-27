@@ -9,9 +9,27 @@ import { IntegrationsPage, InterfacePage, PlayerPage } from "settings/pages-core
 import { StreamingPage } from "settings/page-streaming.slint";
 import { DevicePage } from "settings/pages-device.slint";
 import { ShortcutsPage } from "settings/shortcuts.slint";
-import { ServerUrlRow, SettingsSearchHit, SettingsUi, SettingsViewData, SpotlightCatalogRow } from "settings/types.slint";
+import {
+    ServerUrlRow,
+    SettingsSearchHit,
+    SettingsUi,
+    SettingsViewData,
+    SpotlightCardRow3,
+    SpotlightCatalogCardData,
+    SpotlightCatalogGroup,
+    SpotlightPickChip,
+} from "settings/types.slint";
 
-export { ServerUrlRow, SettingsSearchHit, SettingsUi, SettingsViewData, SpotlightCatalogRow }
+export {
+    ServerUrlRow,
+    SettingsSearchHit,
+    SettingsUi,
+    SettingsViewData,
+    SpotlightCardRow3,
+    SpotlightCatalogCardData,
+    SpotlightCatalogGroup,
+    SpotlightPickChip,
+}
 
 export component SettingsContent inherits Rectangle {
     in property <length> viewport-width;

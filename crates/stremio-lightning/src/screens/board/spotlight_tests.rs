@@ -107,3 +107,49 @@ fn spotlight_interleaves_up_to_six_unique_items_and_optionally_hides_rows() {
     assert!(imgs.iter().any(|u| u.contains("m1.jpg#page")));
     assert!(imgs.iter().any(|u| u.contains("m1-logo.png#logo")));
 }
+
+#[test]
+fn group_catalogs_filters_and_groups_by_addon() {
+    use super::spotlight::SpotlightCatalogOption;
+    use super::spotlight_settings::group_catalogs;
+
+    let cats = vec![
+        SpotlightCatalogOption {
+            transport_url: "https://cinemeta.strem.io/manifest.json".into(),
+            kind: "movie".into(),
+            id: "top".into(),
+            name: "Popular - Movie".into(),
+            addon_name: "Cinemeta".into(),
+            ..Default::default()
+        },
+        SpotlightCatalogOption {
+            transport_url: "https://cinemeta.strem.io/manifest.json".into(),
+            kind: "series".into(),
+            id: "top".into(),
+            name: "Popular - Series".into(),
+            addon_name: "Cinemeta".into(),
+            ..Default::default()
+        },
+        SpotlightCatalogOption {
+            transport_url: "https://kitsu.example/manifest.json".into(),
+            kind: "anime".into(),
+            id: "trending".into(),
+            name: "Trending - Anime".into(),
+            addon_name: "Kitsu".into(),
+            ..Default::default()
+        },
+    ];
+    let all = group_catalogs(&cats, "");
+    assert_eq!(all.len(), 2);
+    assert_eq!(all[0].addon_name, "Cinemeta");
+    assert_eq!(all[0].catalogs.len(), 2);
+    assert_eq!(all[1].addon_name, "Kitsu");
+    assert_eq!(all[1].catalogs.len(), 1);
+
+    let filtered = group_catalogs(&cats, "kitsu");
+    assert_eq!(filtered.len(), 1);
+    assert_eq!(filtered[0].catalogs[0].0, 2);
+
+    let empty = group_catalogs(&cats, "nonexistent");
+    assert!(empty.is_empty());
+}

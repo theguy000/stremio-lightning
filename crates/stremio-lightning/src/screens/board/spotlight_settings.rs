@@ -8,9 +8,49 @@ use super::spotlight::{
     SpotlightCatalogOption, SpotlightSettingsView,
 };
 use crate::app::AppModel;
-use crate::plumbing::images::page_key;
+use crate::plumbing::images::{logo_key, page_key};
 use crate::plumbing::local_settings::{LocalExtras, SpotlightConfig};
 use crate::screens::catalog_title;
+
+/// Addon-grouped catalog slice for the Spotlight Catalog Picker modal.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CatalogAddonGroup<'a> {
+    pub addon_name: &'a str,
+    pub catalogs: Vec<(usize, &'a SpotlightCatalogOption)>,
+}
+
+/// Filters catalogs by query against `"{name} {addon_name}"` and groups them by addon URL
+/// in first-seen order, matching Stremio Web `CatalogGroups.tsx`.
+pub fn group_catalogs<'a>(
+    catalogs: &'a [SpotlightCatalogOption],
+    query: &str,
+) -> Vec<CatalogAddonGroup<'a>> {
+    let needle = query.trim().to_lowercase();
+    let mut groups: Vec<(&str, CatalogAddonGroup<'a>)> = Vec::new();
+    for (idx, cat) in catalogs.iter().enumerate() {
+        if !needle.is_empty() {
+            let hay = format!("{} {}", cat.name, cat.addon_name).to_lowercase();
+            if !hay.contains(&needle) {
+                continue;
+            }
+        }
+        if let Some((_, group)) = groups
+            .iter_mut()
+            .find(|(base, _)| *base == cat.transport_url.as_str())
+        {
+            group.catalogs.push((idx, cat));
+        } else {
+            groups.push((
+                cat.transport_url.as_str(),
+                CatalogAddonGroup {
+                    addon_name: cat.addon_name.as_str(),
+                    catalogs: vec![(idx, cat)],
+                },
+            ));
+        }
+    }
+    groups.into_iter().map(|(_, g)| g).collect()
+}
 
 /// Projects Settings -> Interface -> Board Spotlight group + Catalog Picker modal state.
 pub fn settings_view(model: &AppModel, extras: &LocalExtras) -> SpotlightSettingsView {
@@ -23,7 +63,8 @@ pub fn settings_view(model: &AppModel, extras: &LocalExtras) -> SpotlightSetting
         .collect();
     let requests: Vec<&ResourceRequest> = pages.iter().map(|p| &p.request).collect();
     let defaults = default_picks(&requests);
-    let (picks, is_default) = effective_picks(&requests, cfg);
+    let (picks, using_default) = effective_picks(&requests, cfg);
+    let is_default = using_default || picks == defaults;
 
     let catalogs: Vec<SpotlightCatalogOption> = pages
         .iter()
@@ -33,16 +74,17 @@ pub fn settings_view(model: &AppModel, extras: &LocalExtras) -> SpotlightSetting
                 .iter()
                 .position(|p| p == &pick)
                 .map_or(0, |idx| idx + 1);
-            let (preview_bg, item_count) = match &page.content {
+            let (ready, preview_bg, preview_logo, preview_title, item_count) = match &page.content {
                 Some(Loadable::Ready(items)) => {
                     let with_bg: Vec<_> = items.iter().filter(|m| m.background.is_some()).collect();
-                    let bg = with_bg
-                        .first()
-                        .and_then(|m| m.background.as_ref())
-                        .map(page_key);
-                    (bg, with_bg.len())
+                    let first = with_bg.first();
+                    let bg = first.and_then(|m| m.background.as_ref()).map(page_key);
+                    let logo = first.and_then(|m| m.logo.as_ref()).map(logo_key);
+                    let title = first.map(|m| m.name.clone()).unwrap_or_default();
+                    (true, bg, logo, title, with_bg.len())
                 }
-                _ => (None, 0),
+                Some(Loadable::Err(_)) => (true, None, None, String::new(), 0),
+                _ => (false, None, None, String::new(), 0),
             };
             SpotlightCatalogOption {
                 transport_url: pick.transport_url,
@@ -52,7 +94,10 @@ pub fn settings_view(model: &AppModel, extras: &LocalExtras) -> SpotlightSetting
                 addon_name: addon_name_for(model, &page.request),
                 selected_rank,
                 is_default: defaults.iter().any(|d| matches_pick(&page.request, d)),
+                ready,
                 preview_bg,
+                preview_logo,
+                preview_title,
                 item_count,
             }
         })
@@ -67,9 +112,18 @@ pub fn settings_view(model: &AppModel, extras: &LocalExtras) -> SpotlightSetting
         })
         .collect();
     let picks_summary = match picked_opts.as_slice() {
-        [] => "Default".to_owned(),
+        [] => "0 catalogs".to_owned(),
         [only] => only.name.clone(),
         many => format!("{} catalogs", many.len()),
+    };
+    let picks_titles = picked_opts
+        .iter()
+        .map(|c| c.name.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let picks_addon = match picked_opts.as_slice() {
+        [only] => only.addon_name.clone(),
+        _ => String::new(),
     };
     let preview_cfg = SpotlightConfig {
         enabled: true,
@@ -85,7 +139,7 @@ pub fn settings_view(model: &AppModel, extras: &LocalExtras) -> SpotlightSetting
             .iter()
             .map(|c| c.name.as_str())
             .collect::<Vec<_>>()
-            .join(" · "),
+            .join(", "),
     };
 
     SpotlightSettingsView {
@@ -94,6 +148,8 @@ pub fn settings_view(model: &AppModel, extras: &LocalExtras) -> SpotlightSetting
         is_default,
         picks_count: picks.len(),
         picks_summary,
+        picks_titles,
+        picks_addon,
         preview_bg: first_slide.and_then(|s| s.background.clone()),
         preview_logo: first_slide.and_then(|s| s.logo.clone()),
         preview_title: first_slide
@@ -104,6 +160,7 @@ pub fn settings_view(model: &AppModel, extras: &LocalExtras) -> SpotlightSetting
             1 => "1 title".to_owned(),
             n => format!("{n} titles"),
         },
+        preview_slides_count: slides.len(),
         preview_sub,
         catalogs,
     }
