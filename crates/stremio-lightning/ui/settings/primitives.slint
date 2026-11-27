@@ -1,29 +1,32 @@
 // Based on stremio-web (https://github.com/Stremio/stremio-web),
 // Copyright (C) 2017-2026 Smart code 203358507.
-// Numbers translated from src/routes/Settings/components/*, Toggle.less, and Scale.less.
+// Numbers translated from src/routes/Settings/components/{Page,Group,Row,RowButton,LinkRow}.
 import { ClassStyles } from "../class-styles.slint";
 import { Theme } from "../theme.slint";
 
-export component SettingsPageHeader inherits VerticalLayout {
+export component SettingsPageHeader inherits Rectangle {
     in property <string> title;
     in property <string> scope;
     in property <length> rem-size;
 
-    alignment: start;
-    spacing: 0.35 * root.rem-size;
-    padding-bottom: 0.4 * root.rem-size;
+    min-height: 4 * root.rem-size;
 
-    Text {
-        text: root.title;
-        font-size: 1.8 * root.rem-size;
-        font-weight: 500;
-        color: ClassStyles.color-or(ClassStyles.label, Theme.text);
-    }
-    if root.scope != "": Text {
-        text: root.scope;
-        font-size: 0.95 * root.rem-size;
-        color: Theme.text;
-        opacity: 0.6;
+    VerticalLayout {
+        alignment: start;
+        spacing: 0.35 * root.rem-size;
+
+        Text {
+            text: root.title;
+            font-size: 1.8 * root.rem-size;
+            font-weight: 500;
+            color: ClassStyles.color-or(ClassStyles.label, Theme.text);
+        }
+        if root.scope != "": Text {
+            text: root.scope;
+            font-size: 0.95 * root.rem-size;
+            color: Theme.text;
+            opacity: 0.6;
+        }
     }
 }
 
@@ -35,11 +38,11 @@ export component SettingsGroup inherits VerticalLayout {
     in property <bool> danger-space: false;
 
     alignment: start;
-    padding-top: (root.danger-space ? 2.5 : 1.75) * root.rem-size;
+    padding-top: (root.danger-space ? 3.0 : 2.0) * root.rem-size;
     spacing: 0px;
 
     if root.title != "": Rectangle {
-        height: 2.2 * root.rem-size;
+        height: 2.0 * root.rem-size;
         Text {
             width: parent.width;
             height: parent.height;
@@ -50,8 +53,11 @@ export component SettingsGroup inherits VerticalLayout {
             color: ClassStyles.color-or(ClassStyles.label, Theme.text);
         }
     }
+    if root.title != "": Rectangle {
+        height: (root.description != "" ? 0.4 : 0.65) * root.rem-size;
+    }
     if root.description != "": Rectangle {
-        height: desc.preferred-height + 0.65 * root.rem-size;
+        height: desc.preferred-height + 0.75 * root.rem-size;
         desc := Text {
             x: 0px;
             y: 0px;
@@ -83,9 +89,13 @@ export component SettingsRow inherits Rectangle {
     in property <bool> has-icon: false;
     in property <bool> first: false;
     in property <bool> thin: false;
+    in property <bool> end-align: false;
+    in property <bool> keys-row: false;
     in property <bool> highlighted: false;
 
-    min-height: (root.thin ? 3.25 : 4.25) * root.rem-size;
+    min-height: root.thin ? 3.25 * root.rem-size
+        : (root.end-align || root.keys-row) ? 3.75 * root.rem-size
+        : 4.25 * root.rem-size;
     background: root.highlighted ? #ffffff1a : transparent;
     border-radius: root.highlighted ? 0.85 * root.rem-size : 0px;
     animate background { duration: 250ms; }
@@ -101,20 +111,20 @@ export component SettingsRow inherits Rectangle {
     HorizontalLayout {
         padding-left: 1.25 * root.rem-size;
         padding-right: 1.25 * root.rem-size;
-        padding-top: (root.thin ? 0.45 : 0.75) * root.rem-size;
-        padding-bottom: (root.thin ? 0.45 : 0.75) * root.rem-size;
-        spacing: 1.25 * root.rem-size;
-        alignment: space-between;
+        padding-top: (root.thin ? 0.4 : root.end-align ? 0.5 : root.keys-row ? 0.6 : 0.75) * root.rem-size;
+        padding-bottom: (root.thin ? 0.4 : root.keys-row ? 0.9 : 0.75) * root.rem-size;
+        spacing: 1.5 * root.rem-size;
+        alignment: root.end-align ? end : space-between;
 
-        if root.label != "": HorizontalLayout {
+        if !root.end-align && root.label != "": HorizontalLayout {
             horizontal-stretch: 1;
             spacing: 0.9 * root.rem-size;
             alignment: start;
 
-            if root.has-icon: Rectangle {
-                width: 1.75 * root.rem-size;
+            if root.has-icon: VerticalLayout {
+                horizontal-stretch: 0;
+                alignment: center;
                 Image {
-                    y: (parent.height - self.height) / 2;
                     width: 1.75 * root.rem-size;
                     height: 1.75 * root.rem-size;
                     source: root.icon;
@@ -143,11 +153,14 @@ export component SettingsRow inherits Rectangle {
             }
         }
 
-        HorizontalLayout {
+        VerticalLayout {
             horizontal-stretch: 0;
-            alignment: end;
-            spacing: 0.5 * root.rem-size;
-            @children
+            alignment: center;
+            HorizontalLayout {
+                alignment: end;
+                spacing: 0.5 * root.rem-size;
+                @children
+            }
         }
     }
 }
@@ -163,7 +176,7 @@ export component SettingsRowButton inherits Rectangle {
     callback clicked();
 
     height: 2.75 * root.rem-size;
-    min-width: row-btn-content.preferred-width + 2.5 * root.rem-size;
+    width: row-btn-content.preferred-width;
     border-radius: 1.375 * root.rem-size;
     border-width: (touch.has-hover && !root.disabled) ? 2px : 0px;
     border-color: Theme.text;
@@ -178,10 +191,9 @@ export component SettingsRowButton inherits Rectangle {
         spacing: 0.5 * root.rem-size;
         alignment: center;
 
-        if root.has-icon: Rectangle {
-            width: 1.15 * root.rem-size;
+        if root.has-icon: VerticalLayout {
+            alignment: center;
             Image {
-                y: (parent.height - self.height) / 2;
                 width: 1.15 * root.rem-size;
                 height: 1.15 * root.rem-size;
                 source: root.icon;
@@ -191,16 +203,15 @@ export component SettingsRowButton inherits Rectangle {
         Text {
             text: root.label;
             vertical-alignment: center;
-            font-size: 0.95 * root.rem-size;
+            font-size: root.rem-size;
             font-weight: 500;
             color: root.variant == "danger" ? Theme.accent-red : (root.variant == "primary" ? #ffffff : Theme.text);
         }
-        if root.external: Rectangle {
-            width: 1.1 * root.rem-size;
+        if root.external: VerticalLayout {
+            alignment: center;
             Image {
-                y: (parent.height - self.height) / 2;
-                width: 1.1 * root.rem-size;
-                height: 1.1 * root.rem-size;
+                width: 1.15 * root.rem-size;
+                height: 1.15 * root.rem-size;
                 source: @image-url("../icons/open-in-browser.svg");
                 colorize: root.variant == "danger" ? Theme.accent-red : Theme.text;
                 opacity: root.variant == "danger" ? 1.0 : 0.7;
@@ -244,10 +255,9 @@ export component SettingsLinkRow inherits Rectangle {
             color: Theme.text;
             overflow: elide;
         }
-        Rectangle {
-            width: 1.15 * root.rem-size;
+        VerticalLayout {
+            alignment: center;
             Image {
-                y: (parent.height - self.height) / 2;
                 width: 1.15 * root.rem-size;
                 height: 1.15 * root.rem-size;
                 source: @image-url("../icons/open-in-browser.svg");
@@ -261,4 +271,3 @@ export component SettingsLinkRow inherits Rectangle {
         clicked => { root.clicked(); }
     }
 }
-

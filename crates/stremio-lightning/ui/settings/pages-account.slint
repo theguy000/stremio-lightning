@@ -63,7 +63,8 @@ export component AccountPage inherits VerticalLayout {
                 }
             }
 
-            HorizontalLayout {
+            VerticalLayout {
+                horizontal-stretch: 0;
                 alignment: center;
                 if SettingsUi.data.logged-in: SettingsRowButton {
                     rem-size: root.rem-size;
@@ -170,7 +171,7 @@ export component HelpPage inherits VerticalLayout {
             Text { text: SettingsUi.data.server-version; vertical-alignment: center; font-size: 0.95 * root.rem-size; color: Theme.text; opacity: 0.6; }
         }
         SettingsRow {
-            rem-size: root.rem-size; thin: true;
+            rem-size: root.rem-size; end-align: true;
             SettingsRowButton {
                 rem-size: root.rem-size;
                 label: "Copy details";

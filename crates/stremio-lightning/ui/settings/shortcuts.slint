@@ -1,4 +1,4 @@
-// Based on stremio-web Shortcuts.tsx & shortcuts.json (Copyright Smart code 203358507).
+// Based on stremio-web Shortcuts.tsx & Keys.less (Copyright Smart code 203358507).
 import { ClassStyles } from "../class-styles.slint";
 import { Theme } from "../theme.slint";
 import { SettingsGroup, SettingsPageHeader, SettingsRow } from "primitives.slint";
@@ -7,12 +7,13 @@ component ShortcutKbd inherits Rectangle {
     in property <string> key-text;
     in property <length> rem-size;
 
-    width: Math.max(2.4 * root.rem-size, key-lbl.preferred-width + 1.4 * root.rem-size);
-    height: 2.2 * root.rem-size;
-    border-radius: 0.5 * root.rem-size;
+    width: Math.max(2.5 * root.rem-size, key-lbl.preferred-width + 2 * root.rem-size);
+    height: 2.5 * root.rem-size;
+    border-radius: 0.25 * root.rem-size;
     background: Theme.overlay;
-    border-width: 1px;
-    border-color: Theme.surface-medium;
+    drop-shadow-offset-y: 4px;
+    drop-shadow-blur: 0px;
+    drop-shadow-color: #ffffff1a;
 
     key-lbl := Text {
         width: parent.width;
@@ -20,8 +21,8 @@ component ShortcutKbd inherits Rectangle {
         text: root.key-text;
         horizontal-alignment: center;
         vertical-alignment: center;
-        font-size: 0.875 * root.rem-size;
-        font-weight: 600;
+        font-size: root.rem-size;
+        font-weight: 500;
         color: ClassStyles.color-or(ClassStyles.text, Theme.text);
     }
 }
@@ -30,6 +31,7 @@ component ShortcutRow inherits SettingsRow {
     in property <string> first-key;
     in property <string> joiner;
     in property <string> second-key;
+    keys-row: true;
 
     HorizontalLayout {
         spacing: 0.5 * root.rem-size;
@@ -39,9 +41,9 @@ component ShortcutRow inherits SettingsRow {
         if root.joiner != "": Text {
             text: root.joiner;
             vertical-alignment: center;
-            font-size: 0.875 * root.rem-size;
+            font-size: 0.9 * root.rem-size;
             color: Theme.text;
-            opacity: 0.5;
+            opacity: 0.6;
         }
         if root.second-key != "": ShortcutKbd { key-text: root.second-key; rem-size: root.rem-size; }
     }

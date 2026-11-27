@@ -16,7 +16,7 @@ component NavGroupLabel inherits Rectangle {
         text: root.label;
         font-size: 0.8125 * root.rem-size;
         font-weight: 600;
-        letter-spacing: 0.05 * root.rem-size;
+        letter-spacing: 0.06 * root.rem-size;
         color: Theme.text;
         opacity: 0.6;
     }
@@ -31,8 +31,10 @@ component NavItem inherits Rectangle {
 
     height: 3.1 * root.rem-size;
     border-radius: 1.55 * root.rem-size;
-    background: (root.selected || touch.has-hover) ? ClassStyles.background-or(ClassStyles.button, Theme.overlay) : transparent;
-    opacity: root.selected ? 1.0 : (touch.has-hover ? 0.85 : 0.45);
+    // Web (Menu.less): unselected items sit at opacity 0.4 even on hover, so hovered background
+    // composites softly (~2% white) while selected renders full Theme.overlay (~5% white) at 1.0.
+    background: root.selected ? ClassStyles.background-or(ClassStyles.button, Theme.overlay)
+        : (touch.has-hover ? #ffffff07 : transparent);
 
     HorizontalLayout {
         padding-left: 1.25 * root.rem-size;
@@ -40,14 +42,15 @@ component NavItem inherits Rectangle {
         spacing: 1 * root.rem-size;
         alignment: start;
 
-        Rectangle {
-            width: 1.35 * root.rem-size;
+        VerticalLayout {
+            horizontal-stretch: 0;
+            alignment: center;
             Image {
-                y: (parent.height - self.height) / 2;
                 width: 1.35 * root.rem-size;
                 height: 1.35 * root.rem-size;
                 source: root.icon;
                 colorize: ClassStyles.color-or(ClassStyles.button, Theme.text);
+                opacity: root.selected ? 1.0 : 0.4;
             }
         }
         Text {
@@ -55,9 +58,10 @@ component NavItem inherits Rectangle {
             text: root.label;
             overflow: elide;
             vertical-alignment: center;
-            font-size: 1.02 * root.rem-size;
+            font-size: 1.05 * root.rem-size;
             font-weight: root.selected ? 600 : 500;
             color: ClassStyles.color-or(ClassStyles.button, Theme.text);
+            opacity: root.selected ? 1.0 : 0.4;
         }
     }
     touch := TouchArea {
@@ -93,32 +97,37 @@ export component SettingsMenu inherits Rectangle {
 
             // AccountRow (top of sidebar)
             acct := Rectangle {
-                height: 3.7 * root.rem-size;
-                border-radius: 1.85 * root.rem-size;
-                background: (root.selected == "account" || acct-touch.has-hover) ? Theme.overlay : transparent;
+                min-height: 3.5 * root.rem-size;
+                border-radius: 1.75 * root.rem-size;
+                background: root.selected == "account" ? Theme.overlay
+                    : (acct-touch.has-hover ? #ffffff08 : transparent);
 
                 HorizontalLayout {
+                    padding-top: 0.5 * root.rem-size;
+                    padding-bottom: 0.5 * root.rem-size;
                     padding-left: 0.5 * root.rem-size;
                     padding-right: 1 * root.rem-size;
                     spacing: 0.75 * root.rem-size;
                     alignment: space-between;
 
-                    Rectangle {
-                        y: (parent.height - self.height) / 2;
-                        width: 2.5 * root.rem-size;
-                        height: 2.5 * root.rem-size;
-                        border-radius: 1.25 * root.rem-size;
-                        border-width: 2px;
-                        border-color: ClassStyles.color-or(ClassStyles.avatar-container, Theme.accent);
-                        background: Theme.text;
-                        clip: true;
+                    VerticalLayout {
+                        alignment: center;
+                        Rectangle {
+                            width: 2.5 * root.rem-size;
+                            height: 2.5 * root.rem-size;
+                            border-radius: 1.25 * root.rem-size;
+                            border-width: 2px;
+                            border-color: ClassStyles.color-or(ClassStyles.avatar-container, Theme.accent);
+                            background: Theme.text;
+                            clip: true;
 
-                        Image {
-                            source: @image-url("../images/anonymous.png");
-                            x: 2px; y: 2px;
-                            width: parent.width - 4px;
-                            height: parent.height - 4px;
-                            image-fit: cover;
+                            Image {
+                                source: @image-url("../images/anonymous.png");
+                                x: 2px; y: 2px;
+                                width: parent.width - 4px;
+                                height: parent.height - 4px;
+                                image-fit: cover;
+                            }
                         }
                     }
                     VerticalLayout {
@@ -141,10 +150,9 @@ export component SettingsMenu inherits Rectangle {
                             overflow: elide;
                         }
                     }
-                    Rectangle {
-                        width: 1 * root.rem-size;
+                    VerticalLayout {
+                        alignment: center;
                         Image {
-                            y: (parent.height - self.height) / 2;
                             width: 1 * root.rem-size;
                             height: 1 * root.rem-size;
                             source: @image-url("../icons/chevron-forward.svg");
@@ -221,24 +229,33 @@ export component SettingsMenu inherits Rectangle {
                 }
             }
 
-            // Group 1: Preferences
-            Rectangle { height: 1.4 * root.rem-size; }
-            NavGroupLabel { label: "PREFERENCES"; rem-size: root.rem-size; }
-            NavItem { label: "Interface"; icon: @image-url("../icons/grid.svg"); selected: root.selected == "interface"; rem-size: root.rem-size; clicked => { root.navigate("interface"); } }
-            NavItem { label: "Player"; icon: @image-url("../icons/movies-outline.svg"); selected: root.selected == "player"; rem-size: root.rem-size; clicked => { root.navigate("player"); } }
-            NavItem { label: "Integrations"; icon: @image-url("../icons/link.svg"); selected: root.selected == "integrations"; rem-size: root.rem-size; clicked => { root.navigate("integrations"); } }
+            // Group 1: Preferences (Menu.less: margin-top 1.5rem, gap 0.15rem)
+            Rectangle { height: 1.5 * root.rem-size; }
+            VerticalLayout {
+                spacing: 0.15 * root.rem-size;
+                NavGroupLabel { label: "PREFERENCES"; rem-size: root.rem-size; }
+                NavItem { label: "Interface"; icon: @image-url("../icons/grid.svg"); selected: root.selected == "interface"; rem-size: root.rem-size; clicked => { root.navigate("interface"); } }
+                NavItem { label: "Player"; icon: @image-url("../icons/movies-outline.svg"); selected: root.selected == "player"; rem-size: root.rem-size; clicked => { root.navigate("player"); } }
+                NavItem { label: "Integrations"; icon: @image-url("../icons/link.svg"); selected: root.selected == "integrations"; rem-size: root.rem-size; clicked => { root.navigate("integrations"); } }
+            }
 
             // Group 2: This device
-            Rectangle { height: 1.4 * root.rem-size; }
-            NavGroupLabel { label: "THIS DEVICE"; rem-size: root.rem-size; }
-            NavItem { label: "Playback and app"; icon: @image-url("../icons/channels-outline.svg"); selected: root.selected == "device"; rem-size: root.rem-size; clicked => { root.navigate("device"); } }
-            NavItem { label: "Streaming"; icon: @image-url("../icons/network.svg"); selected: root.selected == "streaming"; rem-size: root.rem-size; clicked => { root.navigate("streaming"); } }
+            Rectangle { height: 1.5 * root.rem-size; }
+            VerticalLayout {
+                spacing: 0.15 * root.rem-size;
+                NavGroupLabel { label: "THIS DEVICE"; rem-size: root.rem-size; }
+                NavItem { label: "Playback and app"; icon: @image-url("../icons/channels-outline.svg"); selected: root.selected == "device"; rem-size: root.rem-size; clicked => { root.navigate("device"); } }
+                NavItem { label: "Streaming"; icon: @image-url("../icons/network.svg"); selected: root.selected == "streaming"; rem-size: root.rem-size; clicked => { root.navigate("streaming"); } }
+            }
 
             // Group 3: Help
-            Rectangle { height: 1.4 * root.rem-size; }
-            NavGroupLabel { label: "HELP"; rem-size: root.rem-size; }
-            NavItem { label: "Shortcuts"; icon: @image-url("../icons/keyboard.svg"); selected: root.selected == "shortcuts"; rem-size: root.rem-size; clicked => { root.navigate("shortcuts"); } }
-            NavItem { label: "Help and about"; icon: @image-url("../icons/help.svg"); selected: root.selected == "help"; rem-size: root.rem-size; clicked => { root.navigate("help"); } }
+            Rectangle { height: 1.5 * root.rem-size; }
+            VerticalLayout {
+                spacing: 0.15 * root.rem-size;
+                NavGroupLabel { label: "HELP"; rem-size: root.rem-size; }
+                NavItem { label: "Shortcuts"; icon: @image-url("../icons/keyboard.svg"); selected: root.selected == "shortcuts"; rem-size: root.rem-size; clicked => { root.navigate("shortcuts"); } }
+                NavItem { label: "Help and about"; icon: @image-url("../icons/help.svg"); selected: root.selected == "help"; rem-size: root.rem-size; clicked => { root.navigate("help"); } }
+            }
         }
     }
 }
