@@ -4,16 +4,13 @@ component PagerBtn inherits Rectangle {
     in property <length> rem-size;
     in property <image> icon;
     in property <string> label;
-    out property <bool> hovered: t.has-hover;
     callback clicked();
 
     width: 2.75 * root.rem-size;
     height: 2.75 * root.rem-size;
     border-radius: 1.375 * root.rem-size;
-    background: t.has-hover ? #ffffff3d : #ffffff1a;
-    opacity: t.has-hover ? 1.0 : 0.8;
+    background: t.has-hover ? rgba(255, 255, 255, 0.28) : rgba(255, 255, 255, 0.16);
     animate background { duration: 150ms; easing: ease-out; }
-    animate opacity { duration: 150ms; easing: ease-out; }
 
     Image {
         x: (parent.width - self.width) / 2;
@@ -22,6 +19,8 @@ component PagerBtn inherits Rectangle {
         height: 1.1 * root.rem-size;
         source: root.icon;
         colorize: #ffffff;
+        opacity: t.has-hover ? 1.0 : 0.9;
+        animate opacity { duration: 150ms; easing: ease-out; }
     }
     t := TouchArea {
         mouse-cursor: pointer;
@@ -37,9 +36,6 @@ component PagerSegment inherits Rectangle {
     in property <bool> stopped;
     in property <float> progress;
     in property <string> label;
-    property <bool> is-hovered: seg-t.has-hover;
-    changed is-hovered => { root.hover-changed(self.is-hovered); }
-    callback hover-changed(bool);
     callback clicked();
 
     width: root.active ? 3.5 * root.rem-size : 1.75 * root.rem-size;
@@ -80,9 +76,6 @@ export component SpotlightPager inherits Rectangle {
     in property <bool> stopped: false;
     in property <float> progress: 0.0;
     in property <length> rem-size: 14px;
-    property <int> seg-hover-count: 0;
-    changed labels => { root.seg-hover-count = 0; }
-    out property <bool> hovered: bg-t.has-hover || prev-btn.hovered || next-btn.hovered || pause-btn.hovered || root.seg-hover-count > 0;
 
     callback select(int);
     callback previous();
@@ -92,16 +85,11 @@ export component SpotlightPager inherits Rectangle {
     width: row.preferred-width;
     height: row.preferred-height;
 
-    bg-t := TouchArea {
-        width: parent.width;
-        height: parent.height;
-    }
-
     row := HorizontalLayout {
         spacing: 0.4 * root.rem-size;
         alignment: end;
 
-        prev-btn := PagerBtn {
+        PagerBtn {
             rem-size: root.rem-size;
             icon: @image-url("../icons/chevron-back.svg");
             label: "Previous";
@@ -120,19 +108,18 @@ export component SpotlightPager inherits Rectangle {
                 stopped: root.stopped;
                 progress: root.progress;
                 label: lbl;
-                hover-changed(h) => { root.seg-hover-count = Math.max(0, root.seg-hover-count + (h ? 1 : -1)); }
                 clicked => { root.select(i); }
             }
         }
 
-        next-btn := PagerBtn {
+        PagerBtn {
             rem-size: root.rem-size;
             icon: @image-url("../icons/chevron-forward.svg");
             label: "Next";
             clicked => { root.next(); }
         }
 
-        pause-btn := PagerBtn {
+        PagerBtn {
             rem-size: root.rem-size;
             icon: root.stopped ? @image-url("../icons/play.svg") : @image-url("../icons/pause.svg");
             label: root.stopped ? "Resume" : "Pause";

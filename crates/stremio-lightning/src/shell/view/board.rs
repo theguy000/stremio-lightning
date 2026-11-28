@@ -1,11 +1,76 @@
 //! Board screen view projection: Spotlight hero slides and catalog rows via `ModelMirror`.
 
-use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
+use std::cell::RefCell;
+use std::collections::HashMap;
+
+use slint::{
+    ComponentHandle, Image, Model, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel,
+};
 
 use super::sync::{image_rev, poster_data, slint_image, with_mirrors, ModelMirror};
-use crate::plumbing::images::Images;
+use crate::plumbing::images::{DecodedImage, Images};
 use crate::screens::board::{self, SpotlightItem};
 use crate::{BoardUi, CatalogRow, MainWindow, SpotlightSlide};
+
+thread_local! {
+    static TRIMMED_LOGOS: RefCell<HashMap<String, (u64, Image)>> = RefCell::new(HashMap::new());
+}
+
+/// Crops transparent margins (alpha <= 16, matching stremio-web `Logo.tsx::measureInk`) so every
+/// Spotlight title logo sits flush-left above the metadata row.
+fn trim_alpha(decoded: &DecodedImage) -> Image {
+    let (w, h) = (decoded.width() as usize, decoded.height() as usize);
+    let raw = decoded.as_raw();
+    let (mut left, mut right, mut top, mut bottom) = (w, 0usize, h, 0usize);
+    for y in 0..h {
+        let row = y * w;
+        for x in 0..w {
+            if raw[(row + x) * 4 + 3] > 16 {
+                left = left.min(x);
+                right = right.max(x);
+                top = top.min(y);
+                bottom = bottom.max(y);
+            }
+        }
+    }
+    if right < left || bottom < top || (left == 0 && top == 0 && right + 1 == w && bottom + 1 == h)
+    {
+        return Image::from_rgba8(SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(
+            raw,
+            decoded.width(),
+            decoded.height(),
+        ));
+    }
+    let (cw, ch) = (right - left + 1, bottom - top + 1);
+    let mut out = Vec::with_capacity(cw * ch * 4);
+    for y in top..=bottom {
+        let start = (y * w + left) * 4;
+        out.extend_from_slice(&raw[start..start + cw * 4]);
+    }
+    Image::from_rgba8(SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(
+        &out, cw as u32, ch as u32,
+    ))
+}
+
+fn trimmed_logo_image(images: &Images, key: &Option<String>) -> Option<Image> {
+    let key = key.as_ref()?;
+    let decoded = images.get(&Some(key.clone()))?;
+    let rev = decoded.rev();
+    TRIMMED_LOGOS.with(|cell| {
+        let mut cache = cell.borrow_mut();
+        if let Some((cached_rev, img)) = cache.get(key) {
+            if *cached_rev == rev {
+                return Some(img.clone());
+            }
+        }
+        if cache.len() >= 32 {
+            cache.clear();
+        }
+        let img = trim_alpha(&decoded);
+        cache.insert(key.clone(), (rev, img.clone()));
+        Some(img)
+    })
+}
 
 pub(super) fn apply_board(window: &MainWindow, board: &crate::app::BoardData, images: &Images) {
     sync_board_rows(window, &board.rows, images);
@@ -19,7 +84,7 @@ pub(super) fn apply_board(window: &MainWindow, board: &crate::app::BoardData, im
 
 fn to_slide(s: &SpotlightItem, images: &Images) -> SpotlightSlide {
     let bg = slint_image(images, &s.background);
-    let logo = slint_image(images, &s.logo);
+    let logo = trimmed_logo_image(images, &s.logo);
     SpotlightSlide {
         id: s.id.clone().into(),
         kind: s.kind.clone().into(),

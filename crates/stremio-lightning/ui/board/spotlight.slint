@@ -38,7 +38,6 @@ export component BoardSpotlight inherits Rectangle {
     property <float> enter-inv: 1.0 - root.enter-t;
     property <float> enter-ease: 1.0 - root.enter-inv * root.enter-inv * root.enter-inv;
     property <float> cycle-progress: Math.min(1.0, root.cycle-ms / 8000.0);
-    property <bool> is-hovered: hover-area.has-hover || slide-content.hovered || pager.hovered;
     property <bool> compact-layout: (root.width - root.nav-width) < 46 * root.rem-size;
     property <length> content-bottom: root.compact-layout ? 10 * root.rem-size : 6 * root.rem-size;
     property <length> pager-bottom: 6.6 * root.rem-size;
@@ -54,48 +53,45 @@ export component BoardSpotlight inherits Rectangle {
         root.paused = false;
     }
 
-    function go(next: int, manual: bool) {
+    function go(next: int) {
         if (root.count == 0) {
             return;
         }
-        if (Math.mod(next + root.count, root.count) == root.safe-idx) {
-            if (manual) {
-                root.paused = true;
-            }
+        let target = Math.mod(next + root.count, root.count);
+        if (target == root.safe-idx) {
+            root.cycle-ms = 0;
             return;
         }
         root.prev-index = root.safe-idx;
         root.prev-scale = root.active-scale;
-        root.active-index = Math.mod(next + root.count, root.count);
+        root.active-index = target;
         root.zoom-ms = 0;
         root.cycle-ms = 0;
-        if (manual) {
-            root.paused = true;
-        }
     }
 
     background: transparent;
     clip: true;
 
-    // 60fps driver for the 14s zoom-out animation and the 8s pager fill timer.
-    // Stops automatically when scrolled offscreen; cycle fill pauses on hover and manual pause.
+    // 60fps driver for the 14s zoom-out animation and the 8s auto-advance fill bar.
+    // Pauses automatically when scrolled offscreen; auto-advance stops only when paused by user.
     anim-timer := Timer {
         interval: 16ms;
-        running: !root.offscreen && root.count > 0 && (root.zoom-ms < 14000 || (root.count > 1 && !root.paused && !root.is-hovered));
+        running: !root.offscreen && root.count > 0 && (root.zoom-ms < 14000 || (root.count > 1 && !root.paused));
         triggered => {
             if (root.zoom-ms < 14000) {
                 root.zoom-ms = Math.min(14000, root.zoom-ms + 16);
             }
-            if (root.count > 1 && !root.paused && !root.is-hovered) {
+            if (root.count > 1 && !root.paused) {
                 root.cycle-ms += 16;
                 if (root.cycle-ms >= 8000) {
-                    root.go(root.safe-idx + 1, false);
+                    root.go(root.safe-idx + 1);
                 }
             }
         }
     }
 
-    // Crossfading zoom-out backdrop stack (active fades in over 0.9s while zooming 1.06 -> 1.0).
+    // Crossfading GPU-scaled zoom-out backdrop stack: fixed CoverImage bounds + transform-scale
+    // keeps source-clip integer rects constant and bypasses pixel_align_origin snapping (zero jitter).
     for slide[i] in root.slides: Rectangle {
         property <bool> is-active: i == root.safe-idx;
         property <float> s: self.is-active ? root.active-scale : (i == root.prev-index ? root.prev-scale : 1.06);
@@ -105,10 +101,12 @@ export component BoardSpotlight inherits Rectangle {
         animate opacity { duration: 900ms; easing: ease; }
 
         if slide.has-background: CoverImage {
-            width: parent.width * s;
-            height: parent.height * s;
-            x: (parent.width - self.width) / 2;
-            y: (parent.height - self.height) / 2;
+            x: 0px;
+            y: 0px;
+            width: parent.width;
+            height: parent.height;
+            transform-origin: { x: parent.width / 2, y: parent.height / 2 };
+            transform-scale: s;
             source: slide.background;
             pos-x: 0.72;
             pos-y: 0.22;
@@ -158,11 +156,6 @@ export component BoardSpotlight inherits Rectangle {
         );
     }
 
-    hover-area := TouchArea {
-        width: parent.width;
-        height: parent.height;
-    }
-
     slide-content := SpotlightSlideContent {
         x: root.nav-width + 2 * root.rem-size;
         y: parent.height - self.height - root.content-bottom + (1.0 - root.enter-ease) * 0.75 * root.rem-size;
@@ -184,9 +177,9 @@ export component BoardSpotlight inherits Rectangle {
         stopped: root.paused;
         progress: root.cycle-progress;
         rem-size: root.rem-size;
-        select(i) => { root.go(i, true); }
-        previous => { root.go(root.safe-idx - 1, true); }
-        next => { root.go(root.safe-idx + 1, true); }
+        select(i) => { root.go(i); }
+        previous => { root.go(root.safe-idx - 1); }
+        next => { root.go(root.safe-idx + 1); }
         toggle-pause => {
             root.paused = !root.paused;
             if (!root.paused) {

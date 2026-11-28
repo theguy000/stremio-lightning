@@ -22,21 +22,33 @@ export struct SpotlightSlide {
 export component SpotlightSlideContent inherits VerticalLayout {
     in property <SpotlightSlide> current;
     in property <length> rem-size: 14px;
-    out property <bool> hovered: title-t.has-hover || watch-t.has-hover || lib-t.has-hover || trailer-t.has-hover;
     callback open-item(string, string, string);
     callback toggle-library(string, string, bool);
     callback open-trailer(string);
+
+    property <float> logo-ratio: root.current.logo.height > 0 ? Math.max(0.5, (root.current.logo.width * 1.0) / (root.current.logo.height * 1.0)) : 2.58;
+    // Matches stremio-web Slide.less: min(7.5rem, 26rem / ratio, 13.2rem / sqrt(ratio))
+    property <length> logo-h: Math.min(
+        7.5 * root.rem-size,
+        Math.min(
+            26 * root.rem-size / root.logo-ratio,
+            13.2 * root.rem-size / Math.sqrt(root.logo-ratio)
+        )
+    );
+    property <bool> has-facts: root.current.year != "" || root.current.runtime != "" || root.current.imdb-rating != "" || root.current.genres != "";
 
     height: self.preferred-height;
     alignment: end;
     spacing: 1.25 * root.rem-size;
 
     Rectangle {
-        height: root.current.has-logo ? 7.2 * root.rem-size : title-lbl.preferred-height;
+        height: root.current.has-logo ? root.logo-h : title-lbl.preferred-height;
 
         if root.current.has-logo: Image {
-            height: parent.height;
-            width: Math.min(26 * root.rem-size, parent.width);
+            x: 0px;
+            y: parent.height - self.height;
+            height: root.logo-h;
+            width: Math.min(parent.width, self.height * root.logo-ratio);
             source: root.current.logo;
             image-fit: contain;
             horizontal-alignment: left;
@@ -46,8 +58,8 @@ export component SpotlightSlideContent inherits VerticalLayout {
             visible: !root.current.has-logo;
             width: parent.width;
             text: root.current.title;
-            font-size: 2.5 * root.rem-size;
-            font-weight: 700;
+            font-size: 2.75 * root.rem-size;
+            font-weight: 600;
             color: #ffffff;
             wrap: word-wrap;
         }
@@ -57,38 +69,53 @@ export component SpotlightSlideContent inherits VerticalLayout {
         }
     }
 
-    HorizontalLayout {
-        spacing: 1.5 * root.rem-size;
+    if root.has-facts: HorizontalLayout {
+        spacing: 1.75 * root.rem-size;
         alignment: start;
 
         if root.current.year != "": Text {
             text: root.current.year;
-            font-size: 1 * root.rem-size;
-            font-weight: 500;
-            color: #ffffffcc;
+            font-size: 1.15 * root.rem-size;
+            font-weight: 600;
+            color: #ffffff;
             vertical-alignment: center;
         }
         if root.current.runtime != "": Text {
             text: root.current.runtime;
-            font-size: 1 * root.rem-size;
-            font-weight: 500;
-            color: #ffffffcc;
+            font-size: 1.15 * root.rem-size;
+            font-weight: 600;
+            color: #ffffff;
             vertical-alignment: center;
         }
-        if root.current.imdb-rating != "": Rectangle {
-            height: 1.65 * root.rem-size;
-            width: imdb-lbl.preferred-width + 0.95 * root.rem-size;
-            border-radius: 0.35 * root.rem-size;
-            background: Theme.imdb;
-            imdb-lbl := Text {
-                width: parent.width;
-                height: parent.height;
-                text: "IMDb " + root.current.imdb-rating;
-                font-size: 0.8 * root.rem-size;
-                font-weight: 700;
-                color: #0c0b11;
-                horizontal-alignment: center;
+        if root.current.imdb-rating != "": HorizontalLayout {
+            spacing: 0.55 * root.rem-size;
+            alignment: start;
+
+            Text {
+                text: root.current.imdb-rating;
+                font-size: 1.15 * root.rem-size;
+                font-weight: 600;
+                color: #ffffff;
                 vertical-alignment: center;
+            }
+            VerticalLayout {
+                alignment: center;
+                Rectangle {
+                    width: 2.65 * root.rem-size;
+                    height: 1.4 * root.rem-size;
+                    border-radius: 0.25 * root.rem-size;
+                    background: Theme.imdb;
+                    Text {
+                        width: parent.width;
+                        height: parent.height;
+                        text: "IMDb";
+                        font-size: 0.78 * root.rem-size;
+                        font-weight: 800;
+                        color: #000000;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
             }
         }
         if root.current.genres != "": Text {
@@ -160,7 +187,7 @@ export component SpotlightSlideContent inherits VerticalLayout {
             width: 4 * root.rem-size;
             height: 4 * root.rem-size;
             border-radius: 2 * root.rem-size;
-            background: lib-t.has-hover ? #ffffff3d : #ffffff1a;
+            background: lib-t.has-hover ? rgba(255, 255, 255, 0.28) : rgba(255, 255, 255, 0.16);
             animate background { duration: 150ms; easing: ease-out; }
 
             Image {
@@ -184,7 +211,7 @@ export component SpotlightSlideContent inherits VerticalLayout {
             width: root.current.has-trailer ? 4 * root.rem-size : 0px;
             height: 4 * root.rem-size;
             border-radius: 2 * root.rem-size;
-            background: trailer-t.has-hover ? #ffffff3d : #ffffff1a;
+            background: trailer-t.has-hover ? rgba(255, 255, 255, 0.28) : rgba(255, 255, 255, 0.16);
             animate background { duration: 150ms; easing: ease-out; }
 
             Image {
