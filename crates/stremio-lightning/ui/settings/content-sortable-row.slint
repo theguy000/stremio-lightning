@@ -1,0 +1,202 @@
+// Based on Stremio SortableItem (drag handle, addon icon, inline rename, visibility toggle).
+import { Theme } from "../theme.slint";
+import { SettingsToggle } from "scale.slint";
+import { ContentOrganizeRow } from "types.slint";
+
+component RoundIconBtn inherits Rectangle {
+    in property <length> rem-size;
+    in property <image> icon;
+    in property <string> label;
+    callback clicked();
+
+    width: 2 * root.rem-size;
+    height: 2 * root.rem-size;
+    border-radius: 1 * root.rem-size;
+    background: t.has-hover ? Theme.overlay : transparent;
+
+    Image {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: 1.25 * root.rem-size;
+        height: 1.25 * root.rem-size;
+        source: root.icon;
+        colorize: Theme.text;
+    }
+    t := TouchArea {
+        mouse-cursor: pointer;
+        accessible-role: button;
+        accessible-label: root.label;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component SortableRow inherits Rectangle {
+    in property <length> rem-size;
+    in property <ContentOrganizeRow> item;
+    in property <int> idx;
+    in property <bool> is-drag-source: false;
+    in property <bool> is-ghost: false;
+    in property <bool> editing: false;
+    in-out property <string> draft-title;
+    callback start-drag(int);
+    callback move-drag(length);
+    callback end-drag();
+    callback begin-edit();
+    callback commit-edit(string);
+    callback reset-edit();
+    callback toggle-active(bool);
+
+    height: 3.5 * root.rem-size;
+    border-radius: 0.5 * root.rem-size;
+    background: root.is-ghost ? #252238ee : (row-hover.has-hover && !root.is-drag-source ? Theme.overlay : transparent);
+    border-width: root.is-ghost ? 1.5px : 0px;
+    border-color: root.is-ghost ? Theme.text : transparent;
+    opacity: root.is-drag-source ? 0.25 : 1.0;
+
+    row-hover := TouchArea {
+        enabled: !root.is-ghost && !root.is-drag-source;
+    }
+
+    HorizontalLayout {
+        width: parent.width;
+        height: parent.height;
+        padding-left: 0.75 * root.rem-size;
+        padding-right: 1 * root.rem-size;
+        spacing: 0.75 * root.rem-size;
+
+        VerticalLayout {
+            horizontal-stretch: 0;
+            alignment: center;
+            Rectangle {
+                width: 2 * root.rem-size;
+                height: 2.5 * root.rem-size;
+                Image {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    width: 1.5 * root.rem-size;
+                    height: 1.5 * root.rem-size;
+                    source: @image-url("../icons/drag-handle.svg");
+                    colorize: Theme.text;
+                    opacity: (root.is-ghost || handle-t.has-hover) ? 1.0 : 0.6;
+                }
+                handle-t := TouchArea {
+                    enabled: !root.is-ghost;
+                    mouse-cursor: pointer;
+                    pointer-event(ev) => {
+                        if (ev.button == PointerEventButton.left && ev.kind == PointerEventKind.down) {
+                            root.start-drag(root.idx);
+                        } else if (ev.kind == PointerEventKind.up || ev.kind == PointerEventKind.cancel) {
+                            if (root.is-drag-source) { root.end-drag(); }
+                        }
+                    }
+                    moved => {
+                        if (root.is-drag-source) {
+                            root.move-drag(self.mouse-y - self.pressed-y);
+                        }
+                    }
+                }
+            }
+        }
+
+        HorizontalLayout {
+            horizontal-stretch: 1;
+            spacing: 0.75 * root.rem-size;
+
+            VerticalLayout {
+                horizontal-stretch: 0;
+                alignment: center;
+                Rectangle {
+                    width: 2 * root.rem-size;
+                    height: 2 * root.rem-size;
+                    border-radius: 0.25 * root.rem-size;
+                    clip: true;
+
+                    if root.item.has-icon: Image {
+                        width: parent.width;
+                        height: parent.height;
+                        source: root.item.icon;
+                        image-fit: contain;
+                    }
+                    if !root.item.has-icon: Image {
+                        width: parent.width;
+                        height: parent.height;
+                        source: @image-url("../icons/addons.svg");
+                        colorize: Theme.text;
+                    }
+                }
+            }
+
+            if !root.editing: VerticalLayout {
+                horizontal-stretch: 1;
+                alignment: center;
+                Rectangle {
+                    height: 2 * root.rem-size;
+                    Text {
+                        width: parent.width;
+                        height: parent.height;
+                        text: root.item.label;
+                        font-size: 1 * root.rem-size;
+                        color: Theme.text;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                    if !root.is-ghost: TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { root.begin-edit(); }
+                    }
+                }
+            }
+
+            if root.editing: VerticalLayout {
+                horizontal-stretch: 1;
+                alignment: center;
+                Rectangle {
+                    height: 2 * root.rem-size;
+                    border-radius: 0.25 * root.rem-size;
+                    background: Theme.overlay;
+                    TextInput {
+                        x: 0.5 * root.rem-size;
+                        width: parent.width - 1 * root.rem-size;
+                        height: parent.height;
+                        vertical-alignment: center;
+                        single-line: true;
+                        font-size: 1 * root.rem-size;
+                        color: Theme.text;
+                        text <=> root.draft-title;
+                        accepted => { root.commit-edit(root.draft-title); }
+                    }
+                }
+            }
+        }
+
+        if root.editing: VerticalLayout {
+            horizontal-stretch: 0;
+            alignment: center;
+            HorizontalLayout {
+                spacing: 0.5 * root.rem-size;
+                RoundIconBtn {
+                    rem-size: root.rem-size;
+                    icon: @image-url("../icons/reset.svg");
+                    label: "Reset title";
+                    clicked => { root.reset-edit(); }
+                }
+                RoundIconBtn {
+                    rem-size: root.rem-size;
+                    icon: @image-url("../icons/checkmark.svg");
+                    label: "Save title";
+                    clicked => { root.commit-edit(root.draft-title); }
+                }
+            }
+        }
+
+        if !root.editing: VerticalLayout {
+            horizontal-stretch: 0;
+            alignment: center;
+            SettingsToggle {
+                checked: root.item.active;
+                rem-size: root.rem-size;
+                toggled(v) => { if (!root.is-ghost) { root.toggle-active(v); } }
+            }
+        }
+    }
+}

@@ -5,7 +5,12 @@
 use stremio_core::models::common::Loadable;
 use stremio_core::types::addon::ResourceRequest;
 
+pub use super::discover_filter::{
+    active_type_first_visible, fallback_request_if_hidden, first_visible_for_type,
+};
+use super::settings::content::{catalog_key, custom_catalog_title, discover_rank};
 use super::{capitalise, card_of, preview_of, shape_of, Card, Preview, SelectInput};
+use crate::plumbing::local_settings::LocalExtras;
 use crate::AppModel;
 
 /// What the Discover screen shows: the labels of its first three inputs and every card loaded
@@ -19,11 +24,32 @@ pub struct Data {
 }
 
 pub fn data(model: &AppModel) -> Data {
+    data_with_extras(model, &LocalExtras::default())
+}
+
+pub fn data_with_extras(model: &AppModel, extras: &LocalExtras) -> Data {
     let discover = &model.discover;
+    let content = &extras.content;
+    let selected_hidden = discover.selected.as_ref().is_some_and(|s| {
+        content
+            .hidden_discover_catalogs
+            .contains(&catalog_key(&s.request))
+    }) || discover
+        .selectable
+        .catalogs
+        .iter()
+        .find(|c| c.selected)
+        .is_some_and(|c| {
+            content
+                .hidden_discover_catalogs
+                .contains(&catalog_key(&c.request))
+        });
     let mut items: Vec<&stremio_core::types::resource::MetaItemPreview> = Vec::new();
-    for page in &discover.catalog {
-        if let Some(Loadable::Ready(page_items)) = &page.content {
-            items.extend(page_items);
+    if !selected_hidden {
+        for page in &discover.catalog {
+            if let Some(Loadable::Ready(page_items)) = &page.content {
+                items.extend(page_items);
+            }
         }
     }
     let selectable = &discover.selectable;
@@ -34,50 +60,78 @@ pub fn data(model: &AppModel) -> Data {
             .iter()
             .find(|item| item.selected)
             .map_or_else(|| "Select type".to_owned(), |item| capitalise(&item.r#type));
-        inputs.push(SelectInput::new(
-            title,
-            selectable.types.iter().map(|item| {
-                (
-                    capitalise(&item.r#type),
-                    item.selected,
-                    item.request.clone(),
-                )
-            }),
-        ));
+        let has_override =
+            !content.hidden_discover_catalogs.is_empty() || !content.discover_order.is_empty();
+        let type_opts: Vec<_> = selectable
+            .types
+            .iter()
+            .filter_map(|item| {
+                let req = if has_override {
+                    let first = first_visible_for_type(model, content, &item.r#type);
+                    if !content.hidden_discover_catalogs.is_empty() && first.is_none() {
+                        return None;
+                    }
+                    first.unwrap_or_else(|| item.request.clone())
+                } else {
+                    item.request.clone()
+                };
+                Some((capitalise(&item.r#type), item.selected, req))
+            })
+            .collect();
+        if !type_opts.is_empty() {
+            inputs.push(SelectInput::new(title, type_opts.into_iter()));
+        }
     }
     if !selectable.catalogs.is_empty() {
-        let title = selectable
+        let mut visible: Vec<_> = selectable
             .catalogs
             .iter()
-            .find(|item| item.selected)
-            .map_or_else(|| "Select catalog".to_owned(), |item| item.catalog.clone());
-        inputs.push(SelectInput::new(
-            title,
-            selectable
-                .catalogs
+            .filter(|item| {
+                !content
+                    .hidden_discover_catalogs
+                    .contains(&catalog_key(&item.request))
+            })
+            .collect();
+        visible.sort_by_key(|item| discover_rank(content, &catalog_key(&item.request)));
+        if !visible.is_empty() {
+            let label_of =
+                |item: &stremio_core::models::catalog_with_filters::SelectableCatalog| {
+                    custom_catalog_title(content, "discover", &catalog_key(&item.request))
+                        .map(ToOwned::to_owned)
+                        .unwrap_or_else(|| item.catalog.clone())
+                };
+            let title = visible
                 .iter()
-                .map(|item| (item.catalog.clone(), item.selected, item.request.clone())),
-        ));
+                .find(|item| item.selected)
+                .map_or_else(|| "Select catalog".to_owned(), |item| label_of(item));
+            inputs.push(SelectInput::new(
+                title,
+                visible
+                    .into_iter()
+                    .map(|item| (label_of(item), item.selected, item.request.clone())),
+            ));
+        }
     }
-    for extra in &selectable.extra {
-        let title = extra
-            .options
-            .iter()
-            .find(|option| option.selected)
-            .and_then(|option| option.value.clone())
-            .unwrap_or_else(|| capitalise(&extra.name));
-        inputs.push(SelectInput::new(
-            title,
-            extra.options.iter().map(|option| {
-                (
-                    option.value.clone().unwrap_or_else(|| "None".to_owned()),
-                    option.selected,
-                    option.request.clone(),
-                )
-            }),
-        ));
+    if !selected_hidden {
+        for extra in &selectable.extra {
+            let title = extra
+                .options
+                .iter()
+                .find(|option| option.selected)
+                .and_then(|option| option.value.clone())
+                .unwrap_or_else(|| capitalise(&extra.name));
+            inputs.push(SelectInput::new(
+                title,
+                extra.options.iter().map(|option| {
+                    (
+                        option.value.clone().unwrap_or_else(|| "None".to_owned()),
+                        option.selected,
+                        option.request.clone(),
+                    )
+                }),
+            ));
+        }
     }
-    // The filter bar has room for three.
     inputs.truncate(3);
     Data {
         shape: shape_of(items.iter().copied()),
@@ -102,21 +156,10 @@ pub fn preview_images(data: &Data, index: usize) -> Vec<String> {
         .collect()
 }
 
-/// Where the grid is scrolled to, in cards rather than pixels: the first card on screen and how
-/// many of them are. `scroll`, `height`, `pitch` and `columns` come from the grid itself, which
-/// reports them whenever it moves.
-///
-/// Strictly what is on screen: while the wheel is turning, a row beyond the screen is a poster
-/// fetched, decoded and drawn for something nobody is looking at yet, and a fast scroll asks for
-/// several screenfuls a second. `settled_range` adds that row back once the grid has stopped. On an
-/// unsized grid (`height` of nothing, which is what the first report from a window that has not been
-/// laid out looks like) a screenful is assumed so the screen is not left blank.
 pub fn visible_range(scroll: f32, height: f32, pitch: f32, columns: i32) -> (usize, usize) {
     range(scroll, height, pitch, columns, 0.0)
 }
 
-/// The cards on screen plus a row of slack at each end: what to have ready for the scroll that comes
-/// next, asked for once the grid has come to rest rather than while it is moving.
 pub fn settled_range(scroll: f32, height: f32, pitch: f32, columns: i32) -> (usize, usize) {
     range(scroll, height, pitch, columns, 1.0)
 }
@@ -130,10 +173,6 @@ fn range(scroll: f32, height: f32, pitch: f32, columns: i32, slack: f32) -> (usi
     (first_row * columns, (last_row + 1 - first_row) * columns)
 }
 
-/// The posters of the cards that are on screen. The rest of a catalog is left alone until it is
-/// scrolled to: a page of Discover can be a hundred cards, and asking for all of them at once was
-/// both what the image host choked on and the only reason a browser looks faster than this --
-/// it fetches what is visible (`loading="lazy"`) and nothing more.
 pub fn card_images<'a>(
     data: &'a Data,
     (first, count): (usize, usize),
@@ -152,19 +191,14 @@ mod tests {
 
     #[test]
     fn what_is_on_screen_is_asked_for_at_once_and_the_slack_once_it_settles() {
-        // Four columns, rows 300px apart, a 720px grid at the top: three rows are visible.
         assert_eq!(visible_range(0.0, 720.0, 300.0, 4), (0, 12));
-        // Scrolled two rows down: the range follows the scroll, and nothing above it.
         assert_eq!(visible_range(600.0, 720.0, 300.0, 4), (8, 12));
-        // Once the grid has stopped, a row either side is fetched for the next scroll.
         assert_eq!(settled_range(0.0, 720.0, 300.0, 4), (0, 16));
         assert_eq!(settled_range(600.0, 720.0, 300.0, 4), (4, 20));
     }
 
     #[test]
     fn an_unsized_grid_still_asks_for_a_screenful() {
-        // The first report from a window that has not been laid out yet has no height at all;
-        // treating that as "nothing is visible" would leave the screen blank.
         let (_, count) = visible_range(0.0, 0.0, 300.0, 4);
         assert!(count >= 12, "expected a screenful, got {count}");
     }
@@ -195,7 +229,6 @@ mod tests {
                 "https://example.com/4.jpg"
             ]
         );
-        // A range past the end of the catalog asks for nothing rather than panicking.
         assert_eq!(card_images(&data, (20, 8)).count(), 0);
     }
 }

@@ -128,6 +128,7 @@ pub(crate) fn apply_settings(window: &MainWindow, data: &SettingsData, images: &
     let ui = window.global::<SettingsUi>();
     ui.set_data(settings_view(data, images));
     super::spotlight::apply_spotlight_picker(window, &data.spotlight, images);
+    super::content_settings::apply_content_settings(window, &data.content, images);
     let scale = (data.interface_scale as f32 / 100.0).clamp(0.75, 1.75);
     window.global::<Theme>().set_ui_scale(scale);
     let player_ui = window.global::<PlayerUi>();

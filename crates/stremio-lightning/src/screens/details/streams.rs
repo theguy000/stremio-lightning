@@ -1,13 +1,19 @@
 //! Pure stream-row projection, last-used matching, and resume-button summary for Details.
 
+use stremio_core::constants::STREAM_RESOURCE_NAME;
 use stremio_core::models::common::Loadable;
-use stremio_core::models::meta_details::MetaDetails;
+use stremio_core::models::meta_details::{MetaDetails, Selected as DetailsSelected};
+use stremio_core::types::addon::ResourcePath;
+use stremio_core::types::addon::ResourceRequest;
 use stremio_core::types::resource::{Stream, StreamSource, Video};
 use stremio_core::types::streams::StreamsItemKey;
 
 use super::Source;
 use crate::app::AppModel;
+use crate::plumbing::local_settings::ContentSettings;
 use crate::screens::addon_name;
+use crate::screens::settings::content::stream_addon_rank;
+use crate::screens::settings::content_filter::stream_matches;
 
 pub(super) fn stream_link(source: &StreamSource) -> (String, bool) {
     match source {
@@ -24,9 +30,88 @@ pub(super) fn stream_link(source: &StreamSource) -> (String, bool) {
     }
 }
 
+/// Single source of truth for visible Details streams shared by `source_rows` and `player::open`.
+pub(crate) fn visible_streams<'a>(
+    model: &'a AppModel,
+    content: &'a ContentSettings,
+) -> impl Iterator<Item = (&'a ResourceRequest, &'a Stream)> + 'a {
+    let mut pages: Vec<(&'a ResourceRequest, &'a [Stream])> = model
+        .meta_details
+        .streams
+        .iter()
+        .filter_map(|page| match &page.content {
+            Some(Loadable::Ready(list)) => Some((&page.request, list.as_slice())),
+            _ => None,
+        })
+        .collect();
+    if !content.stream_order.is_empty() {
+        pages.sort_by_key(|(req, _)| stream_addon_rank(&content.stream_order, req.base.as_str()));
+    }
+    pages.into_iter().flat_map(move |(req, list)| {
+        let addon_url = req.base.as_str();
+        list.iter()
+            .filter(move |s| stream_matches(addon_url, s, content))
+            .map(move |s| (req, s))
+    })
+}
+
+pub(super) fn waits_for_streams(
+    model: &AppModel,
+    selected: Option<&DetailsSelected>,
+    picked: Option<&str>,
+    content: &ContentSettings,
+) -> bool {
+    let Some(selected) = selected else {
+        return false;
+    };
+    if model.ctx.profile.auth.is_none() {
+        return false;
+    }
+    let path = ResourcePath::without_extra(
+        STREAM_RESOURCE_NAME,
+        &selected.meta_path.r#type,
+        picked.unwrap_or(&selected.meta_path.id),
+    );
+    model.ctx.profile.addons.iter().any(|addon| {
+        !content
+            .disabled_stream_addons
+            .iter()
+            .any(|u| u == addon.transport_url.as_str())
+            && addon.manifest.is_resource_supported(&path)
+    })
+}
+
+pub(super) fn loading_count(details: &MetaDetails, content: &ContentSettings) -> usize {
+    details
+        .streams
+        .iter()
+        .filter(|p| {
+            !content
+                .disabled_stream_addons
+                .iter()
+                .any(|u| u == p.request.base.as_str())
+                && !matches!(
+                    &p.content,
+                    Some(Loadable::Ready(_)) | Some(Loadable::Err(_))
+                )
+        })
+        .count()
+}
+
+pub(super) fn raw_stream_count(details: &MetaDetails) -> usize {
+    details
+        .streams
+        .iter()
+        .filter_map(|p| match &p.content {
+            Some(Loadable::Ready(list)) => Some(list.len()),
+            _ => None,
+        })
+        .sum()
+}
+
 pub(super) fn source_rows(
     model: &AppModel,
-    details: &MetaDetails,
+    content: &ContentSettings,
     meta_id: Option<&str>,
     picked: Option<&str>,
 ) -> Vec<Source> {
@@ -41,42 +126,34 @@ pub(super) fn source_rows(
             })
             .map(|item| &item.stream)
     });
-    details
-        .streams
-        .iter()
-        .filter_map(|page| match &page.content {
-            Some(Loadable::Ready(list)) => Some((&page.request.base, list)),
-            _ => None,
-        })
-        .flat_map(|(base, list)| {
-            let addon = addon_name(model, base);
-            list.iter().map(move |stream| {
-                let (link, is_magnet) = stream_link(&stream.source);
-                let raw_name = stream.name.as_deref().unwrap_or("").trim();
-                let name = if raw_name.is_empty() {
-                    if addon.is_empty() {
-                        "Stream".to_owned()
-                    } else {
-                        addon.clone()
-                    }
+    visible_streams(model, content)
+        .map(|(req, stream)| {
+            let addon = addon_name(model, &req.base);
+            let (link, is_magnet) = stream_link(&stream.source);
+            let raw_name = stream.name.as_deref().unwrap_or("").trim();
+            let name = if raw_name.is_empty() {
+                if addon.is_empty() {
+                    "Stream".to_owned()
                 } else {
-                    raw_name.replace('\n', " ")
-                };
-                let last_used = last_stream.is_some_and(|last| last.source == stream.source);
-                Source {
-                    name,
-                    description: stream
-                        .description
-                        .clone()
-                        .unwrap_or_default()
-                        .trim()
-                        .to_owned(),
-                    addon: addon.to_uppercase(),
-                    link,
-                    is_magnet,
-                    last_used,
+                    addon.clone()
                 }
-            })
+            } else {
+                raw_name.replace('\n', " ")
+            };
+            let last_used = last_stream.is_some_and(|last| last.source == stream.source);
+            Source {
+                name,
+                description: stream
+                    .description
+                    .clone()
+                    .unwrap_or_default()
+                    .trim()
+                    .to_owned(),
+                addon: addon.to_uppercase(),
+                link,
+                is_magnet,
+                last_used,
+            }
         })
         .collect()
 }

@@ -1,0 +1,24 @@
+// Settings -> Content page matching Stremio Web: Organize content + Filter streams.
+import { SettingsPageHeader } from "primitives.slint";
+import { OrganizeContentGroup } from "content-organize.slint";
+import { FilterStreamsGroup } from "content-presets.slint";
+
+export component ContentPage inherits VerticalLayout {
+    in property <length> rem-size;
+    alignment: start;
+    spacing: 0px;
+
+    SettingsPageHeader {
+        title: "Content";
+        scope: "Saved on this device";
+        rem-size: root.rem-size;
+    }
+
+    OrganizeContentGroup {
+        rem-size: root.rem-size;
+    }
+
+    FilterStreamsGroup {
+        rem-size: root.rem-size;
+    }
+}

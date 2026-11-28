@@ -48,11 +48,16 @@ pub(crate) fn shown_images(
         ActiveScreen::Player => player_images(snapshot).collect(),
         ActiveScreen::Settings => {
             let sp = &snapshot.settings.spotlight;
+            let cnt = &snapshot.settings.content;
             sp.preview_bg
                 .iter()
                 .chain(sp.preview_logo.iter())
                 .chain(sp.catalogs.iter().filter_map(|c| c.preview_bg.as_ref()))
                 .chain(sp.catalogs.iter().filter_map(|c| c.preview_logo.as_ref()))
+                .chain(cnt.board_items.iter().filter_map(|i| i.icon.as_ref()))
+                .chain(cnt.discover_items.iter().filter_map(|i| i.icon.as_ref()))
+                .chain(cnt.search_items.iter().filter_map(|i| i.icon.as_ref()))
+                .chain(cnt.stream_items.iter().filter_map(|i| i.icon.as_ref()))
                 .cloned()
                 .collect()
         }

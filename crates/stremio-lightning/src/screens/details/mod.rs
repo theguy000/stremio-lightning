@@ -4,17 +4,17 @@ mod actions;
 mod stepper;
 mod streams;
 
+use crate::plumbing::local_settings::LocalExtras;
 pub use crate::screens::videos::{Episode, Season};
 pub(crate) use actions::{
     back_to_episodes, library_video_id, open, pick, rate, toggle_library, toggle_watched,
 };
 pub use actions::{mark_season_watched, mark_video_watched};
 pub use stepper::{shown_pair, step, stepped_video, steps, Steps};
+pub(crate) use streams::visible_streams;
 
-use stremio_core::constants::STREAM_RESOURCE_NAME;
 use stremio_core::models::common::Loadable;
-use stremio_core::models::meta_details::{MetaDetails, Selected as DetailsSelected};
-use stremio_core::types::addon::ResourcePath;
+use stremio_core::models::meta_details::MetaDetails;
 use stremio_core::types::rating::Rating;
 use stremio_core::types::resource::{MetaItem, Video};
 
@@ -51,6 +51,7 @@ pub struct Data {
     pub streams: Vec<Source>,
     pub sources_loading: usize,
     pub waits_for_streams: bool,
+    pub streams_filtered_out: bool,
     pub rating: Option<Rating>,
     pub rating_known: bool,
     pub rating_ready: bool,
@@ -115,31 +116,6 @@ pub(crate) fn meta_item(details: &MetaDetails) -> Option<&MetaItem> {
         })
 }
 
-/// Whether placeholder rows should show while Streams load (signed in + an addon supports Stream).
-pub(crate) fn waits_for_streams(
-    model: &AppModel,
-    selected: Option<&DetailsSelected>,
-    picked: Option<&str>,
-) -> bool {
-    let Some(selected) = selected else {
-        return false;
-    };
-    if model.ctx.profile.auth.is_none() {
-        return false;
-    }
-    let path = ResourcePath::without_extra(
-        STREAM_RESOURCE_NAME,
-        &selected.meta_path.r#type,
-        picked.unwrap_or(&selected.meta_path.id),
-    );
-    model
-        .ctx
-        .profile
-        .addons
-        .iter()
-        .any(|addon| addon.manifest.is_resource_supported(&path))
-}
-
 fn shows_picker(picked: Option<&str>, seasons: &[Season]) -> bool {
     picked.is_none() && !seasons.is_empty()
 }
@@ -159,7 +135,19 @@ pub fn data(
     moved: Option<(u32, u32)>,
     query: &str,
 ) -> Data {
+    data_with_extras(model, &LocalExtras::default(), chosen, picked, moved, query)
+}
+
+pub fn data_with_extras(
+    model: &AppModel,
+    extras: &LocalExtras,
+    chosen: Option<u32>,
+    picked: Option<&str>,
+    moved: Option<(u32, u32)>,
+    query: &str,
+) -> Data {
     let details = &model.meta_details;
+    let content = &extras.content;
     let item = meta_item(details);
     let videos: &[Video] = item.map(|i| i.videos.as_slice()).unwrap_or_default();
     let listed = seasons(videos);
@@ -189,21 +177,14 @@ pub fn data(
     if !needle.is_empty() {
         season_episodes.retain(|ep| ep.title.to_lowercase().contains(&needle));
     }
-    let loading = details
-        .streams
-        .iter()
-        .filter(|p| {
-            !matches!(
-                &p.content,
-                Some(Loadable::Ready(_)) | Some(Loadable::Err(_))
-            )
-        })
-        .count();
+    let loading = streams::loading_count(details, content);
     let meta_id = item.map(|m| m.preview.id.as_str());
-    let streams = streams::source_rows(model, details, meta_id, picked)
+    let raw_count = streams::raw_stream_count(details);
+    let streams: Vec<Source> = streams::source_rows(model, content, meta_id, picked)
         .into_iter()
         .take(MAX_STREAMS)
         .collect();
+    let streams_filtered_out = raw_count > 0 && streams.is_empty();
     let (resume_label, resume_sublabel, resume_video_id) =
         streams::resume_summary(details, videos, picked);
 
@@ -222,7 +203,13 @@ pub fn data(
         steps: picked.and_then(|p| steps(videos, p, moved)),
         streams,
         sources_loading: loading,
-        waits_for_streams: waits_for_streams(model, details.selected.as_ref(), picked),
+        waits_for_streams: streams::waits_for_streams(
+            model,
+            details.selected.as_ref(),
+            picked,
+            content,
+        ),
+        streams_filtered_out,
         rating: match &details.rating_info {
             Some(Loadable::Ready(info)) => info.status.clone(),
             _ => None,

@@ -112,9 +112,11 @@ export component StreamsMessage inherits Rectangle {
     in property <int> season: 0;
     in property <int> episode: 0;
     in property <bool> can-show-streams: false;
+    in property <bool> filtered-out: false;
     callback step-season(int);
     callback step-episode(int);
     callback show-streams;
+    callback open-content-settings;
 
     VerticalLayout {
         alignment: start;
@@ -169,18 +171,59 @@ export component StreamsMessage inherits Rectangle {
         }
         VerticalLayout {
             padding-top: 1 * root.rem-size;
-            padding-bottom: 2 * root.rem-size;
+            padding-bottom: 1.25 * root.rem-size;
+            spacing: 0.65 * root.rem-size;
             Text {
                 text: "No streams were found";
                 font-size: 1.4 * root.rem-size;
                 color: Theme.text;
                 horizontal-alignment: center;
             }
+            if root.filtered-out: Text {
+                text: "Your Content settings may be hiding available stream sources. Review which sources are enabled or try again later.";
+                font-size: 0.92 * root.rem-size;
+                color: Theme.text;
+                opacity: 0.65;
+                wrap: word-wrap;
+                horizontal-alignment: center;
+            }
         }
         HorizontalLayout {
             alignment: center;
-            padding-top: 1 * root.rem-size;
-            Rectangle {
+            padding-top: 0.75 * root.rem-size;
+            if root.filtered-out: Rectangle {
+                height: 3.5 * root.rem-size;
+                width: cfg-row.preferred-width;
+                border-radius: 1.75 * root.rem-size;
+                background: cfg-t.has-hover ? #8e72ff : Theme.accent;
+                cfg-row := HorizontalLayout {
+                    alignment: center;
+                    padding-left: 1.75 * root.rem-size;
+                    padding-right: 1.75 * root.rem-size;
+                    spacing: 0.75 * root.rem-size;
+                    VerticalLayout {
+                        alignment: center;
+                        Image {
+                            width: 1.35 * root.rem-size;
+                            height: 1.35 * root.rem-size;
+                            source: @image-url("../icons/list.svg");
+                            colorize: #ffffff;
+                        }
+                    }
+                    Text {
+                        text: "Open Content Settings";
+                        font-size: 0.95 * root.rem-size;
+                        font-weight: 600;
+                        color: #ffffff;
+                        vertical-alignment: center;
+                    }
+                }
+                cfg-t := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { root.open-content-settings(); }
+                }
+            }
+            if !root.filtered-out: Rectangle {
                 height: 4 * root.rem-size;
                 border-radius: 2 * root.rem-size;
                 background: Theme.accent-green;

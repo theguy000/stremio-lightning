@@ -6,13 +6,43 @@ use std::path::Path;
 
 use serde_json::Value;
 
-/// Persisted catalog pick for Board Spotlight (mirrors `stremio-core` `ResourceRequest` identity).
-#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+/// Stable identity of an addon catalog (mirrors `stremio-core` `ResourceRequest`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SpotlightCatalogPick {
+pub struct CatalogKey {
     pub transport_url: String,
     pub r#type: String,
     pub id: String,
+}
+
+pub type SpotlightCatalogPick = CatalogKey;
+
+/// User-defined stream tag filter preset persisted on this device.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct StreamFilterPreset {
+    pub id: String,
+    pub name: String,
+    pub include_tags: Vec<String>,
+    pub exclude_tags: Vec<String>,
+}
+
+/// Content settings (catalog order/visibility on Board & Discover, stream addon toggles, and
+/// stream filter presets) persisted in `<data_dir>/settings.json`.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ContentSettings {
+    pub catalog_order: Vec<CatalogKey>,
+    pub discover_order: Vec<CatalogKey>,
+    pub search_order: Vec<CatalogKey>,
+    pub stream_order: Vec<String>,
+    pub hidden_board_catalogs: Vec<CatalogKey>,
+    pub hidden_discover_catalogs: Vec<CatalogKey>,
+    pub hidden_search_catalogs: Vec<CatalogKey>,
+    pub disabled_stream_addons: Vec<String>,
+    pub custom_titles: HashMap<String, String>,
+    pub stream_presets: Vec<StreamFilterPreset>,
+    pub active_stream_preset: Option<String>,
 }
 
 /// Board Spotlight settings kept in `<data_dir>/settings.json` (mirrors upstream `BoardSpotlight`).
@@ -52,6 +82,8 @@ pub struct LocalExtras {
     pub mpv_config_path: Option<String>,
     #[serde(default)]
     pub spotlight: SpotlightConfig,
+    #[serde(default)]
+    pub content: ContentSettings,
 }
 
 fn yes() -> bool {
@@ -68,6 +100,7 @@ impl Default for LocalExtras {
             builtin_settings: HashMap::new(),
             mpv_config_path: None,
             spotlight: SpotlightConfig::default(),
+            content: ContentSettings::default(),
         }
     }
 }

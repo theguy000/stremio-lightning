@@ -5,6 +5,7 @@
 
 mod addons;
 mod browse;
+mod content_settings;
 mod details;
 mod discord;
 mod logs_about;
@@ -238,6 +239,7 @@ pub(crate) fn wire(window: &MainWindow, wiring: Wiring) {
     settings_auth::wire(window, &wiring);
     settings_actions::wire(window, &wiring);
     spotlight::wire(window, &wiring);
+    content_settings::wire(window, &wiring);
     mods::wire(window, &wiring);
     logs_about::wire(window, &wiring);
 }

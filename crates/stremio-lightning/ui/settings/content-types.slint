@@ -1,0 +1,17 @@
+// Content Settings data structs shared between Rust and Slint.
+
+export struct ContentOrganizeRow {
+    id: string,
+    label: string,
+    has-icon: bool,
+    icon: image,
+    active: bool,
+}
+
+export struct StreamPresetRow {
+    id: string,
+    name: string,
+    include-tags: [string],
+    exclude-tags: [string],
+    active: bool,
+}

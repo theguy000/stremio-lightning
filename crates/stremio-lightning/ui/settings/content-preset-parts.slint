@@ -1,0 +1,145 @@
+// Shared tag-input and pill primitives for Stremio StreamFilterPresets/CreatePreset.
+import { Theme } from "../theme.slint";
+
+export component TagFormInput inherits Rectangle {
+    in property <length> rem-size;
+    in property <string> placeholder;
+    in-out property <string> value;
+    callback submit();
+
+    height: 3 * root.rem-size;
+    border-radius: 1.5 * root.rem-size;
+    background: Theme.overlay;
+    border-width: 2px;
+    border-color: ti.has-focus ? Theme.text : transparent;
+
+    if root.value == "": Text {
+        x: 1.5 * root.rem-size;
+        width: parent.width - 4.3 * root.rem-size;
+        height: parent.height;
+        vertical-alignment: center;
+        text: root.placeholder;
+        font-size: 0.95 * root.rem-size;
+        color: Theme.placeholder;
+    }
+
+    ti := TextInput {
+        x: 1.5 * root.rem-size;
+        width: parent.width - 4.3 * root.rem-size;
+        height: parent.height;
+        vertical-alignment: center;
+        single-line: true;
+        font-size: 0.95 * root.rem-size;
+        color: Theme.text;
+        text <=> root.value;
+        accepted => { root.submit(); }
+    }
+
+    Rectangle {
+        x: parent.width - self.width - 0.3 * root.rem-size;
+        y: (parent.height - self.height) / 2;
+        width: 2.25 * root.rem-size;
+        height: 2.25 * root.rem-size;
+        border-radius: 1.125 * root.rem-size;
+        background: add-t.has-hover ? Theme.overlay : transparent;
+
+        Image {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: 1.15 * root.rem-size;
+            height: 1.15 * root.rem-size;
+            source: @image-url("../icons/checkmark.svg");
+            colorize: Theme.text;
+            opacity: add-t.has-hover ? 1.0 : 0.6;
+        }
+        add-t := TouchArea {
+            mouse-cursor: pointer;
+            accessible-role: button;
+            accessible-label: "Add tag";
+            clicked => { root.submit(); }
+        }
+    }
+}
+
+export component PresetSuggestionPill inherits Rectangle {
+    in property <length> rem-size;
+    in property <string> label;
+    in property <bool> selected: false;
+    in property <bool> is-exclude: false;
+    callback clicked();
+
+    height: 2.75 * root.rem-size;
+    width: lbl.preferred-width + 2.5 * root.rem-size;
+    border-radius: 1.375 * root.rem-size;
+    background: root.selected
+        ? (root.is-exclude ? #ff707033 : #22b36533)
+        : Theme.overlay;
+    border-width: t.has-hover ? 2px : 0px;
+    border-color: Theme.text;
+
+    lbl := Text {
+        width: parent.width;
+        height: parent.height;
+        text: root.label;
+        font-size: 0.95 * root.rem-size;
+        font-weight: 500;
+        color: root.selected
+            ? (root.is-exclude ? #ffaaaa : #7ee0ab)
+            : Theme.text;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    t := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component CustomTagPill inherits Rectangle {
+    in property <length> rem-size;
+    in property <string> label;
+    in property <bool> is-exclude: false;
+    callback remove();
+
+    height: 2.75 * root.rem-size;
+    width: row.preferred-width;
+    border-radius: 1.375 * root.rem-size;
+    background: root.is-exclude ? #ff707033 : #22b36533;
+
+    row := HorizontalLayout {
+        padding-left: 1.25 * root.rem-size;
+        padding-right: 0.4 * root.rem-size;
+        spacing: 0.25 * root.rem-size;
+        alignment: center;
+
+        Text {
+            text: root.label;
+            font-size: 0.95 * root.rem-size;
+            font-weight: 500;
+            color: root.is-exclude ? #ffaaaa : #7ee0ab;
+            vertical-alignment: center;
+        }
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 2 * root.rem-size;
+                height: 2 * root.rem-size;
+                border-radius: 1 * root.rem-size;
+                background: rm-t.has-hover ? Theme.overlay : transparent;
+                Image {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    width: 0.85 * root.rem-size;
+                    height: 0.85 * root.rem-size;
+                    source: @image-url("../icons/close.svg");
+                    colorize: root.is-exclude ? #ffaaaa : #7ee0ab;
+                    opacity: rm-t.has-hover ? 1.0 : 0.7;
+                }
+                rm-t := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { root.remove(); }
+                }
+            }
+        }
+    }
+}

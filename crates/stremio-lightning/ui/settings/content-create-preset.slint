@@ -1,0 +1,171 @@
+// Based on Stremio StreamFilterPresets/CreatePreset (exact pills, tag forms, and actions).
+import { Theme } from "../theme.slint";
+import { SettingsRowButton } from "primitives.slint";
+import { CustomTagPill, PresetSuggestionPill, TagFormInput } from "content-preset-parts.slint";
+import { SettingsUi } from "types.slint";
+
+export component CreatePresetForm inherits VerticalLayout {
+    in property <length> rem-size;
+    callback closed();
+
+    property <string> preset-name: "";
+    property <string> inc-input: "";
+    property <string> exc-input: "";
+
+    padding-top: 1.5 * root.rem-size;
+    spacing: 1.5 * root.rem-size;
+    alignment: start;
+
+    Rectangle { height: 1px; background: Theme.overlay; }
+
+    Text {
+        text: "Create New Preset";
+        font-size: 0.875 * root.rem-size;
+        font-weight: 600;
+        color: Theme.text;
+    }
+
+    VerticalLayout {
+        spacing: 0.5 * root.rem-size;
+        Text {
+            text: "Preset Name";
+            font-size: 0.875 * root.rem-size;
+            color: Theme.text;
+            opacity: 0.6;
+        }
+        Rectangle {
+            height: 3 * root.rem-size;
+            border-radius: 1.5 * root.rem-size;
+            background: Theme.overlay;
+            border-width: 2px;
+            border-color: name-ti.has-focus ? Theme.text : transparent;
+            if root.preset-name == "": Text {
+                x: 1.5 * root.rem-size;
+                width: parent.width - 3 * root.rem-size;
+                height: parent.height;
+                vertical-alignment: center;
+                text: "Input Preset Name";
+                font-size: 0.95 * root.rem-size;
+                color: Theme.placeholder;
+            }
+            name-ti := TextInput {
+                x: 1.5 * root.rem-size;
+                width: parent.width - 3 * root.rem-size;
+                height: parent.height;
+                vertical-alignment: center;
+                single-line: true;
+                font-size: 0.95 * root.rem-size;
+                color: Theme.text;
+                text <=> root.preset-name;
+            }
+        }
+    }
+
+    VerticalLayout {
+        spacing: 0.5 * root.rem-size;
+        Text {
+            text: "Include";
+            font-size: 0.875 * root.rem-size;
+            color: Theme.text;
+            opacity: 0.6;
+        }
+        TagFormInput {
+            rem-size: root.rem-size;
+            placeholder: "Input tag to include";
+            value <=> root.inc-input;
+            submit => {
+                if (SettingsUi.content-draft-add-tag(false, root.inc-input)) {
+                    root.inc-input = "";
+                }
+            }
+        }
+        HorizontalLayout {
+            padding-top: 0.25 * root.rem-size;
+            spacing: 0.5 * root.rem-size;
+            alignment: start;
+            PresetSuggestionPill { rem-size: root.rem-size; label: "4k"; selected: SettingsUi.draft-inc-4k; clicked => { SettingsUi.content-draft-toggle-tag(false, "4k"); } }
+            PresetSuggestionPill { rem-size: root.rem-size; label: "1080p"; selected: SettingsUi.draft-inc-1080p; clicked => { SettingsUi.content-draft-toggle-tag(false, "1080p"); } }
+            PresetSuggestionPill { rem-size: root.rem-size; label: "bluray"; selected: SettingsUi.draft-inc-bluray; clicked => { SettingsUi.content-draft-toggle-tag(false, "bluray"); } }
+            PresetSuggestionPill { rem-size: root.rem-size; label: "720p"; selected: SettingsUi.draft-inc-720p; clicked => { SettingsUi.content-draft-toggle-tag(false, "720p"); } }
+        }
+        if SettingsUi.draft-custom-include.length > 0: HorizontalLayout {
+            spacing: 0.5 * root.rem-size;
+            alignment: start;
+            for tag in SettingsUi.draft-custom-include: CustomTagPill {
+                rem-size: root.rem-size;
+                label: tag;
+                remove => { SettingsUi.content-draft-toggle-tag(false, tag); }
+            }
+        }
+    }
+
+    VerticalLayout {
+        spacing: 0.5 * root.rem-size;
+        Text {
+            text: "Exclude";
+            font-size: 0.875 * root.rem-size;
+            color: Theme.text;
+            opacity: 0.6;
+        }
+        TagFormInput {
+            rem-size: root.rem-size;
+            placeholder: "Input tag to exclude";
+            value <=> root.exc-input;
+            submit => {
+                if (SettingsUi.content-draft-add-tag(true, root.exc-input)) {
+                    root.exc-input = "";
+                }
+            }
+        }
+        HorizontalLayout {
+            padding-top: 0.25 * root.rem-size;
+            spacing: 0.5 * root.rem-size;
+            alignment: start;
+            PresetSuggestionPill { rem-size: root.rem-size; label: "cam"; is-exclude: true; selected: SettingsUi.draft-exc-cam; clicked => { SettingsUi.content-draft-toggle-tag(true, "cam"); } }
+            PresetSuggestionPill { rem-size: root.rem-size; label: "hdts"; is-exclude: true; selected: SettingsUi.draft-exc-hdts; clicked => { SettingsUi.content-draft-toggle-tag(true, "hdts"); } }
+            PresetSuggestionPill { rem-size: root.rem-size; label: "telesync"; is-exclude: true; selected: SettingsUi.draft-exc-telesync; clicked => { SettingsUi.content-draft-toggle-tag(true, "telesync"); } }
+            PresetSuggestionPill { rem-size: root.rem-size; label: "screener"; is-exclude: true; selected: SettingsUi.draft-exc-screener; clicked => { SettingsUi.content-draft-toggle-tag(true, "screener"); } }
+        }
+        if SettingsUi.draft-custom-exclude.length > 0: HorizontalLayout {
+            spacing: 0.5 * root.rem-size;
+            alignment: start;
+            for tag in SettingsUi.draft-custom-exclude: CustomTagPill {
+                rem-size: root.rem-size;
+                label: tag;
+                is-exclude: true;
+                remove => { SettingsUi.content-draft-toggle-tag(true, tag); }
+            }
+        }
+    }
+
+    HorizontalLayout {
+        spacing: 0.5 * root.rem-size;
+        alignment: end;
+        SettingsRowButton {
+            rem-size: root.rem-size;
+            label: "Cancel";
+            icon: @image-url("../icons/close.svg");
+            has-icon: true;
+            clicked => {
+                SettingsUi.content-draft-clear();
+                root.closed();
+            }
+        }
+        SettingsRowButton {
+            rem-size: root.rem-size;
+            label: "Create";
+            icon: @image-url("../icons/checkmark.svg");
+            has-icon: true;
+            variant: "primary";
+            disabled: root.preset-name == "" || !SettingsUi.draft-has-tags;
+            clicked => {
+                if (SettingsUi.content-create-preset(root.preset-name)) {
+                    root.preset-name = "";
+                    root.inc-input = "";
+                    root.exc-input = "";
+                    root.closed();
+                }
+            }
+        }
+    }
+}

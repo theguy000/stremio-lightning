@@ -5,11 +5,13 @@ import { ScrollBar } from "scroll-bar.slint";
 import { Theme } from "theme.slint";
 import { SettingsMenu } from "settings/menu.slint";
 import { AccountPage, HelpPage, SearchResultsPage } from "settings/pages-account.slint";
+import { ContentPage } from "settings/content.slint";
 import { IntegrationsPage, InterfacePage, PlayerPage } from "settings/pages-core.slint";
 import { StreamingPage } from "settings/page-streaming.slint";
 import { DevicePage } from "settings/pages-device.slint";
 import { ShortcutsPage } from "settings/shortcuts.slint";
 import {
+    ContentOrganizeRow,
     ServerUrlRow,
     SettingsSearchHit,
     SettingsUi,
@@ -18,9 +20,11 @@ import {
     SpotlightCatalogCardData,
     SpotlightCatalogGroup,
     SpotlightPickChip,
+    StreamPresetRow,
 } from "settings/types.slint";
 
 export {
+    ContentOrganizeRow,
     ServerUrlRow,
     SettingsSearchHit,
     SettingsUi,
@@ -29,6 +33,7 @@ export {
     SpotlightCatalogCardData,
     SpotlightCatalogGroup,
     SpotlightPickChip,
+    StreamPresetRow,
 }
 
 export component SettingsContent inherits Rectangle {
@@ -64,6 +69,7 @@ export component SettingsContent inherits Rectangle {
         SettingsUi.search-query = "";
         SettingsUi.search-changed("");
         pane.content-y = 0px;
+        SettingsUi.content-list-scroll = 0px;
     }
 
     hit-timer := Timer {
@@ -103,6 +109,7 @@ export component SettingsContent inherits Rectangle {
         y: 0px;
         width: root.width - root.menu-width;
         height: root.height;
+        interactive: false;
         content-width: self.width;
         content-height: Math.max(self.height, page-wrap.preferred-height);
 
@@ -123,6 +130,7 @@ export component SettingsContent inherits Rectangle {
                 }
             }
             if !root.searching && SettingsUi.active-page == "interface": InterfacePage { rem-size: root.rem-size; }
+            if !root.searching && SettingsUi.active-page == "content": ContentPage { rem-size: root.rem-size; }
             if !root.searching && SettingsUi.active-page == "player": PlayerPage { rem-size: root.rem-size; }
             if !root.searching && SettingsUi.active-page == "integrations": IntegrationsPage { rem-size: root.rem-size; }
             if !root.searching && SettingsUi.active-page == "device": DevicePage { rem-size: root.rem-size; }

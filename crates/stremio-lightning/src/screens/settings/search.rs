@@ -17,6 +17,9 @@ interface|gamepad|Enable gamepad support|Preferences › Interface|controller xb
 interface|spotlight|Show Spotlight|Preferences › Interface|board hero carousel banner featured
 interface|spotlightCatalogs|Spotlight catalogs|Preferences › Interface|board hero pick catalogs
 interface|spotlightRows|Show Spotlight rows on the Board|Preferences › Interface|board hide rows
+content||Content|Preferences|catalogs streams filter presets hide reorder board discover
+content|organize|Organize content|Preferences › Content|catalogs hide reorder rename board discover streams addons
+content|streamPresets|Filter streams|Preferences › Content|presets tags include exclude resolution 4k 1080p bluray cam
 player||Player|Preferences|video playback
 player|subLang|Default Subtitles Language|Preferences › Player|captions
 player|subSize|Default Subtitles Size|Preferences › Player|captions font

@@ -189,6 +189,9 @@ impl Wiring {
         if screen != ActiveScreen::Details {
             Self::clear_details_ui(&window, false);
         }
+        if screen == ActiveScreen::Discover {
+            self.ensure_visible_discover_catalog();
+        }
         self.app.viewport().set_active_screen(screen);
         self.app.mark_dirty(screen.mask());
     }
