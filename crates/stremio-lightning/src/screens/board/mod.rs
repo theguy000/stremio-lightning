@@ -54,10 +54,17 @@ pub fn data_with_extras(
                         &extras.content.catalog_order,
                         &pick,
                     );
+                    let title = crate::screens::settings::content::custom_catalog_title(
+                        &extras.content,
+                        "board",
+                        &pick,
+                    )
+                    .map(ToOwned::to_owned)
+                    .unwrap_or_else(|| catalog_title(model, &page.request));
                     ranked_catalogs.push((
                         rank,
                         Row {
-                            title: catalog_title(model, &page.request),
+                            title,
                             shape: shape_of(items),
                             cards: items
                                 .iter()

@@ -13,6 +13,7 @@ pub mod board;
 pub mod calendar;
 pub mod details;
 pub mod discover;
+mod discover_filter;
 pub mod language_names;
 pub mod library;
 pub mod mods;

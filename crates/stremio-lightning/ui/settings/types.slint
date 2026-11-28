@@ -1,9 +1,9 @@
 // Based on stremio-web (https://github.com/Stremio/stremio-web),
 // Copyright (C) 2017-2026 Smart code 203358507.
 import { SelectInputData } from "../multiselect-menu.slint";
-import { ContentCatalogRow, StreamAddonRow, StreamPresetRow } from "content-types.slint";
+import { ContentOrganizeRow, StreamPresetRow } from "content-types.slint";
 
-export { ContentCatalogRow, StreamAddonRow, StreamPresetRow }
+export { ContentOrganizeRow, StreamPresetRow }
 
 export struct ServerUrlRow {
     url: string,
@@ -137,11 +137,28 @@ export global SettingsUi {
     in-out property <string> spotlight-search-query: "";
     in-out property <string> spotlight-nudge: "";
     in-out property <string> hit-row: "";
-    in-out property <[ContentCatalogRow]> content-catalogs;
-    in-out property <bool> content-has-custom-catalogs: false;
-    in-out property <[StreamAddonRow]> content-stream-addons;
+    in-out property <[ContentOrganizeRow]> content-board-items;
+    in-out property <[ContentOrganizeRow]> content-discover-items;
+    in-out property <[ContentOrganizeRow]> content-search-items;
+    in-out property <[ContentOrganizeRow]> content-stream-items;
+    in-out property <length> content-list-scroll: 0px;
+    in-out property <length> content-list-x: 0px;
+    in-out property <length> content-list-y: 0px;
+    in-out property <length> content-list-w: 0px;
+    in-out property <length> content-list-h: 0px;
+    in-out property <length> content-list-content-h: 0px;
     in-out property <[StreamPresetRow]> content-presets;
-    in-out property <string> content-active-preset-id: "";
+    in-out property <bool> draft-inc-4k: false;
+    in-out property <bool> draft-inc-1080p: false;
+    in-out property <bool> draft-inc-bluray: false;
+    in-out property <bool> draft-inc-720p: false;
+    in-out property <bool> draft-exc-cam: false;
+    in-out property <bool> draft-exc-hdts: false;
+    in-out property <bool> draft-exc-telesync: false;
+    in-out property <bool> draft-exc-screener: false;
+    in-out property <[string]> draft-custom-include;
+    in-out property <[string]> draft-custom-exclude;
+    in-out property <bool> draft-has-tags: false;
 
     callback log-out();
     callback open-external-link(string);
@@ -168,12 +185,13 @@ export global SettingsUi {
     callback reset-spotlight-catalogs();
     callback spotlight-search-changed(string);
     callback spotlight-go-addons();
-    callback content-move-catalog(int, int);
-    callback content-toggle-board(int);
-    callback content-toggle-discover(int);
-    callback content-reset-catalogs();
-    callback content-toggle-stream-addon(string, bool);
-    callback content-save-preset(string, string, string, string) -> bool;
+    callback content-move-item(string, int, int);
+    callback content-toggle-item(string, bool);
+    callback content-rename-item(string, string);
+    callback content-draft-clear();
+    callback content-draft-toggle-tag(bool, string);
+    callback content-draft-add-tag(bool, string) -> bool;
+    callback content-create-preset(string) -> bool;
     callback content-delete-preset(string);
-    callback content-select-preset(string);
+    callback content-toggle-preset(string);
 }

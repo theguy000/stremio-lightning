@@ -2,12 +2,13 @@
 
 use stremio_core::types::resource::Stream;
 
+use super::content::parse_catalog_item_id;
 use crate::plumbing::local_settings::{CatalogKey, ContentSettings, StreamFilterPreset};
 
-/// Parses comma-separated tag text into trimmed, case-insensitively deduplicated tags.
-pub fn parse_tags(input: &str) -> Vec<String> {
+/// Trims and case-insensitively deduplicates a list of tags.
+pub fn normalize_tags<'a>(tags: impl IntoIterator<Item = &'a str>) -> Vec<String> {
     let mut out = Vec::new();
-    for raw in input.split(',') {
+    for raw in tags {
         let tag = raw.trim();
         if tag.is_empty() {
             continue;
@@ -89,91 +90,132 @@ pub fn stream_matches(addon_url: &str, stream: &Stream, content: &ContentSetting
         .any(|tag| tag_matches(&haystack, tag))
 }
 
-/// Moves the catalog at `index` up (`delta = -1`) or down (`delta = 1`) in `visible_keys`,
-/// persisting the materialized order into `content.catalog_order`.
-pub fn move_catalog(
-    content: &mut ContentSettings,
-    visible_keys: &[CatalogKey],
-    index: usize,
-    delta: i32,
+fn reorder_vec<T: Clone + PartialEq>(
+    current_order: &mut Vec<T>,
+    visible: &[T],
+    from: usize,
+    to: usize,
 ) -> bool {
-    let Some(target) = index.checked_add_signed(delta as isize) else {
-        return false;
-    };
-    if index >= visible_keys.len() || target >= visible_keys.len() || index == target {
+    if from >= visible.len() || to >= visible.len() || from == to {
         return false;
     }
-    let mut order = visible_keys.to_vec();
-    order.swap(index, target);
-    for key in &content.catalog_order {
-        if !order.contains(key) {
-            order.push(key.clone());
+    let mut order = visible.to_vec();
+    let moved = order.remove(from);
+    order.insert(to, moved);
+    for item in current_order.iter() {
+        if !order.contains(item) {
+            order.push(item.clone());
         }
     }
-    content.catalog_order = order;
+    *current_order = order;
     true
 }
 
-fn toggle_key(list: &mut Vec<CatalogKey>, key: CatalogKey) {
-    if let Some(pos) = list.iter().position(|k| k == &key) {
-        list.remove(pos);
-    } else {
+/// Drag-and-drop reorder (`arrayMove` semantics) for `"board"`, `"discover"`, or `"streams"`.
+pub fn move_item(
+    content: &mut ContentSettings,
+    tab: &str,
+    visible_ids: &[String],
+    from: usize,
+    to: usize,
+) -> bool {
+    match tab {
+        "board" => {
+            let keys: Vec<CatalogKey> = visible_ids
+                .iter()
+                .filter_map(|id| parse_catalog_item_id(id).map(|(_, k)| k))
+                .collect();
+            reorder_vec(&mut content.catalog_order, &keys, from, to)
+        }
+        "discover" => {
+            let keys: Vec<CatalogKey> = visible_ids
+                .iter()
+                .filter_map(|id| parse_catalog_item_id(id).map(|(_, k)| k))
+                .collect();
+            reorder_vec(&mut content.discover_order, &keys, from, to)
+        }
+        "search" => {
+            let keys: Vec<CatalogKey> = visible_ids
+                .iter()
+                .filter_map(|id| parse_catalog_item_id(id).map(|(_, k)| k))
+                .collect();
+            reorder_vec(&mut content.search_order, &keys, from, to)
+        }
+        "streams" => {
+            let urls: Vec<String> = visible_ids
+                .iter()
+                .filter_map(|id| id.strip_prefix("streams|").map(ToOwned::to_owned))
+                .collect();
+            reorder_vec(&mut content.stream_order, &urls, from, to)
+        }
+        _ => false,
+    }
+}
+
+fn set_hidden_key(list: &mut Vec<CatalogKey>, key: CatalogKey, active: bool) {
+    if active {
+        list.retain(|k| k != &key);
+    } else if !list.contains(&key) {
         list.push(key);
     }
 }
 
-pub fn toggle_board_catalog(content: &mut ContentSettings, key: CatalogKey) {
-    toggle_key(&mut content.hidden_board_catalogs, key);
-}
-
-pub fn toggle_discover_catalog(content: &mut ContentSettings, key: CatalogKey) {
-    toggle_key(&mut content.hidden_discover_catalogs, key);
-}
-
-pub fn reset_catalogs(content: &mut ContentSettings) {
-    content.catalog_order.clear();
-    content.hidden_board_catalogs.clear();
-    content.hidden_discover_catalogs.clear();
-}
-
-pub fn toggle_stream_addon(content: &mut ContentSettings, transport_url: &str, enabled: bool) {
-    if enabled {
-        content
-            .disabled_stream_addons
-            .retain(|u| u != transport_url);
-    } else if !content
-        .disabled_stream_addons
-        .iter()
-        .any(|u| u == transport_url)
-    {
-        content
-            .disabled_stream_addons
-            .push(transport_url.to_owned());
+/// Sets visibility/enabled state for a Board catalog, Discover catalog, or Stream addon item.
+pub fn set_item_active(content: &mut ContentSettings, id: &str, active: bool) -> bool {
+    if let Some(url) = id.strip_prefix("streams|") {
+        if active {
+            content.disabled_stream_addons.retain(|u| u != url);
+        } else if !content.disabled_stream_addons.iter().any(|u| u == url) {
+            content.disabled_stream_addons.push(url.to_owned());
+        }
+        return true;
+    }
+    let Some((tab, key)) = parse_catalog_item_id(id) else {
+        return false;
+    };
+    match tab {
+        "board" => {
+            set_hidden_key(&mut content.hidden_board_catalogs, key, active);
+            true
+        }
+        "discover" => {
+            set_hidden_key(&mut content.hidden_discover_catalogs, key, active);
+            true
+        }
+        "search" => {
+            set_hidden_key(&mut content.hidden_search_catalogs, key, active);
+            true
+        }
+        _ => false,
     }
 }
 
-/// Inserts a new preset (generating a unique id when `id` is empty) or updates an existing one.
-/// Returns `false` if `name` is blank after trimming.
-pub fn upsert_preset(
+/// Renames an item or resets its custom label when `title` is `None` / blank.
+pub fn set_item_title(content: &mut ContentSettings, id: &str, title: Option<&str>) {
+    match title.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(custom) => {
+            content
+                .custom_titles
+                .insert(id.to_owned(), custom.to_owned());
+        }
+        None => {
+            content.custom_titles.remove(id);
+        }
+    }
+}
+
+/// Creates a new Stream Filter Preset (requires non-blank name and >= 1 include or exclude tag).
+pub fn create_preset(
     content: &mut ContentSettings,
-    id: &str,
     name: &str,
-    include_csv: &str,
-    exclude_csv: &str,
+    include: &[String],
+    exclude: &[String],
 ) -> bool {
     let name = name.trim();
-    if name.is_empty() {
+    let include_tags = normalize_tags(include.iter().map(String::as_str));
+    let exclude_tags = normalize_tags(exclude.iter().map(String::as_str));
+    if name.is_empty() || (include_tags.is_empty() && exclude_tags.is_empty()) {
         return false;
-    }
-    let include_tags = parse_tags(include_csv);
-    let exclude_tags = parse_tags(exclude_csv);
-    if !id.is_empty() {
-        if let Some(existing) = content.stream_presets.iter_mut().find(|p| p.id == id) {
-            existing.name = name.to_owned();
-            existing.include_tags = include_tags;
-            existing.exclude_tags = exclude_tags;
-            return true;
-        }
     }
     let mut seq = content.stream_presets.len() + 1;
     let new_id = loop {
@@ -199,8 +241,10 @@ pub fn delete_preset(content: &mut ContentSettings, id: &str) {
     }
 }
 
-pub fn set_active_preset(content: &mut ContentSettings, id: &str) {
-    if id.is_empty() {
+/// Toggleable radio selection matching Stremio's `<RadioButton toggleable />`:
+/// clicking the active preset clears it; clicking another activates it.
+pub fn toggle_active_preset(content: &mut ContentSettings, id: &str) {
+    if id.is_empty() || content.active_stream_preset.as_deref() == Some(id) {
         content.active_stream_preset = None;
     } else if content.stream_presets.iter().any(|p| p.id == id) {
         content.active_stream_preset = Some(id.to_owned());

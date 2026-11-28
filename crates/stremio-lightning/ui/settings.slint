@@ -11,7 +11,7 @@ import { StreamingPage } from "settings/page-streaming.slint";
 import { DevicePage } from "settings/pages-device.slint";
 import { ShortcutsPage } from "settings/shortcuts.slint";
 import {
-    ContentCatalogRow,
+    ContentOrganizeRow,
     ServerUrlRow,
     SettingsSearchHit,
     SettingsUi,
@@ -20,12 +20,11 @@ import {
     SpotlightCatalogCardData,
     SpotlightCatalogGroup,
     SpotlightPickChip,
-    StreamAddonRow,
     StreamPresetRow,
 } from "settings/types.slint";
 
 export {
-    ContentCatalogRow,
+    ContentOrganizeRow,
     ServerUrlRow,
     SettingsSearchHit,
     SettingsUi,
@@ -34,7 +33,6 @@ export {
     SpotlightCatalogCardData,
     SpotlightCatalogGroup,
     SpotlightPickChip,
-    StreamAddonRow,
     StreamPresetRow,
 }
 
@@ -71,6 +69,7 @@ export component SettingsContent inherits Rectangle {
         SettingsUi.search-query = "";
         SettingsUi.search-changed("");
         pane.content-y = 0px;
+        SettingsUi.content-list-scroll = 0px;
     }
 
     hit-timer := Timer {
@@ -110,6 +109,7 @@ export component SettingsContent inherits Rectangle {
         y: 0px;
         width: root.width - root.menu-width;
         height: root.height;
+        interactive: false;
         content-width: self.width;
         content-height: Math.max(self.height, page-wrap.preferred-height);
 

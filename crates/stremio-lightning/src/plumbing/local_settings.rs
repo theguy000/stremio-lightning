@@ -33,9 +33,14 @@ pub struct StreamFilterPreset {
 #[serde(rename_all = "camelCase", default)]
 pub struct ContentSettings {
     pub catalog_order: Vec<CatalogKey>,
+    pub discover_order: Vec<CatalogKey>,
+    pub search_order: Vec<CatalogKey>,
+    pub stream_order: Vec<String>,
     pub hidden_board_catalogs: Vec<CatalogKey>,
     pub hidden_discover_catalogs: Vec<CatalogKey>,
+    pub hidden_search_catalogs: Vec<CatalogKey>,
     pub disabled_stream_addons: Vec<String>,
+    pub custom_titles: HashMap<String, String>,
     pub stream_presets: Vec<StreamFilterPreset>,
     pub active_stream_preset: Option<String>,
 }

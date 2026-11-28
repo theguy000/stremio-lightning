@@ -12,6 +12,7 @@ use super::Source;
 use crate::app::AppModel;
 use crate::plumbing::local_settings::ContentSettings;
 use crate::screens::addon_name;
+use crate::screens::settings::content::stream_addon_rank;
 use crate::screens::settings::content_filter::stream_matches;
 
 pub(super) fn stream_link(source: &StreamSource) -> (String, bool) {
@@ -34,20 +35,24 @@ pub(crate) fn visible_streams<'a>(
     model: &'a AppModel,
     content: &'a ContentSettings,
 ) -> impl Iterator<Item = (&'a ResourceRequest, &'a Stream)> + 'a {
-    model
+    let mut pages: Vec<(&'a ResourceRequest, &'a [Stream])> = model
         .meta_details
         .streams
         .iter()
         .filter_map(|page| match &page.content {
-            Some(Loadable::Ready(list)) => Some((&page.request, list)),
+            Some(Loadable::Ready(list)) => Some((&page.request, list.as_slice())),
             _ => None,
         })
-        .flat_map(move |(req, list)| {
-            let addon_url = req.base.as_str();
-            list.iter()
-                .filter(move |s| stream_matches(addon_url, s, content))
-                .map(move |s| (req, s))
-        })
+        .collect();
+    if !content.stream_order.is_empty() {
+        pages.sort_by_key(|(req, _)| stream_addon_rank(&content.stream_order, req.base.as_str()));
+    }
+    pages.into_iter().flat_map(move |(req, list)| {
+        let addon_url = req.base.as_str();
+        list.iter()
+            .filter(move |s| stream_matches(addon_url, s, content))
+            .map(move |s| (req, s))
+    })
 }
 
 pub(super) fn waits_for_streams(

@@ -13,6 +13,7 @@ mod settings;
 pub(crate) mod spotlight;
 pub(crate) mod sync;
 
+pub(crate) use content_settings::wheel_content_list;
 pub(crate) use details_player::tracks;
 pub(crate) use mods_logs::{apply_logs_data, show_mods};
 pub(crate) use settings::apply_settings;

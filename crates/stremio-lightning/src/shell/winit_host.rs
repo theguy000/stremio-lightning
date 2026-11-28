@@ -224,16 +224,6 @@ fn handle_wheel(
         Section::Settings => Target::Settings,
         _ => return EventResult::Propagate,
     };
-    let Some(area) = bounds.borrow()[target.index()] else {
-        return EventResult::Propagate;
-    };
-    let inside = at.x >= area.x
-        && at.x <= area.x + area.width
-        && at.y >= area.y
-        && at.y <= area.y + area.viewport;
-    if !inside {
-        return EventResult::Propagate;
-    }
     let down = match delta {
         MouseScrollDelta::LineDelta(_, lines) => -lines * LINE_STEP,
         MouseScrollDelta::PixelDelta(position) => {
@@ -243,9 +233,21 @@ fn handle_wheel(
     if down == 0.0 {
         return EventResult::Propagate;
     }
+    if matches!(target, Target::Settings) && super::view::wheel_content_list(&window, at, down) {
+        return EventResult::PreventDefault;
+    }
+    let Some(area) = bounds.borrow()[target.index()] else {
+        return EventResult::Propagate;
+    };
+    if at.x < area.x || at.x > area.x + area.width || at.y < area.y || at.y > area.y + area.viewport
+    {
+        return EventResult::Propagate;
+    }
     let furthest = (area.content - area.viewport).max(0.0);
-    let next = (target.current_offset(&window) - down).clamp(-furthest, 0.0);
-    target.set_offset(&window, next);
+    target.set_offset(
+        &window,
+        (target.current_offset(&window) - down).clamp(-furthest, 0.0),
+    );
     EventResult::PreventDefault
 }
 

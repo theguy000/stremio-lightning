@@ -3,11 +3,14 @@
 //! (Discover.js, useSelectableInputs.js) and MetaPreview.
 
 use stremio_core::models::common::Loadable;
-use stremio_core::types::addon::{ResourcePath, ResourceRequest};
+use stremio_core::types::addon::ResourceRequest;
 
-use super::settings::content::{catalog_key, catalog_rank};
+pub use super::discover_filter::{
+    active_type_first_visible, fallback_request_if_hidden, first_visible_for_type,
+};
+use super::settings::content::{catalog_key, custom_catalog_title, discover_rank};
 use super::{capitalise, card_of, preview_of, shape_of, Card, Preview, SelectInput};
-use crate::plumbing::local_settings::{ContentSettings, LocalExtras};
+use crate::plumbing::local_settings::LocalExtras;
 use crate::AppModel;
 
 /// What the Discover screen shows: the labels of its first three inputs and every card loaded
@@ -22,78 +25,6 @@ pub struct Data {
 
 pub fn data(model: &AppModel) -> Data {
     data_with_extras(model, &LocalExtras::default())
-}
-
-fn first_visible_for_type(
-    model: &AppModel,
-    content: &ContentSettings,
-    r#type: &str,
-) -> Option<ResourceRequest> {
-    let mut cands: Vec<(usize, ResourceRequest)> = Vec::new();
-    for addon in &model.ctx.profile.addons {
-        for cat in &addon.manifest.catalogs {
-            if cat.r#type != r#type {
-                continue;
-            }
-            let Some(extra) = cat.default_required_extra() else {
-                continue;
-            };
-            let req = ResourceRequest {
-                base: addon.transport_url.clone(),
-                path: ResourcePath {
-                    resource: "catalog".to_owned(),
-                    r#type: cat.r#type.clone(),
-                    id: cat.id.clone(),
-                    extra,
-                },
-            };
-            let key = catalog_key(&req);
-            if !content.hidden_discover_catalogs.contains(&key) {
-                cands.push((catalog_rank(&content.catalog_order, &key), req));
-            }
-        }
-    }
-    cands.sort_by_key(|(rank, _)| *rank);
-    cands.into_iter().next().map(|(_, req)| req)
-}
-
-/// Returns the first visible Discover catalog request (same type first, then any visible type)
-/// if the currently selected Discover catalog is hidden.
-pub fn fallback_request_if_hidden(
-    model: &AppModel,
-    content: &ContentSettings,
-) -> Option<ResourceRequest> {
-    let catalogs = &model.discover.selectable.catalogs;
-    let selected_hidden = model.discover.selected.as_ref().is_some_and(|s| {
-        content
-            .hidden_discover_catalogs
-            .contains(&catalog_key(&s.request))
-    }) || catalogs.iter().find(|c| c.selected).is_some_and(|c| {
-        content
-            .hidden_discover_catalogs
-            .contains(&catalog_key(&c.request))
-    });
-    if !selected_hidden {
-        return None;
-    }
-    let mut visible: Vec<_> = catalogs
-        .iter()
-        .filter(|c| {
-            !content
-                .hidden_discover_catalogs
-                .contains(&catalog_key(&c.request))
-        })
-        .collect();
-    visible.sort_by_key(|c| catalog_rank(&content.catalog_order, &catalog_key(&c.request)));
-    if let Some(first) = visible.first() {
-        return Some(first.request.clone());
-    }
-    for t in &model.discover.selectable.types {
-        if let Some(req) = first_visible_for_type(model, content, &t.r#type) {
-            return Some(req);
-        }
-    }
-    None
 }
 
 pub fn data_with_extras(model: &AppModel, extras: &LocalExtras) -> Data {
@@ -129,23 +60,27 @@ pub fn data_with_extras(model: &AppModel, extras: &LocalExtras) -> Data {
             .iter()
             .find(|item| item.selected)
             .map_or_else(|| "Select type".to_owned(), |item| capitalise(&item.r#type));
+        let has_override =
+            !content.hidden_discover_catalogs.is_empty() || !content.discover_order.is_empty();
         let type_opts: Vec<_> = selectable
             .types
             .iter()
-            .map(|item| {
-                let req = if content
-                    .hidden_discover_catalogs
-                    .contains(&catalog_key(&item.request))
-                {
-                    first_visible_for_type(model, content, &item.r#type)
-                        .unwrap_or_else(|| item.request.clone())
+            .filter_map(|item| {
+                let req = if has_override {
+                    let first = first_visible_for_type(model, content, &item.r#type);
+                    if !content.hidden_discover_catalogs.is_empty() && first.is_none() {
+                        return None;
+                    }
+                    first.unwrap_or_else(|| item.request.clone())
                 } else {
                     item.request.clone()
                 };
-                (capitalise(&item.r#type), item.selected, req)
+                Some((capitalise(&item.r#type), item.selected, req))
             })
             .collect();
-        inputs.push(SelectInput::new(title, type_opts.into_iter()));
+        if !type_opts.is_empty() {
+            inputs.push(SelectInput::new(title, type_opts.into_iter()));
+        }
     }
     if !selectable.catalogs.is_empty() {
         let mut visible: Vec<_> = selectable
@@ -157,18 +92,23 @@ pub fn data_with_extras(model: &AppModel, extras: &LocalExtras) -> Data {
                     .contains(&catalog_key(&item.request))
             })
             .collect();
-        visible
-            .sort_by_key(|item| catalog_rank(&content.catalog_order, &catalog_key(&item.request)));
+        visible.sort_by_key(|item| discover_rank(content, &catalog_key(&item.request)));
         if !visible.is_empty() {
+            let label_of =
+                |item: &stremio_core::models::catalog_with_filters::SelectableCatalog| {
+                    custom_catalog_title(content, "discover", &catalog_key(&item.request))
+                        .map(ToOwned::to_owned)
+                        .unwrap_or_else(|| item.catalog.clone())
+                };
             let title = visible
                 .iter()
                 .find(|item| item.selected)
-                .map_or_else(|| "Select catalog".to_owned(), |item| item.catalog.clone());
+                .map_or_else(|| "Select catalog".to_owned(), |item| label_of(item));
             inputs.push(SelectInput::new(
                 title,
                 visible
                     .into_iter()
-                    .map(|item| (item.catalog.clone(), item.selected, item.request.clone())),
+                    .map(|item| (label_of(item), item.selected, item.request.clone())),
             ));
         }
     }

@@ -1,0 +1,264 @@
+// Based on Stremio StreamFilterPresets + Item + RadioButton.
+import { Theme } from "../theme.slint";
+import { SettingsGroup } from "primitives.slint";
+import { CreatePresetForm } from "content-create-preset.slint";
+import { SettingsUi, StreamPresetRow } from "types.slint";
+
+component KeywordBadge inherits Rectangle {
+    in property <length> rem-size;
+    in property <string> text;
+    in property <bool> is-exclude: false;
+
+    height: 1.75 * root.rem-size;
+    width: lbl.preferred-width + 1.5 * root.rem-size;
+    border-radius: 0.25 * root.rem-size;
+    background: root.is-exclude ? #ff707033 : #22b36533;
+
+    lbl := Text {
+        width: parent.width;
+        height: parent.height;
+        text: root.text;
+        font-size: 0.875 * root.rem-size;
+        color: root.is-exclude ? Theme.accent-red : Theme.accent-green;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+component PresetItemRow inherits Rectangle {
+    in property <length> rem-size;
+    in property <StreamPresetRow> preset;
+    callback toggled();
+    callback remove();
+
+    property <bool> hovered: row-t.has-hover || del-t.has-hover;
+
+    border-radius: 0.5 * root.rem-size;
+    background: root.hovered ? Theme.overlay : transparent;
+    animate background { duration: 150ms; easing: ease; }
+
+    row-t := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.toggled(); }
+    }
+
+    HorizontalLayout {
+        width: parent.width;
+        padding: 1 * root.rem-size;
+        spacing: 1 * root.rem-size;
+
+        // Toggleable Stremio RadioButton (1.75rem circle, 3px border, inner accent dot).
+        VerticalLayout {
+            alignment: start;
+            padding-top: 0.1 * root.rem-size;
+            Rectangle {
+                width: 1.75 * root.rem-size;
+                height: 1.75 * root.rem-size;
+                border-radius: 0.875 * root.rem-size;
+                border-width: 3px;
+                border-color: Theme.placeholder;
+
+                Rectangle {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    width: 1 * root.rem-size;
+                    height: 1 * root.rem-size;
+                    border-radius: 0.5 * root.rem-size;
+                    background: Theme.accent;
+                    opacity: root.preset.active ? 1.0 : 0.0;
+                    animate opacity { duration: 200ms; easing: ease-in-out; }
+                }
+            }
+        }
+
+        VerticalLayout {
+            horizontal-stretch: 1;
+            spacing: 0.75 * root.rem-size;
+            alignment: start;
+
+            Text {
+                text: root.preset.name;
+                font-size: 1.1 * root.rem-size;
+                font-weight: 500;
+                color: Theme.text;
+                overflow: elide;
+            }
+
+            if root.preset.include-tags.length > 0: HorizontalLayout {
+                spacing: 0.5 * root.rem-size;
+                alignment: start;
+                for tag in root.preset.include-tags: KeywordBadge {
+                    rem-size: root.rem-size;
+                    text: tag;
+                }
+            }
+
+            if root.preset.exclude-tags.length > 0: HorizontalLayout {
+                spacing: 0.5 * root.rem-size;
+                alignment: start;
+                for tag in root.preset.exclude-tags: KeywordBadge {
+                    rem-size: root.rem-size;
+                    text: tag;
+                    is-exclude: true;
+                }
+            }
+        }
+
+        // Hover-revealed red Delete button with bin icon + label.
+        VerticalLayout {
+            alignment: start;
+            Rectangle {
+                height: 2.25 * root.rem-size;
+                width: del-row.preferred-width;
+                border-radius: 0.5 * root.rem-size;
+                background: del-t.has-hover ? #ff707026 : transparent;
+                opacity: root.hovered ? 1.0 : 0.0;
+                animate opacity { duration: 150ms; easing: ease; }
+                animate background { duration: 150ms; easing: ease; }
+
+                del-row := HorizontalLayout {
+                    padding-left: 1 * root.rem-size;
+                    padding-right: 1 * root.rem-size;
+                    spacing: 0.5 * root.rem-size;
+                    alignment: center;
+
+                    VerticalLayout {
+                        alignment: center;
+                        Image {
+                            width: 1 * root.rem-size;
+                            height: 1 * root.rem-size;
+                            source: @image-url("../icons/bin.svg");
+                            colorize: Theme.accent-red;
+                        }
+                    }
+                    Text {
+                        text: "Delete";
+                        font-size: 0.875 * root.rem-size;
+                        font-weight: 500;
+                        color: Theme.accent-red;
+                        vertical-alignment: center;
+                    }
+                }
+                del-t := TouchArea {
+                    mouse-cursor: pointer;
+                    accessible-role: button;
+                    accessible-label: "Delete " + root.preset.name;
+                    clicked => { root.remove(); }
+                }
+            }
+        }
+    }
+}
+
+export component FilterStreamsGroup inherits SettingsGroup {
+    title: "Filter streams";
+    description: "You can add multiple filter presets for your streams and activate one for this device. You can activate different presets for each device.";
+    padded: true;
+
+    property <bool> creating: false;
+
+    Rectangle {
+        border-radius: 0.5 * root.rem-size;
+        background: SettingsUi.hit-row == "streamPresets" ? #ffffff14 : transparent;
+        animate background { duration: 250ms; }
+
+        VerticalLayout {
+            spacing: 0px;
+            alignment: start;
+
+            VerticalLayout {
+                spacing: 1.5 * root.rem-size;
+                alignment: start;
+
+                VerticalLayout {
+                    spacing: 0.5 * root.rem-size;
+                    alignment: start;
+
+                    Text {
+                        text: "Your Presets";
+                        font-size: 0.875 * root.rem-size;
+                        font-weight: 600;
+                        color: Theme.text;
+                    }
+
+                    if SettingsUi.content-presets.length == 0: Rectangle {
+                        height: 10.5 * root.rem-size;
+                        border-radius: 0.5 * root.rem-size;
+                        background: Theme.overlay;
+                        Text {
+                            width: parent.width;
+                            height: parent.height;
+                            text: "No Presets";
+                            font-size: 1 * root.rem-size;
+                            font-italic: true;
+                            color: Theme.text;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    if SettingsUi.content-presets.length > 0: VerticalLayout {
+                        spacing: 0.25 * root.rem-size;
+                        alignment: start;
+                        for preset in SettingsUi.content-presets: PresetItemRow {
+                            rem-size: root.rem-size;
+                            preset: preset;
+                            toggled => { SettingsUi.content-toggle-preset(preset.id); }
+                            remove => { SettingsUi.content-delete-preset(preset.id); }
+                        }
+                    }
+                }
+
+                if !root.creating: HorizontalLayout {
+                    alignment: start;
+                    Rectangle {
+                        height: 2.75 * root.rem-size;
+                        width: create-row.preferred-width;
+                        border-radius: 1.375 * root.rem-size;
+                        background: create-t.has-hover ? transparent : Theme.accent-green;
+                        border-width: 2px;
+                        border-color: create-t.has-hover ? Theme.text : transparent;
+                        animate background { duration: 200ms; easing: ease-in-out; }
+                        animate border-color { duration: 200ms; easing: ease-in-out; }
+
+                        create-row := HorizontalLayout {
+                            padding-left: 1.5 * root.rem-size;
+                            padding-right: 1.5 * root.rem-size;
+                            spacing: 0.5 * root.rem-size;
+                            alignment: center;
+
+                            VerticalLayout {
+                                alignment: center;
+                                Image {
+                                    width: 1 * root.rem-size;
+                                    height: 1 * root.rem-size;
+                                    source: @image-url("../icons/add.svg");
+                                    colorize: #ffffff;
+                                }
+                            }
+                            Text {
+                                text: "Create New Preset";
+                                font-size: 0.95 * root.rem-size;
+                                font-weight: 500;
+                                color: #ffffff;
+                                vertical-alignment: center;
+                            }
+                        }
+                        create-t := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {
+                                SettingsUi.content-draft-clear();
+                                root.creating = true;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if root.creating: CreatePresetForm {
+                rem-size: root.rem-size;
+                closed => { root.creating = false; }
+            }
+        }
+    }
+}

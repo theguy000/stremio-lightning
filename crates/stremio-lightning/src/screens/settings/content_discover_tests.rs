@@ -11,8 +11,10 @@ use stremio_core::types::profile::Profile;
 use stremio_core::types::resource::{Stream, StreamSource};
 use url::Url;
 
-use super::content::{self, catalog_key};
-use super::content_filter::{set_active_preset, toggle_stream_addon, upsert_preset};
+use super::content::{self, catalog_item_id, catalog_key};
+use super::content_filter::{
+    create_preset, move_item, set_item_active, set_item_title, toggle_active_preset,
+};
 use crate::app::build::runtime;
 use crate::plumbing::local_settings::LocalExtras;
 use crate::screens::{details, discover, player};
@@ -31,7 +33,7 @@ fn make_stream(name: &str, description: &str) -> Stream {
 }
 
 #[test]
-fn discover_hiding_fallback_and_type_rewrite_work() {
+fn discover_hiding_fallback_custom_title_and_type_rewrite_work() {
     let (rt, _events) = runtime(Profile::default());
     let mut model = rt.model().unwrap().clone();
     let base = Url::parse("https://addon.example/manifest.json").unwrap();
@@ -107,10 +109,40 @@ fn discover_hiding_fallback_and_type_rewrite_work() {
     ];
 
     let mut extras = LocalExtras::default();
-    extras
-        .content
-        .hidden_discover_catalogs
-        .push(catalog_key(&req_m1));
+    let id_m1 = catalog_item_id("discover", &catalog_key(&req_m1));
+    let id_m2 = catalog_item_id("discover", &catalog_key(&req_m2));
+    // Reordering Board must NOT change Discover order.
+    let board_ids: Vec<String> = content::project(&model, &extras)
+        .board_items
+        .into_iter()
+        .map(|i| i.id)
+        .collect();
+    assert!(move_item(&mut extras.content, "board", &board_ids, 1, 0));
+    let after_board = content::project(&model, &extras);
+    assert_eq!(after_board.board_items[0].id, board_ids[1]);
+    assert_eq!(after_board.discover_items[0].id, id_m1);
+    assert_eq!(
+        discover::active_type_first_visible(&model, &extras.content),
+        None
+    );
+
+    // Reordering Discover moves Featured ahead of Top and updates active_type_first_visible.
+    let disc_ids: Vec<String> = after_board
+        .discover_items
+        .into_iter()
+        .map(|i| i.id)
+        .collect();
+    assert!(move_item(&mut extras.content, "discover", &disc_ids, 1, 0));
+    assert_eq!(
+        discover::active_type_first_visible(&model, &extras.content),
+        Some(req_m2.clone())
+    );
+    let reordered = discover::data_with_extras(&model, &extras);
+    assert_eq!(reordered.inputs[1].menu.options[0].0, "Featured");
+    assert_eq!(reordered.inputs[0].values[0], req_m2);
+    extras.content.discover_order.clear();
+    set_item_active(&mut extras.content, &id_m1, false);
+    set_item_title(&mut extras.content, &id_m2, Some("Curated Picks"));
     assert_eq!(
         discover::fallback_request_if_hidden(&model, &extras.content),
         Some(req_m2.clone())
@@ -118,12 +150,9 @@ fn discover_hiding_fallback_and_type_rewrite_work() {
     let data = discover::data_with_extras(&model, &extras);
     assert_eq!(data.inputs[0].values[0], req_m2);
     assert_eq!(data.inputs[1].menu.options.len(), 1);
-    assert_eq!(data.inputs[1].menu.options[0].0, "Featured");
+    assert_eq!(data.inputs[1].menu.options[0].0, "Curated Picks");
 
-    extras
-        .content
-        .hidden_discover_catalogs
-        .push(catalog_key(&req_m2));
+    set_item_active(&mut extras.content, &id_m2, false);
     assert_eq!(
         discover::fallback_request_if_hidden(&model, &extras.content),
         Some(req_s1)
@@ -133,8 +162,10 @@ fn discover_hiding_fallback_and_type_rewrite_work() {
     assert!(all_hidden.cards.is_empty());
 
     let view = content::project(&model, &extras);
-    assert_eq!(view.catalogs.len(), 3);
-    assert_eq!(view.stream_addons.len(), 1);
+    assert_eq!(view.board_items.len(), 3);
+    assert_eq!(view.discover_items.len(), 3);
+    assert_eq!(view.stream_items.len(), 1);
+    assert!(!super::search::search("organize", false, false).is_empty());
     assert!(!super::search::search("presets", false, false).is_empty());
 }
 
@@ -154,7 +185,7 @@ fn disabled_stream_addons_excluded_from_loading_and_player_index_matches() {
         },
         ResourceLoadable {
             request: ResourceRequest {
-                base: base_b,
+                base: base_b.clone(),
                 path: ResourcePath::without_extra("stream", "movie", "tt1"),
             },
             content: Some(Loadable::Ready(vec![
@@ -165,24 +196,20 @@ fn disabled_stream_addons_excluded_from_loading_and_player_index_matches() {
     ];
 
     let mut extras = LocalExtras::default();
-    toggle_stream_addon(&mut extras.content, base_a.as_str(), false);
-    assert!(upsert_preset(&mut extras.content, "", "Clean", "", "CAM"));
+    set_item_active(&mut extras.content, &format!("streams|{base_a}"), false);
+    assert!(create_preset(
+        &mut extras.content,
+        "Clean",
+        &[],
+        &["CAM".into()]
+    ));
     let pid = extras.content.stream_presets[0].id.clone();
-    set_active_preset(&mut extras.content, &pid);
+    toggle_active_preset(&mut extras.content, &pid);
 
     let det = details::data_with_extras(&model, &extras, None, None, None, "");
     assert_eq!(det.sources_loading, 0);
     assert_eq!(det.streams.len(), 1);
     assert_eq!(det.streams[0].name, "4K Clean");
-    assert!(!upsert_preset(&mut extras.content, &pid, "   ", "", ""));
-    assert!(upsert_preset(
-        &mut extras.content,
-        &pid,
-        "Ultra",
-        "4K",
-        "CAM"
-    ));
-    assert_eq!(extras.content.stream_presets[0].name, "Ultra");
 
     let vis = details::visible_streams(&model, &extras.content)
         .next()

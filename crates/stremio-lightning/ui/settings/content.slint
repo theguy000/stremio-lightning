@@ -1,7 +1,7 @@
-// Settings -> Content page: Catalogs, Stream sources, and Stream Filter Presets.
+// Settings -> Content page matching Stremio Web: Organize content + Filter streams.
 import { SettingsPageHeader } from "primitives.slint";
-import { ContentCatalogsGroup } from "content-catalogs.slint";
-import { StreamPresetsGroup, StreamSourcesGroup } from "content-streams.slint";
+import { OrganizeContentGroup } from "content-organize.slint";
+import { FilterStreamsGroup } from "content-presets.slint";
 
 export component ContentPage inherits VerticalLayout {
     in property <length> rem-size;
@@ -14,15 +14,11 @@ export component ContentPage inherits VerticalLayout {
         rem-size: root.rem-size;
     }
 
-    ContentCatalogsGroup {
+    OrganizeContentGroup {
         rem-size: root.rem-size;
     }
 
-    StreamSourcesGroup {
-        rem-size: root.rem-size;
-    }
-
-    StreamPresetsGroup {
+    FilterStreamsGroup {
         rem-size: root.rem-size;
     }
 }

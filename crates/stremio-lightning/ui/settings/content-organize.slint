@@ -1,0 +1,247 @@
+// Based on Stremio ContentSettings + Chips(category) + SortableList (max-height: 28rem).
+import { ScrollBar } from "../scroll-bar.slint";
+import { Theme } from "../theme.slint";
+import { SettingsGroup } from "primitives.slint";
+import { SortableRow } from "content-sortable-row.slint";
+import { ContentOrganizeRow, SettingsUi } from "types.slint";
+
+component CategoryTab inherits Rectangle {
+    in property <length> rem-size;
+    in property <string> label;
+    in property <bool> active: false;
+    callback clicked();
+
+    horizontal-stretch: 1;
+    height: 2.75 * root.rem-size;
+    border-top-left-radius: 0.5 * root.rem-size;
+    border-top-right-radius: 0.5 * root.rem-size;
+    background: t.has-hover ? Theme.overlay : transparent;
+    animate background { duration: 100ms; easing: ease-out; }
+
+    Text {
+        width: parent.width;
+        height: parent.height;
+        text: root.label;
+        font-size: 1 * root.rem-size;
+        font-weight: 500;
+        color: Theme.text;
+        opacity: (root.active || t.has-hover) ? 1.0 : 0.6;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    Rectangle {
+        x: 0px;
+        y: parent.height - 2px;
+        width: parent.width;
+        height: 2px;
+        background: root.active ? Theme.accent : transparent;
+    }
+
+    t := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component OrganizeContentGroup inherits SettingsGroup {
+    title: "Organize content";
+    description: "Rearrange catalogs effortlessly with drag and drop. Hide or show any of them on each page they are available.";
+    padded: true;
+
+    property <string> active-tab: "board";
+    property <[ContentOrganizeRow]> items:
+        root.active-tab == "discover" ? SettingsUi.content-discover-items
+        : root.active-tab == "search" ? SettingsUi.content-search-items
+        : root.active-tab == "streams" ? SettingsUi.content-stream-items
+        : SettingsUi.content-board-items;
+    property <length> row-h: 3.5 * root.rem-size;
+    property <length> list-content-h: root.items.length * root.row-h;
+    property <length> list-view-h: Math.min(28 * root.rem-size, root.list-content-h);
+    property <int> drag-idx: -1;
+    property <int> drop-idx: -1;
+    property <length> drag-dy: 0px;
+    property <string> edit-id: "";
+    property <string> edit-text: "";
+
+    function switch-tab(tab: string) {
+        root.active-tab = tab;
+        root.edit-id = "";
+        root.drag-idx = -1;
+        root.drop-idx = -1;
+        root.drag-dy = 0px;
+        SettingsUi.content-list-scroll = 0px;
+    }
+
+    pure function slot-y(idx: int) -> length {
+        if (root.drag-idx < 0 || idx == root.drag-idx) {
+            return idx * root.row-h;
+        }
+        if (root.drag-idx < root.drop-idx && idx > root.drag-idx && idx <= root.drop-idx) {
+            return (idx - 1) * root.row-h;
+        }
+        if (root.drag-idx > root.drop-idx && idx >= root.drop-idx && idx < root.drag-idx) {
+            return (idx + 1) * root.row-h;
+        }
+        return idx * root.row-h;
+    }
+
+    // Auto-scroll fixed-height list when dragging near its top/bottom edge.
+    Timer {
+        interval: 24ms;
+        running: root.drag-idx >= 0 && root.list-content-h > root.list-view-h;
+        triggered => {
+            let ghost-y = Math.max(0px, Math.min(root.list-content-h - root.row-h, root.drag-idx * root.row-h + root.drag-dy));
+            let vis-y = ghost-y + SettingsUi.content-list-scroll;
+            let edge = 2.2 * root.rem-size;
+            let step = 0.55 * root.rem-size;
+            let max-s = Math.max(0px, root.list-content-h - root.list-view-h);
+            if (vis-y < edge && SettingsUi.content-list-scroll < 0px) {
+                let next = Math.min(0px, SettingsUi.content-list-scroll + step);
+                let delta = next - SettingsUi.content-list-scroll;
+                SettingsUi.content-list-scroll = next;
+                root.drag-dy -= delta;
+                root.drop-idx = Math.max(0, Math.min(root.items.length - 1, Math.round((root.drag-idx * root.row-h + root.drag-dy) / root.row-h)));
+            } else if (vis-y + root.row-h > root.list-view-h - edge && SettingsUi.content-list-scroll > -max-s) {
+                let next = Math.max(-max-s, SettingsUi.content-list-scroll - step);
+                let delta = SettingsUi.content-list-scroll - next;
+                SettingsUi.content-list-scroll = next;
+                root.drag-dy += delta;
+                root.drop-idx = Math.max(0, Math.min(root.items.length - 1, Math.round((root.drag-idx * root.row-h + root.drag-dy) / root.row-h)));
+            }
+        }
+    }
+
+    Rectangle {
+        border-radius: 0.5 * root.rem-size;
+        background: SettingsUi.hit-row == "organize" ? #ffffff14 : transparent;
+        animate background { duration: 250ms; }
+
+        VerticalLayout {
+            spacing: 1 * root.rem-size;
+            alignment: start;
+
+            HorizontalLayout {
+                spacing: 0px;
+                CategoryTab { rem-size: root.rem-size; label: "Board"; active: root.active-tab == "board"; clicked => { root.switch-tab("board"); } }
+                CategoryTab { rem-size: root.rem-size; label: "Discover"; active: root.active-tab == "discover"; clicked => { root.switch-tab("discover"); } }
+                CategoryTab { rem-size: root.rem-size; label: "Search"; active: root.active-tab == "search"; clicked => { root.switch-tab("search"); } }
+                CategoryTab { rem-size: root.rem-size; label: "Streams"; active: root.active-tab == "streams"; clicked => { root.switch-tab("streams"); } }
+            }
+
+            if root.items.length == 0: Rectangle {
+                height: 6 * root.rem-size;
+                border-radius: 0.5 * root.rem-size;
+                background: Theme.overlay;
+                Text {
+                    width: parent.width;
+                    height: parent.height;
+                    text: "No items available";
+                    font-size: 0.95 * root.rem-size;
+                    font-italic: true;
+                    color: Theme.text;
+                    opacity: 0.7;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+
+            if root.items.length > 0: list-box := Rectangle {
+                height: root.list-view-h;
+                clip: true;
+
+                property <length> wx: self.absolute-position.x;
+                property <length> wy: self.absolute-position.y;
+                property <length> ww: self.width;
+                property <length> wh: self.height;
+                property <length> wc: root.list-content-h;
+                changed wx => { SettingsUi.content-list-x = self.wx; }
+                changed wy => { SettingsUi.content-list-y = self.wy; }
+                changed ww => { SettingsUi.content-list-w = self.ww; }
+                changed wh => { SettingsUi.content-list-h = self.wh; }
+                changed wc => { SettingsUi.content-list-content-h = self.wc; }
+                init => {
+                    SettingsUi.content-list-x = self.wx;
+                    SettingsUi.content-list-y = self.wy;
+                    SettingsUi.content-list-w = self.ww;
+                    SettingsUi.content-list-h = self.wh;
+                    SettingsUi.content-list-content-h = self.wc;
+                }
+
+                list-scroll := Flickable {
+                    x: 0px;
+                    y: 0px;
+                    width: root.list-content-h > root.list-view-h ? parent.width - 10px : parent.width;
+                    height: parent.height;
+                    interactive: false;
+                    content-width: self.width;
+                    content-height: root.list-content-h;
+                    content-y <=> SettingsUi.content-list-scroll;
+
+                    for item[idx] in root.items: SortableRow {
+                        x: 0px;
+                        y: root.slot-y(idx);
+                        width: parent.width;
+                        rem-size: root.rem-size;
+                        item: item;
+                        idx: idx;
+                        is-drag-source: idx == root.drag-idx;
+                        editing: root.edit-id == item.id;
+                        draft-title <=> root.edit-text;
+                        animate y { duration: 120ms; easing: ease-out; }
+                        start-drag(i) => {
+                            root.edit-id = "";
+                            root.drag-idx = i;
+                            root.drop-idx = i;
+                            root.drag-dy = 0px;
+                        }
+                        move-drag(dy) => {
+                            root.drag-dy = dy;
+                            root.drop-idx = Math.max(0, Math.min(root.items.length - 1, Math.round((root.drag-idx * root.row-h + dy) / root.row-h)));
+                        }
+                        end-drag => {
+                            if (root.drag-idx >= 0 && root.drop-idx >= 0 && root.drag-idx != root.drop-idx) {
+                                SettingsUi.content-move-item(root.active-tab, root.drag-idx, root.drop-idx);
+                            }
+                            root.drag-idx = -1;
+                            root.drop-idx = -1;
+                            root.drag-dy = 0px;
+                        }
+                        begin-edit => {
+                            root.edit-id = item.id;
+                            root.edit-text = item.label;
+                        }
+                        commit-edit(val) => {
+                            SettingsUi.content-rename-item(item.id, val);
+                            root.edit-id = "";
+                        }
+                        reset-edit => {
+                            SettingsUi.content-rename-item(item.id, "");
+                            root.edit-id = "";
+                        }
+                        toggle-active(v) => { SettingsUi.content-toggle-item(item.id, v); }
+                    }
+
+                    if root.drag-idx >= 0 && root.drag-idx < root.items.length: SortableRow {
+                        x: 0px;
+                        y: Math.max(0px, Math.min((root.items.length - 1) * root.row-h, root.drag-idx * root.row-h + root.drag-dy));
+                        width: parent.width;
+                        rem-size: root.rem-size;
+                        item: root.items[root.drag-idx];
+                        idx: root.drag-idx;
+                        is-ghost: true;
+                    }
+                }
+
+                if root.list-content-h > root.list-view-h: ScrollBar {
+                    x: parent.width - 6px;
+                    y: 0px;
+                    height: parent.height;
+                    view-height: parent.height;
+                    content-height: root.list-content-h;
+                    offset <=> SettingsUi.content-list-scroll;
+                }
+            }
+        }
+    }
+}
