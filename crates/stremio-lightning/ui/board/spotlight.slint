@@ -1,285 +1,190 @@
 // Based on stremio-web src/routes/Board/Spotlight (Copyright Smart code 203358507).
 import { Theme } from "../theme.slint";
 import { CoverImage } from "../settings/spotlight-card.slint";
+import { SpotlightPager } from "spotlight-pager.slint";
+import { SpotlightSlide, SpotlightSlideContent } from "spotlight-slide.slint";
 
-export struct SpotlightSlide {
-    id: string,
-    kind: string,
-    title: string,
-    background: image,
-    has-background: bool,
-    logo: image,
-    has-logo: bool,
-    year: string,
-    runtime: string,
-    imdb-rating: string,
-    genres: string,
-    description: string,
-    in-library: bool,
-}
-
-component PagerBtn inherits Rectangle {
-    in property <length> rem-size;
-    in property <image> icon;
-    callback clicked();
-    width: 2.5 * root.rem-size;
-    height: 2.5 * root.rem-size;
-    border-radius: 1.25 * root.rem-size;
-    background: t.has-hover ? #ffffff29 : #ffffff14;
-    Image {
-        x: (parent.width - self.width) / 2;
-        y: (parent.height - self.height) / 2;
-        width: 1.1 * root.rem-size;
-        height: 1.1 * root.rem-size;
-        source: root.icon;
-        colorize: #ffffff;
-    }
-    t := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
-}
+export { SpotlightSlide }
 
 export component BoardSpotlight inherits Rectangle {
     in property <[SpotlightSlide]> slides;
+    in property <[string]> slide-labels;
+    in property <string> slide-key;
+    in property <bool> offscreen: false;
     in property <length> rem-size: 14px;
-    in property <length> viewport-width: 1280px;
+    in property <length> nav-width: 6 * 14px;
+    in property <length> bar-height: 5.5 * 14px;
     callback open-item(string, string, string);
     callback toggle-library(string, string, bool);
+    callback open-trailer(string);
 
     in-out property <int> active-index: 0;
     in-out property <bool> paused: false;
+    property <int> prev-index: -1;
+    property <float> prev-scale: 1.0;
+    property <int> zoom-ms: 0;
+    property <int> cycle-ms: 0;
+
     property <int> count: root.slides.length;
     property <int> safe-idx: root.count == 0 ? 0 : Math.mod(root.active-index + root.count, root.count);
     property <SpotlightSlide> current: root.slides[root.safe-idx];
 
-    height: Math.max(26 * root.rem-size, Math.min(38 * root.rem-size, root.viewport-width * 0.38));
-    border-radius: 1.25 * root.rem-size;
-    background: #0c0b11;
+    // Ease-out cubic 1.06 -> 1.0 over 14s matching Spotlight.less `transform 14s ease-out`.
+    property <float> zoom-t: Math.min(1.0, root.zoom-ms / 14000.0);
+    property <float> zoom-inv: 1.0 - root.zoom-t;
+    property <float> active-scale: 1.06 - 0.06 * (1.0 - root.zoom-inv * root.zoom-inv * root.zoom-inv);
+    // Slide content gentle fade + rise on transitions matching Slide.less (0.18s delay, 0.45s fade).
+    property <float> enter-t: root.prev-index < 0 ? 1.0 : Math.min(1.0, Math.max(0.0, (root.zoom-ms - 140) / 420.0));
+    property <float> enter-inv: 1.0 - root.enter-t;
+    property <float> enter-ease: 1.0 - root.enter-inv * root.enter-inv * root.enter-inv;
+    property <float> cycle-progress: Math.min(1.0, root.cycle-ms / 8000.0);
+    property <bool> compact-layout: (root.width - root.nav-width) < 46 * root.rem-size;
+    property <length> content-bottom: root.compact-layout ? 10 * root.rem-size : 6 * root.rem-size;
+    property <length> pager-bottom: 6.6 * root.rem-size;
+    property <color> fade-base: Theme.amoled ? #000000 : #121024;
+    property <color> scrim-base: Theme.amoled ? #000000 : #0c0b11;
+
+    changed slide-key => {
+        root.active-index = 0;
+        root.prev-index = -1;
+        root.prev-scale = 1.0;
+        root.zoom-ms = 0;
+        root.cycle-ms = 0;
+        root.paused = false;
+    }
+
+    function go(next: int) {
+        if (root.count == 0) {
+            return;
+        }
+        let target = Math.mod(next + root.count, root.count);
+        if (target == root.safe-idx) {
+            root.cycle-ms = 0;
+            return;
+        }
+        root.prev-index = root.safe-idx;
+        root.prev-scale = root.active-scale;
+        root.active-index = target;
+        root.zoom-ms = 0;
+        root.cycle-ms = 0;
+    }
+
+    background: transparent;
     clip: true;
 
-    // UI animation timer (8s per slide matching Stremio Web @fill-duration), paused on hover or manual pause.
-    auto-cycle := Timer {
-        interval: 8000ms;
-        running: root.count > 1 && !root.paused && !hover-area.has-hover && !watch-t.has-hover && !lib-t.has-hover;
+    // 60fps driver for the 14s zoom-out animation and the 8s auto-advance fill bar.
+    // Pauses automatically when scrolled offscreen; auto-advance stops only when paused by user.
+    anim-timer := Timer {
+        interval: 16ms;
+        running: !root.offscreen && root.count > 0 && (root.zoom-ms < 14000 || (root.count > 1 && !root.paused));
         triggered => {
-            root.active-index = Math.mod(root.safe-idx + 1, root.count);
+            if (root.zoom-ms < 14000) {
+                root.zoom-ms = Math.min(14000, root.zoom-ms + 16);
+            }
+            if (root.count > 1 && !root.paused) {
+                root.cycle-ms += 16;
+                if (root.cycle-ms >= 8000) {
+                    root.go(root.safe-idx + 1);
+                }
+            }
         }
     }
 
-    if root.current.has-background: CoverImage {
+    // Crossfading GPU-scaled zoom-out backdrop stack: fixed CoverImage bounds + transform-scale
+    // keeps source-clip integer rects constant and bypasses pixel_align_origin snapping (zero jitter).
+    for slide[i] in root.slides: Rectangle {
+        property <bool> is-active: i == root.safe-idx;
+        property <float> s: self.is-active ? root.active-scale : (i == root.prev-index ? root.prev-scale : 1.06);
         width: parent.width;
         height: parent.height;
-        source: root.current.background;
-        pos-x: 0.72;
-        pos-y: 0.22;
+        opacity: self.is-active ? 1.0 : 0.0;
+        animate opacity { duration: 900ms; easing: ease; }
+
+        if slide.has-background: CoverImage {
+            x: 0px;
+            y: 0px;
+            width: parent.width;
+            height: parent.height;
+            transform-origin: { x: parent.width / 2, y: parent.height / 2 };
+            transform-scale: s;
+            source: slide.background;
+            pos-x: 0.72;
+            pos-y: 0.22;
+        }
     }
 
-    // Left dark horizontal scrim matching Spotlight.less
+    // Left horizontal scrim behind VerticalNavBar + text stack (matches Spotlight.less).
     Rectangle {
-        width: parent.width * 0.78;
+        width: parent.width;
         height: parent.height;
-        background: @linear-gradient(90deg, #0c0b11e0 0%, #0c0b11b3 30%, #0c0b1161 58%, #0c0b1100 100%);
+        background: @linear-gradient(
+            90deg,
+            root.scrim-base.with-alpha(0.88) 0%,
+            root.scrim-base.with-alpha(0.70) 22%,
+            root.scrim-base.with-alpha(0.38) 42%,
+            root.scrim-base.with-alpha(0.10) 60%,
+            root.scrim-base.with-alpha(0.0) 74%
+        );
     }
-    // Bottom fade into Board rows
+
+    // Top fade under HorizontalNavBar (matches Spotlight.less mask top ramp).
     Rectangle {
-        y: parent.height * 0.55;
+        x: 0px;
+        y: 0px;
         width: parent.width;
-        height: parent.height * 0.45;
-        background: @linear-gradient(180deg, #0c0b1100 0%, #0c0b118c 55%, #0c0b11f2 100%);
+        height: root.bar-height + 2.5 * root.rem-size;
+        background: @linear-gradient(
+            180deg,
+            root.scrim-base.with-alpha(0.82) 0%,
+            root.scrim-base.with-alpha(0.32) 55%,
+            root.scrim-base.with-alpha(0.0) 100%
+        );
     }
 
-    hover-area := TouchArea {
+    // Bottom fade into Continue Watching and page background (matches Spotlight.less 68% -> 100% ramp).
+    Rectangle {
+        x: 0px;
+        y: parent.height * 0.56;
         width: parent.width;
-        height: parent.height;
+        height: parent.height * 0.44;
+        background: @linear-gradient(
+            180deg,
+            root.fade-base.with-alpha(0.0) 0%,
+            root.fade-base.with-alpha(0.45) 46%,
+            root.fade-base.with-alpha(0.86) 78%,
+            root.fade-base 100%
+        );
     }
 
-    // Left content stack
-    VerticalLayout {
-        x: 2.25 * root.rem-size;
-        y: parent.height - self.height - 2.25 * root.rem-size;
-        width: Math.min(38 * root.rem-size, parent.width - 18 * root.rem-size);
-        height: self.preferred-height;
-        alignment: end;
-        spacing: 1 * root.rem-size;
-
-        if root.current.has-logo: Rectangle {
-            height: 6.2 * root.rem-size;
-            Image {
-                height: parent.height;
-                width: Math.min(24 * root.rem-size, parent.width);
-                source: root.current.logo;
-                image-fit: contain;
-                horizontal-alignment: left;
-            }
-            TouchArea {
-                mouse-cursor: pointer;
-                clicked => { root.open-item(root.current.id, root.current.kind, root.current.title); }
-            }
-        }
-        if !root.current.has-logo: Rectangle {
-            height: title-lbl.preferred-height;
-            title-lbl := Text {
-                width: parent.width;
-                text: root.current.title;
-                font-size: 2.25 * root.rem-size;
-                font-weight: 700;
-                color: Theme.text;
-                wrap: word-wrap;
-            }
-            TouchArea {
-                mouse-cursor: pointer;
-                clicked => { root.open-item(root.current.id, root.current.kind, root.current.title); }
-            }
-        }
-
-        HorizontalLayout {
-            spacing: 0.9 * root.rem-size;
-            alignment: start;
-
-            if root.current.year != "": Text {
-                text: root.current.year;
-                font-size: 0.95 * root.rem-size;
-                font-weight: 500;
-                color: #ffffffcc;
-                vertical-alignment: center;
-            }
-            if root.current.runtime != "": Text {
-                text: root.current.runtime;
-                font-size: 0.95 * root.rem-size;
-                color: #ffffffcc;
-                vertical-alignment: center;
-            }
-            if root.current.imdb-rating != "": Rectangle {
-                height: 1.6 * root.rem-size;
-                width: imdb-lbl.preferred-width + 0.9 * root.rem-size;
-                border-radius: 0.35 * root.rem-size;
-                background: #f5c518;
-                imdb-lbl := Text {
-                    width: parent.width;
-                    height: parent.height;
-                    text: "IMDb " + root.current.imdb-rating;
-                    font-size: 0.8 * root.rem-size;
-                    font-weight: 700;
-                    color: #0c0b11;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                }
-            }
-            if root.current.genres != "": Text {
-                text: root.current.genres;
-                font-size: 0.95 * root.rem-size;
-                color: #ffffffb3;
-                overflow: elide;
-                vertical-alignment: center;
-            }
-        }
-
-        if root.current.description != "": Text {
-            text: root.current.description;
-            font-size: 0.95 * root.rem-size;
-            color: #ffffffcc;
-            wrap: word-wrap;
-            max-height: 4.5 * root.rem-size;
-            overflow: elide;
-        }
-
-        HorizontalLayout {
-            spacing: 0.9 * root.rem-size;
-            alignment: start;
-            padding-top: 0.35 * root.rem-size;
-
-            Rectangle {
-                height: 3.4 * root.rem-size;
-                width: watch-row.preferred-width;
-                border-radius: 1.7 * root.rem-size;
-                background: watch-t.has-hover ? #8e72ff : Theme.accent;
-
-                watch-row := HorizontalLayout {
-                    padding-left: 1.5 * root.rem-size;
-                    padding-right: 1.9 * root.rem-size;
-                    spacing: 0.65 * root.rem-size;
-                    alignment: center;
-
-                    VerticalLayout {
-                        alignment: center;
-                        Image {
-                            width: 1.25 * root.rem-size;
-                            height: 1.25 * root.rem-size;
-                            source: @image-url("../icons/play.svg");
-                            colorize: #ffffff;
-                        }
-                    }
-                    Text {
-                        text: "Watch";
-                        font-size: 1.05 * root.rem-size;
-                        font-weight: 600;
-                        color: #ffffff;
-                        vertical-alignment: center;
-                    }
-                }
-                watch-t := TouchArea {
-                    mouse-cursor: pointer;
-                    accessible-role: button;
-                    accessible-label: "Watch " + root.current.title;
-                    clicked => { root.open-item(root.current.id, root.current.kind, root.current.title); }
-                }
-            }
-
-            Rectangle {
-                width: 3.4 * root.rem-size;
-                height: 3.4 * root.rem-size;
-                border-radius: 1.7 * root.rem-size;
-                background: lib-t.has-hover ? #ffffff3d : #ffffff1a;
-
-                Image {
-                    x: (parent.width - self.width) / 2;
-                    y: (parent.height - self.height) / 2;
-                    width: 1.4 * root.rem-size;
-                    height: 1.4 * root.rem-size;
-                    source: root.current.in-library ? @image-url("../icons/remove-from-library.svg") : @image-url("../icons/add-to-library.svg");
-                    colorize: #ffffff;
-                }
-                lib-t := TouchArea {
-                    mouse-cursor: pointer;
-                    accessible-role: button;
-                    accessible-label: root.current.in-library ? "Remove from Library" : "Add to Library";
-                    clicked => { root.toggle-library(root.current.id, root.current.kind, root.current.in-library); }
-                }
-            }
-        }
+    slide-content := SpotlightSlideContent {
+        x: root.nav-width + 2 * root.rem-size;
+        y: parent.height - self.height - root.content-bottom + (1.0 - root.enter-ease) * 0.75 * root.rem-size;
+        width: root.compact-layout ? Math.max(16 * root.rem-size, Math.min(40 * root.rem-size, parent.width - root.nav-width - 4 * root.rem-size)) : Math.max(16 * root.rem-size, Math.min(40 * root.rem-size, parent.width - root.nav-width - 30 * root.rem-size));
+        opacity: root.enter-t;
+        current: root.current;
+        rem-size: root.rem-size;
+        open-item(id, kind, title) => { root.open-item(id, kind, title); }
+        toggle-library(id, kind, in-lib) => { root.toggle-library(id, kind, in-lib); }
+        open-trailer(url) => { root.open-trailer(url); }
     }
 
-    // Bottom-right Pager matching Pager.less
-    if root.count > 1: HorizontalLayout {
+    pager := SpotlightPager {
+        visible: root.count > 1;
         x: parent.width - self.width - 2 * root.rem-size;
-        y: parent.height - self.height - 2.25 * root.rem-size;
-        width: self.preferred-width;
-        height: self.preferred-height;
-        spacing: 0.45 * root.rem-size;
-        alignment: end;
-
-        PagerBtn {
-            rem-size: root.rem-size;
-            icon: @image-url("../icons/chevron-back.svg");
-            clicked => { root.paused = true; root.active-index = Math.mod(root.safe-idx + root.count - 1, root.count); }
-        }
-        for slide[i] in root.slides: VerticalLayout {
-            alignment: center;
-            Rectangle {
-                width: i == root.safe-idx ? 3.2 * root.rem-size : 1.5 * root.rem-size;
-                height: 0.32 * root.rem-size;
-                border-radius: 0.16 * root.rem-size;
-                background: i == root.safe-idx ? #ffffff : #ffffff4d;
-                TouchArea { mouse-cursor: pointer; clicked => { root.paused = true; root.active-index = i; } }
+        y: parent.height - self.height - root.pager-bottom;
+        labels: root.slide-labels;
+        active-index: root.safe-idx;
+        stopped: root.paused;
+        progress: root.cycle-progress;
+        rem-size: root.rem-size;
+        select(i) => { root.go(i); }
+        previous => { root.go(root.safe-idx - 1); }
+        next => { root.go(root.safe-idx + 1); }
+        toggle-pause => {
+            root.paused = !root.paused;
+            if (!root.paused) {
+                root.cycle-ms = 0;
             }
-        }
-        PagerBtn {
-            rem-size: root.rem-size;
-            icon: @image-url("../icons/chevron-forward.svg");
-            clicked => { root.paused = true; root.active-index = Math.mod(root.safe-idx + 1, root.count); }
-        }
-        PagerBtn {
-            rem-size: root.rem-size;
-            icon: root.paused ? @image-url("../icons/play.svg") : @image-url("../icons/pause.svg");
-            clicked => { root.paused = !root.paused; }
         }
     }
 }

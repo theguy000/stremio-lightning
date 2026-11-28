@@ -18,43 +18,15 @@ import { AuthUi, IntroContent } from "intro.slint";
 import { ShellModals, ShellModalsUi } from "shell-modals.slint";
 
 export {
-    AddonData,
-    AddonPendingData,
-    AddonsUi,
-    AuthUi,
-    BoardUi,
-    CalendarData,
-    CalendarUi,
-    CatalogRow,
-    ClassStyle,
-    ClassStyles,
-    DetailsUi,
-    DiscoverUi,
-    LanguageOption,
-    LibraryCard,
-    LibrarySort,
-    LibraryUi,
-    LinkGroup,
-    ModCardData,
-    ModsNavItem,
-    ModsUi,
-    ModsViewData,
-    PlayerEpisode,
-    PlayerOption,
-    PlayerTrack,
-    PlayerUi,
-    PosterData,
-    PreviewData,
-    Section,
-    SelectInputData,
-    SelectOption,
-    ContentOrganizeRow, ServerUrlRow, SettingsSearchHit, SettingsUi, SettingsViewData, SpotlightCardRow3, SpotlightCatalogCardData, SpotlightCatalogGroup, SpotlightPickChip, StreamPresetRow,
-    ShellModalsUi, SpotlightSlide,
-    SkipMark,
-    SkipRow,
-    StreamData,
-    Theme,
-    VideoRow,
+    AddonData, AddonPendingData, AddonsUi, AuthUi, BoardUi,
+    CalendarData, CalendarUi, CatalogRow, ClassStyle, ClassStyles,
+    DetailsUi, DiscoverUi, LanguageOption, LibraryCard, LibrarySort, LibraryUi, LinkGroup,
+    ModCardData, ModsNavItem, ModsUi, ModsViewData,
+    PlayerEpisode, PlayerOption, PlayerTrack, PlayerUi, PosterData, PreviewData,
+    Section, SelectInputData, SelectOption,
+    ContentOrganizeRow, ServerUrlRow, SettingsSearchHit, SettingsUi, SettingsViewData,
+    SpotlightCardRow3, SpotlightCatalogCardData, SpotlightCatalogGroup, SpotlightPickChip,
+    StreamPresetRow, ShellModalsUi, SpotlightSlide, SkipMark, SkipRow, StreamData, Theme, VideoRow,
 }
 
 export component MainWindow inherits Window {
@@ -93,13 +65,17 @@ export component MainWindow inherits Window {
     property <length> rem-size: Theme.rem-size(root.width);
     property <length> nav-width: root.playing || root.details-open ? 0px : 6 * root.rem-size;
     property <length> bar-height: root.playing ? 0px : 5.5 * root.rem-size;
+    property <bool> board-spotlight: root.section == Section.board && !root.details-open && !root.playing
+        && (BoardUi.spotlight.length > 0 || BoardUi.spotlight-loading);
 
     if root.section == Section.board && !root.details-open && !root.playing: BoardContent {
-        x: root.nav-width;
-        y: root.bar-height;
-        width: parent.width - root.nav-width;
-        height: parent.height - root.bar-height;
+        x: root.board-spotlight ? 0px : root.nav-width;
+        y: root.board-spotlight ? 0px : root.bar-height;
+        width: parent.width - self.x;
+        height: parent.height - self.y;
         viewport-width: root.width;
+        nav-width: root.nav-width;
+        bar-height: root.bar-height;
         scroll-offset <=> root.board-scroll;
         scroll-bounds(x, y, width, viewport, content) => { root.scroll-bounds("board", x, y, width, viewport, content); }
         open-item(id, kind, title) => { root.details-open = true; root.open-item(id, kind, title); }
@@ -150,6 +126,23 @@ export component MainWindow inherits Window {
         height: parent.height;
         rem-size: root.rem-size;
         init => { self.focus-player(); }
+    }
+
+    // Top-bar shield + scrolled page-background clip matching Web `.with-spotlight.scrolled::after`.
+    if root.board-spotlight: Rectangle {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: root.bar-height;
+        clip: true;
+        TouchArea {}
+        Rectangle {
+            width: root.width;
+            height: root.height;
+            background: Theme.page-background;
+            opacity: BoardUi.scrolled-past-spotlight ? 1.0 : 0.0;
+            animate opacity { duration: 200ms; easing: ease-out; }
+        }
     }
 
     if !root.playing: HorizontalNavBar {

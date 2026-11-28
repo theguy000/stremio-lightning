@@ -23,11 +23,13 @@ impl AppStore {
 
         let board = mask.contains(ScreenMask::BOARD).then(|| {
             let extras = self.local_extras.lock().unwrap().clone();
-            let (status, rows, spotlight) = board::data_with_extras(&model, &extras);
+            let (status, rows, spotlight, spotlight_loading) =
+                board::data_with_extras(&model, &extras);
             Arc::new(BoardData {
                 status,
                 rows,
                 spotlight,
+                spotlight_loading,
             })
         });
         let discover = mask.contains(ScreenMask::DISCOVER).then(|| {

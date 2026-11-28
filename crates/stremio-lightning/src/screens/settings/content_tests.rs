@@ -130,7 +130,7 @@ fn board_catalogs_respect_drag_order_hide_and_custom_titles() {
     ));
     set_item_title(&mut extras.content, &id_b, Some("My Picks"));
 
-    let (_, rows, _) = board::data_with_extras(&model, &extras);
+    let (_, rows, _, _) = board::data_with_extras(&model, &extras);
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[0].title, "My Picks");
     assert_eq!(rows[0].cards[0].id, "tt2");
@@ -138,7 +138,7 @@ fn board_catalogs_respect_drag_order_hide_and_custom_titles() {
 
     set_item_title(&mut extras.content, &id_b, None);
     set_item_active(&mut extras.content, &id_b, false);
-    let (_, hidden_rows, _) = board::data_with_extras(&model, &extras);
+    let (_, hidden_rows, _, _) = board::data_with_extras(&model, &extras);
     assert_eq!(hidden_rows.len(), 1);
     assert_eq!(hidden_rows[0].cards[0].id, "tt1");
 }
