@@ -27,16 +27,17 @@ pub struct Row {
 
 /// Projects Board with default local settings (Spotlight disabled).
 pub fn data(model: &AppModel) -> (String, Vec<Row>) {
-    let (status, rows, _) = data_with_extras(model, &LocalExtras::default());
+    let (status, rows, _, _) = data_with_extras(model, &LocalExtras::default());
     (status, rows)
 }
 
-/// Projects Board status, catalog rows (hiding Spotlight source rows if configured), and Spotlight slides.
+/// Projects Board status, catalog rows, Spotlight slides, and whether Spotlight is still loading.
 pub fn data_with_extras(
     model: &AppModel,
     extras: &LocalExtras,
-) -> (String, Vec<Row>, Vec<SpotlightItem>) {
-    let (slides, hidden_picks) = spotlight::project_board(model, &extras.spotlight);
+) -> (String, Vec<Row>, Vec<SpotlightItem>, bool) {
+    let (slides, spotlight_loading, hidden_picks) =
+        spotlight::project_board(model, &extras.spotlight);
     let mut catalogs = Vec::new();
     let (mut ready, mut loading, mut failed) = (0, 0, 0);
     for catalog in &model.board.catalogs {
@@ -76,7 +77,7 @@ pub fn data_with_extras(
         .into_iter()
         .collect::<Vec<_>>();
     rows.append(&mut catalogs);
-    (status, rows, slides)
+    (status, rows, slides, spotlight_loading)
 }
 
 fn continue_watching_row(model: &AppModel, preview: &ContinueWatchingPreview) -> Option<Row> {
@@ -195,9 +196,16 @@ pub fn visible_images_with_spotlight(
     let hero_offset = if spotlight.is_empty() {
         0.0
     } else {
-        (vw * 0.38).clamp(26.0 * rem, 38.0 * rem) + spacing
+        let hero_h = (viewport.height * 0.62)
+            .min(vw * 0.56)
+            .clamp(38.0 * rem, 56.0 * rem);
+        (hero_h - 3.5 * rem).max(0.0)
     };
-    let mut y = rem + hero_offset;
+    let mut y = if spotlight.is_empty() {
+        rem
+    } else {
+        hero_offset
+    };
     for row in rows {
         let count = visible_count(row.shape);
         let ratio = match row.shape {

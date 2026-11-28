@@ -130,7 +130,7 @@ pub fn settings_view(model: &AppModel, extras: &LocalExtras) -> SpotlightSetting
         catalogs: picks.clone(),
         show_catalog_rows: true,
     };
-    let (slides, _) = project_board(model, &preview_cfg);
+    let (slides, _, _) = project_board(model, &preview_cfg);
     let first_slide = slides.first();
     let preview_sub = match picked_opts.as_slice() {
         [] => "Spotlight appears once a catalog is available.".to_owned(),

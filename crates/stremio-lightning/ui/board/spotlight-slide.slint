@@ -1,0 +1,234 @@
+// Based on stremio-web src/routes/Board/Spotlight/Slide (Copyright Smart code 203358507).
+import { Theme } from "../theme.slint";
+
+export struct SpotlightSlide {
+    id: string,
+    kind: string,
+    title: string,
+    background: image,
+    has-background: bool,
+    logo: image,
+    has-logo: bool,
+    year: string,
+    runtime: string,
+    imdb-rating: string,
+    genres: string,
+    description: string,
+    in-library: bool,
+    has-trailer: bool,
+    trailer-url: string,
+}
+
+export component SpotlightSlideContent inherits VerticalLayout {
+    in property <SpotlightSlide> current;
+    in property <length> rem-size: 14px;
+    callback open-item(string, string, string);
+    callback toggle-library(string, string, bool);
+    callback open-trailer(string);
+
+    property <float> logo-ratio: root.current.logo.height > 0 ? Math.max(0.5, (root.current.logo.width * 1.0) / (root.current.logo.height * 1.0)) : 2.58;
+    // Matches stremio-web Slide.less: min(7.5rem, 26rem / ratio, 13.2rem / sqrt(ratio))
+    property <length> logo-h: Math.min(
+        7.5 * root.rem-size,
+        Math.min(
+            26 * root.rem-size / root.logo-ratio,
+            13.2 * root.rem-size / Math.sqrt(root.logo-ratio)
+        )
+    );
+    property <bool> has-facts: root.current.year != "" || root.current.runtime != "" || root.current.imdb-rating != "" || root.current.genres != "";
+
+    height: self.preferred-height;
+    alignment: end;
+    spacing: 1.25 * root.rem-size;
+
+    Rectangle {
+        height: root.current.has-logo ? root.logo-h : title-lbl.preferred-height;
+
+        if root.current.has-logo: Image {
+            x: 0px;
+            y: parent.height - self.height;
+            height: root.logo-h;
+            width: Math.min(parent.width, self.height * root.logo-ratio);
+            source: root.current.logo;
+            image-fit: contain;
+            horizontal-alignment: left;
+            vertical-alignment: bottom;
+        }
+        title-lbl := Text {
+            visible: !root.current.has-logo;
+            width: parent.width;
+            text: root.current.title;
+            font-size: 2.75 * root.rem-size;
+            font-weight: 600;
+            color: #ffffff;
+            wrap: word-wrap;
+        }
+        title-t := TouchArea {
+            mouse-cursor: pointer;
+            clicked => { root.open-item(root.current.id, root.current.kind, root.current.title); }
+        }
+    }
+
+    if root.has-facts: HorizontalLayout {
+        spacing: 1.75 * root.rem-size;
+        alignment: start;
+
+        if root.current.year != "": Text {
+            text: root.current.year;
+            font-size: 1.15 * root.rem-size;
+            font-weight: 600;
+            color: #ffffff;
+            vertical-alignment: center;
+        }
+        if root.current.runtime != "": Text {
+            text: root.current.runtime;
+            font-size: 1.15 * root.rem-size;
+            font-weight: 600;
+            color: #ffffff;
+            vertical-alignment: center;
+        }
+        if root.current.imdb-rating != "": HorizontalLayout {
+            spacing: 0.55 * root.rem-size;
+            alignment: start;
+
+            Text {
+                text: root.current.imdb-rating;
+                font-size: 1.15 * root.rem-size;
+                font-weight: 600;
+                color: #ffffff;
+                vertical-alignment: center;
+            }
+            VerticalLayout {
+                alignment: center;
+                Rectangle {
+                    width: 2.65 * root.rem-size;
+                    height: 1.4 * root.rem-size;
+                    border-radius: 0.25 * root.rem-size;
+                    background: Theme.imdb;
+                    Text {
+                        width: parent.width;
+                        height: parent.height;
+                        text: "IMDb";
+                        font-size: 0.78 * root.rem-size;
+                        font-weight: 800;
+                        color: #000000;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+        if root.current.genres != "": Text {
+            horizontal-stretch: 1;
+            min-width: 0px;
+            text: root.current.genres;
+            font-size: 1 * root.rem-size;
+            font-weight: 500;
+            color: #ffffffcc;
+            overflow: elide;
+            vertical-alignment: center;
+        }
+    }
+
+    if root.current.description != "": Text {
+        width: Math.min(36 * root.rem-size, parent.width);
+        text: root.current.description;
+        font-size: 1 * root.rem-size;
+        color: #ffffffcc;
+        wrap: word-wrap;
+        max-height: 5.25 * root.rem-size;
+        overflow: elide;
+    }
+
+    HorizontalLayout {
+        spacing: 1 * root.rem-size;
+        alignment: start;
+        padding-top: 0.5 * root.rem-size;
+
+        Rectangle {
+            height: 4 * root.rem-size;
+            width: watch-row.preferred-width;
+            border-radius: 2 * root.rem-size;
+            background: watch-t.has-hover ? #8e72ff : Theme.accent;
+            animate background { duration: 150ms; easing: ease; }
+
+            watch-row := HorizontalLayout {
+                padding-left: 1.75 * root.rem-size;
+                padding-right: 2.25 * root.rem-size;
+                spacing: 0.85 * root.rem-size;
+                alignment: center;
+
+                VerticalLayout {
+                    alignment: center;
+                    Image {
+                        width: 1.5 * root.rem-size;
+                        height: 1.5 * root.rem-size;
+                        source: @image-url("../icons/play.svg");
+                        colorize: #ffffff;
+                    }
+                }
+                Text {
+                    text: "Watch";
+                    font-size: 1.1 * root.rem-size;
+                    font-weight: 600;
+                    color: #ffffff;
+                    vertical-alignment: center;
+                }
+            }
+            watch-t := TouchArea {
+                mouse-cursor: pointer;
+                accessible-role: button;
+                accessible-label: "Watch " + root.current.title;
+                clicked => { root.open-item(root.current.id, root.current.kind, root.current.title); }
+            }
+        }
+
+        Rectangle {
+            width: 4 * root.rem-size;
+            height: 4 * root.rem-size;
+            border-radius: 2 * root.rem-size;
+            background: lib-t.has-hover ? rgba(255, 255, 255, 0.28) : rgba(255, 255, 255, 0.16);
+            animate background { duration: 150ms; easing: ease-out; }
+
+            Image {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                width: 1.75 * root.rem-size;
+                height: 1.75 * root.rem-size;
+                source: root.current.in-library ? @image-url("../icons/remove-from-library.svg") : @image-url("../icons/add-to-library.svg");
+                colorize: #ffffff;
+            }
+            lib-t := TouchArea {
+                mouse-cursor: pointer;
+                accessible-role: button;
+                accessible-label: root.current.in-library ? "Remove from Library" : "Add to Library";
+                clicked => { root.toggle-library(root.current.id, root.current.kind, root.current.in-library); }
+            }
+        }
+
+        Rectangle {
+            visible: root.current.has-trailer;
+            width: root.current.has-trailer ? 4 * root.rem-size : 0px;
+            height: 4 * root.rem-size;
+            border-radius: 2 * root.rem-size;
+            background: trailer-t.has-hover ? rgba(255, 255, 255, 0.28) : rgba(255, 255, 255, 0.16);
+            animate background { duration: 150ms; easing: ease-out; }
+
+            Image {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                width: 1.75 * root.rem-size;
+                height: 1.75 * root.rem-size;
+                source: @image-url("../icons/trailer.svg");
+                colorize: #ffffff;
+            }
+            trailer-t := TouchArea {
+                enabled: root.current.has-trailer;
+                mouse-cursor: pointer;
+                accessible-role: button;
+                accessible-label: "Trailer";
+                clicked => { root.open-trailer(root.current.trailer-url); }
+            }
+        }
+    }
+}

@@ -1,0 +1,129 @@
+// Based on stremio-web src/routes/Board/Spotlight/Pager (Copyright Smart code 203358507).
+
+component PagerBtn inherits Rectangle {
+    in property <length> rem-size;
+    in property <image> icon;
+    in property <string> label;
+    callback clicked();
+
+    width: 2.75 * root.rem-size;
+    height: 2.75 * root.rem-size;
+    border-radius: 1.375 * root.rem-size;
+    background: t.has-hover ? rgba(255, 255, 255, 0.28) : rgba(255, 255, 255, 0.16);
+    animate background { duration: 150ms; easing: ease-out; }
+
+    Image {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: 1.1 * root.rem-size;
+        height: 1.1 * root.rem-size;
+        source: root.icon;
+        colorize: #ffffff;
+        opacity: t.has-hover ? 1.0 : 0.9;
+        animate opacity { duration: 150ms; easing: ease-out; }
+    }
+    t := TouchArea {
+        mouse-cursor: pointer;
+        accessible-role: button;
+        accessible-label: root.label;
+        clicked => { root.clicked(); }
+    }
+}
+
+component PagerSegment inherits Rectangle {
+    in property <length> rem-size;
+    in property <bool> active;
+    in property <bool> stopped;
+    in property <float> progress;
+    in property <string> label;
+    callback clicked();
+
+    width: root.active ? 3.5 * root.rem-size : 1.75 * root.rem-size;
+    height: 2.75 * root.rem-size;
+    animate width { duration: 350ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+    bar := Rectangle {
+        x: 0px;
+        y: (parent.height - self.height) / 2;
+        width: parent.width;
+        height: 0.3 * root.rem-size;
+        border-radius: 0.15 * root.rem-size;
+        background: seg-t.has-hover ? #ffffff80 : #ffffff4d;
+        clip: true;
+        animate background { duration: 150ms; easing: ease-out; }
+
+        if root.active: Rectangle {
+            x: 0px;
+            y: 0px;
+            height: parent.height;
+            width: root.stopped ? parent.width : parent.width * Math.max(0.0, Math.min(1.0, root.progress));
+            border-radius: parent.border-radius;
+            background: #ffffff;
+        }
+    }
+
+    seg-t := TouchArea {
+        mouse-cursor: pointer;
+        accessible-role: button;
+        accessible-label: root.label;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component SpotlightPager inherits Rectangle {
+    in property <[string]> labels;
+    in property <int> active-index: 0;
+    in property <bool> stopped: false;
+    in property <float> progress: 0.0;
+    in property <length> rem-size: 14px;
+
+    callback select(int);
+    callback previous();
+    callback next();
+    callback toggle-pause();
+
+    width: row.preferred-width;
+    height: row.preferred-height;
+
+    row := HorizontalLayout {
+        spacing: 0.4 * root.rem-size;
+        alignment: end;
+
+        PagerBtn {
+            rem-size: root.rem-size;
+            icon: @image-url("../icons/chevron-back.svg");
+            label: "Previous";
+            clicked => { root.previous(); }
+        }
+
+        HorizontalLayout {
+            padding-left: 0.45 * root.rem-size;
+            padding-right: 0.45 * root.rem-size;
+            spacing: 0.3 * root.rem-size;
+            alignment: center;
+
+            for lbl[i] in root.labels: PagerSegment {
+                rem-size: root.rem-size;
+                active: i == root.active-index;
+                stopped: root.stopped;
+                progress: root.progress;
+                label: lbl;
+                clicked => { root.select(i); }
+            }
+        }
+
+        PagerBtn {
+            rem-size: root.rem-size;
+            icon: @image-url("../icons/chevron-forward.svg");
+            label: "Next";
+            clicked => { root.next(); }
+        }
+
+        PagerBtn {
+            rem-size: root.rem-size;
+            icon: root.stopped ? @image-url("../icons/play.svg") : @image-url("../icons/pause.svg");
+            label: root.stopped ? "Resume" : "Pause";
+            clicked => { root.toggle-pause(); }
+        }
+    }
+}

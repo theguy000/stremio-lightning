@@ -1,0 +1,97 @@
+// Based on stremio-web src/routes/Board/Spotlight/Placeholder (Copyright Smart code 203358507).
+import { Theme } from "../theme.slint";
+
+component SpotBone inherits Rectangle {
+    in property <length> rem-size;
+    in property <float> phase: 0;
+    in property <length> radius: 0.375 * root.rem-size;
+
+    border-radius: root.radius;
+    background: Theme.placeholder-background;
+    clip: true;
+
+    Rectangle {
+        x: (root.phase * 2.0 - 1.0) * parent.width;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
+        background: @linear-gradient(90deg, rgba(255, 255, 255, 0.0) 0%, rgba(255, 255, 255, 0.06) 50%, rgba(255, 255, 255, 0.0) 100%);
+    }
+}
+
+export component BoardSpotlightPlaceholder inherits Rectangle {
+    in property <length> rem-size: 14px;
+    in property <length> nav-width: 6 * 14px;
+    property <float> phase: Math.mod(animation-tick() / 1600ms, 1.0);
+    property <length> content-width: Math.max(18 * root.rem-size, Math.min(40 * root.rem-size, root.width - root.nav-width - 22 * root.rem-size));
+
+    background: transparent;
+
+    VerticalLayout {
+        x: root.nav-width + 2 * root.rem-size;
+        y: parent.height - self.height - 6 * root.rem-size;
+        width: root.content-width;
+        height: self.preferred-height;
+        spacing: 1.25 * root.rem-size;
+        alignment: end;
+
+        SpotBone {
+            width: Math.min(18 * root.rem-size, parent.width);
+            height: 6 * root.rem-size;
+            radius: 0.75 * root.rem-size;
+            rem-size: root.rem-size;
+            phase: root.phase;
+        }
+
+        SpotBone {
+            width: Math.min(22 * root.rem-size, parent.width);
+            height: 1.25 * root.rem-size;
+            rem-size: root.rem-size;
+            phase: root.phase;
+        }
+
+        VerticalLayout {
+            spacing: 0.6 * root.rem-size;
+            SpotBone {
+                width: Math.min(36 * root.rem-size, parent.width);
+                height: 1 * root.rem-size;
+                rem-size: root.rem-size;
+                phase: root.phase;
+            }
+            SpotBone {
+                width: Math.min(25 * root.rem-size, parent.width * 0.7);
+                height: 1 * root.rem-size;
+                rem-size: root.rem-size;
+                phase: root.phase;
+            }
+        }
+
+        HorizontalLayout {
+            padding-top: 0.5 * root.rem-size;
+            spacing: 1 * root.rem-size;
+            alignment: start;
+
+            SpotBone {
+                width: 10 * root.rem-size;
+                height: 4 * root.rem-size;
+                radius: 2 * root.rem-size;
+                rem-size: root.rem-size;
+                phase: root.phase;
+            }
+            SpotBone {
+                width: 4 * root.rem-size;
+                height: 4 * root.rem-size;
+                radius: 2 * root.rem-size;
+                rem-size: root.rem-size;
+                phase: root.phase;
+            }
+            SpotBone {
+                width: 4 * root.rem-size;
+                height: 4 * root.rem-size;
+                radius: 2 * root.rem-size;
+                rem-size: root.rem-size;
+                phase: root.phase;
+            }
+        }
+    }
+}
